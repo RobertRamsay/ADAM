@@ -150,7 +150,7 @@ function ws_home_draw(_x1, _y1, _x2, _y2)
         ui_scale_pref = global.UI_SCALE_VALUES[_nsi];
         settings_save();
     }
-    var _fs = ui_toggle("home_fullscreen", _fx + _half + 12, _y + 22, "Start full screen", start_fullscreen, "Full screen|Opens ADAM filling the whole screen. F11 switches between full screen and a window at any time.");
+    var _fs = ui_toggle("home_fullscreen", _fx + _half + 12, _y + 22, "Start full screen", start_fullscreen, "Full screen|Opens ADAM filling the whole screen. F11 switches between full screen and a window at any time - ADAM remembers which you used last, and the window's size and place.");
     if (_fs != start_fullscreen)
     {
         start_fullscreen = _fs;

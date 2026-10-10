@@ -1,0 +1,118 @@
+diff --git a/objects/obj_app/Create_0.gml b/objects/obj_app/Create_0.gml
+index 4c56656..b0f680d 100644
+--- a/objects/obj_app/Create_0.gml
++++ b/objects/obj_app/Create_0.gml
+@@ -25,6 +25,11 @@ win_h = 0;
+ startup_frames = 0;
+ ui_scale_pref = 0;
+ start_fullscreen = true;
++wsave_x = -1;
++wsave_y = -1;
++wsave_w = -1;
++wsave_h = -1;
++wsave_timer = 0;
+ global.UI_SCALE_NAMES = ["Auto (fits your screen)", "100%", "125%", "150%", "175%", "200%", "250%", "300%"];
+ global.UI_SCALE_VALUES = [0, 1, 1.25, 1.5, 1.75, 2, 2.5, 3];
+ 
+diff --git a/objects/obj_app/Step_0.gml b/objects/obj_app/Step_0.gml
+index 9d0c74c..45e45e3 100644
+--- a/objects/obj_app/Step_0.gml
++++ b/objects/obj_app/Step_0.gml
+@@ -2,9 +2,56 @@
+ 
+ // full-screen window on launch (done a frame late so the runner has a window)
+ startup_frames += 1;
+-if (startup_frames == 2 && start_fullscreen)
++if (startup_frames == 2)
+ {
+-    window_set_fullscreen(true);
++    if (start_fullscreen) { window_set_fullscreen(true); }
++    else
++    {
++        // put the window back where it was last time (kept on screen)
++        if (wsave_w >= 640 && wsave_h >= 400)
++        {
++            var _dw = display_get_width();
++            var _dh = display_get_height();
++            var _rw = min(wsave_w, _dw);
++            var _rh = min(wsave_h, _dh);
++            var _rx = clamp(wsave_x, 0, max(0, _dw - _rw));
++            var _ry = clamp(wsave_y, 0, max(0, _dh - _rh));
++            window_set_rectangle(_rx, _ry, _rw, _rh);
++        }
++    }
++}
++
++// remember the window: full screen or not, and its size and place when windowed
++if (startup_frames > 10)
++{
++    wsave_timer += 1;
++    if (wsave_timer >= 30)
++    {
++        wsave_timer = 0;
++        var _changed = false;
++        var _fsnow = window_get_fullscreen();
++        if (_fsnow != start_fullscreen)
++        {
++            start_fullscreen = _fsnow;
++            _changed = true;
++        }
++        if (!_fsnow && window_get_width() > 0)
++        {
++            var _wx = window_get_x();
++            var _wy = window_get_y();
++            var _ww2 = window_get_width();
++            var _wh2 = window_get_height();
++            if (_wx != wsave_x || _wy != wsave_y || _ww2 != wsave_w || _wh2 != wsave_h)
++            {
++                wsave_x = _wx;
++                wsave_y = _wy;
++                wsave_w = _ww2;
++                wsave_h = _wh2;
++                _changed = true;
++            }
++        }
++        if (_changed) { settings_save(); }
++    }
+ }
+ if (keyboard_check_pressed(vk_f11))
+ {
+diff --git a/scripts/scr_project/scr_project.gml b/scripts/scr_project/scr_project.gml
+index 1722763..d70cfb8 100644
+--- a/scripts/scr_project/scr_project.gml
++++ b/scripts/scr_project/scr_project.gml
+@@ -459,6 +459,10 @@ function settings_load()
+     auto_tutorials = ini_read_real("ui", "auto_tutorials", 1) == 1;
+     ui_scale_pref = ini_read_real("ui", "scale", 0);
+     start_fullscreen = ini_read_real("ui", "fullscreen", 1) == 1;
++    wsave_x = ini_read_real("window", "x", -1);
++    wsave_y = ini_read_real("window", "y", -1);
++    wsave_w = ini_read_real("window", "w", -1);
++    wsave_h = ini_read_real("window", "h", -1);
+     for (var i = 0; i < WS_COUNT; i++)
+     {
+         ws_seen[i] = ini_read_real("seen", "ws" + string(i), 0) == 1;
+@@ -488,6 +492,10 @@ function settings_save()
+     var _fs = 0;
+     if (start_fullscreen) { _fs = 1; }
+     ini_write_real("ui", "fullscreen", _fs);
++    ini_write_real("window", "x", wsave_x);
++    ini_write_real("window", "y", wsave_y);
++    ini_write_real("window", "w", wsave_w);
++    ini_write_real("window", "h", wsave_h);
+     for (var i = 0; i < WS_COUNT; i++)
+     {
+         var _s = 0;
+diff --git a/scripts/scr_ws_home/scr_ws_home.gml b/scripts/scr_ws_home/scr_ws_home.gml
+index 41c93bb..d3e5d5e 100644
+--- a/scripts/scr_ws_home/scr_ws_home.gml
++++ b/scripts/scr_ws_home/scr_ws_home.gml
+@@ -150,7 +150,7 @@ function ws_home_draw(_x1, _y1, _x2, _y2)
+         ui_scale_pref = global.UI_SCALE_VALUES[_nsi];
+         settings_save();
+     }
+-    var _fs = ui_toggle("home_fullscreen", _fx + _half + 12, _y + 22, "Start full screen", start_fullscreen, "Full screen|Opens ADAM filling the whole screen. F11 switches between full screen and a window at any time.");
++    var _fs = ui_toggle("home_fullscreen", _fx + _half + 12, _y + 22, "Start full screen", start_fullscreen, "Full screen|Opens ADAM filling the whole screen. F11 switches between full screen and a window at any time - ADAM remembers which you used last, and the window's size and place.");
+     if (_fs != start_fullscreen)
+     {
+         start_fullscreen = _fs;

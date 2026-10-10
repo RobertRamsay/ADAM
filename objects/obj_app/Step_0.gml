@@ -2,9 +2,56 @@
 
 // full-screen window on launch (done a frame late so the runner has a window)
 startup_frames += 1;
-if (startup_frames == 2 && start_fullscreen)
+if (startup_frames == 2)
 {
-    window_set_fullscreen(true);
+    if (start_fullscreen) { window_set_fullscreen(true); }
+    else
+    {
+        // put the window back where it was last time (kept on screen)
+        if (wsave_w >= 640 && wsave_h >= 400)
+        {
+            var _dw = display_get_width();
+            var _dh = display_get_height();
+            var _rw = min(wsave_w, _dw);
+            var _rh = min(wsave_h, _dh);
+            var _rx = clamp(wsave_x, 0, max(0, _dw - _rw));
+            var _ry = clamp(wsave_y, 0, max(0, _dh - _rh));
+            window_set_rectangle(_rx, _ry, _rw, _rh);
+        }
+    }
+}
+
+// remember the window: full screen or not, and its size and place when windowed
+if (startup_frames > 10)
+{
+    wsave_timer += 1;
+    if (wsave_timer >= 30)
+    {
+        wsave_timer = 0;
+        var _changed = false;
+        var _fsnow = window_get_fullscreen();
+        if (_fsnow != start_fullscreen)
+        {
+            start_fullscreen = _fsnow;
+            _changed = true;
+        }
+        if (!_fsnow && window_get_width() > 0)
+        {
+            var _wx = window_get_x();
+            var _wy = window_get_y();
+            var _ww2 = window_get_width();
+            var _wh2 = window_get_height();
+            if (_wx != wsave_x || _wy != wsave_y || _ww2 != wsave_w || _wh2 != wsave_h)
+            {
+                wsave_x = _wx;
+                wsave_y = _wy;
+                wsave_w = _ww2;
+                wsave_h = _wh2;
+                _changed = true;
+            }
+        }
+        if (_changed) { settings_save(); }
+    }
 }
 if (keyboard_check_pressed(vk_f11))
 {

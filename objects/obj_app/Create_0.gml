@@ -25,6 +25,11 @@ win_h = 0;
 startup_frames = 0;
 ui_scale_pref = 0;
 start_fullscreen = true;
+wsave_x = -1;
+wsave_y = -1;
+wsave_w = -1;
+wsave_h = -1;
+wsave_timer = 0;
 global.UI_SCALE_NAMES = ["Auto (fits your screen)", "100%", "125%", "150%", "175%", "200%", "250%", "300%"];
 global.UI_SCALE_VALUES = [0, 1, 1.25, 1.5, 1.75, 2, 2.5, 3];
 

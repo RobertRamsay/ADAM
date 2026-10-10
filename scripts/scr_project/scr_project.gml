@@ -459,6 +459,10 @@ function settings_load()
     auto_tutorials = ini_read_real("ui", "auto_tutorials", 1) == 1;
     ui_scale_pref = ini_read_real("ui", "scale", 0);
     start_fullscreen = ini_read_real("ui", "fullscreen", 1) == 1;
+    wsave_x = ini_read_real("window", "x", -1);
+    wsave_y = ini_read_real("window", "y", -1);
+    wsave_w = ini_read_real("window", "w", -1);
+    wsave_h = ini_read_real("window", "h", -1);
     for (var i = 0; i < WS_COUNT; i++)
     {
         ws_seen[i] = ini_read_real("seen", "ws" + string(i), 0) == 1;
@@ -488,6 +492,10 @@ function settings_save()
     var _fs = 0;
     if (start_fullscreen) { _fs = 1; }
     ini_write_real("ui", "fullscreen", _fs);
+    ini_write_real("window", "x", wsave_x);
+    ini_write_real("window", "y", wsave_y);
+    ini_write_real("window", "w", wsave_w);
+    ini_write_real("window", "h", wsave_h);
     for (var i = 0; i < WS_COUNT; i++)
     {
         var _s = 0;
