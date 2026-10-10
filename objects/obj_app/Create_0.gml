@@ -37,6 +37,7 @@ global.UI_SCALE_VALUES = [0, 1, 1.25, 1.5, 1.75, 2, 2.5, 3];
 theme_init();
 machine_defs_init();
 project_defs_init();
+music_defs_init();
 font_init();
 pixel_sprite_init();
 boing_init();
@@ -173,6 +174,52 @@ preview_buffer = -1;
 preview_inst = -1;
 snd_cache = {};
 snd_cache_count = 0;
+
+// music (Phase 2 Track B)
+mus_song = 0;                // song being edited
+mus_cat = 0;                 // library category shown (5 = Mine)
+mus_brush = [-1, -1];        // [0, library loop] or [1, song loop] painted on the timeline
+mus_scroll_bar = 0;          // first bar shown on the timeline
+mus_cursor_bar = 0;          // Play starts from this bar
+mus_hover = [-1, -1];        // [lane, bar] under the mouse
+mus_hsb_grab = 0;
+mus_edit = -1;               // song loop open in the step editor
+mus_edit_cell = [-1, -1];    // [lane, bar] that was double-clicked
+mus_click_time = 0;
+mus_click_cell = [-1, -1];
+mus_painting = false;
+mus_erasing = false;
+mus_paint_tag = "";
+mus_drag_arm = false;
+mus_drag = false;
+mus_drag_src = [-1, -1];
+mus_drag_mx = 0;
+mus_drag_my = 0;
+mus_ed_mode = 1;
+mus_ed_painting = false;
+mus_ed_rclear = false;
+mus_ed_tag = "";
+mus_rev = 0;                 // bumped on every music edit
+mus_warnings = [];
+mus_inst_cache = {};
+mus_size_ref = {};
+mus_size_rev = -1;
+mus_size_bytes = 0;
+mus_size_warn = [];
+mus_pl = {};                 // preview player state
+mus_playing = false;
+mus_play_what = "";
+mus_play_song = -1;
+mus_play_ref = {};
+mus_play_rev = 0;
+mus_play_rebuild_t = 0;
+mus_ord_bar = [];
+mus_queue = -1;
+mus_queue_inst = -1;
+mus_bufs = [];
+mus_dead_bufs = [];
+mus_frames_queued = 0;
+mus_play_t0 = 0;
 
 // build
 build_log = [];

@@ -59,6 +59,16 @@ function tut_init()
         tut_step(WS_SOUND, "snd_sweep", "Pitch slide", "Make the pitch rise or fall. Falling slides sound like lasers, rising slides like coins and power-ups."),
         tut_step(WS_SOUND, "snd_preview", "Listen", "ADAM turns the sound into a sample for the Amiga's Paula chip, so what you hear here is exactly what the game plays."),
         tut_step(WS_SOUND, "snd_kind_1", "Your own samples", "Switch a sound to Sample to import a WAV file. Lower the sample rate and the bits for that crunchy Amiga sound - and to save chip RAM."),
+        // ---------- MUSIC ----------
+        tut_step(WS_MUSIC, "", "Make some music", "Songs are built from 1-bar loops, like a music maker: pick a loop on the left, paint it onto the timeline, press Play. The Amiga plays your song as a real ProTracker module."),
+        tut_step(WS_MUSIC, "mus_song", "Your songs", "A game can have up to 4 songs. Press New to start one, or Import .mod to bring in a module made in ProTracker or OpenMPT."),
+        tut_step(WS_MUSIC, "mus_cat_0", "The loop library", "Drums, bass, chords, lead and effects. Every loop is one bar long and ready to use. Loops you edit are kept under Mine."),
+        tut_step(WS_MUSIC, "mus_lib_item_0", "Hear a loop", "Click a loop to hear it - it also becomes your brush. Drag it onto a bar, or click and drag along a lane to paint it."),
+        tut_step(WS_MUSIC, "mus_grid", "The timeline", "Four lanes - one for each of Paula's sound channels - and one box per bar. Right-click rubs out, drag a box to copy it, and double-click a box to edit its notes."),
+        tut_step(WS_MUSIC, "mus_play", "Play it", "Hear the whole song exactly as the Amiga will play it, with a moving playhead. The Space bar plays and stops too. Click a bar number to play from there."),
+        tut_step(WS_MUSIC, "mus_bpm", "Tempo and swing", "Set the speed in beats per minute, and add swing to push every second 16th note late for a shuffle."),
+        tut_step(WS_MUSIC, "mus_loopbar", "Loop point", "When the song reaches its end it jumps back to this bar, so an intro can play once and the rest repeats. Right-click a bar number to set it as well."),
+        tut_step(WS_MUSIC, "mus_lvl_0", "Where the music plays", "Choose the song for each level, or for the whole game if it has a single screen. Music shares the 4 channels with your sound effects."),
         // ---------- BUILD ----------
         tut_step(WS_BUILD, "", "Time to play", "This page turns your project into a bootable Amiga floppy disk. The checklist warns you about anything that might be missing."),
         tut_step(WS_BUILD, "build_adf", "Build", "Press Build to create an .ADF disk image. It boots in FS-UAE or WinUAE, on a Gotek drive, or written to a real floppy."),

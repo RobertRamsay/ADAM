@@ -114,6 +114,9 @@ if (launch_timer > 0)
     }
 }
 
+// Music page preview: keep Paula's four channels streaming
+music_preview_step();
+
 shortcuts_step();
 
 var _cap = "ADAM " + ADAM_VERSION + " - " + proj.name + "  (" + machine_cur().name + ")";

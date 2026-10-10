@@ -1,9 +1,9 @@
 {
   "$GMScript":"v1",
-  "%Name":"scr_music_stubs",
+  "%Name":"scr_ws_music",
   "isCompatibility":false,
   "isDnD":false,
-  "name":"scr_music_stubs",
+  "name":"scr_ws_music",
   "parent":{
     "name":"SCRIPTS",
     "path":"folders/SCRIPTS.yy",

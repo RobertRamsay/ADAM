@@ -1,6 +1,7 @@
 /// Free everything
 
 sfx_preview_stop();
+music_preview_free();
 spr_cache_free();
 backdrop_gfx_free();
 ds_map_destroy(ui_rects);

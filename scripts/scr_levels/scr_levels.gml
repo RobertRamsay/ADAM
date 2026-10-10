@@ -301,7 +301,7 @@ function levels_side_panel(_px, _y1, _x2, _y2)
     var _half = floor((_fw - 12) / 2);
     var _y = _y1 + 56;
     var _nl = array_length(proj.levels);
-    var _content = 980;
+    var _content = 1042;
     var _off = ui_scroll_begin("lvl_side", _px + 4, _y1 + 46, _x2 - 4, _y2 - 6, _content);
     _y -= _off;
     if (proj.levels_on && _nl > 0)
@@ -328,6 +328,17 @@ function levels_side_panel(_px, _y1, _x2, _y2)
         _y += 52;
         ui_heading(_fx, _y, "Ground height  " + string(256 - _lev.base));
         set_val(_lev, "base", ui_slider("lvl_base", _fx, _y + 18, _fw, _lev.base, 150, 230, "Ground height|Where the middle of the hills sits when you press Generate. Higher numbers here mean lower ground."), "lvlbase");
+        _y += 62;
+        // Phase 2: the song that starts with this level
+        ui_heading(_fx, _y, "Level " + string(lvl_sel + 1) + " music");
+        var _mopts = music_song_options();
+        var _mcur = clamp(proj.level_song[lvl_sel] + 1, 0, array_length(_mopts) - 1);
+        var _mnew = ui_dropdown("lvl_music", _fx, _y + 18, _fw, 30, _mopts, _mcur, "Level music|The song that starts when this level begins. Make songs on the Music page.");
+        if (_mnew != _mcur)
+        {
+            undo_mark("lvlmusic");
+            proj.level_song[lvl_sel] = _mnew - 1;
+        }
         _y += 62;
     }
 

@@ -273,9 +273,26 @@ function project_from_loaded(_raw)
     }
     _p.levels = _lv;
     if (!is_array(_p.terrain_cols) || array_length(_p.terrain_cols) != 4) { _p.terrain_cols = [10, 9, 11, 12]; }
-    // Phase 2 contract: older files have no music
-    if (!is_array(_p.songs)) { _p.songs = []; }
-    if (!is_array(_p.level_song) || array_length(_p.level_song) != LEVEL_MAX) { _p.level_song = array_create(LEVEL_MAX, -1); }
+
+    // Phase 2 contract: songs and the song for each level (older files have none)
+    var _songs = [];
+    var _lsg = _raw[$ "songs"];
+    if (is_array(_lsg))
+    {
+        for (var si = 0; si < min(MUS_SONG_MAX, array_length(_lsg)); si++) { array_push(_songs, song_from_loaded(_lsg[si])); }
+    }
+    _p.songs = _songs;
+    var _lsv = array_create(LEVEL_MAX, -1);
+    var _lls = _raw[$ "level_song"];
+    if (is_array(_lls))
+    {
+        for (var li = 0; li < min(LEVEL_MAX, array_length(_lls)); li++)
+        {
+            var _v = _lls[li];
+            if (is_numeric(_v) && _v >= 0 && _v < array_length(_songs)) { _lsv[li] = floor(_v); }
+        }
+    }
+    _p.level_song = _lsv;
     return _p;
 }
 
@@ -395,6 +412,9 @@ function project_pack(_src)
         }
         _out.levels = _nl;
     }
+
+    // Phase 2 contract: imported songs' sample bytes and patterns ("data_z", "patterns_z")
+    if (is_array(_src[$ "songs"])) { _out.songs = songs_pack(_src.songs); }
     return _out;
 }
 
@@ -438,6 +458,9 @@ function project_unpack(_raw)
             }
         }
     }
+
+    // Phase 2 contract: imported songs
+    songs_unpack(_raw[$ "songs"]);
     return _raw;
 }
 
@@ -572,11 +595,12 @@ function undo_keys(_ws)
     {
         case WS_HOME:     return ["name", "lives", "show_score", "show_lives", "hud_row", "hud_colour", "msg_colour", "over_text", "win_text"];
         case WS_BACKDROP: return ["pixels", "pal", "depth", "solid", "sky_on", "sky_top", "sky_mid", "sky_bot", "sky_mid_y", "hud_colour", "msg_colour", "terrain_cols"];
-        case WS_LEVELS:   return ["levels_on", "levels", "terrain_cols", "goal_on", "goal", "goal_label", "title_on", "title1", "title2", "lev_text"];
+        case WS_LEVELS:   return ["levels_on", "levels", "terrain_cols", "goal_on", "goal", "goal_label", "title_on", "title1", "title2", "lev_text", "level_song"];
         case WS_SPRITES:  return ["sprites"];
         case WS_ACTORS:   return ["actors", "rules"];
         case WS_LOGIC:    return ["rules", "groups"];
         case WS_SOUND:    return ["sfx"];
+        case WS_MUSIC:    return ["songs", "level_song"];
     }
     return [];
 }

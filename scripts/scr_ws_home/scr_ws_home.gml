@@ -64,12 +64,12 @@ function ws_home_draw(_x1, _y1, _x2, _y2)
     // ---------- workflow cards ----------
     var _cy = _y1 + 270;
     ui_panel(_x1, _cy, _split - 10, _y2, "How it works");
-    var _titles = ["Paint the backdrop", "Draw sprites", "Place actors", "Write the rules", "Make sounds", "Build and play"];
+    var _titles = ["Paint the backdrop", "Draw sprites", "Place actors", "Write the rules", "Sounds and music", "Build and play"];
     var _desc = ["A 320 x 256 picture in up to " + string(1 << _m.max_depth) + " colours. Paint it or import one.",
                  "16 x 24 hardware sprites with 3 colours each.",
                  "Pick the player, enemies and pickups and how they move.",
                  "WHEN the player touches a gem, DO add 10 to the score.",
-                 "Coins, lasers and explosions for the Paula chip.",
+                 "Coins, lasers and explosions for the Paula chip - then songs on the Music page.",
                  "Get a bootable .ADF disk and play it in FS-UAE."];
     var _cw = floor((_split - 10 - _x1 - 48) / 3);
     var _ch = floor((_y2 - _cy - 74) / 2);
