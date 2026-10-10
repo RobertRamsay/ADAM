@@ -1,0 +1,483 @@
+/// ADAM - backdrop and sprite drawing, the 8x8 font, picture import
+
+/// 8x8 font for characters 32..95 (public domain font8x8 by Daniel Hepper).
+/// The same bytes are inside the engine, so text looks identical in game.
+function font_init()
+{
+    global.FONT8 = [
+        0, 0, 0, 0, 0, 0, 0, 0, 24, 60, 60, 24, 24, 0, 24, 0,
+        108, 108, 0, 0, 0, 0, 0, 0, 108, 108, 254, 108, 254, 108, 108, 0,
+        48, 124, 192, 120, 12, 248, 48, 0, 0, 198, 204, 24, 48, 102, 198, 0,
+        56, 108, 56, 118, 220, 204, 118, 0, 96, 96, 192, 0, 0, 0, 0, 0,
+        24, 48, 96, 96, 96, 48, 24, 0, 96, 48, 24, 24, 24, 48, 96, 0,
+        0, 102, 60, 255, 60, 102, 0, 0, 0, 48, 48, 252, 48, 48, 0, 0,
+        0, 0, 0, 0, 0, 48, 48, 96, 0, 0, 0, 252, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 48, 48, 0, 6, 12, 24, 48, 96, 192, 128, 0,
+        124, 198, 206, 222, 246, 230, 124, 0, 48, 112, 48, 48, 48, 48, 252, 0,
+        120, 204, 12, 56, 96, 204, 252, 0, 120, 204, 12, 56, 12, 204, 120, 0,
+        28, 60, 108, 204, 254, 12, 30, 0, 252, 192, 248, 12, 12, 204, 120, 0,
+        56, 96, 192, 248, 204, 204, 120, 0, 252, 204, 12, 24, 48, 48, 48, 0,
+        120, 204, 204, 120, 204, 204, 120, 0, 120, 204, 204, 124, 12, 24, 112, 0,
+        0, 48, 48, 0, 0, 48, 48, 0, 0, 48, 48, 0, 0, 48, 48, 96,
+        24, 48, 96, 192, 96, 48, 24, 0, 0, 0, 252, 0, 0, 252, 0, 0,
+        96, 48, 24, 12, 24, 48, 96, 0, 120, 204, 12, 24, 48, 0, 48, 0,
+        124, 198, 222, 222, 222, 192, 120, 0, 48, 120, 204, 204, 252, 204, 204, 0,
+        252, 102, 102, 124, 102, 102, 252, 0, 60, 102, 192, 192, 192, 102, 60, 0,
+        248, 108, 102, 102, 102, 108, 248, 0, 254, 98, 104, 120, 104, 98, 254, 0,
+        254, 98, 104, 120, 104, 96, 240, 0, 60, 102, 192, 192, 206, 102, 62, 0,
+        204, 204, 204, 252, 204, 204, 204, 0, 120, 48, 48, 48, 48, 48, 120, 0,
+        30, 12, 12, 12, 204, 204, 120, 0, 230, 102, 108, 120, 108, 102, 230, 0,
+        240, 96, 96, 96, 98, 102, 254, 0, 198, 238, 254, 254, 214, 198, 198, 0,
+        198, 230, 246, 222, 206, 198, 198, 0, 56, 108, 198, 198, 198, 108, 56, 0,
+        252, 102, 102, 124, 96, 96, 240, 0, 120, 204, 204, 204, 220, 120, 28, 0,
+        252, 102, 102, 124, 108, 102, 230, 0, 120, 204, 224, 112, 28, 204, 120, 0,
+        252, 180, 48, 48, 48, 48, 120, 0, 204, 204, 204, 204, 204, 204, 252, 0,
+        204, 204, 204, 204, 204, 120, 48, 0, 198, 198, 198, 214, 254, 238, 198, 0,
+        198, 198, 108, 56, 56, 108, 198, 0, 204, 204, 204, 120, 48, 48, 120, 0,
+        254, 198, 140, 24, 50, 102, 254, 0, 120, 96, 96, 96, 96, 96, 120, 0,
+        192, 96, 48, 24, 12, 6, 2, 0, 120, 24, 24, 24, 24, 24, 120, 0,
+        16, 56, 108, 198, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 255
+    ];
+}
+
+/// 1x1 white pixel sprite for exact-size filled rectangles
+function pixel_sprite_init()
+{
+    var _surf = surface_create(1, 1);
+    mask_to_surface(_surf, 1, 1, [1]);
+    global.spr_px = sprite_create_from_surface(_surf, 0, 0, 1, 1, false, false, 0, 0);
+    surface_free(_surf);
+}
+
+/// Pixel-exact filled rectangle (w x h pixels)
+function px_rect(_x, _y, _w, _h, _col)
+{
+    draw_sprite_ext(global.spr_px, 0, _x, _y, _w, _h, 0, _col, 1);
+}
+
+/// Writes a white/transparent mask straight into a surface. _mask = 0/1, row-major.
+function mask_to_surface(_surf, _w, _h, _mask)
+{
+    var _buf = buffer_create(_w * _h * 4, buffer_fixed, 1);
+    for (var i = 0; i < _w * _h; i++)
+    {
+        if (_mask[i] != 0) { buffer_write(_buf, buffer_u32, $ffffffff); }
+        else { buffer_write(_buf, buffer_u32, 0); }
+    }
+    buffer_set_surface(_buf, _surf, 0);
+    buffer_delete(_buf);
+}
+
+/// Glyph row bits for a character (lower case folds to upper case)
+function font_glyph_row(_ch, _row)
+{
+    var _c = ord(string_upper(_ch));
+    if (_c < 32 || _c > 95) { _c = 32; }
+    return global.FONT8[(_c - 32) * 8 + _row];
+}
+
+/// Writes text into a project's backdrop pixels in palette colour _col
+function backdrop_text_into(_p, _str, _x, _y, _col)
+{
+    for (var i = 1; i <= string_length(_str); i++)
+    {
+        var _ch = string_char_at(_str, i);
+        for (var r = 0; r < 8; r++)
+        {
+            var _bits = font_glyph_row(_ch, r);
+            for (var b = 0; b < 8; b++)
+            {
+                if ((_bits & (128 >> b)) != 0)
+                {
+                    var _px = _x + (i - 1) * 8 + b;
+                    var _py = _y + r;
+                    if (_px >= 0 && _px < BD_W && _py >= 0 && _py < BD_H) { _p.pixels[_py * BD_W + _px] = _col; }
+                }
+            }
+        }
+    }
+}
+
+/// Draws text with the game font (as it will look on the Amiga). Returns width.
+function draw_font8(_x, _y, _str, _scale, _col)
+{
+    for (var i = 1; i <= string_length(_str); i++)
+    {
+        var _ch = string_char_at(_str, i);
+        for (var r = 0; r < 8; r++)
+        {
+            var _bits = font_glyph_row(_ch, r);
+            if (_bits == 0) { continue; }
+            for (var b = 0; b < 8; b++)
+            {
+                if ((_bits & (128 >> b)) != 0)
+                {
+                    px_rect(_x + ((i - 1) * 8 + b) * _scale, _y + r * _scale, _scale, _scale, _col);
+                }
+            }
+        }
+    }
+    return string_length(_str) * 8 * _scale;
+}
+
+// ---------------------------------------------------------------------------
+// Backdrop: an index surface (palette number in red or blue) drawn through
+// sh_palette, so palette edits are instant and painting is one pixel write.
+// ---------------------------------------------------------------------------
+
+function backdrop_gfx_init()
+{
+    bd_surf = -1;
+    bd_dirty = true;
+    bd_uniform = shader_get_uniform(sh_palette, "u_pal");
+    bd_pal_floats = array_create(PAL_MAX * 3, 0);
+}
+
+function backdrop_surface()
+{
+    if (!surface_exists(bd_surf))
+    {
+        bd_surf = surface_create(BD_W, BD_H);
+        bd_dirty = true;
+    }
+    if (bd_dirty)
+    {
+        var _n = BD_W * BD_H;
+        var _buf = buffer_create(_n * 4, buffer_fixed, 1);
+        for (var i = 0; i < _n; i++)
+        {
+            buffer_write(_buf, buffer_u32, $ff000000 | proj.pixels[i]);
+        }
+        buffer_set_surface(_buf, bd_surf, 0);
+        buffer_delete(_buf);
+        bd_dirty = false;
+    }
+    return bd_surf;
+}
+
+/// Writes one backdrop pixel into the project and the index surface
+function backdrop_plot(_x, _y, _v)
+{
+    if (_x < 0 || _y < 0 || _x >= BD_W || _y >= BD_H) { return; }
+    var _i = _y * BD_W + _x;
+    if (proj.pixels[_i] == _v) { return; }
+    proj.pixels[_i] = _v;
+    proj_dirty = true;
+    if (surface_exists(bd_surf) && !bd_dirty)
+    {
+        surface_set_target(bd_surf);
+        gpu_set_blendenable(false);
+        px_rect(_x, _y, 1, 1, make_colour_rgb(_v, 0, 0));
+        gpu_set_blendenable(true);
+        surface_reset_target();
+    }
+}
+
+function backdrop_draw(_x, _y, _scale)
+{
+    var _s = backdrop_surface();
+    for (var i = 0; i < PAL_MAX; i++)
+    {
+        var _c = rgb_machine(proj.pal[i]);
+        bd_pal_floats[i * 3] = rgb_r(_c) / 255;
+        bd_pal_floats[i * 3 + 1] = rgb_g(_c) / 255;
+        bd_pal_floats[i * 3 + 2] = rgb_b(_c) / 255;
+    }
+    gpu_set_texfilter(false);
+    shader_set(sh_palette);
+    shader_set_uniform_f_array(bd_uniform, bd_pal_floats);
+    draw_surface_ext(_s, _x, _y, _scale, _scale, 0, c_white, 1);
+    shader_reset();
+    gpu_set_texfilter(true);
+}
+
+function backdrop_gfx_free()
+{
+    if (surface_exists(bd_surf)) { surface_free(bd_surf); }
+}
+
+// ---------------------------------------------------------------------------
+// Sprites: three white masks per sprite (one per colour), tinted when drawn
+// ---------------------------------------------------------------------------
+
+function spr_cache_update(_i)
+{
+    for (var c = 0; c < 3; c++)
+    {
+        if (!surface_exists(spr_surf[_i][c]))
+        {
+            spr_surf[_i][c] = surface_create(SPR_W, SPR_H);
+            spr_dirty[_i] = true;
+        }
+    }
+    if (!spr_dirty[_i]) { return; }
+    var _s = proj.sprites[_i];
+    var _n = SPR_W * SPR_H;
+    for (var k = 1; k <= 3; k++)
+    {
+        var _mask = array_create(_n, 0);
+        for (var q = 0; q < _n; q++)
+        {
+            if (_s.px[q] == k) { _mask[q] = 1; }
+        }
+        mask_to_surface(spr_surf[_i][k - 1], SPR_W, SPR_H, _mask);
+    }
+    spr_dirty[_i] = false;
+}
+
+/// Draws sprite design _i with colour array _cols (3 x $RRGGBB)
+function draw_sprite_amiga_cols(_i, _x, _y, _scale, _cols, _alpha)
+{
+    if (_i < 0 || _i >= SPR_COUNT) { return; }
+    spr_cache_update(_i);
+    gpu_set_texfilter(false);
+    for (var c = 0; c < 3; c++)
+    {
+        draw_surface_ext(spr_surf[_i][c], _x, _y, _scale, _scale, 0, amiga_col(_cols[c]), _alpha);
+    }
+    gpu_set_texfilter(true);
+}
+
+/// Draws sprite design _i in its own colours
+function draw_sprite_amiga(_i, _x, _y, _scale, _alpha)
+{
+    if (_i < 0 || _i >= SPR_COUNT) { return; }
+    draw_sprite_amiga_cols(_i, _x, _y, _scale, proj.sprites[_i].cols, _alpha);
+}
+
+function spr_cache_free()
+{
+    for (var i = 0; i < SPR_COUNT; i++)
+    {
+        for (var c = 0; c < 3; c++)
+        {
+            if (surface_exists(spr_surf[i][c])) { surface_free(spr_surf[i][c]); }
+        }
+    }
+}
+
+function spr_mark_all_dirty()
+{
+    for (var i = 0; i < SPR_COUNT; i++) { spr_dirty[i] = true; }
+}
+
+// ---------------------------------------------------------------------------
+// Picture import: fit any PNG/JPG into 320 x 256, find the best palette for
+// the current depth (median cut) and map every pixel, optionally dithered.
+// ---------------------------------------------------------------------------
+
+/// Byte offsets of red, green and blue inside a surface buffer on this platform
+function surface_byte_order()
+{
+    var _s = surface_create(1, 1);
+    surface_set_target(_s);
+    draw_clear_alpha(make_colour_rgb(255, 0, 0), 1);
+    surface_reset_target();
+    var _b = buffer_create(4, buffer_fixed, 1);
+    buffer_get_surface(_b, _s, 0);
+    var _ri = 0;
+    for (var i = 0; i < 3; i++)
+    {
+        if (buffer_peek(_b, i, buffer_u8) > 200) { _ri = i; }
+    }
+    buffer_delete(_b);
+    surface_free(_s);
+    if (_ri == 2) { return [2, 1, 0]; }
+    return [0, 1, 2];
+}
+
+/// Splits colour boxes until there are _n of them. Returns an array of $RRGGBB.
+function median_cut(_bins, _cnt, _sr, _sg, _sb, _n)
+{
+    var _boxes = [_bins];
+    var _guard = 0;
+    while (array_length(_boxes) < _n && _guard < 400)
+    {
+        _guard += 1;
+        // pick the box with the widest range weighted by pixel count
+        var _best = -1;
+        var _best_score = 0;
+        var _best_ch = 0;
+        for (var b = 0; b < array_length(_boxes); b++)
+        {
+            var _box = _boxes[b];
+            if (array_length(_box) < 2) { continue; }
+            var _lo = [99, 99, 99];
+            var _hi = [-1, -1, -1];
+            var _pop = 0;
+            for (var k = 0; k < array_length(_box); k++)
+            {
+                var _bin = _box[k];
+                var _ch3 = [(_bin >> 8) & 15, (_bin >> 4) & 15, _bin & 15];
+                for (var c = 0; c < 3; c++)
+                {
+                    _lo[c] = min(_lo[c], _ch3[c]);
+                    _hi[c] = max(_hi[c], _ch3[c]);
+                }
+                _pop += _cnt[_bin];
+            }
+            for (var c2 = 0; c2 < 3; c2++)
+            {
+                var _score = (_hi[c2] - _lo[c2]) * sqrt(_pop);
+                if (_score > _best_score)
+                {
+                    _best_score = _score;
+                    _best = b;
+                    _best_ch = c2;
+                }
+            }
+        }
+        if (_best < 0) { break; }
+        var _sel = _boxes[_best];
+        var _shift = 8 - _best_ch * 4;
+        array_sort(_sel, method({ s : _shift }, function(_a, _b2) { return ((_a >> s) & 15) - ((_b2 >> s) & 15); }));
+        var _total = 0;
+        for (var k2 = 0; k2 < array_length(_sel); k2++) { _total += _cnt[_sel[k2]]; }
+        var _acc = 0;
+        var _cut = 1;
+        for (var k3 = 0; k3 < array_length(_sel) - 1; k3++)
+        {
+            _acc += _cnt[_sel[k3]];
+            _cut = k3 + 1;
+            if (_acc * 2 >= _total) { break; }
+        }
+        var _a1 = [];
+        var _a2 = [];
+        for (var k4 = 0; k4 < array_length(_sel); k4++)
+        {
+            if (k4 < _cut) { array_push(_a1, _sel[k4]); }
+            else { array_push(_a2, _sel[k4]); }
+        }
+        _boxes[_best] = _a1;
+        array_push(_boxes, _a2);
+    }
+    var _out = [];
+    for (var b2 = 0; b2 < array_length(_boxes); b2++)
+    {
+        var _bx = _boxes[b2];
+        var _tr = 0;
+        var _tg = 0;
+        var _tb = 0;
+        var _tc = 0;
+        for (var k5 = 0; k5 < array_length(_bx); k5++)
+        {
+            var _q = _bx[k5];
+            _tr += _sr[_q];
+            _tg += _sg[_q];
+            _tb += _sb[_q];
+            _tc += _cnt[_q];
+        }
+        if (_tc > 0) { array_push(_out, rgb_make(_tr / _tc, _tg / _tc, _tb / _tc)); }
+    }
+    return _out;
+}
+
+/// Imports a picture file into the backdrop. Returns true when done.
+function backdrop_import(_path, _dither)
+{
+    var _spr = sprite_add(_path, 1, false, false, 0, 0);
+    if (_spr == -1) { return false; }
+    var _w = sprite_get_width(_spr);
+    var _h = sprite_get_height(_spr);
+    var _k = min(BD_W / _w, BD_H / _h);
+    var _surf = surface_create(BD_W, BD_H);
+    surface_set_target(_surf);
+    draw_clear_alpha(c_black, 1);
+    gpu_set_texfilter(true);
+    draw_sprite_ext(_spr, 0, (BD_W - _w * _k) / 2, (BD_H - _h * _k) / 2, _k, _k, 0, c_white, 1);
+    surface_reset_target();
+    sprite_delete(_spr);
+    var _n = BD_W * BD_H;
+    var _buf = buffer_create(_n * 4, buffer_fixed, 1);
+    buffer_get_surface(_buf, _surf, 0);
+    surface_free(_surf);
+    var _ord = surface_byte_order();
+
+    // read the picture and build a 12-bit histogram
+    var _rr = array_create(_n, 0);
+    var _gg = array_create(_n, 0);
+    var _bb = array_create(_n, 0);
+    var _cnt = array_create(4096, 0);
+    var _sr = array_create(4096, 0);
+    var _sg = array_create(4096, 0);
+    var _sb = array_create(4096, 0);
+    for (var i = 0; i < _n; i++)
+    {
+        var _r = buffer_peek(_buf, i * 4 + _ord[0], buffer_u8);
+        var _g = buffer_peek(_buf, i * 4 + _ord[1], buffer_u8);
+        var _b = buffer_peek(_buf, i * 4 + _ord[2], buffer_u8);
+        _rr[i] = _r;
+        _gg[i] = _g;
+        _bb[i] = _b;
+        var _bin = ((_r >> 4) << 8) | ((_g >> 4) << 4) | (_b >> 4);
+        _cnt[_bin] += 1;
+        _sr[_bin] += _r;
+        _sg[_bin] += _g;
+        _sb[_bin] += _b;
+    }
+    buffer_delete(_buf);
+    var _used = [];
+    for (var q = 0; q < 4096; q++)
+    {
+        if (_cnt[q] > 0) { array_push(_used, q); }
+    }
+    var _count = pal_count();
+    var _cols = median_cut(_used, _cnt, _sr, _sg, _sb, _count);
+    // darkest colour becomes colour 0 (the border and screen background)
+    array_sort(_cols, function(_a, _b2) { return (rgb_r(_a) * 3 + rgb_g(_a) * 6 + rgb_b(_a)) - (rgb_r(_b2) * 3 + rgb_g(_b2) * 6 + rgb_b(_b2)); });
+    for (var c = 0; c < _count; c++)
+    {
+        if (c < array_length(_cols)) { proj.pal[c] = rgb_machine(_cols[c]); }
+        else { proj.pal[c] = 0; }
+    }
+
+    // nearest palette entry for every 12-bit colour
+    var _lut = array_create(4096, -1);
+    var _pal_n = min(_count, array_length(_cols));
+    for (var _iy = 0; _iy < BD_H; _iy++)
+    {
+        for (var _ix = 0; _ix < BD_W; _ix++)
+        {
+            var _i2 = _iy * BD_W + _ix;
+            var _cr = clamp(_rr[_i2], 0, 255);
+            var _cg = clamp(_gg[_i2], 0, 255);
+            var _cb = clamp(_bb[_i2], 0, 255);
+            var _key = ((round(_cr) >> 4) << 8) | ((round(_cg) >> 4) << 4) | (round(_cb) >> 4);
+            if (_lut[_key] < 0)
+            {
+                var _want = rgb_make(_cr, _cg, _cb);
+                var _bi = 0;
+                var _bd = 999999999;
+                for (var p = 0; p < _pal_n; p++)
+                {
+                    var _d = rgb_dist(_want, proj.pal[p]);
+                    if (_d < _bd) { _bd = _d; _bi = p; }
+                }
+                _lut[_key] = _bi;
+            }
+            var _idx = _lut[_key];
+            proj.pixels[_i2] = _idx;
+            if (_dither)
+            {
+                // Floyd-Steinberg error diffusion
+                var _pc = proj.pal[_idx];
+                var _er = _cr - rgb_r(_pc);
+                var _eg = _cg - rgb_g(_pc);
+                var _eb = _cb - rgb_b(_pc);
+                var _nb = [[1, 0, 7], [-1, 1, 3], [0, 1, 5], [1, 1, 1]];
+                for (var e = 0; e < 4; e++)
+                {
+                    var _nx = _ix + _nb[e][0];
+                    var _ny = _iy + _nb[e][1];
+                    if (_nx < 0 || _nx >= BD_W || _ny >= BD_H) { continue; }
+                    var _j = _ny * BD_W + _nx;
+                    _rr[_j] += _er * _nb[e][2] / 16;
+                    _gg[_j] += _eg * _nb[e][2] / 16;
+                    _bb[_j] += _eb * _nb[e][2] / 16;
+                }
+            }
+        }
+    }
+    bd_dirty = true;
+    return true;
+}
