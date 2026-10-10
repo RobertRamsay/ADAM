@@ -30,6 +30,7 @@ function logic_add_template(_t)
             _r = rule_new(); _r.when = 0; _r.a = _pl; _r.b = _en; _r.act = 1; array_push(proj.rules, _r);
             _r = rule_new(); _r.when = 0; _r.a = _pl; _r.b = _en; _r.act = 4; _r.target = _pl; array_push(proj.rules, _r);
             _r = rule_new(); _r.when = 0; _r.a = _pl; _r.b = _en; _r.act = 3; array_push(proj.rules, _r);
+            _r = rule_new(); _r.when = 0; _r.a = _pl; _r.b = _en; _r.act = 16; _r.target = _pl; array_push(proj.rules, _r);
             break;
         case 1:
             _r = rule_new(); _r.when = 0; _r.a = _pl; _r.b = _pk; _r.act = 0; _r.value = 10; array_push(proj.rules, _r);
@@ -106,6 +107,8 @@ function logic_sentence(_r)
             if (_r.value < _na) { _vn = _names[_r.value]; }
             _s += "move " + _tn + " to " + _vn;
             break;
+        case 15: _s += "show " + _tn + " for a moment"; break;
+        case 16: _s += "make " + _tn + " safe for a while (it flashes)"; break;
     }
     return _s + ".";
 }
@@ -197,7 +200,7 @@ function ws_logic_draw(_x1, _y1, _x2, _y2)
         set_val(_r, "act", ui_dropdown(_rid + "_act", _dx, _dy, 210, 30, global.DO_NAMES, _r.act, "DO|What happens when the WHEN part is true."), _rid + "act");
         _dx += 220;
         var _act = _r.act;
-        if (_act == 4 || _act == 5 || _act == 6 || _act == 7 || _act == 11 || _act == 12 || _act == 14)
+        if (_act == 4 || _act == 5 || _act == 6 || _act == 7 || _act == 11 || _act == 12 || _act == 14 || _act == 15 || _act == 16)
         {
             set_val(_r, "target", ui_dropdown(_rid + "_t", _dx, _dy, 150, 30, _anames, _r.target, "Which actor|The actor this action changes."), _rid + "t");
             _dx += 160;
@@ -258,7 +261,7 @@ function ws_logic_draw(_x1, _y1, _x2, _y2)
     ui_text_wrap(_px + 20, _ry, "One click adds ready-made rules. They use your first Player, enemy and Still actor.", global.TH.text_dim, _rw - 40, global.f_small, 1);
     _ry += 50;
     var _rhelp = [
-        "Enemy hit|Adds 3 rules: when the player touches an enemy, lose a life, go back to the start and flash the screen.",
+        "Enemy hit|Adds 4 rules: when the player touches an enemy, lose a life, go back to the start, flash the screen and flash the player for 3 safe seconds.",
         "Pickup|Adds 3 rules: when the player touches a pickup, add 10 points, move the pickup somewhere random and play the Coin sound.",
         "Win condition|Adds a rule: when the score reaches 100, you win.",
         "Lose condition|Adds a rule: when lives run out, it's game over.",

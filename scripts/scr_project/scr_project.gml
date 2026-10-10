@@ -15,7 +15,8 @@ function project_defs_init()
     global.WHEN_NAMES = ["Actor touches actor", "Fire button is pressed", "Every few seconds", "Score reaches", "Lives run out", "The game starts", "Actor jumps"];
     global.DO_NAMES   = ["Add to score", "Lose a life", "Play a sound", "Flash the screen", "Send actor back to start",
                          "Move actor to a random spot", "Hide actor", "Show actor", "Change background colour",
-                         "Game over", "You win!", "Speed up actor", "Slow down actor", "Add a life", "Move actor to another actor"];
+                         "Game over", "You win!", "Speed up actor", "Slow down actor", "Add a life", "Move actor to another actor",
+                         "Show actor for a moment", "Make actor safe for a while"];
     global.WAVE_NAMES = ["Triangle (soft)", "Sawtooth (buzzy)", "Square (classic)", "Noise (crunchy)"];
     global.SFX_PRESET_NAMES = ["Coin", "Laser", "Explosion", "Jump", "Hit", "Power up", "Lose", "Blip"];
     global.TEMPLATE_NAMES = ["Player touches enemy: lose a life", "Player touches pickup: score + move pickup",

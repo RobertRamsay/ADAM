@@ -300,7 +300,7 @@ function ws_actors_draw(_x1, _y1, _x2, _y2)
         "Always heads towards the player. Speed 1 is gentle, 3 is scary!",
         "Stays where you put it. Great for pickups, doors and goals.",
         "Walks left and right on the ground and jumps with fire (or up). Follows the hills - set your ground colours on the Backdrop page.",
-        "Hops along the ground on its own, drifting left or right in the air. Jump over it or run under it.",
+        "Hops along the ground on its own: it squats, springs up and drifts left or right in the air. Jump over it or run under it. Give it a second sprite and that one is shown while it squats.",
         "Falls until it lands on the ground, then stays there. Use 'Move actor to another actor' to drop it from a cloud."
     ];
     ui_rrect(_fx2, _y, _fx2 + _fw2, _y + 50, 8, global.TH.inset_top, global.TH.inset_bot, 0.8);

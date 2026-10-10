@@ -79,6 +79,11 @@ SCORE_MAX   equ 99999
 GRAVITY     equ 4          ; 1/16 pixel per frame per frame
 MAX_FALL    equ 96
 JUMP_V      equ 84         ; platform player jump speed (1/16 px)
+HOP_SQUAT   equ 14         ; frames a hopper crouches before it jumps
+HOP_JUMP    equ 60         ; hopper jump speed (+8 per speed step)
+HOP_GRAVITY equ 2
+SAFE_TIME   equ 150        ; 3 seconds of flashing immunity
+MOMENT      equ 25         ; 'show for a moment' = half a second
 
 ; ---------------- engine variables (offsets from V) ----------------
             rsset   -128            ; a5 = V+128 so per-actor tables fit d8(a5,Dn)
@@ -94,6 +99,9 @@ v_vy        rs.w 8         ; vertical speed in 1/16 pixels per frame
 v_ysub      rs.w 8
 v_tmr       rs.w 8
 v_gnd       rs.w 8         ; 1 = standing on the ground
+v_squat     rs.w 8         ; hopper squat countdown before a jump
+v_life      rs.w 8         ; frames until a 'shown for a moment' actor hides
+v_safe      rs.w 8         ; frames of flashing immunity left
 v_anim      rs.w 1
 v_joyprev   rs.w 1
 v_jumped    rs.w 1         ; bit per actor that jumped this frame
@@ -301,6 +309,9 @@ init_actors:
             move.w  #0,v_ysub(a5,d5.w)
             move.w  #0,v_tmr(a5,d5.w)
             move.w  #0,v_gnd(a5,d5.w)
+            move.w  #0,v_squat(a5,d5.w)
+            move.w  #0,v_life(a5,d5.w)
+            move.w  #0,v_safe(a5,d5.w)
             lea     ACT_SIZE(a2),a2
             addq.w  #1,d7
             cmp.w   d6,d7
@@ -437,8 +448,16 @@ move_actors:
             moveq   #0,d7
 .loop       move.w  d7,d5
             add.w   d5,d5
-            move.w  A_ROLE(a2),d0
-            beq.s   .player
+            tst.w   v_safe(a5,d5.w)         ; immunity counts down
+            beq.s   .nosafe
+            subq.w  #1,v_safe(a5,d5.w)
+.nosafe     tst.w   v_life(a5,d5.w)         ; shown-for-a-moment actors hide again
+            beq.s   .nolife
+            subq.w  #1,v_life(a5,d5.w)
+            bne.s   .nolife
+            move.w  #0,v_vis(a5,d5.w)
+.nolife     move.w  A_ROLE(a2),d0
+            beq     .player
             cmp.w   #6,d0
             beq     .platform
             cmp.w   #7,d0
@@ -580,25 +599,33 @@ move_actors:
 
 .hopper     tst.w   v_gnd(a5,d5.w)
             beq.s   .hair
+            tst.w   v_squat(a5,d5.w)        ; crouching, about to spring
+            bne.s   .squat
             addq.w  #1,v_tmr(a5,d5.w)
             bsr     rand
             and.w   #31,d0
-            add.w   #20,d0
+            add.w   #30,d0
             cmp.w   v_tmr(a5,d5.w),d0
-            bgt.s   .hphys
+            bgt     .hphys
             move.w  #0,v_tmr(a5,d5.w)
+            move.w  #HOP_SQUAT,v_squat(a5,d5.w)
+            bra     .hphys
+.squat      subq.w  #1,v_squat(a5,d5.w)
+            bne     .hphys
             move.w  v_spd(a5,d5.w),d0       ; jump height grows with speed
             lsl.w   #3,d0
-            add.w   #40,d0
+            add.w   #HOP_JUMP,d0
             neg.w   d0
             move.w  d0,v_vy(a5,d5.w)
             bsr     jumped
             bsr     rand
             and.w   #3,d0
-            bne.s   .hphys
+            bne     .hphys
             eor.w   #1,v_dx(a5,d5.w)        ; sometimes turn round
-            bra.s   .hphys
-.hair       move.w  v_spd(a5,d5.w),d1       ; drift sideways while in the air
+            bra     .hphys
+.hair       btst    #0,v_anim+1(a5)         ; drift sideways every other frame
+            beq     .hphys
+            move.w  v_spd(a5,d5.w),d1
             move.w  v_ax(a5,d5.w),d0
             tst.w   v_dx(a5,d5.w)
             bne.s   .hjl
@@ -649,7 +676,12 @@ ground_y:   move.l  H_GROUND(a4),d2
 
 ; gravity and ground contact for actor d5 (record a2)
 physics:    move.w  v_vy(a5,d5.w),d0
+            cmp.w   #7,A_ROLE(a2)           ; hoppers float down more slowly
+            beq.s   .light
             addq.w  #GRAVITY,d0
+            bra.s   .g
+.light      addq.w  #HOP_GRAVITY,d0
+.g
             cmp.w   #MAX_FALL,d0
             ble.s   .v
             move.w  #MAX_FALL,d0
@@ -707,6 +739,13 @@ place_sprites:
             move.l  A_SPR(a2),d0            ; pick the animation frame
             move.l  A_SPR2(a2),d1
             beq.s   .frame
+            cmp.w   #7,A_ROLE(a2)           ; hoppers show frame 2 while squatting
+            bne.s   .cyc
+            tst.w   v_squat(a5,d5.w)
+            beq.s   .frame
+            move.l  d1,d0
+            bra.s   .frame
+.cyc
             moveq   #0,d2
             move.w  v_anim(a5),d2
             move.w  A_ARATE(a2),d3
@@ -739,9 +778,13 @@ place_sprites:
             swap    d0
             move.w  d0,6(a1)
             tst.w   v_vis(a5,d5.w)
-            bne.s   .show
-            move.l  #0,(a0)
-            bra.s   .next
+            beq.s   .hid
+            tst.w   v_safe(a5,d5.w)         ; flashing while immune
+            beq.s   .show
+            btst    #2,v_anim+1(a5)
+            beq.s   .show
+.hid        move.l  #0,(a0)
+            bra     .next
 .show       move.w  v_ay(a5,d5.w),d0
             add.w   #$2c,d0                 ; VSTART
             move.w  v_ax(a5,d5.w),d1
@@ -817,9 +860,13 @@ touch_pair:
             move.w  d1,d5
             add.w   d5,d5
             tst.w   v_vis(a5,d4.w)
-            beq.s   .no
+            beq     .no
             tst.w   v_vis(a5,d5.w)
-            beq.s   .no
+            beq     .no
+            tst.w   v_safe(a5,d4.w)
+            bne     .no
+            tst.w   v_safe(a5,d5.w)
+            bne     .no
             move.w  v_ax(a5,d4.w),d2        ; a.left > b.right ?
             add.w   A_BX0(a0),d2
             move.w  v_ax(a5,d5.w),d3
@@ -986,7 +1033,7 @@ do_action:
             move.w  d5,d4
             add.w   d5,d5
             move.w  R_ACT(a3),d0
-            cmp.w   #14,d0
+            cmp.w   #16,d0
             bhi     act_none
             add.w   d0,d0
             move.w  acttab(pc,d0.w),d0
@@ -1006,8 +1053,21 @@ acttab:     dc.w    act_score-acttab
             dc.w    act_slower-acttab
             dc.w    act_addlife-acttab
             dc.w    act_moveto-acttab
+            dc.w    act_moment-acttab
+            dc.w    act_safe-acttab
 
 act_none:   rts
+
+act_moment: cmp.w   H_NACT(a4),d4
+            bhs     act_none
+            move.w  #1,v_vis(a5,d5.w)
+            move.w  #MOMENT,v_life(a5,d5.w)
+            rts
+
+act_safe:   cmp.w   H_NACT(a4),d4
+            bhs     act_none
+            move.w  #SAFE_TIME,v_safe(a5,d5.w)
+            rts
 
 stop_fall:  move.w  #0,v_vy(a5,d5.w)
             move.w  #0,v_ysub(a5,d5.w)

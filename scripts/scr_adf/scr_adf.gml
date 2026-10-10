@@ -245,7 +245,7 @@ function adam_data_block(_p)
         be16(_b, clamp(_ru.a, 0, 7));
         be16(_b, clamp(_ru.b, 0, 7));
         be16(_b, clamp(_ru.n, 1, 65535));
-        be16(_b, clamp(_ru.act, 0, 14));
+        be16(_b, clamp(_ru.act, 0, 16));
         be16(_b, clamp(_ru.target, 0, 7));
         be16(_b, clamp(_val, 0, 65535));
         be16(_b, 0);
