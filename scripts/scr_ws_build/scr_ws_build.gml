@@ -181,6 +181,12 @@ function ws_build_draw(_x1, _y1, _x2, _y2)
         settings_save();
         toast("Using ADAM's test copy or an installed FS-UAE", 0);
     }
+    var _lt = ui_toggle("build_light", _fx, _y + 56, "Light emulator mode", fsuae_light, "Light emulator mode|Runs FS-UAE without syncing to your monitor and without smoothing. Much lighter on your PC; turn it off for the smoothest scrolling.");
+    if (_lt != fsuae_light)
+    {
+        fsuae_light = _lt;
+        settings_save();
+    }
     if (ADAM_DEV_TOOLS)
     {
         var _glab = "Get test copy";
@@ -190,7 +196,7 @@ function ws_build_draw(_x1, _y1, _x2, _y2)
             fsuae_download("");
         }
     }
-    _y += 60;
+    _y += 92;
     if (build_path_row("build_kick", _fx, _y, _fw, "Kickstart ROM (optional)", kick_path, "(none - FS-UAE uses its free AROS ROM)", "Find", "Kickstart ROM|Optional. ADAM games boot on FS-UAE's built-in AROS ROM, but you can use your own Kickstart for the most authentic test. Right-click clears it."))
     {
         var _k = get_open_filename("Kickstart ROM|*.rom;*.bin", "");

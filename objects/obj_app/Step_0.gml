@@ -11,6 +11,16 @@ if (keyboard_check_pressed(vk_f11))
     window_set_fullscreen(!window_get_fullscreen());
 }
 
+// step right back while another window (FS-UAE) has the focus, so the
+// emulator gets the CPU and GPU instead of ADAM redrawing at full speed
+var _focus = window_has_focus();
+if (_focus != app_focused)
+{
+    app_focused = _focus;
+    if (_focus) { game_set_speed(60, gamespeed_fps); }
+    else { game_set_speed(10, gamespeed_fps); }
+}
+
 // interface scale for HD / QHD / 4K
 var _ww = window_get_width();
 var _wh = window_get_height();

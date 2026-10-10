@@ -1,0 +1,102 @@
+diff --git a/objects/obj_app/Create_0.gml b/objects/obj_app/Create_0.gml
+index 72b3d9a..1c4fed8 100644
+--- a/objects/obj_app/Create_0.gml
++++ b/objects/obj_app/Create_0.gml
+@@ -96,6 +96,8 @@ helpers_on = true;
+ auto_tutorials = true;
+ fsuae_path = "";
+ kick_path = "";
++fsuae_light = true;
++app_focused = true;
+ out_path = "";
+ 
+ // backdrop
+diff --git a/objects/obj_app/Step_0.gml b/objects/obj_app/Step_0.gml
+index 8392f93..9d0c74c 100644
+--- a/objects/obj_app/Step_0.gml
++++ b/objects/obj_app/Step_0.gml
+@@ -11,6 +11,16 @@ if (keyboard_check_pressed(vk_f11))
+     window_set_fullscreen(!window_get_fullscreen());
+ }
+ 
++// step right back while another window (FS-UAE) has the focus, so the
++// emulator gets the CPU and GPU instead of ADAM redrawing at full speed
++var _focus = window_has_focus();
++if (_focus != app_focused)
++{
++    app_focused = _focus;
++    if (_focus) { game_set_speed(60, gamespeed_fps); }
++    else { game_set_speed(10, gamespeed_fps); }
++}
++
+ // interface scale for HD / QHD / 4K
+ var _ww = window_get_width();
+ var _wh = window_get_height();
+diff --git a/scripts/scr_adf/scr_adf.gml b/scripts/scr_adf/scr_adf.gml
+index 3c43675..0b2b946 100644
+--- a/scripts/scr_adf/scr_adf.gml
++++ b/scripts/scr_adf/scr_adf.gml
+@@ -505,7 +505,14 @@ function launch_fsuae_now(_adf)
+         + " --slow_memory=0 --fast_memory=0"
+         + " --floppy_drive_0=\"" + _adf + "\""
+         + " --floppy_drive_speed=0"
+-        + " --fullscreen=0";
++        + " --fullscreen=0"
++        + " --window_width=960 --window_height=720"
++        + " --automatic_input_grab=0 --initial_input_grab=0";
++    if (fsuae_light)
++    {
++        // light mode: no host vsync spin-wait and no smoothing filter - far less CPU/GPU load
++        _args += " --video_sync=off --texture_filter=nearest";
++    }
+     if (kick_path != "" && file_exists(kick_path))
+     {
+         _args += " --kickstart_file=\"" + kick_path + "\"";
+diff --git a/scripts/scr_project/scr_project.gml b/scripts/scr_project/scr_project.gml
+index ea58d40..935a237 100644
+--- a/scripts/scr_project/scr_project.gml
++++ b/scripts/scr_project/scr_project.gml
+@@ -516,6 +516,7 @@ function settings_load()
+     ini_open("adam_settings.ini");
+     fsuae_path = ini_read_string("paths", "fsuae", "");
+     kick_path = ini_read_string("paths", "kickstart", "");
++    fsuae_light = ini_read_real("emulator", "light", 1) == 1;
+     out_path = ini_read_string("paths", "adf", "");
+     proj_path = ini_read_string("paths", "project", "");
+     last_machine = ini_read_string("machine", "last", "A1200");
+@@ -536,6 +537,9 @@ function settings_save()
+     ini_open("adam_settings.ini");
+     ini_write_string("paths", "fsuae", fsuae_path);
+     ini_write_string("paths", "kickstart", kick_path);
++    var _light = 0;
++    if (fsuae_light) { _light = 1; }
++    ini_write_real("emulator", "light", _light);
+     ini_write_string("paths", "adf", out_path);
+     ini_write_string("paths", "project", proj_path);
+     ini_write_string("machine", "last", last_machine);
+diff --git a/scripts/scr_ws_build/scr_ws_build.gml b/scripts/scr_ws_build/scr_ws_build.gml
+index 58ea71f..eb0a4fa 100644
+--- a/scripts/scr_ws_build/scr_ws_build.gml
++++ b/scripts/scr_ws_build/scr_ws_build.gml
+@@ -181,6 +181,12 @@ function ws_build_draw(_x1, _y1, _x2, _y2)
+         settings_save();
+         toast("Using ADAM's test copy or an installed FS-UAE", 0);
+     }
++    var _lt = ui_toggle("build_light", _fx, _y + 56, "Light emulator mode", fsuae_light, "Light emulator mode|Runs FS-UAE without syncing to your monitor and without smoothing. Much lighter on your PC; turn it off for the smoothest scrolling.");
++    if (_lt != fsuae_light)
++    {
++        fsuae_light = _lt;
++        settings_save();
++    }
+     if (ADAM_DEV_TOOLS)
+     {
+         var _glab = "Get test copy";
+@@ -190,7 +196,7 @@ function ws_build_draw(_x1, _y1, _x2, _y2)
+             fsuae_download("");
+         }
+     }
+-    _y += 60;
++    _y += 92;
+     if (build_path_row("build_kick", _fx, _y, _fw, "Kickstart ROM (optional)", kick_path, "(none - FS-UAE uses its free AROS ROM)", "Find", "Kickstart ROM|Optional. ADAM games boot on FS-UAE's built-in AROS ROM, but you can use your own Kickstart for the most authentic test. Right-click clears it."))
+     {
+         var _k = get_open_filename("Kickstart ROM|*.rom;*.bin", "");

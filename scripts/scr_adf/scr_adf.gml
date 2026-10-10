@@ -505,7 +505,14 @@ function launch_fsuae_now(_adf)
         + " --slow_memory=0 --fast_memory=0"
         + " --floppy_drive_0=\"" + _adf + "\""
         + " --floppy_drive_speed=0"
-        + " --fullscreen=0";
+        + " --fullscreen=0"
+        + " --window_width=960 --window_height=720"
+        + " --automatic_input_grab=0 --initial_input_grab=0";
+    if (fsuae_light)
+    {
+        // light mode: no host vsync spin-wait and no smoothing filter - far less CPU/GPU load
+        _args += " --video_sync=off --texture_filter=nearest";
+    }
     if (kick_path != "" && file_exists(kick_path))
     {
         _args += " --kickstart_file=\"" + kick_path + "\"";

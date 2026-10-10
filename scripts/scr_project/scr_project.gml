@@ -516,6 +516,7 @@ function settings_load()
     ini_open("adam_settings.ini");
     fsuae_path = ini_read_string("paths", "fsuae", "");
     kick_path = ini_read_string("paths", "kickstart", "");
+    fsuae_light = ini_read_real("emulator", "light", 1) == 1;
     out_path = ini_read_string("paths", "adf", "");
     proj_path = ini_read_string("paths", "project", "");
     last_machine = ini_read_string("machine", "last", "A1200");
@@ -536,6 +537,9 @@ function settings_save()
     ini_open("adam_settings.ini");
     ini_write_string("paths", "fsuae", fsuae_path);
     ini_write_string("paths", "kickstart", kick_path);
+    var _light = 0;
+    if (fsuae_light) { _light = 1; }
+    ini_write_real("emulator", "light", _light);
     ini_write_string("paths", "adf", out_path);
     ini_write_string("paths", "project", proj_path);
     ini_write_string("machine", "last", last_machine);

@@ -96,6 +96,8 @@ helpers_on = true;
 auto_tutorials = true;
 fsuae_path = "";
 kick_path = "";
+fsuae_light = true;
+app_focused = true;
 out_path = "";
 
 // backdrop
