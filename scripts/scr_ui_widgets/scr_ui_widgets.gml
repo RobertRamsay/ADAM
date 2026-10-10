@@ -409,7 +409,11 @@ function ui_dropdown(_id, _x, _y, _w, _h, _options, _index, _help)
         ui_popup_kind = 0;
         ui_popup_x = _x;
         ui_popup_y = _y + _h + 4;
-        ui_popup_w = max(_w, 160);
+        // wide enough for the longest option (text inset + scrollbar gutter)
+        draw_set_font(global.f_body);
+        var _ow = 0;
+        for (var o = 0; o < array_length(_options); o++) { _ow = max(_ow, ui_sw(_options[o])); }
+        ui_popup_w = max(_w, 160, ceil(_ow) + 40);
         ui_popup_opts = _options;
         ui_popup_index = _i;
         ui_popup_anchor_y = _y;
@@ -535,7 +539,7 @@ function ui_popup_draw(_gw, _gh)
     ui_force_input = true;
     var _x = ui_popup_x;
     var _y = ui_popup_y;
-    var _w = ui_popup_w;
+    var _w = min(ui_popup_w, _gw - 20);
     var _h = 0;
     if (ui_popup_kind == 0)
     {

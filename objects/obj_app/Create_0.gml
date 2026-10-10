@@ -153,6 +153,7 @@ act_drag = false;
 act_drag_dx = 0;
 act_drag_dy = 0;
 logic_resort = false;
+logic_reveal = -1;          // rule struct to scroll into view next frame (-1 = none)
 ground_cache = array_create(BD_W, 256);
 ground_cache_time = -10000;
 

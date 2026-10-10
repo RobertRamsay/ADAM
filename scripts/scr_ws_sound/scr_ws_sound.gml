@@ -16,11 +16,11 @@ function ws_sound_draw(_x1, _y1, _x2, _y2)
         var _a = ui_anim_to(_id, _tgt);
         if (snd_sel == i) { ui_rrect(_x1 + 10, _ry, _x1 + _lw - 10, _ry + 46, 10, global.TH.accent, global.TH.accent_dark, 0.9); }
         else { ui_rrect(_x1 + 10, _ry, _x1 + _lw - 10, _ry + 46, 10, global.TH.btn_hot_top, global.TH.btn_hot_bot, 0.25 + _a * 0.75); }
-        ui_text(_x1 + 24, _ry + 15, string(i + 1) + ". " + ui_text_fit(_f.name, global.f_bold, _lw - 120), global.TH.text, fa_left, fa_middle, global.f_bold, 1);
+        ui_text(_x1 + 24, _ry + 15, string(i + 1) + ". " + ui_text_fit(_f.name, global.f_bold, _lw - 140), global.TH.text, fa_left, fa_middle, global.f_bold, 1);
         var _sub = global.WAVE_NAMES[clamp(_f.wave, 0, 3)];
         if (_f.kind == 1) { _sub = "Sample: " + _f.smp_file; }
-        ui_text(_x1 + 24, _ry + 33, ui_text_fit(_sub, global.f_small, _lw - 100), global.TH.text_dim, fa_left, fa_middle, global.f_small, 1);
-        if (ui_button(_id + "_play", _x1 + _lw - 64, _ry + 8, 44, 30, "Play", "Play|Hear this sound.", BTN_GHOST))
+        ui_text(_x1 + 24, _ry + 33, ui_text_fit(_sub, global.f_small, _lw - 110), global.TH.text_dim, fa_left, fa_middle, global.f_small, 1);
+        if (ui_button(_id + "_play", _x1 + _lw - 76, _ry + 8, 56, 30, "Play", "Play|Hear this sound.", BTN_GHOST))
         {
             sfx_preview_play(_f);
         }

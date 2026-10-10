@@ -146,13 +146,17 @@ function ws_levels_draw(_x1, _y1, _x2, _y2)
             var _hy = (_hh[t * 5] - 100) / 140 * 22;
             draw_line(_x1 + 18 + t, _ry + 6 + _hy, _x1 + 18 + t, _ry + 29);
         }
-        ui_text(_x1 + 92, _ry + 17, "Level " + string(i + 1), global.TH.text, fa_left, fa_middle, global.f_bold, 1);
+        ui_text(_x1 + 92, _ry + 11, "Level " + string(i + 1), global.TH.text, fa_left, fa_middle, global.f_bold, 1);
         var _en = 0;
         for (var a = 0; a < array_length(proj.actors); a++)
         {
             if (proj.actors[a].from_level <= i + 1) { _en += 1; }
         }
-        ui_text(_x1 + _lw - 18, _ry + 17, string(_en) + " actors", global.TH.text_dim, fa_right, fa_middle, global.f_small, 1);
+        var _acol = global.TH.text_dim;
+        if (lvl_sel == i) { _acol = global.TH.text; }
+        var _atxt = string(_en) + " actors";
+        if (_en == 1) { _atxt = "1 actor"; }
+        ui_text(_x1 + 92, _ry + 25, _atxt, _acol, fa_left, fa_middle, global.f_small, 1);
         if (_hot && ui_pressed)
         {
             lvl_sel = i;

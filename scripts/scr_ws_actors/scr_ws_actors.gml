@@ -306,9 +306,12 @@ function ws_actors_draw(_x1, _y1, _x2, _y2)
         "Hops along the ground on its own: it squats, springs up and drifts left or right in the air. Jump over it or run under it. Give it a second sprite and that one is shown while it squats.",
         "Falls until it lands on the ground, then stays there. Use 'Move actor to another actor' to drop it from a cloud."
     ];
-    ui_rrect(_fx2, _y, _fx2 + _fw2, _y + 50, 8, global.TH.inset_top, global.TH.inset_bot, 0.8);
-    ui_text_wrap(_fx2 + 10, _y + 7, _rdesc[clamp(_s.role, 0, 8)], global.TH.text_dim, _fw2 - 20, global.f_small, 1);
-    _y += 62;
+    var _desc = _rdesc[clamp(_s.role, 0, 8)];
+    draw_set_font(global.f_small);
+    var _dh = max(50, ceil(ui_sh_ext(_desc, _fw2 - 20)) + 14);
+    ui_rrect(_fx2, _y, _fx2 + _fw2, _y + _dh, 8, global.TH.inset_top, global.TH.inset_bot, 0.8);
+    ui_text_wrap(_fx2 + 10, _y + 7, _desc, global.TH.text_dim, _fw2 - 20, global.f_small, 1);
+    _y += _dh + 12;
     var _half = floor((_fw2 - 12) / 2);
     ui_heading(_fx2, _y, "Speed");
     set_val(_s, "speed", ui_stepper("act_speed", _fx2, _y + 18, _half, _s.speed, 1, 8, "Speed|Pixels moved every frame (50 frames per second). 1 is slow, 8 is very fast."), "actspeed");
@@ -354,8 +357,9 @@ function ws_actors_draw(_x1, _y1, _x2, _y2)
     {
         ui_heading(_fx2, _y, "Frames each");
         set_val(_s, "anim_rate", ui_stepper("act_arate", _fx2, _y + 18, _half, _s.anim_rate, 2, 30, "Animation speed|How many 50ths of a second each frame stays on screen. 6 is a brisk walk, 15 a slow blink."), "actarate");
-        set_val(_s, "anim_moving", ui_toggle("act_amove", _fx2 + _half + 12, _y + 22, "Only when moving", _s.anim_moving, "Only when moving|The actor shows its first frame while standing still - perfect for walk cycles."), "actamove");
         _y += 58;
+        set_val(_s, "anim_moving", ui_toggle("act_amove", _fx2, _y, "Only when moving", _s.anim_moving, "Only when moving|The actor shows its first frame while standing still - perfect for walk cycles."), "actamove");
+        _y += 34;
     }
 
     // hardware sprite channel
@@ -374,7 +378,9 @@ function ws_actors_draw(_x1, _y1, _x2, _y2)
         {
             _msg += "ADAM puts actors with matching colours on the same pair automatically.";
         }
-        ui_rrect(_fx2, _y + 18, _fx2 + _fw2, _y + 82, 8, global.TH.inset_top, global.TH.inset_bot, 0.8);
+        draw_set_font(global.f_small);
+        var _mh = max(64, ceil(ui_sh_ext(_msg, _fw2 - 20)) + 14);
+        ui_rrect(_fx2, _y + 18, _fx2 + _fw2, _y + 18 + _mh, 8, global.TH.inset_top, global.TH.inset_bot, 0.8);
         var _mc = global.TH.text_dim;
         if (_kind == 1) { _mc = global.TH.warn; }
         ui_text_wrap(_fx2 + 10, _y + 24, _msg, _mc, _fw2 - 20, global.f_small, 1);

@@ -433,8 +433,9 @@ function backdrop_sky_panel(_fx, _y, _fw, _y2)
         proj.sky_on = _on;
     }
     _y += 36;
-    ui_text_wrap(_fx, _y, "Paint the parts you want to see the sky through with colour 0. The copper writes 12-bit colours, so each stop has 16 steps per gun.", global.TH.text_dim, _fw, global.f_small, 1);
-    _y += 52;
+    var _intro = "Paint the parts you want to see the sky through with colour 0. The copper writes 12-bit colours, so each stop has 16 steps per gun.";
+    ui_text_wrap(_fx, _y, _intro, global.TH.text_dim, _fw, global.f_small, 1);
+    _y += ceil(ui_sh_ext(_intro, _fw)) + 14;
 
     ui_heading(_fx, _y, "Colour stops");
     _y += 18;

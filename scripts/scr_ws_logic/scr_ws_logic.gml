@@ -309,6 +309,7 @@ function ws_logic_draw(_x1, _y1, _x2, _y2)
             _nrule.b = min(1, max(0, array_length(proj.actors) - 1));
             array_push(proj.rules, _nrule);
             logic_sort_rules();
+            logic_reveal = _nrule;
         }
         else { toast("100 rules is the limit", 1); }
     }
@@ -365,6 +366,27 @@ function ws_logic_draw(_x1, _y1, _x2, _y2)
     {
         if (_items[k][0] == 0) { _content += _cardh + 10; }
         else { _content += _hdrh + 10; }
+    }
+    // a rule was just added: scroll so its whole card is in view
+    if (is_struct(logic_reveal))
+    {
+        var _ry2 = 10;
+        for (var k3 = 0; k3 < array_length(_items); k3++)
+        {
+            if (_items[k3][0] == 0 && proj.rules[_items[k3][1]] == logic_reveal)
+            {
+                var _view = _ly2 - _ly1;
+                var _cur = ds_map_find_value(ui_scroll, "logic_list");
+                if (is_undefined(_cur)) { _cur = 0; }
+                if (_ry2 - 10 < _cur) { _cur = _ry2 - 10; }
+                if (_ry2 + _cardh + 10 > _cur + _view) { _cur = _ry2 + _cardh + 10 - _view; }
+                ds_map_replace(ui_scroll, "logic_list", max(0, _cur));
+                break;
+            }
+            if (_items[k3][0] == 0) { _ry2 += _cardh + 10; }
+            else { _ry2 += _hdrh + 10; }
+        }
+        logic_reveal = -1;
     }
     var _off = ui_scroll_begin("logic_list", _lx, _ly1, _lx2 - 10, _ly2, _content);
     if (_nr == 0 && _ngr == 0)
@@ -497,6 +519,7 @@ function ws_logic_draw(_x1, _y1, _x2, _y2)
                 array_push(proj.rules, _nr2);
                 proj.groups[_gact].collapsed = false;
                 logic_sort_rules();
+                logic_reveal = _nr2;
             }
             else { toast("100 rules is the limit", 1); }
         }
