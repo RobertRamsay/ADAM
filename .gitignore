@@ -1,0 +1,5 @@
+tools/reference/out/
+tools/reference/__pycache__/
+tools/intro/frames/
+tools/intro/intro.wav
+tools/intro/*.mp4

@@ -1,0 +1,1992 @@
+diff --git a/.gitignore b/.gitignore
+new file mode 100644
+index 0000000..7a5d324
+--- /dev/null
++++ b/.gitignore
+@@ -0,0 +1,5 @@
++tools/reference/out/
++tools/reference/__pycache__/
++tools/intro/frames/
++tools/intro/intro.wav
++tools/intro/*.mp4
+diff --git a/CLAUDE.md b/CLAUDE.md
+new file mode 100644
+index 0000000..1c5469f
+--- /dev/null
++++ b/CLAUDE.md
+@@ -0,0 +1,101 @@
++# ADAM — Claude Code guide
++
++ADAM ("Amiga Developmental Machine") is a no-code Amiga game maker written in
++GameMaker (GML), by Bob / Polytricity Ltd. It is modelled on Bob's C64 No-Code
++tool (github.com/RobertRamsay/C64_NOCODE) and is a separate product from the
++older AMIGA_DEV_MACHINE_Git node editor.
++
++Users paint a backdrop, draw sprites, place actors, write WHEN/DO rules, make
++sounds and levels, then ADAM writes a **bootable .ADF** for a stock
++**Amiga 500/600 (OCS/ECS, 1MB chip, FS-UAE model A600)** or **Amiga 1200
++(AGA, 2MB chip)**, picked at launch.
++
++## Golden rules (Bob's conventions — always follow)
++
++- **Initialise every instance variable in `obj_app` Create** (arrays, structs, flags). Never rely on `variable_struct_exists` / `variable_instance_exists` checks. For data read from JSON, use `struct[$ "key"]` and `is_undefined` / `is_array` / `is_string`.
++- **No ternary / shorthand if** (`a ? b : c`). Always full `if { } else { }`.
++- **Never write hex as `$ff` at the start of an array literal** — `[$ff...]` parses as a struct accessor. Use `0xff` everywhere.
++- **Never name a local `x` or `y`** (built-in instance variables). Use `_px`, `_iy`, etc.
++- Brace style: Allman, 4-space indent, `_underscore` locals, as in the existing scripts.
++- Bob reviews changes as diffs/patches. Keep changes focused, one feature per commit, with a clear message. If you hand him something to paste instead, use **FIND:** / **REPLACE with:** blocks.
++- `#macro ADAM_DEV_TOOLS true` (scr_adf) enables the FS-UAE test-copy download. It must be `false` for public itch.io builds.
++
++## How to build and check
++
++- **Compile GameMaker from the command line** with Igor (GameMaker's build CLI) so compile errors can be read and fixed. Locate the installed runtime (usually under `%ProgramData%\GameMakerStudio2\Cache\runtimes\runtime-*\bin\igor\windows\x64\Igor.exe`) and run a Windows VM build of `ADAM.yyp`. Iterate until there are **zero errors**; also clear Feather errors where possible.
++- **Engine:** `powershell -File tools\assemble_engine.ps1` (needs vasmm68k_mot.exe).
++- **Engine test without GameMaker:** `python tools\reference\gen_examples.py` then `powershell -File tools\run_adf.ps1 -Adf tools\reference\out\gem_hunter.adf` (or `-Model A1200`).
++- `gen_examples.py` is deterministic: running it must not change `datafiles/examples/*.adam` unless the examples were meant to change.
++- Bob does the hands-on UI checks in the running app; describe exactly what to click to verify each change.
++
++## Architecture
++
++### Editor (GameMaker)
++One object, `obj_app`, draws everything in **Draw GUI** with an immediate-mode UI
++(`scr_ui_widgets`, `scr_ui_draw`, `scr_ui_help`). Every control registers a rect
++(`ui_register`) for hover help and tutorials. Pages ("workspaces", `WS_*` in
++`scr_ws_shell`): Home, Backdrop, Levels, Sprites, Actors, Logic, Sound, Build.
++
++| Script | Role |
++|---|---|
++| `scr_project` | Data model (`project_new`, `project_from_loaded` = loader + validator), per-page undo (`undo_keys`, `undo_mark`, `undo_mark_full`), settings ini. |
++| `scr_machine` | Machine profiles (`machine_cur()`), launch picker, boing ball. |
++| `scr_gfx` | Backdrop index surface + `sh_palette` shader (palette & copper-sky preview), sprite caches, font, PNG import (median cut). Painting writes `bd_buf` then uploads — never draws into the surface. |
++| `scr_levels` | Levels page, terrain generator (`terrain_generate`, LCG — must match `gen_examples.py`), title/goal settings. |
++| `scr_adf` | **Game data block + ADF writer**, FS-UAE launch/test-copy download. |
++| `scr_sfx` | Synth + WAV sample import, crunch (rate/bits), preview (exact Paula output). |
++| `scr_ws_*` | One script per page. `scr_ws_logic` also owns rule groups. |
++| `scr_examples`, `scr_intro`, `scr_tutorial` | Example loader, launch intro, tutorials. |
++
++Project data (`proj`) is plain JSON-able structs/arrays; `.adam` files are `json_stringify(proj)`.
++
++### Runtime (68000)
++`datafiles/engine/engine.s` is a **fixed, position-independent** engine
++(`vasm -pic`). ADAM never generates code: it appends a **data block** right
++after `engine.bin`; `boot.s` (bootblock) AllocMem's chip RAM, reads engine+data
++with trackdisk (showing a copper loading bar) and jumps in. Registers held:
++`a4` = data block, `a5` = V+128 (variables; per-actor tables must stay within
++the signed 8-bit displacement), `a6` = $dff000.
++
++**Data block header** (offsets from data start; longs are offsets from data start, 0 = absent):
++`0 'ADAM' | 4 version | 6 flags (bit0 AGA) | 8 depth | 10 nact | 12 nrule | 14 lives | 16 show score | 18 show lives | 20 hud row | 22 hud colour | 24 msg colour | 26 player actor (-1) | 28 game block | 32 palette | 36 planes (original) | 40 actors | 44 rules | 48 sfx table | 52 game-over text | 56 win text | 60 sprite pair colours | 64 display planes | 68 copper sky (256 x $0RGB) | 72 painted ground (320 words) | 76 work planes (backdrop + hills)` — header is 80 bytes.
++
++- Actor record = 48 bytes (`A_*` equates), rule record = 16 bytes (`R_*`), sfx entry = 8 bytes (offset, length in words, Paula period), game block = `G_*` (levels, terrain colours, goal, title text, 320 heights per level).
++- **Any layout change must be made in three places: `engine.s`, `scr_adf.gml`, `tools/reference/adf_reference.py`.**
++- Roles: 0 player, 1 bouncer, 2 patrol L-R, 3 patrol U-D, 4 chaser, 5 still, 6 platform player, 7 hopper, 8 faller.
++- WHEN: 0 touch, 1 fire, 2 every N s, 3 score reaches, 4 lives out, 5 game starts, 6 actor jumps, 7 level starts.
++- DO: 0 score, 1 lose life, 2 sound, 3 flash, 4 home, 5 random spot, 6 hide, 7 show, 8 background colour, 9 game over, 10 win, 11 faster, 12 slower, 13 add life, 14 move to actor, 15 show for a moment, 16 safe for a while, 17 count toward goal.
++
++### Hardware limits ADAM respects
++- 8 hardware sprites (16 x 24, 3 colours), 4 colour pairs; actors with matching colours are paired automatically (`actors_alloc_channels`).
++- Backdrop 320 x 256: up to 16 colours on A500/600 (sprites use colours 17-31), up to 128 on A1200 (sprites moved to 240-255 via BPLCON4).
++- 4 Paula channels; sound n plays on channel n & 3.
++
++### vasm pitfalls seen so far
++- Local labels (`.x`) are scoped to the last global label — don't reuse names in one routine.
++- `-no-opt`: short branches out of range are errors — widen to `bra`/`beq` (word). A `bra.s` to the very next instruction is invalid.
++- `touch` is a mnemonic; avoid as a label.
++
++## Phase plan
++
++Work phases in order; within a phase, the listed tracks can run as parallel sub-agents.
++Each task ends with: clean compile, engine reassembled if touched, reference builder updated if
++the layout changed, examples regenerated if needed, and a short "how to verify" note for Bob.
++
++### Phase 0 — Compile and stabilise (do first, single agent)
++- Compile `ADAM.yyp` with Igor; fix every compile error and obvious runtime error. Most GML so far was written without a compiler.
++- Smoke-test each page in code paths you can reach; list anything that needs Bob's eyes.
++
++### Phase 1 — Launch must-fixes
++- **Track A (engine/boot):** bootblock shows a red error screen when AllocMem fails; add a 512KB-chip A500 budget check (Build page warns / blocks; machine profile note). Test on Kickstart 1.3 and 3.1 if Bob provides ROMs.
++- **Track B (macOS):** FS-UAE launch on Mac (`open -a "FS-UAE" --args ...` or the app binary), Mac test-copy download (dmg/tar.xz), guard Windows-only `execute_shell_simple`.
++- **Track C (project files):** store `pixels` (RLE + base64) and sample data compactly in `.adam` files and undo snapshots; keep loading older files. Measure save/undo time before and after.
++- **Track D (release):** release checklist — `ADAM_DEV_TOOLS false`, licences screen (Poppins OFL, font8x8 public domain, FS-UAE GPL mention), version number, itch build.
++
++### Phase 2 — Music maker (horizontal, Dance eJay / FL Studio style)
++- **Track A (engine):** integrate Frank Wille's **ptplayer** (verify its licence first) to play ProTracker MODs with sound effects mixed on the same channels. Needs CIA-B interrupts: enter supervisor before taking over the system, set up vectors (respect VBR on 68020). New data: `H_MUSIC` offset to an embedded MOD. New DO actions: play music, stop music; per-level music choice.
++- **Track B (editor):** Music page — 4 lanes (Paula channels) x bars timeline; left loop library (Drums / Bass / Chords / Lead / FX) with preview; drag or paint 1-bar loops onto lanes; double-click opens a 16-step grid / piano roll; instruments from built-in chip synth presets (rendered like the Sound page) and the user's WAV samples; BPM, swing, loop point; whole-song preview by mixing in GML.
++- **Track C (export/import):** write the arrangement as a standard 4-channel ProTracker MOD (so the engine plays it with ptplayer); import `.mod` files made in ProTracker / OpenMPT.
++
++### Phase 3 — Should-fix features
++- BOBs (blitter objects) for more than 8 moving things; bullets / "fire shoots"; second fire button and pause; sprite editor animated preview and PNG import; proper DOS disk so the ADF shows a named disk on Workbench; more genre examples once bullets/BOBs exist.
+diff --git a/tools/README.md b/tools/README.md
+new file mode 100644
+index 0000000..8bf2cb9
+--- /dev/null
++++ b/tools/README.md
+@@ -0,0 +1,15 @@
++# ADAM tools
++
++Developer tooling. None of this ships with ADAM.
++
++| Path | What it is |
++|---|---|
++| `assemble_engine.ps1` | Rebuilds `datafiles/engine/engine.bin` and `boot.bin` with vasm (`-Fbin -pic -m68000 -no-opt`). |
++| `run_adf.ps1` | Boots an ADF in FS-UAE as a stock A600 or A1200, exactly like ADAM's Build and play. |
++| `reference/adf_reference.py` | Python copy of `scripts/scr_adf` (data block + ADF writer). Used to test the engine without GameMaker. **Must stay in step with `scr_adf.gml` and `engine.s`.** |
++| `reference/gen_examples.py` | Generates the four example games in `datafiles/examples/` (deterministic) plus test ADFs and preview PNGs in `reference/out/`. Needs Pillow. |
++| `reference/art.py` | 16 x 24 sprite string art used by the examples. |
++| `linux_test/*.sh` | The headless FS-UAE harness used during development (Xvfb + xdotool + xwd screenshots). Reference only on Windows. |
++| `intro/render_intro.py` | Renders the 1080p60 YouTube intro frames + audio (`intro.wav`). Encode with: `ffmpeg -framerate 60 -i frames/f%03d.png -i intro.wav -c:v libx264 -pix_fmt yuv420p -crf 14 -c:a aac -b:a 256k -shortest ADAM_intro_1080p60.mp4` |
++
++Typical engine loop: edit `engine.s` → `assemble_engine.ps1` → `python reference/gen_examples.py` → `run_adf.ps1 -Adf reference/out/gem_hunter.adf`.
+diff --git a/tools/assemble_engine.ps1 b/tools/assemble_engine.ps1
+new file mode 100644
+index 0000000..1556d24
+--- /dev/null
++++ b/tools/assemble_engine.ps1
+@@ -0,0 +1,11 @@
++# Rebuilds datafiles/engine/engine.bin and boot.bin with vasm (Motorola syntax, 68k).
++# Get vasm from http://sun.hasenbraten.de/vasm/ (vasmm68k_mot.exe) and put it on PATH or pass -Vasm.
++param([string]$Vasm = "vasmm68k_mot.exe")
++$dir = Join-Path $PSScriptRoot "..\datafiles\engine"
++Push-Location $dir
++& $Vasm -Fbin -pic -m68000 -no-opt -o engine.bin engine.s
++if ($LASTEXITCODE -ne 0) { Pop-Location; exit 1 }
++& $Vasm -Fbin -pic -m68000 -no-opt -o boot.bin boot.s
++$e = $LASTEXITCODE
++Pop-Location
++exit $e
+diff --git a/tools/intro/Pickup.wav b/tools/intro/Pickup.wav
+new file mode 100644
+index 0000000000000000000000000000000000000000..c7c152e35ceb3cb0d78636ee80dae7b4cafe7063
+GIT binary patch
+literal 35118
+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
+Xeykd+rkkddW{{?j<^@d`auWX=sXM3X
+
+literal 0
+HcmV?d00001
+
+diff --git a/tools/intro/render_intro.py b/tools/intro/render_intro.py
+new file mode 100644
+index 0000000..b5fc13b
+--- /dev/null
++++ b/tools/intro/render_intro.py
+@@ -0,0 +1,240 @@
++import numpy as np, math, wave, struct, os
++from PIL import Image, ImageDraw, ImageFont, ImageFilter
++
++W,H=1920,1080; FPS=60; LEN=4.6; N=int(FPS*LEN)
++FB=''+os.path.join(os.path.dirname(os.path.abspath(__file__)),'..','..','datafiles','fonts')+'/Poppins-Bold.ttf'; FM=''+os.path.join(os.path.dirname(os.path.abspath(__file__)),'..','..','datafiles','fonts')+'/Poppins-Medium.ttf'
++
++# ---------------- background ----------------
++yy=np.linspace(0,1,H)[:,None]
++bg=np.zeros((H,W,3),np.float32)
++top=np.array([18,24,44],np.float32); bot=np.array([6,8,16],np.float32)
++bg[:]=top*(1-yy[...,None])+bot*yy[...,None]
++cx,cy=W*0.5,H*0.46
++X,Y=np.meshgrid(np.arange(W),np.arange(H))
++glowmask=np.clip(1-np.hypot(X-cx,Y-cy)/(H*0.55),0,1)**1.6
++glowcol=np.array([255,150,40],np.float32)
++
++def ball(size, spin, roll=0.0):
++    ss=2; S=int(size*ss)
++    r=S/2-0.5
++    yv,xv=np.mgrid[0:S,0:S]
++    nx=(xv-r)/r; ny=(yv-r)/r; d=nx*nx+ny*ny
++    inside=d<=1
++    nz=np.sqrt(np.clip(1-d,0,1))
++    a=math.radians(20)
++    rx=nx*math.cos(roll)-ny*math.sin(roll); ry=nx*math.sin(roll)+ny*math.cos(roll)   # roll with the travel
++    tx=rx*math.cos(a)-ry*math.sin(a); ty=rx*math.sin(a)+ry*math.cos(a)
++    lon=np.arctan2(tx,nz)+spin; lat=np.arcsin(np.clip(ty,-1,1))
++    cu=np.floor((lon+math.pi)/(math.pi/4)); cv=np.floor((lat+math.pi/2)/(math.pi/8))
++    red=((cu+cv)%2==0)
++    shade=0.5+0.5*nz
++    spec=np.clip((nx*-0.45+ny*-0.55+nz*0.7),0,1)**18*0.6
++    col=np.where(red[...,None],np.array([230,30,40]),np.array([255,255,255])).astype(np.float32)
++    col=col*shade[...,None]+255*spec[...,None]
++    img=np.zeros((S,S,4),np.float32)
++    img[...,:3]=np.clip(col,0,255); 
++    # soft edge
++    edge=np.clip((1-np.sqrt(d))*r/1.5,0,1)
++    img[...,3]=np.where(inside,edge*255,0)
++    im=Image.fromarray(img.astype(np.uint8),'RGBA')
++    return im.resize((int(size),int(size)),Image.LANCZOS)
++
++fbig=ImageFont.truetype(FB,290); ftag=ImageFont.truetype(FM,58)
++fsub=ImageFont.truetype(FM,46); fsubB=ImageFont.truetype(FB,58)
++tw=fbig.getbbox("ADAM"); TW=tw[2]-tw[0]; TH=tw[3]-tw[1]
++def text_layer():
++    pad=40
++    im=Image.new('RGBA',(TW+pad*2,TH+pad*2),(0,0,0,0)); d=ImageDraw.Draw(im)
++    d.text((pad-tw[0],pad-tw[1]),"ADAM",font=fbig,fill=(255,255,255,255))
++    # vertical gradient white -> pale blue
++    a=np.array(im).astype(np.float32)
++    g=np.linspace(0,1,a.shape[0])[:,None]
++    a[...,0]=a[...,0]*(1-g*0.22); a[...,1]=a[...,1]*(1-g*0.18); a[...,2]=a[...,2]*(1-g*0.08)
++    return Image.fromarray(a.astype(np.uint8)),pad
++TEXT,TPAD=text_layer()
++SHADOW=TEXT.copy(); sa=np.array(SHADOW); sa[...,:3]=0; sa[...,3]=(sa[...,3]*0.55).astype(np.uint8)
++SHADOW=Image.fromarray(sa).filter(ImageFilter.GaussianBlur(10))
++
++def ease_back(t,s=1.9):
++    u=t-1; return 1+u*u*((s+1)*u+s)
++SLOW=2.2          # slow, floaty bounce-in
++REST=0.84*SLOW    # the ball comes to rest here; everything else follows it
++SH=REST-0.84+0.06
++TXT_IN=0.6        # logo scale-in time (was 0.28)
++TXT_T=REST+0.06   # logo starts
++def drop(t):
++    t=t/SLOW
++    if t<0.36: p=t/0.36; return 1-p*p
++    if t<0.66: p=(t-0.36)/0.30; return 4*p*(1-p)*0.42
++    if t<0.84: p=(t-0.66)/0.18; return 4*p*(1-p)*0.15
++    return 0
++clamp=lambda v,a,b: max(a,min(b,v))
++
++STR=[(230,60,50),(250,160,40),(90,190,90),(60,130,230)]
++os.makedirs('frames',exist_ok=True)
++size=H*0.28
++TOTAL=size+size*0.14+TW+size*0.18+size*0.80
++START=(W-TOTAL)/2
++BX_END=START+size/2
++TX=START+size+size*0.14
++for f in range(N):
++    t=f/FPS
++    g=clamp((t-TXT_T-0.45)/0.7,0,1)
++    frame=bg+glowmask[...,None]*glowcol*0.22*g
++    im=Image.fromarray(np.clip(frame,0,255).astype(np.uint8)).convert('RGBA')
++    floor=cy+size*0.55
++    p=clamp(t/REST,0,1)
++    START_X=W+size*0.8
++    bx=BX_END+(START_X-BX_END)*(1-p)**2          # comes in from the right, slowing to a stop
++    by=floor-size*0.5-drop(t)*H*0.62
++    sq=1.0
++    for k,hh in enumerate([0.36*SLOW,0.66*SLOW,0.84*SLOW]):
++        dd=abs(t-hh)
++        if dd<0.07: sq=min(sq,1-(0.07-dd)*3.2*(1-k*0.3))
++    # shadow
++    sh=1-drop(t)*0.7
++    shl=Image.new('RGBA',(W,H),(0,0,0,0)); sd=ImageDraw.Draw(shl)
++    sd.ellipse([bx-size*0.45*sh,floor-10,bx+size*0.45*sh,floor+14],fill=(0,0,0,int(110*sh)))
++    im=Image.alpha_composite(im,shl.filter(ImageFilter.GaussianBlur(8)))
++    dist=(bx-BX_END)/(size*0.5)            # radians rolled so far (moving left = anticlockwise)
++    b=ball(size,-dist*0.35,dist)
++    bw=int(size*(2-sq)); bh=int(size*sq)
++    b=b.resize((max(1,bw),max(1,bh)),Image.LANCZOS)
++    im.alpha_composite(b,(int(bx-bw/2),int(by+size*0.5-bh)))
++    tx=TX
++    lt=clamp((t-TXT_T)/TXT_IN,0,1)
++    if lt>0:
++        sc=ease_back(lt,1.3); al=min(1,lt*2)
++        tl=TEXT.resize((max(1,int(TEXT.width*sc)),max(1,int(TEXT.height*sc))),Image.LANCZOS)
++        shd=SHADOW.resize(tl.size,Image.LANCZOS)
++        if al<1:
++            for L in (tl,shd):
++                a=np.array(L); a[...,3]=(a[...,3]*al).astype(np.uint8); L.paste(Image.fromarray(a))
++        ox=int(tx-TPAD*sc); oy=int(cy-tl.height/2)
++        im.alpha_composite(shd,(ox+10,oy+14)); im.alpha_composite(tl,(ox,oy))
++        # shine sweep
++        st=clamp((t-TXT_T-1.3)/0.6,0,1)
++        if 0<st<1:
++            shine=Image.new('RGBA',(W,H),(0,0,0,0)); s2=ImageDraw.Draw(shine)
++            sx=tx+TW*st
++            s2.polygon([(sx-30,cy-TH*0.7),(sx+20,cy-TH*0.7),(sx-20,cy+TH*0.7),(sx-70,cy+TH*0.7)],fill=(255,255,255,int(110*math.sin(st*math.pi))))
++            mask=Image.new('L',(W,H),0); mask.paste(tl.split()[3],(ox,oy))
++            shine.putalpha(Image.fromarray(np.minimum(np.array(shine.split()[3]),np.array(mask))))
++            im=Image.alpha_composite(im,shine)
++        # stripes
++        layer=Image.new('RGBA',(W,H),(0,0,0,0)); d=ImageDraw.Draw(layer)
++        x0=tx+TW+size*0.18; hgt=size*0.78
++        for s_,c in enumerate(STR):
++            sp=clamp((t-TXT_T-0.6-s_*0.1)/0.3,0,1)
++            if sp<=0: continue
++            w=size*0.075; o=x0+s_*w*1.55; topy=cy+hgt*0.5-hgt*sp
++            d.polygon([(o,cy+hgt*0.5),(o+w,cy+hgt*0.5),(o+w+hgt*0.32*sp,topy),(o+hgt*0.32*sp,topy)],fill=c+(255,))
++        im=Image.alpha_composite(im,layer)
++        tg=clamp((t-TXT_T-0.95)/0.5,0,1)
++        if tg>0:
++            layer=Image.new('RGBA',(W,H),(0,0,0,0)); d=ImageDraw.Draw(layer)
++            sub="AMIGA DEVELOPMENTAL MACHINE"; hi={0,6,17,20}       # A, D, A, M -> ADAM
++            xx=tx+6; yy=cy+TH*0.62+(1-tg)*18
++            base=fsub.getbbox("A")[3]
++            for i,ch in enumerate(sub):
++                if ch==" ": xx+=26; continue
++                hl=i in hi
++                fnt=fsubB if hl else fsub
++                col=(255,150,40,int(255*tg)) if hl else (205,212,232,int(215*tg))
++                d.text((xx,yy+base-fnt.getbbox("A")[3]),ch,font=fnt,fill=col)
++                xx+=d.textlength(ch,font=fnt)+5
++            im=Image.alpha_composite(im,layer)
++    if t>LEN-0.4:
++        fa=clamp((t-(LEN-0.4))/0.4,0,1)
++        im=Image.blend(im,Image.new('RGBA',(W,H),(0,0,0,255)),fa)
++    im.convert('RGB').save('frames/f%03d.png'%f)
++print('frames done')
++
++# ---------------- audio ----------------
++R=48000; total=np.zeros(int(R*LEN))
++rng=np.random.default_rng(7)
++def place(sig,t,gain=1.0):
++    i=int(t*R); n=min(len(sig),len(total)-i); total[i:i+n]+=sig[:n]*gain
++def lowpass(x,cut):
++    y=np.zeros_like(x); lp=0.0
++    for i in range(len(x)): lp+=(x[i]-lp)*cut; y[i]=lp
++    return y
++def reverb(x,secs=0.9,mix=0.28):
++    n=int(R*secs); ir=lowpass(rng.uniform(-1,1,n)*np.exp(-np.arange(n)/R*6.0),0.25)
++    ir/=np.sqrt((ir*ir).sum())
++    wet=np.fft.irfft(np.fft.rfft(x,len(x)+n)*np.fft.rfft(ir,len(x)+n))[:len(x)]
++    wet*=np.abs(x).max()/max(1e-9,np.abs(wet).max())
++    return x*(1-mix)+wet*mix
++_PU=None
++def boing(strength=1.0, pitch=1.0):
++    # Bob's Pickup.wav: a rising square-wave 'bwoop'. Smaller bounces play it a little higher.
++    global _PU
++    if _PU is None:
++        w=wave.open(''+os.path.join(os.path.dirname(os.path.abspath(__file__)),'Pickup.wav')+'')
++        raw=np.frombuffer(w.readframes(w.getnframes()),np.int16).astype(float)/32768
++        raw=raw.reshape(-1,w.getnchannels()).mean(1)
++        src_r=w.getframerate()
++        _PU=(raw-raw.mean(),src_r)
++    raw,src_r=_PU
++    n=int(len(raw)*R/src_r/pitch)
++    pos=np.arange(n)*src_r*pitch/R
++    sig=np.interp(pos,np.arange(len(raw)),raw)
++    t=np.arange(n)/R
++    thud=np.sin(np.cumsum(50+120*np.exp(-t*30))/R*2*np.pi)*np.exp(-t*24)*np.minimum(1,t*900)*0.35
++    return (sig/np.abs(raw).max()+thud)*strength
++def whoosh_rise(dur):
++    n=int(R*dur); x=rng.uniform(-1,1,n); out=np.zeros(n); lp=0.0
++    for i in range(n):
++        u=i/n; lp+=(x[i]-lp)*(0.01+0.5*u*u); out[i]=lp*(u**1.6)*1.8
++    return out
++def impact():
++    # big logo hit: sub drop + snappy kick + crack + crash wash
++    n=int(R*1.6); t=np.arange(n)/R
++    sub=np.sin(np.cumsum(38+150*np.exp(-t*9))/R*2*np.pi)*np.exp(-t*3.2)*np.minimum(1,t*1200)
++    kick=np.sin(np.cumsum(60+400*np.exp(-t*60))/R*2*np.pi)*np.exp(-t*18)
++    crack=(rng.uniform(-1,1,n)-lowpass(rng.uniform(-1,1,n),0.1))*np.exp(-t*45)*0.8
++    wash=(rng.uniform(-1,1,n)-lowpass(rng.uniform(-1,1,n),0.35))*np.exp(-t*3.5)*0.22*np.minimum(1,t*80)
++    return sub*1.1+kick*0.9+crack+wash
++def chime():
++    return np.zeros(1)
++
++def choir(dur):
++    # a short 'Ahhhh' from a small choir: glottal-pulse voices on an A major chord,
++    # each doubled and detuned with its own vibrato, through 'ah' vowel formants
++    from scipy.signal import lfilter
++    n=int(R*dur); t=np.arange(n)/R
++    rng2=np.random.default_rng(11)
++    notes=[220.0,277.18,329.63,440.0,554.37]
++    src=np.zeros(n)
++    for f0 in notes:
++        for v in range(3):
++            det=1+rng2.uniform(-0.006,0.006)
++            vr=rng2.uniform(4.8,6.2); vd=0.006+0.004*rng2.random(); ph0=rng2.uniform(0,6.28)
++            vib=1+vd*np.sin(2*np.pi*vr*t+ph0)*np.minimum(1,t/0.35)       # vibrato grows in
++            ph=np.cumsum(f0*det*vib)/R
++            frac=ph-np.floor(ph)
++            pulse=np.where(frac<0.6,np.sin(np.pi*frac/0.6)**2,0.0)       # soft glottal pulse
++            src+=(pulse-pulse.mean())*(0.9 if f0<300 else 0.7)
++    src+=rng2.normal(0,1,n)*0.06                                         # breath
++    def reson(x,f,bw,g):
++        r=np.exp(-np.pi*bw/R); th=2*np.pi*f/R
++        return lfilter([1-r],[1,-2*r*np.cos(th),r*r],x)*g
++    out=reson(src,760,110,1.0)+reson(src,1150,130,0.55)+reson(src,2500,180,0.22)+reson(src,3400,250,0.08)
++    # swell in, hold, gentle tail
++    att=np.minimum(1,t/0.22)**1.5
++    rel=np.clip((dur-t)/0.6,0,1)
++    out*=att*rel
++    return out/np.abs(out).max()
++for k,tt in enumerate([0.36*SLOW,0.66*SLOW,0.84*SLOW]): place(boing([1.0,0.78,0.6][k],[1.0,1.12,1.25][k]),tt)
++land=TXT_T+TXT_IN*0.62
++place(whoosh_rise(0.5),land-0.5,0.55)
++place(impact(),land)
++place(choir(LEN-(TXT_T+0.68)),TXT_T+0.68,1.0)
++total=reverb(total)
++fade=np.ones_like(total); fs=int(R*(LEN-0.3)); fade[fs:]=np.linspace(1,0,len(total)-fs); total*=fade
++total=np.tanh(total/max(1e-6,np.abs(total).max())*1.4)/np.tanh(1.4)*0.9
++st=np.stack([total,total],1)
++with wave.open('intro.wav','wb') as w:
++    w.setnchannels(2); w.setsampwidth(2); w.setframerate(R)
++    w.writeframes((st*32767).astype(np.int16).tobytes())
++print('audio done')
+diff --git a/tools/linux_test/run.sh b/tools/linux_test/run.sh
+new file mode 100755
+index 0000000..5ea825b
+--- /dev/null
++++ b/tools/linux_test/run.sh
+@@ -0,0 +1,11 @@
++#!/bin/bash
++# usage: run.sh adf model secs out.png
++pkill -x fs-uae; pkill -x Xvfb; sleep 0.5
++Xvfb :99 -screen 0 1024x768x24 >/dev/null 2>&1 &
++sleep 1
++export DISPLAY=:99 SDL_AUDIODRIVER=dummy
++mkdir -p /tmp/fsuae
++fs-uae --amiga_model=$2 --floppy_drive_0=$1 --fullscreen=0 --window_width=760 --window_height=600 --base_dir=/tmp/fsuae --floppy_drive_speed=0 --automatic_input_grab=0 --audio_driver=null $5 >/tmp/fsuae.log 2>&1 &
++sleep $3
++xwd -root -silent | convert xwd:- $4
++pkill -x fs-uae; pkill -x Xvfb
+diff --git a/tools/linux_test/runflow.sh b/tools/linux_test/runflow.sh
+new file mode 100755
+index 0000000..eb518d3
+--- /dev/null
++++ b/tools/linux_test/runflow.sh
+@@ -0,0 +1,13 @@
++#!/bin/bash
++pkill -x fs-uae; pkill -x Xvfb; sleep 0.5
++Xvfb :99 -screen 0 1024x768x24 >/dev/null 2>&1 &
++sleep 1
++export DISPLAY=:99
++fs-uae --amiga_model=A600 --floppy_drive_0=$1 --fullscreen=0 --window_width=760 --window_height=600 --base_dir=/tmp/fsuae --floppy_drive_speed=0 --automatic_input_grab=0 --joystick_port_1=keyboard --audio_driver=null >/tmp/fsuae.log 2>&1 &
++sleep 24
++W=$(xdotool search --name "FS-UAE" | head -1); xdotool windowactivate $W 2>/dev/null; xdotool windowfocus $W
++shot(){ xwd -root -silent | convert xwd:- -crop 760x600+132+84 -resize 50% fl_$1.png; }
++fire(){ xdotool keydown Control_R; sleep 0.2; xdotool keyup Control_R; }
++shot 1; fire; sleep 2.5; shot 2; fire; sleep 2.5; shot 3
++xdotool keydown Right; sleep 1.0; shot 4; fire; sleep 0.25; shot 5; sleep 1; xdotool keyup Right; shot 6
++pkill -x fs-uae; pkill -x Xvfb
+diff --git a/tools/linux_test/runkeys.sh b/tools/linux_test/runkeys.sh
+new file mode 100755
+index 0000000..4881c96
+--- /dev/null
++++ b/tools/linux_test/runkeys.sh
+@@ -0,0 +1,14 @@
++#!/bin/bash
++pkill -x fs-uae; pkill -x Xvfb; sleep 0.5
++Xvfb :99 -screen 0 1024x768x24 >/dev/null 2>&1 &
++sleep 1
++export DISPLAY=:99 SDL_AUDIODRIVER=dummy
++fs-uae --amiga_model=$2 --floppy_drive_0=$1 --fullscreen=0 --window_width=760 --window_height=600 --base_dir=/tmp/fsuae --floppy_drive_speed=0 --automatic_input_grab=0 --joystick_port_1=keyboard >/tmp/fsuae.log 2>&1 &
++sleep 16
++W=$(xdotool search --name "FS-UAE" | head -1); xdotool windowactivate $W 2>/dev/null; xdotool windowfocus $W
++xwd -root -silent | convert xwd:- before.png
++xdotool keydown Left; sleep 1.5; xdotool keyup Left
++xdotool keydown Up; sleep 1; xdotool keyup Up
++sleep 0.5
++xwd -root -silent | convert xwd:- after.png
++pkill -x fs-uae; pkill -x Xvfb
+diff --git a/tools/linux_test/runseq.sh b/tools/linux_test/runseq.sh
+new file mode 100755
+index 0000000..1708300
+--- /dev/null
++++ b/tools/linux_test/runseq.sh
+@@ -0,0 +1,12 @@
++#!/bin/bash
++pkill -x fs-uae; pkill -x Xvfb; sleep 0.5
++Xvfb :99 -screen 0 1024x768x24 >/dev/null 2>&1 &
++sleep 1
++export DISPLAY=:99
++fs-uae --amiga_model=A600 --floppy_drive_0=$1 --fullscreen=0 --window_width=760 --window_height=600 --base_dir=/tmp/fsuae --floppy_drive_speed=0 --automatic_input_grab=0 --joystick_port_1=keyboard --audio_driver=null >/tmp/fsuae.log 2>&1 &
++sleep 21
++W=$(xdotool search --name "FS-UAE" | head -1); xdotool windowactivate $W 2>/dev/null; xdotool windowfocus $W
++xdotool keydown Right
++for i in $(seq -w 1 40); do xwd -root -silent | convert xwd:- -crop 760x600+132+84 -resize 40% sq_$i.png; sleep 0.12; done
++xdotool keyup Right
++pkill -x fs-uae; pkill -x Xvfb
+diff --git a/tools/reference/adf_reference.py b/tools/reference/adf_reference.py
+new file mode 100644
+index 0000000..5472718
+--- /dev/null
++++ b/tools/reference/adf_reference.py
+@@ -0,0 +1,200 @@
++# ADAM reference ADF builder.
++# A Python copy of scripts/scr_adf (adam_data_block + build_adf). Keep the two in step:
++# any change to the data layout must be made in engine.s, scr_adf.gml AND here.
++# Run directly to build a small self-test disk: python adf_reference.py [aga]
++import struct, math, random, sys
++import os
++HERE=os.path.dirname(os.path.abspath(__file__))
++REPO=os.path.abspath(os.path.join(HERE,'..','..'))
++ENGINE_DIR=os.path.join(REPO,'datafiles','engine')
++ENGINE=open(os.path.join(ENGINE_DIR,'engine.bin'),'rb').read()
++BOOT=open(os.path.join(ENGINE_DIR,'boot.bin'),'rb').read()
++
++def build(proj, aga):
++    depth=proj['depth']; ncol=1<<depth
++    actors=proj['actors']; rules=proj['rules']
++    blob=bytearray()
++    def align(n):
++        while len(blob)%n: blob.append(0)
++    blob+= b'\0'*80
++    align(8)
++    off_pal=len(blob)
++    for i in range(ncol):
++        blob+=struct.pack('>L',proj['pal'][i] if i<len(proj['pal']) else 0)
++    align(8)
++    off_planes=len(blob)
++    px=proj['pixels']
++    for p in range(depth):
++        for y in range(256):
++            for xb in range(40):
++                v=0
++                for b in range(8):
++                    if (px[y*320+xb*8+b]>>p)&1: v|=128>>b
++                blob.append(v)
++    align(8)
++    # sprite blocks
++    spr_offs=[]; spr2_offs=[]
++    def sblock(img):
++        align(8); o=len(blob)
++        blob.extend(b'\0\0\0\0')
++        for y in range(24):
++            w0=w1=0
++            for x in range(16):
++                v=img[y*16+x]
++                if v&1: w0|=0x8000>>x
++                if v&2: w1|=0x8000>>x
++            blob.extend(struct.pack('>HH',w0,w1))
++        blob.extend(b'\0\0\0\0'); return o
++    for a in actors:
++        spr_offs.append(sblock(proj['sprites'][a['sprite']]['px']))
++        if a.get('anim',-1)>=0: spr2_offs.append(sblock(proj['sprites'][a['anim']]['px']))
++        else: spr2_offs.append(0)
++    align(8)
++    off_act=len(blob)
++    for i,a in enumerate(actors):
++        img=proj['sprites'][a['sprite']]['px']
++        xs=[x for y in range(24) for x in range(16) if img[y*16+x]]
++        ys=[y for y in range(24) for x in range(16) if img[y*16+x]]
++        bx0,bx1=(min(xs),max(xs)) if xs else (0,15)
++        by0,by1=(min(ys),max(ys)) if ys else (0,23)
++        blob+=struct.pack('>HHHHHHHHHHHL',a['x'],a['y'],a['role'],a['speed'],int(a['visible']),int(a['left']),int(a['up']),bx0,by0,bx1,by1,spr_offs[i])
++        blob+=struct.pack('>HLHHHH',a.get('chan',i),spr2_offs[i],a.get('rate',8),a.get('amode',0),a.get('from',1),a.get('fast',0))+b'\0'*8
++    align(8)
++    off_rules=len(blob)
++    for r in rules:
++        blob+=struct.pack('>HHHHHHHH',r['when'],r['a'],r['b'],r['n'],r['act'],r['target'],r['value'],0)
++    align(8)
++    off_sprcol=len(blob)
++    for pair in range(4):
++        cols=[0,0,0]
++        for k,a in enumerate(actors):
++            if a.get('chan',k)//2==pair:
++                cols=proj['sprites'][a['sprite']]['cols']; break
++        for c in cols: blob+=struct.pack('>L',c)
++    def text(s):
++        o=len(blob); blob.extend(s.upper().encode('ascii','replace')[:40]+b'\0'); return o
++    off_over=text(proj['over']); off_win=text(proj['win'])
++    align(8)
++    # sounds
++    sfx_entries=[]
++    samples=[]
++    for s in proj['sfx']:
++        align(8)
++        o=len(blob); data=render_sfx(s)
++        if len(data)%2: data+=b'\0'
++        blob+=data; sfx_entries.append((o,len(data)//2))
++    align(8)
++    off_sfx=len(blob)
++    for o,l in sfx_entries: blob+=struct.pack('>LHH',o,l,0)
++    align(8)
++    off_grad=0
++    if proj.get('grad'):
++        off_grad=len(blob)
++        for c in proj['grad']: blob+=struct.pack('>H',c)
++    align(8)
++    off_ground=0
++    if proj.get('ground'):
++        off_ground=len(blob)
++        for c in proj['ground']: blob+=struct.pack('>H',c)
++    align(8)
++    off_game=0
++    g=proj.get('game')
++    if g:
++        off_game=len(blob)
++        def fixed(t,n):
++            b=t.upper().encode('ascii','replace')[:n-1]; return b+b'\0'*(n-len(b))
++        blob.extend(struct.pack('>HHHHHHHH',len(g['levels']),1 if g['terrain'] else 0,*g['cols'],g['goal'],1 if g['title'] else 0))
++        blob.extend(fixed(g['label'],8)+fixed(g['title1'],40)+fixed(g['title2'],40)+fixed(g['levtxt'],16))
++        for lv in g['levels']:
++            for h in lv: blob.extend(struct.pack('>H',h))
++    align(8)
++    off_work=len(blob)
++    blob+=b'\0'*(depth*10240)
++    align(8)
++    off_disp=len(blob)
++    blob+=b'\0'*(depth*10240)
++    player=-1
++    for i,a in enumerate(actors):
++        if a['role'] in (0,6): player=i; break
++    hdr=struct.pack('>4sHHHHHHHHHHHH',b'ADAM',1,1 if aga else 0,depth,len(actors),len(rules),proj['lives'],
++                    int(proj['show_score']),int(proj['show_lives']),proj['hud_row'],proj['hud_col'],proj['msg_col'],player & 0xffff)+struct.pack('>L',off_game)
++    hdr+=struct.pack('>LLLLLLLLLLLL',off_pal,off_planes,off_act,off_rules,off_sfx,off_over,off_win,off_sprcol,off_disp,off_grad,off_ground,off_work)
++    blob[0:80]=hdr
++    return bytes(blob)
++
++def render_sfx(s):
++    rate=3546895/322
++    atk_ms=[2,8,16,24,38,56,68,80,100,250,500,800,1000,3000,5000,8000]
++    dr_ms=[6,24,48,72,114,168,204,240,300,750,1500,2400,3000,9000,15000,24000]
++    gate=s['len']/50; rel=min(dr_ms[s['rel']]/1000,1.5); total=min(gate+rel,1.5)
++    n=int(total*rate); out=bytearray(); ph=0; hi=s['pitch']; frame=0; noise=0; lq=0; env=0; rs=0
++    atk=max(.001,atk_ms[s['atk']]/1000); dec=max(.001,dr_ms[s['dec']]/1000); sus=s['sus']/15; rl=max(.001,dr_ms[s['rel']]/1000)
++    rnd=12345
++    for i in range(n):
++        t=i/rate; f=int(i/(rate/50))
++        if f!=frame:
++            frame=f
++            if t<gate: hi=(hi+s['sweep']+256)%256
++        hz=(hi*256)*985248/16777216
++        ph+=hz/rate; ph-=math.floor(ph)
++        w=s['wave']
++        if w==0: v=1-4*abs(ph-.5)
++        elif w==1: v=ph*2-1
++        elif w==2: v=1 if ph<.5 else -1
++        else:
++            q=int(ph*4)
++            if q!=lq:
++                rnd=(rnd*1103515245+12345)&0x7fffffff; noise=(rnd/0x3fffffff)-1; lq=q
++            v=noise
++        if t<gate:
++            env= t/atk if t<atk else sus+(1-sus)*max(0,1-(t-atk)/dec); rs=env
++        else: env=rs*max(0,1-(t-gate)/rl)
++        out.append(int(round(max(-1,min(1,v*env*0.9))*127))&255)
++    return out
++
++def adf(game):
++    size=(len(game)+511)//512*512
++    boot=bytearray(1024); boot[:len(BOOT)]=BOOT
++    struct.pack_into('>L',boot,len(BOOT)-4,size)
++    s=0
++    for i in range(256):
++        if i==1: continue
++        s+=struct.unpack_from('>L',boot,i*4)[0]
++        if s>0xffffffff: s=(s&0xffffffff)+1
++    struct.pack_into('>L',boot,4,(~s)&0xffffffff)
++    img=bytearray(901120); img[:1024]=boot; img[1024:1024+len(game)]=game
++    return bytes(img)
++
++def test_project():
++    px=[0]*(320*256)
++    for y in range(256):
++        for x in range(320):
++            v=1+((y//16)%7)
++            if 40<x<280 and 100<y<160: v=8+((x//20)%7)
++            px[y*320+x]=v
++    pal=[0x000022,0x223366,0x334488,0x4455aa,0x5566cc,0x6677dd,0x7788ee,0x8899ff,0xff4444,0xffaa22,0xffff44,0x44ff44,0x44ffff,0x8888ff,0xff88ff,0xffffff]
++    def spr(fn,cols):
++        return {'px':[fn(x,y) for y in range(24) for x in range(16)],'cols':cols}
++    hero=spr(lambda x,y: (1 if (x-7.5)**2+(y-11.5)**2<50 else 0) + (2 if abs(x-7.5)<2 and abs(y-8)<2 else 0),[0xffee00,0x000000,0xffffff])
++    ghost=spr(lambda x,y: (3 if (x-7.5)**2+(y-11.5)**2<40 else 0),[0xff0000,0x00ff00,0xff66ff])
++    gem=spr(lambda x,y: (2 if abs(x-7.5)+abs(y-11.5)<7 else 0),[0x00ffff,0x00ffff,0x00ffff])
++    actors=[dict(x=150,y=200,role=0,speed=2,visible=1,left=0,up=0,sprite=0),
++            dict(x=20,y=30,role=4,speed=1,visible=1,left=0,up=0,sprite=1,chan=2),
++            dict(x=250,y=60,role=1,speed=2,visible=1,left=1,up=0,sprite=1,chan=3),
++            dict(x=100,y=120,role=5,speed=1,visible=1,left=0,up=0,sprite=2,chan=4)]
++    rules=[dict(when=0,a=0,b=1,n=1,act=1,target=0,value=0),dict(when=0,a=0,b=1,n=1,act=4,target=0,value=0),
++           dict(when=0,a=0,b=3,n=1,act=0,target=0,value=10),dict(when=0,a=0,b=3,n=1,act=5,target=3,value=0),
++           dict(when=0,a=0,b=3,n=1,act=2,target=0,value=0),dict(when=4,a=0,b=0,n=1,act=9,target=0,value=0),
++           dict(when=2,a=0,b=0,n=3,act=3,target=0,value=0),dict(when=3,a=0,b=0,n=50,act=10,target=0,value=0)]
++    sfx=[dict(wave=2,pitch=60,sweep=6,len=8,atk=0,dec=6,sus=0,rel=4)]*8
++    return dict(depth=4,pal=pal,pixels=px,sprites=[hero,ghost,gem],actors=actors,rules=rules,sfx=sfx,lives=3,
++                show_score=1,show_lives=1,hud_row=0,hud_col=15,msg_col=10,over='GAME OVER - PRESS FIRE',win='YOU WIN')
++
++if __name__=='__main__':
++    os.makedirs(os.path.join(HERE,'out'),exist_ok=True)
++    aga = len(sys.argv)>1 and sys.argv[1]=='aga'
++    p=test_project()
++    data=build(p,aga)
++    game=ENGINE+data
++    open(os.path.join(HERE,'out','test.adf'),'wb').write(adf(game))
++    print('game bytes',len(game))
+diff --git a/tools/reference/art.py b/tools/reference/art.py
+new file mode 100644
+index 0000000..ef7594d
+--- /dev/null
++++ b/tools/reference/art.py
+@@ -0,0 +1,403 @@
++# 16 x 24 sprite art for the example games: '.' clear, '1' '2' '3' sprite colours
++# 16 x 24 sprite art: '.' clear, '1' '2' '3' colours
++A={}
++A['diver']=[
++"................",
++"......2222......",
++".....211112.....",
++"....21333312....",
++"....21333312....",
++"....21333312....",
++".....211112.....",
++"......2112......",
++"....22111122....",
++"...2111111112...",
++"..21112112111...",
++"..2112111121122.",
++"..22.2111112.22.",
++".....2111112....",
++".....2112112....",
++".....2112112....",
++".....211.112....",
++".....211.112....",
++".....211.112....",
++"....2211.1122...",
++"...222...2222...",
++"..222.....222...",
++"................",
++"................"]
++A['diver2']=[r for r in A['diver'][:16]]+[
++".....211.112....",
++"....211...112...",
++"....211...112...",
++"...2211...1122..",
++"..222.......222.",
++".222.........222",
++"................",
++"................"]
++A['jelly']=[
++"................",
++"................",
++".....333333.....",
++"...3311111133...",
++"..311111111113..",
++"..311121121113..",
++".31111111111113.",
++".31111111111113.",
++".32222222222223.",
++"..2.2.2..2.2.2..",
++"..2.2.2..2.2.2..",
++"..2..2.2.2..2...",
++"...2.2.2.2.2....",
++"...2..2..2..2...",
++"..2...2..2...2..",
++"..2..2....2..2..",
++"...2.2....2.2...",
++"...2..2..2..2...",
++"....2.2..2.2....",
++"....2..22..2....",
++"................",
++"................",
++"................",
++"................"]
++A['jelly2']=A['jelly'][:9]+[
++"...2.2.22.2.2...",
++"...2.2.2..2.2...",
++"..2.2.2..2.2.2..",
++"..2.2..2.2..2...",
++".2..2..2..2..2..",
++".2..2.2....2..2.",
++"..2..2.2..2..2..",
++"..2..2..2.2..2..",
++"...2.2..2..2.2..",
++"...2..2.2..2....",
++"................",
++"................",
++"................",
++"................",
++"................"]
++A['shark']=[
++"................",
++"................",
++"................",
++"................",
++"................",
++"......2.........",
++".....22.........",
++"....222.........",
++"...22222........",
++"..2222222222...2",
++".2222222222222.2",
++"22232222222222222"[:16],
++"2222222222222222",
++"2333333333332222",
++".333333333333.22",
++"..33333333333..2",
++"....3333..33...2",
++"......33........",
++"................",
++"................",
++"................",
++"................",
++"................",
++"................"]
++A['shark2']=[r[:13]+"..." for r in A['shark']]
++A['shark2'][8]="...22222.......2"
++A['shark2'][9]="..2222222222..2."
++A['shark2'][10]=".2222222222222.."
++A['shark2'][11]="2223222222222222"
++A['shark2'][12]="2222222222222222"
++A['shark2'][13]="2333333333332222"
++A['shark2'][14]=".33333333333332.."[:16]
++A['shark2'][15]="..33333333333.2."
++A['shark2'][16]="....3333..33..2."
++A['pearl']=["................"]*7+[
++"......2222......",
++"....22111122....",
++"...2113311112...",
++"...2133111112...",
++"..211311111112..",
++"..211111111112..",
++"..211111111112..",
++"...2111111112...",
++"...2111111112...",
++"....22111122....",
++"......2222......"]+["................"]*6
++A['pearl2']=list(A['pearl'])
++A['pearl2'][6]=".......3........"
++A['pearl2'][5]=".......3........"
++A['pearl2'][9]="...21133311123.."[:16]
++A['pearl2'][8]="....22111122.33."
++A['ship']=[
++"................",
++".......22.......",
++"......2112......",
++"......2112......",
++".....211112.....",
++".....213312.....",
++".....233332.....",
++".....213312.....",
++"....21111112....",
++"....21111112....",
++"...2111221112...",
++"..211112211112..",
++".21111222211112.",
++".21112.22.21112.",
++".2112..22..2112.",
++".222...22...222.",
++"................",
++"......3333......",
++".......33.......",
++"................",
++"................",
++"................",
++"................",
++"................"]
++A['ship2']=A['ship'][:16]+[
++"......3333......",
++".....333333.....",
++"......3333......",
++".......33.......",
++".......33.......",
++"................",
++"................",
++"................"]
++A['rock']=["................"]*4+[
++"......22222.....",
++"....221111122...",
++"...21113111112..",
++"..2111111112112.",
++"..2112111111112.",
++".21111111311112.",
++".21111111111112.",
++".21131111111122.",
++".2111111121112..",
++"..211211111112..",
++"..2111111131112.",
++"...21111111112..",
++"....222111122...",
++"......22222.....",
++]+["................"]*6
++A['rock2']=["................"]*4+[
++".....22222......",
++"...221111122....",
++"..21111111312...",
++".2112111111112..",
++".2111111121112..",
++".21111311111112.",
++".21111111111112.",
++".2211111111112..",
++"..2111211111112.",
++"..211111113112..",
++".2111311111112..",
++"..21111111112...",
++"...221111222....",
++".....22222......",
++]+["................"]*6
++A['ufo']=["................"]*5+[
++"......2222......",
++".....233332.....",
++"....23333332....",
++"..222222222222..",
++".21111111111112.",
++"2113113113113112",
++".21111111111112.",
++"..222222222222..",
++".....2....2.....",
++"....2......2....",
++]+["................"]*9
++A['ufo2']=list(A['ufo'])
++A['ufo2'][10]="2111311311311312"
++A['star']=["................"]*5+[
++".......22.......",
++".......22.......",
++"......2112......",
++"......2112......",
++"2222221111222222",
++".21111133111112.",
++"..211113311112..",
++"...2111111112...",
++"...2111111112...",
++"..211112211112..",
++"..21122..22112..",
++".2122......2212.",
++".22..........22.",
++]+["................"]*6
++A['star2']=list(A['star'])
++A['star2'][3]=".......3........"
++A['star2'][4]=".......3........"
++A['star2'][19]="...............3"
++A['blob']=["................"]*4+[
++".....222222.....",
++"...2211111122...",
++"..211111111112..",
++".21113111131112.",
++".21133111133112.",
++".21111111111112.",
++"2111111111111112",
++"2111211111121112",
++"2111122222211112",
++"2111111111111112",
++".21111111111112.",
++".21111111111112.",
++"..211111111112..",
++"...2211111122...",
++"....2222222.....",
++"...22......22...",
++]+["................"]*4
++A['blob2']=["................"]*6+[
++"....22222222....",
++"..221111111122..",
++".21113111131112.",
++"2113311111331112",
++"2111111111111112",
++"2111211111121112",
++"2111122222211112",
++"2111111111111112",
++"2111111111111112",
++".21111111111112.",
++"..222222222222..",
++".22..........22.",
++]+["................"]*6
++A['ball']=["................"]*4+[
++".....222222.....",
++"...2211111122...",
++"..213311111112..",
++".2133111111112..",
++".21311111111112.",
++"2111111111111112",
++"2111111111111112",
++"2111111111111112",
++"2111111111111112",
++".21111111111112.",
++".21111111111122.",
++"..211111111122..",
++"...2211111222...",
++".....222222.....",
++]+["................"]*6
++A['ball2']=list(A['ball'])
++A['ball2'][6]="..211111111112.."
++A['ball2'][7]=".2111111111112.."
++A['ball2'][8]=".21111111113312."
++A['ball2'][9]="2111111111133112"
++A['ball2'][10]="2111111111111312"
++A['gem']=["................"]*5+[
++"....22222222....",
++"...2333333332...",
++"..233113311332..",
++".21111111111112.",
++"..211111111112..",
++"...2111111112...",
++"....21111112....",
++".....211112.....",
++"......2112......",
++".......22.......",
++]+["................"]*9
++A['gem2']=list(A['gem'])
++A['gem2'][3]="..3.........3..."
++A['gem2'][4]="...3.......3...."
++for k,v in A.items():
++    assert len(v)==24,(k,len(v))
++    for r in v: assert len(r)==16,(k,r,len(r))
++def px(name):
++    return [int(c) if c in '123' else 0 for r in A[name] for c in r]
++A['hop']=["................"]*10+[
++".....222222.....",
++"...2211111122...",
++"..211311113112..",
++".21133111133112.",
++".21111111111112.",
++"2111111111111112",
++"2111112222111112",
++"2111111111111112",
++".21111111111112.",
++"..222222222222..",
++".22..........22.",
++"222..........222",
++"................",
++"................"]
++A['hop2']=["................"]*3+[
++"......2222......",
++"....22111122....",
++"...2113113112...",
++"..211331133112..",
++"..211111111112..",
++"..211111111112..",
++"..211122221112..",
++"..211111111112..",
++"...2111111112...",
++"...2111111112...",
++"....21111112....",
++".....222222.....",
++"......2..2......",
++".....2....2.....",
++"....2......2....",
++"...22......22...",
++"................",
++"................",
++"................",
++"................",
++"................"]
++A['cloud']=[
++"................",
++"......3333......",
++"....33111133....",
++"...3111111113...",
++".33111111111133.",
++"3111111111111113",
++"3111111111111113",
++"3112111111121113",
++".31222222222213.",
++"..322222222223..",
++"...3333333333...",
++"................",
++"................",
++"................",
++"................",
++"................",
++"................",
++"................",
++"................",
++"................",
++"................",
++"................",
++"................",
++"................"]
++A['cloud2']=list(A['cloud'])
++A['cloud2'][0]=".......33......."
++A['cloud2'][1]=".....331133....."
++for k in ('hop','hop2','cloud','cloud2'):
++    assert len(A[k])==24,(k,len(A[k]))
++    for r in A[k]: assert len(r)==16,(k,r)
++A['pop']=["................"]*4+[
++"................",
++".......3........",
++"...3...3...3....",
++"....3..3..3.....",
++".....3.1.3......",
++"......111.......",
++"..33311111333...",
++"......111.......",
++".....3.1.3......",
++"....3..3..3.....",
++"...3...3...3....",
++".......3........",
++]+["................"]*8
++A['pop2']=["................"]*3+[
++"..3....3....3...",
++"...3...3...3....",
++"....2..1..2.....",
++"......111.......",
++".3..2111112..3..",
++"..2111111111112.",
++"3311111111111133",
++"..2111111111112.",
++".3..2111112..3..",
++"......111.......",
++"....2..1..2.....",
++"...3...3...3....",
++"..3....3....3...",
++]+["................"]*8
++for k in ('pop','pop2'):
++    assert len(A[k])==24,(k,len(A[k]))
++    for r in A[k]: assert len(r)==16,(k,r)
+diff --git a/tools/reference/gen_examples.py b/tools/reference/gen_examples.py
+new file mode 100644
+index 0000000..d46444c
+--- /dev/null
++++ b/tools/reference/gen_examples.py
+@@ -0,0 +1,395 @@
++# Generates the four example projects (datafiles/examples/*.adam) plus test ADFs and previews in tools/reference/out.
++# Usage: python gen_examples.py
++import json, math, random, struct, sys, os
++from PIL import Image, ImageDraw
++import art
++from adf_reference import build, adf, ENGINE, ENGINE_DIR, HERE, REPO
++
++W,H=320,256
++def gun(v): return round(v/17)*17
++def q(c): return (gun((c>>16)&255)<<16)|(gun((c>>8)&255)<<8)|gun(c&255)
++
++def palette_default():
++    p=[0x000000,0xffffff,0x0055aa,0xff8800,0x1a2a4a,0x33598c,0x5c9cd6,0xa8d8ff,0x1e4a1e,0x3f8a2e,0x7acc44,0x6a4426,0xb07a45,0xdd3322,0xffdd33,0x8a8a8a]
++    import colorsys
++    for i in range(16,128):
++        k=i-16; hue=(k%16)*16/255; row=k//16
++        sat,val=[(255,255),(170,255),(90,255),(255,190),(255,120),(140,140),(0,(k%16)*17)][row]
++        r,g,b=colorsys.hsv_to_rgb(hue,sat/255,val/255)
++        p.append((int(r*255)<<16)|(int(g*255)<<8)|int(b*255))
++    return p
++
++PRESETS=[[2,60,6,8,0,6,0,4],[1,120,-8,12,0,8,0,6],[3,40,-1,25,0,10,0,9],[0,30,4,14,0,7,4,5],[3,14,0,6,0,5,0,3],[2,40,3,30,2,6,8,6],[0,50,-2,30,0,9,6,8],[2,90,0,3,0,3,0,2]]
++NAMES=["Coin","Laser","Explosion","Jump","Hit","Power up","Lose","Blip"]
++def sfx_list(over=None):
++    out=[]
++    for i,p in enumerate(PRESETS):
++        d=dict(name=NAMES[i],kind=0,wave=p[0],pitch=p[1],sweep=p[2],len=p[3],atk=p[4],dec=p[5],sus=p[6],rel=p[7],
++               smp="",smp_rate=0,smp_len=0,smp_file="",rate=11025,bits=8,gain=100,trim_a=0,trim_b=1000)
++        if over and i in over: d.update(over[i])
++        out.append(d)
++    return out
++
++FONT=[]
++import re
++FONT=[int(v,16) for v in re.findall(r'\$([0-9a-f]{2})',open(os.path.join(ENGINE_DIR,'font.inc')).read())]
++def text(px,s,x,y,c):
++    for i,ch in enumerate(s.upper()):
++        o=ord(ch)
++        if o<32 or o>95: o=32
++        for r in range(8):
++            b=FONT[(o-32)*8+r]
++            for k in range(8):
++                if b&(128>>k):
++                    xx=x+i*8+k; yy=y+r
++                    if 0<=xx<W and 0<=yy<H: px[yy*W+xx]=c
++
++def actor(name,sprite,role,speed,x,y,anim=-1,rate=8,moving=False,vis=True,left=False,up=False):
++    return dict(name=name,sprite=sprite,role=role,speed=speed,x=x,y=y,visible=vis,start_left=left,start_up=up,anim_sprite=anim,anim_rate=rate,anim_moving=moving,from_level=1,faster_every=0)
++def R(when=0,a=0,b=1,n=1,act=0,target=0,value=10): return dict(when=when,a=a,b=b,n=n,act=act,target=target,value=value,group=-1)
++
++def auto_groups(p):
++    names=p['actors']
++    def key(r):
++        if p['name']=="Gem Hunter":
++            if r['when']==0 and r['b'] in (1,2,3,4): return "Hoppers hit the hero"
++            if r['when']==0: return "Collecting gems"
++            if r['when']==6: return "Jump sounds"
++            return "Game and level flow"
++        if r['when']==0:
++            tgt=names[r['b']]['name'] if r['b']<len(names) else "?"
++            return names[r['a']]['name']+" touches "+tgt
++        if r['when'] in (1,6): return "Controls and sounds"
++        if r['when']==2: return "Timers"
++        return "Game flow"
++    order=[]; 
++    for r in p['rules']:
++        k=key(r)
++        if k not in order: order.append(k)
++    p['groups']=[dict(name=k,collapsed=False,enabled=True) for k in order]
++    for r in p['rules']: r['group']=order.index(key(r))
++    p['rules']=sorted(p['rules'],key=lambda r:r['group'])
++
++def make_project(name,pal16,img,sprites,actors,rules,sky,hud_col=1,msg_col=14,lives=3,over="GAME OVER - PRESS FIRE",win="YOU WIN! - PRESS FIRE",sfx=None):
++    pal=palette_default(); pal[:16]=pal16
++    spr=[]
++    for i in range(32):
++        if i<len(sprites):
++            n,a,cols=sprites[i]; spr.append(dict(name=n,px=art.px(a),cols=cols))
++        else: spr.append(dict(name="Sprite %d"%(i+1),px=[0]*384,cols=[0xffdd33,0xdd3322,0xffffff]))
++    return dict(version=1,name=name,machine="A500_600",depth=4,pal=pal,pixels=list(img.getdata()),sprites=spr,actors=actors,rules=rules,
++                sfx=sfx or sfx_list(),lives=lives,show_score=True,show_lives=True,hud_row=0,hud_colour=hud_col,msg_colour=msg_col,
++                over_text=over,win_text=win,solid=[0]*128,levels_on=False,levels=[],terrain_cols=[10,9,11,12],goal_on=False,goal=20,goal_label='GEMS',title_on=False,title1=name.upper(),title2='PRESS FIRE TO START',lev_text='LEVEL',sky_on=True,sky_top=sky[0],sky_mid=sky[1],sky_bot=sky[2],sky_mid_y=sky[3])
++
++def canvas(): return Image.new('P',(W,H),0)
++
++def terrain(seed, hilly, base):
++    st=[seed & 0x7fffffff]
++    def rnd():
++        st[0]=(st[0]*1103515245+12345) % 2147483648
++        return st[0]/2147483648
++    freqs=[(45,70),(20,30),(9,14)]; amps=[14,7,3]
++    terms=[]
++    for k in range(3):
++        f=1.0/(freqs[k][0]+rnd()*(freqs[k][1]-freqs[k][0])); ph=rnd()*6.283185307179586
++        terms.append((f,ph,amps[k]*hilly/100.0))
++    out=[]
++    for x in range(320):
++        y=base
++        for f,ph,a in terms: y+=math.sin(x*f+ph)*a
++        out.append(max(100,min(240,math.floor(y+0.5))))
++    return out
++
++# ------------------------------------------------------------------ GEM HUNTER
++def gem_hunter():
++    pal=[0x000000,0xffffff,0x1c4f9c,0xffb040,0x4a3a78,0x8a7ab8,0xe0e0ff,0xfff0b0,0x1e5a2a,0x3f9a2e,0x8adc4a,0x6a4426,0xb07a45,0xdd3322,0xffdd33,0x2e6e3a]
++    im=canvas(); d=ImageDraw.Draw(im)
++    d.ellipse([196,60,260,124],fill=3); d.ellipse([208,72,248,112],fill=7)   # sun
++    for x in range(320):                                                     # far mountains
++        y=int(130-abs(((x+40)%110)-55)*1.1-10*math.sin(x/17))
++        d.line([(x,y),(x,255)],fill=4)
++        if y<94: d.line([(x,y),(x,min(94,y+6))],fill=6)
++    for x in range(320):                                                     # distant green hills
++        y=int(150+math.sin(x/23)*8+math.sin(x/9)*3)
++        d.line([(x,y),(x,255)],fill=15)
++    rnd=random.Random(3)
++    for t in range(12):                                                      # far trees
++        x=rnd.randint(8,310); base=int(150+math.sin(x/23)*8+math.sin(x/9)*3)+3
++        d.polygon([(x,base-12),(x-4,base),(x+4,base)],fill=8)
++    d.rectangle([0,0,319,11],fill=2)
++    hero_cols=[0xffd23a,0x3a2410,0xffffff]; hop_cols=[0xff5060,0x601020,0xffffff]; cloud_cols=[0xffffff,0xa8b8d0,0xd8e4f4]
++    def grid(fn): return ["".join(".123"[fn(x,y)] for x in range(16)) for y in range(24)]
++    def hero(x,y):
++        v=1 if math.hypot(x-7.5,y-9.5)<=7.4 else 0
++        if x in(5,10) and y in(7,8): v=2
++        if y==12 and 5<=x<=10: v=2
++        if y==11 and x in(4,11): v=2
++        if x in(5,10) and y==6: v=3
++        if 17<=y<=22 and x in(5,6,9,10): v=2
++        return v
++    def hero2(x,y):
++        v=hero(x,y)
++        if 17<=y<=22 and x in(5,6,9,10): v=1 if math.hypot(x-7.5,y-9.5)<=7.4 else 0
++        if 17<=y<=22 and ((x in(4,5) and y<21) or (x in(10,11) and y<21) or (y>=21 and x in(3,4,11,12))): v=2
++        return v
++    art.A['gh_hero']=grid(hero); art.A['gh_hero2']=grid(hero2)
++    # the gem shares the hero's colour pair (gold), so 4 hoppers still fit the 8 hardware sprites
++    sprites=[("Hero","gh_hero",hero_cols),("Hopper","hop2",hop_cols),("Gem","gem",hero_cols),("Cloud","cloud",cloud_cols),
++             ("Hero walk","gh_hero2",hero_cols),("Hopper squat","hop",hop_cols),("Gem sparkle","gem2",hero_cols),("Cloud puff","cloud2",cloud_cols),
++             ("Pop","pop",cloud_cols),("Pop big","pop2",cloud_cols)]
++    def hop(name,x,frm,left=False):
++        a=actor(name,1,7,1,x,120,5,10,left=left); a['from_level']=frm; a['faster_every']=3; return a
++    actors=[actor("Hero",0,6,2,24,120,4,6,True),
++            hop("Hopper A",170,1),hop("Hopper B",280,1,True),hop("Hopper C",120,2,True),hop("Hopper D",230,3),
++            actor("Cloud",3,2,1,60,20,7,25),
++            actor("Gem",2,8,1,60,30,6,12),
++            actor("Pop",8,5,1,0,0,9,4,vis=False)]
++    rules=[]
++    for b in (1,2,3,4):
++        rules+=[R(b=b,act=1),R(b=b,act=2,value=4),R(b=b,act=2,value=6),
++                R(b=b,act=14,target=7,value=0),R(b=b,act=15,target=7),
++                R(b=b,act=4,target=0),R(b=b,act=16,target=0)]
++    rules+=[R(b=6,act=0,value=10),R(b=6,act=2,value=0),R(b=6,act=17),R(b=6,act=14,target=6,value=5),
++            R(when=6,a=0,act=2,value=3)]
++    for b in (1,2,3,4): rules.append(R(when=6,a=b,act=2,value=1))
++    rules+=[R(when=4,act=9),
++            R(when=7,act=14,target=6,value=5),R(when=7,act=16,target=0),R(when=7,act=2,value=5)]
++    sfx=sfx_list({0:dict(name="Gem",wave=2,pitch=80,sweep=10,len=6,atk=0,dec=5,sus=0,rel=4),
++                  1:dict(name="Squidge",wave=1,pitch=12,sweep=5,len=6,atk=1,dec=4,sus=2,rel=3),
++                  3:dict(name="Jump",wave=2,pitch=24,sweep=6,len=10,atk=0,dec=6,sus=2,rel=4),
++                  4:dict(name="Pop",wave=3,pitch=90,sweep=-12,len=3,atk=0,dec=3,sus=0,rel=3),
++                  5:dict(name="Get ready",wave=2,pitch=40,sweep=3,len=20,atk=2,dec=6,sus=8,rel=6),
++                  6:dict(name="Ouch",wave=0,pitch=46,sweep=-1,len=26,atk=1,dec=8,sus=9,rel=7)})
++    p=make_project("Gem Hunter",pal,im,sprites,actors,rules,[0x101848,0x5a6ac8,0xffa850,150],hud_col=1,msg_col=14,sfx=sfx,
++                   win="CONGRATULATIONS! ALL 10 LEVELS DONE")
++    levels=[]
++    for i in range(10):
++        seed=1000+i*37; hilly=60+i*8
++        levels.append(dict(seed=seed,hilly=hilly,base=200,heights=terrain(seed,hilly,200)))
++    p.update(levels_on=True,levels=levels,terrain_cols=[10,9,11,12],goal_on=True,goal=20,goal_label="GEMS",
++             title_on=True,title1="GEM HUNTER",title2="PRESS FIRE TO START",lev_text="LEVEL")
++    return p
++
++# ------------------------------------------------------------------ DEEP DIVE
++def deep_dive():
++    pal=[0x000000,0xffffff,0x204060,0xff9040,0x2a3a50,0x506070,0xc0f0ff,0x80e0ff,0x1a5a3a,0x2f8f4a,0x6acc6a,0x8a7040,0xd8c070,0xe04060,0xffe060,0xa0a8b0]
++    im=canvas(); d=ImageDraw.Draw(im)
++    # surface ripples
++    for x in range(320):
++        y=14+round(math.sin(x/9)*2)
++        d.line([(x,12),(x,y)],fill=6)
++    # light rays
++    for k in range(5):
++        x0=30+k*70
++        for y in range(16,170,3):
++            w=2+y//40
++            if (y//3)%2==0: d.line([(x0+y//6,y),(x0+y//6+w,y)],fill=7)
++    # sand dunes
++    for x in range(320):
++        y=212+round(math.sin(x/29)*8+math.sin(x/11)*3)
++        d.line([(x,y),(x,255)],fill=11)
++        d.line([(x,y),(x,y+3)],fill=12)
++    for i in range(160):
++        rnd=random.Random(i)
++        x=rnd.randint(0,319); y=rnd.randint(222,254); im.putpixel((x,y),12)
++    # rocks
++    for (x,y,r) in [(40,214,18),(270,210,22),(150,222,12)]:
++        d.ellipse([x-r,y-r//1.4,x+r,y+r//1.4],fill=4); d.ellipse([x-r+4,y-r//1.4+2,x+r-6,y],fill=5)
++    # seaweed
++    for k,x0 in enumerate([18,70,95,190,230,300]):
++        top=150+(k*13)%40
++        for y in range(top,222):
++            x=x0+round(math.sin(y/8+k)*3)
++            d.line([(x,y),(x+2,y)],fill=9 if (y//6)%2 else 10)
++    # coral
++    for (x,y) in [(120,214),(205,212),(258,190)]:
++        for a in range(-60,61,30):
++            ex=x+round(math.sin(math.radians(a))*16); ey=y-round(math.cos(math.radians(a))*20)
++            d.line([(x,y),(ex,ey)],fill=13,width=3); d.ellipse([ex-3,ey-3,ex+3,ey+3],fill=3)
++    # bubbles
++    rnd=random.Random(7)
++    for i in range(18):
++        x=rnd.randint(10,310); y=rnd.randint(30,190); r=rnd.randint(2,5)
++        d.ellipse([x-r,y-r,x+r,y+r],outline=6)
++    d.rectangle([0,0,319,11],fill=2)
++    px=list(im.getdata()); text(px,"FIND THE PEARLS - MIND THE SHARK",28,246,1); im.putdata(px)
++    diver=[0xffcc30,0x203040,0x90f0ff]; jelly=[0xff80c0,0xff60a0,0xffd0f0]; shark=[0x000000,0x6a7a8a,0xe0e8f0]; pearl=[0xfff0f8,0xa080a0,0xffffff]
++    sprites=[("Diver","diver",diver),("Jellyfish","jelly",jelly),("Shark","shark",shark),("Pearl","pearl",pearl),
++             ("Diver kick","diver2",diver),("Jelly swim","jelly2",jelly),("Shark tail","shark2",shark),("Pearl shine","pearl2",pearl)]
++    actors=[actor("Diver",0,0,2,150,110,4,7,True),actor("Jelly 1",1,3,1,70,40,5,12,up=False),actor("Jelly 2",1,3,1,240,150,5,12,up=True),
++            actor("Shark",2,2,2,10,175,6,6),actor("Pearl",3,5,1,200,120,7,10),actor("Pearl 2",3,5,1,40,90,7,14)]
++    rules=[R(b=1,act=1),R(b=1,act=4,target=0),R(b=1,act=2,value=4),R(b=1,act=3),
++           R(b=2,act=1),R(b=2,act=4,target=0),R(b=2,act=2,value=4),R(b=2,act=3),
++           R(b=3,act=1),R(b=3,act=4,target=0),R(b=3,act=2,value=2),R(b=3,act=3),
++           R(b=4,act=0,value=25),R(b=4,act=5,target=4),R(b=4,act=2,value=0),
++           R(b=5,act=0,value=25),R(b=5,act=5,target=5),R(b=5,act=2,value=0),
++           R(when=1,act=2,value=7),R(when=2,n=15,act=11,target=3),R(when=3,n=300,act=10),R(when=4,act=9),R(when=5,act=2,value=5)]
++    sfx=sfx_list({7:dict(name="Bubble",wave=0,pitch=70,sweep=5,len=6,atk=0,dec=4,sus=0,rel=3)})
++    return make_project("Deep Dive",pal,im,sprites,actors,rules,[0x70d8f0,0x1868a8,0x021028,95],sfx=sfx,msg_col=14,
++                        win="YOU FOUND THEM ALL!",over="OUT OF AIR - PRESS FIRE")
++
++# ------------------------------------------------------------------ STAR CATCHER
++def star_catcher():
++    pal=[0x000000,0xffffff,0x182848,0xff8030,0x403850,0x8070a0,0xc0c8ff,0x90a0ff,0x2a1840,0x6a3a8a,0xb070e0,0x6a4030,0xc08050,0xe05040,0xffe070,0x9098a8]
++    im=canvas(); d=ImageDraw.Draw(im)
++    rnd=random.Random(11)
++    for i in range(220):
++        x=rnd.randint(0,319); y=rnd.randint(14,255); c=rnd.choice([1,15,15,6,14])
++        im.putpixel((x,y),c)
++        if rnd.random()<0.08:
++            for dx,dy in((1,0),(-1,0),(0,1),(0,-1)):
++                if 0<=x+dx<W and 0<=y+dy<H: im.putpixel((x+dx,y+dy),15)
++    # nebula wisps
++    for i in range(900):
++        a=rnd.random()*6.28; r=rnd.random()**0.5*60
++        x=int(90+math.cos(a)*r*1.6); y=int(110+math.sin(a)*r*0.6)
++        if 0<=x<W and 0<=y<H and rnd.random()<0.5: im.putpixel((x,y),8 if r>35 else 9)
++    # planet with shading and rings
++    cx,cy,r=250,215,70
++    d.ellipse([cx-r,cy-r,cx+r,cy+r],fill=11)
++    for y in range(cy-r,cy+r):
++        for x in range(cx-r,cx+r):
++            if (x-cx)**2+(y-cy)**2<=r*r and 0<=y<H:
++                band=((y-cy)//9)%3
++                c=[12,3,11][band]
++                if (x-cx+20)**2+(y-cy+20)**2>r*r*1.1: c=4 if c!=3 else 13
++                im.putpixel((x,y),c)
++    d.arc([cx-110,cy-22,cx+110,cy+22],200,340,fill=7,width=2)
++    # moon
++    d.ellipse([30,30,62,62],fill=15); d.ellipse([40,26,72,58],fill=0); d.ellipse([34,44,40,50],fill=4)
++    d.rectangle([0,0,319,11],fill=2)
++    ship=[0xe8e8f0,0x3050a0,0xff9020]; rock=[0x9a7a5a,0x4a3a2a,0xc0a080]; ufo=[0x60e060,0x206030,0xb0ffb0]; star=[0xffe040,0xc08000,0xffffff]
++    sprites=[("Rocket","ship",ship),("Asteroid","rock",rock),("UFO","ufo",ufo),("Star","star",star),
++             ("Rocket flame","ship2",ship),("Asteroid spin","rock2",rock),("UFO lights","ufo2",ufo),("Star twinkle","star2",star)]
++    actors=[actor("Rocket",0,0,3,150,200,4,4),actor("Asteroid 1",1,1,1,40,40,5,16,left=False,up=False),actor("Asteroid 2",1,1,2,260,100,5,16,left=True,up=True),
++            actor("UFO",2,4,1,10,20,6,12),actor("Star",3,5,1,160,90,7,10)]
++    rules=[R(b=1,act=1),R(b=1,act=4,target=0),R(b=1,act=2,value=2),R(b=1,act=3),
++           R(b=2,act=1),R(b=2,act=4,target=0),R(b=2,act=2,value=2),R(b=2,act=3),
++           R(b=3,act=1),R(b=3,act=4,target=0),R(b=3,act=4,target=3),R(b=3,act=2,value=6),
++           R(b=4,act=0,value=10),R(b=4,act=5,target=4),R(b=4,act=2,value=0),
++           R(when=1,act=2,value=1),R(when=2,n=20,act=11,target=3),R(when=3,n=250,act=10),R(when=4,act=9),R(when=5,act=2,value=5)]
++    return make_project("Star Catcher",pal,im,sprites,actors,rules,[0x000000,0x1a0838,0x0a1840,140],msg_col=14,
++                        win="GALAXY SAVED! - PRESS FIRE",over="SHIP LOST - PRESS FIRE")
++
++# ------------------------------------------------------------------ DODGE BALL
++def dodge_ball():
++    pal=[0x000000,0xffffff,0x200040,0xff9020,0x180828,0x301850,0xff40c0,0x40e0ff,0x101830,0x2a2a60,0x6060c0,0x402060,0x8040a0,0xff3040,0xfff060,0x9090b0]
++    im=canvas(); d=ImageDraw.Draw(im)
++    # skyline
++    rnd=random.Random(5)
++    x=0
++    while x<320:
++        w=rnd.randint(14,30); h=rnd.randint(20,70)
++        d.rectangle([x,128-h,x+w-2,128],fill=5)
++        for wy in range(128-h+4,126,6):
++            for wx in range(x+3,x+w-4,5):
++                if rnd.random()<0.35: d.rectangle([wx,wy,wx+1,wy+2],fill=14)
++        x+=w
++    # floor + perspective grid
++    d.rectangle([0,128,319,255],fill=4)
++    for i in range(-10,21):
++        d.line([(160,118),(160+i*40,256)],fill=12)
++    yy=130; k=2
++    while yy<256:
++        d.line([(0,int(yy)),(319,int(yy))],fill=12); yy+=k; k*=1.35
++    d.line([(0,128),(319,128)],fill=6,width=2)
++    # neon frame
++    d.rectangle([2,14,317,253],outline=6); d.rectangle([4,16,315,251],outline=7)
++    d.rectangle([0,0,319,11],fill=2)
++    px=list(im.getdata()); text(px,"DODGE THE BALLS!",96,40,1); im.putdata(px)
++    blob=[0x40e0ff,0x103060,0xffffff]; red=[0xff3040,0x601020,0xffc0c0]; yel=[0xffe040,0x806000,0xffffff]; gem=[0xff40ff,0x601060,0xffffff]
++    sprites=[("Player","blob",blob),("Red ball","ball",red),("Yellow ball","ball",yel),("Bonus","gem",gem),
++             ("Player squash","blob2",blob),("Red ball spin","ball2",red),("Yellow ball spin","ball2",yel),("Bonus sparkle","gem2",gem)]
++    actors=[actor("Player",0,0,3,150,180,4,8,True),actor("Red 1",1,1,2,30,30,5,8),actor("Red 2",1,1,2,270,40,5,8,left=True),
++            actor("Yellow 1",2,1,1,60,200,6,8,up=True),actor("Yellow 2",2,1,1,240,190,6,8,left=True,up=True),actor("Bonus",3,5,1,160,100,7,10)]
++    rules=[]
++    for b in (1,2,3,4):
++        rules+=[R(b=b,act=1),R(b=b,act=4,target=0),R(b=b,act=2,value=2),R(b=b,act=3)]
++    rules+=[R(b=5,act=0,value=50),R(b=5,act=5,target=5),R(b=5,act=2,value=5),
++            R(when=2,n=1,act=0,value=1),R(when=2,n=8,act=11,target=1),R(when=2,n=12,act=11,target=3),
++            R(when=2,n=16,act=11,target=2),R(when=3,n=300,act=10),R(when=4,act=9),R(when=5,act=2,value=5)]
++    return make_project("Dodge Ball",pal,im,sprites,actors,rules,[0x300050,0xb02090,0xffa040,118],msg_col=14,
++                        win="CHAMPION! - PRESS FIRE",over="KNOCKED OUT - PRESS FIRE")
++
++# ------------------------------------------------------------------ helpers
++def alloc(p):
++    acts=p['actors']; key=['']*4; used=[0]*4; owner=[-1]*4; chan=[]; conf=[]
++    for i,a in enumerate(acts[:8]):
++        k=str([q(c) for c in p['sprites'][a['sprite']]['cols']]); pp=-1; cf=False
++        for j in range(4):
++            if pp<0 and used[j]==1 and key[j]==k: pp=j
++        for j in range(4):
++            if pp<0 and used[j]==0: pp=j
++        for j in range(4):
++            if pp<0 and used[j]<2: pp=j; cf=True
++        if used[pp]==0: key[pp]=k; owner[pp]=i
++        chan.append(pp*2+used[pp]); used[pp]+=1; conf.append(cf)
++    return chan,conf,owner
++
++def sky_table(p):
++    out=[]; my=max(1,min(254,p['sky_mid_y']))
++    for i in range(256):
++        a,b,t=p['sky_top'],p['sky_mid'],i/my
++        if i>my: a,b,t=p['sky_mid'],p['sky_bot'],(i-my)/(255-my)
++        c=[round((((a>>s)&255)+((((b>>s)&255)-((a>>s)&255))*t))/17) for s in (16,8,0)]
++        out.append((c[0]<<8)|(c[1]<<4)|c[2])
++    return out
++
++def ground_table(p):
++    if not any(p.get('solid',[])): return None
++    out=[]
++    for x in range(W):
++        g=256
++        for y in range(H):
++            if p['solid'][p['pixels'][y*W+x]]: g=y; break
++        out.append(g)
++    return out
++
++def game_block(p):
++    if not (p['levels_on'] or p['goal_on'] or p['title_on']): return None
++    lv=[l['heights'] for l in p['levels']] if p['levels_on'] and p['levels'] else [[256]*320]
++    return dict(levels=lv,terrain=p['levels_on'] and bool(p['levels']),cols=p['terrain_cols'],goal=p['goal'] if p['goal_on'] else 0,
++                title=p['title_on'],label=p['goal_label'],title1=p['title1'],title2=p['title2'],levtxt=p['lev_text'])
++
++def to_builder(p):
++    chan,conf,owner=alloc(p)
++    spr=[dict(px=s['px'],cols=[q(c) for c in s['cols']]) for s in p['sprites']]
++    # pair colours = owner's colours: emulate by giving each actor's sprite the owner colours is the same as build_test's rule
++    acts=[]
++    for i,a in enumerate(p['actors']):
++        acts.append(dict(x=a['x'],y=a['y'],role=a['role'],speed=a['speed'],visible=int(a['visible']),left=int(a['start_left']),up=int(a['start_up']),
++                         sprite=a['sprite'],chan=chan[i],anim=a['anim_sprite'],rate=a['anim_rate'],amode=int(a['anim_moving']),**{'from':a['from_level'],'fast':a['faster_every']}))
++    return dict(depth=p['depth'],pal=[q(c) for c in p['pal']],pixels=p['pixels'],sprites=spr,actors=acts,rules=p['rules'],
++                sfx=[s for s in p['sfx']],lives=p['lives'],show_score=1,show_lives=1,hud_row=0,hud_col=p['hud_colour'],msg_col=p['msg_colour'],
++                over=p['over_text'],win=p['win_text'],grad=sky_table(p),ground=ground_table(p),game=game_block(p)), conf
++
++def preview(p,fn):
++    pal=[q(c) for c in p['pal']]; g=sky_table(p)
++    im=Image.new('RGB',(W,H))
++    for y in range(H):
++        sc=g[y]; sr=((sc>>8)&15)*17; sg=((sc>>4)&15)*17; sb=(sc&15)*17
++        for x in range(W):
++            v=p['pixels'][y*W+x]
++            if v==0: im.putpixel((x,y),(sr,sg,sb))
++            else: c=pal[v]; im.putpixel((x,y),((c>>16)&255,(c>>8)&255,c&255))
++    chan,conf,owner=alloc(p)
++    for i,a in enumerate(p['actors']):
++        oc=p['sprites'][p['actors'][owner[chan[i]//2]]['sprite']]['cols']
++        s=p['sprites'][a['sprite']]
++        for yy in range(24):
++            for xx in range(16):
++                v=s['px'][yy*16+xx]
++                if v: c=q(oc[v-1]); im.putpixel((a['x']+xx,a['y']+yy),((c>>16)&255,(c>>8)&255,c&255))
++    im.resize((640,512),Image.NEAREST).save(fn)
++
++if __name__=='__main__':
++    OUT=os.path.join(HERE,'out'); os.makedirs(OUT,exist_ok=True)
++    for fn,make in [('gem_hunter',gem_hunter),('deep_dive',deep_dive),('star_catcher',star_catcher),('dodge_ball',dodge_ball)]:
++        p=make()
++        auto_groups(p)
++        json.dump(p,open(os.path.join(REPO,'datafiles','examples','%s.adam'%fn),'w'),separators=(',',':'))
++        bp,conf=to_builder(p)
++        # build_test's pair colour rule takes the first actor on the pair
++        open(os.path.join(OUT,'%s.adf'%fn),'wb').write(adf(ENGINE+build(bp,False)))
++        preview(p,os.path.join(OUT,'%s.png'%fn))
++        print(fn,'conflicts' if any(conf) else 'ok', len(json.dumps(p)))
+diff --git a/tools/run_adf.ps1 b/tools/run_adf.ps1
+new file mode 100644
+index 0000000..8ab7407
+--- /dev/null
++++ b/tools/run_adf.ps1
+@@ -0,0 +1,26 @@
++# Boots an ADF in FS-UAE as a stock machine, the same way ADAM's "Build and play" does.
++# Usage:  powershell -File tools\run_adf.ps1 -Adf path\game.adf [-Model A600|A1200] [-FsUae path\fs-uae.exe] [-Kick path\kick.rom]
++param(
++    [Parameter(Mandatory=$true)][string]$Adf,
++    [string]$Model = "A600",
++    [string]$FsUae = "",
++    [string]$Kick = ""
++)
++if ($FsUae -eq "") {
++    $cands = @(
++        "$env:LOCALAPPDATA\ADAM\fs-uae\FS-UAE\Windows\x86-64\fs-uae.exe",
++        "C:\Program Files\FS-UAE\Windows\x86-64\fs-uae.exe",
++        "C:\Program Files (x86)\FS-UAE\Windows\x86-64\fs-uae.exe",
++        "$env:USERPROFILE\Documents\FS-UAE\Windows\x86-64\fs-uae.exe"
++    )
++    foreach ($c in $cands) { if (Test-Path $c) { $FsUae = $c; break } }
++}
++if ($FsUae -eq "" -or -not (Test-Path $FsUae)) { Write-Error "fs-uae.exe not found - pass -FsUae"; exit 1 }
++$chip = 1024
++if ($Model -eq "A1200") { $chip = 2048 }
++$fsargs = @("--amiga_model=$Model", "--chip_memory=$chip", "--slow_memory=0", "--fast_memory=0",
++          "--floppy_drive_0=$Adf", "--floppy_drive_speed=0", "--fullscreen=0",
++          "--automatic_input_grab=0", "--initial_input_grab=0")
++if ($Kick -ne "") { $fsargs += "--kickstart_file=$Kick" }
++Get-Process fs-uae -ErrorAction SilentlyContinue | Stop-Process -Force
++Start-Process -FilePath $FsUae -ArgumentList $fsargs -WorkingDirectory (Split-Path $FsUae)
