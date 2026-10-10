@@ -1,0 +1,679 @@
+diff --git a/AMIGA_DEV_MACHINE.yyp b/AMIGA_DEV_MACHINE.yyp
+index 9069258..3e5e0e3 100644
+--- a/AMIGA_DEV_MACHINE.yyp
++++ b/AMIGA_DEV_MACHINE.yyp
+@@ -219,6 +219,7 @@
+     {"id":{"name":"obj_colour_picker","path":"objects/obj_colour_picker/obj_colour_picker.yy",},},
+     {"id":{"name":"obj_cprbar_editor","path":"objects/obj_cprbar_editor/obj_cprbar_editor.yy",},},
+     {"id":{"name":"obj_flashSplash","path":"objects/obj_flashSplash/obj_flashSplash.yy",},},
++    {"id":{"name":"obj_machine_select","path":"objects/obj_machine_select/obj_machine_select.yy",},},
+     {"id":{"name":"obj_opcode_node","path":"objects/obj_opcode_node/obj_opcode_node.yy",},},
+     {"id":{"name":"obj_opcode_palette_item","path":"objects/obj_opcode_palette_item/obj_opcode_palette_item.yy",},},
+     {"id":{"name":"SCENE_AmigaMain","path":"rooms/SCENE_AmigaMain/SCENE_AmigaMain.yy",},},
+@@ -235,6 +236,7 @@
+     {"id":{"name":"scr_amiga_explain_node","path":"scripts/scr_amiga_explain_node/scr_amiga_explain_node.yy",},},
+     {"id":{"name":"scr_amiga_find_insert_point","path":"scripts/scr_amiga_find_insert_point/scr_amiga_find_insert_point.yy",},},
+     {"id":{"name":"scr_amiga_has_core_loop","path":"scripts/scr_amiga_has_core_loop/scr_amiga_has_core_loop.yy",},},
++    {"id":{"name":"scr_amiga_machine_profiles","path":"scripts/scr_amiga_machine_profiles/scr_amiga_machine_profiles.yy",},},
+     {"id":{"name":"scr_amiga_restore_wedge_shifts","path":"scripts/scr_amiga_restore_wedge_shifts/scr_amiga_restore_wedge_shifts.yy",},},
+     {"id":{"name":"scr_amiga_run_bitmap_test","path":"scripts/scr_amiga_run_bitmap_test/scr_amiga_run_bitmap_test.yy",},},
+     {"id":{"name":"scr_amiga_run_motion_test","path":"scripts/scr_amiga_run_motion_test/scr_amiga_run_motion_test.yy",},},
+diff --git a/objects/obj_amiga_manager/Create_0.gml b/objects/obj_amiga_manager/Create_0.gml
+index c519819..87fbe0d 100644
+--- a/objects/obj_amiga_manager/Create_0.gml
++++ b/objects/obj_amiga_manager/Create_0.gml
+@@ -1,6 +1,7 @@
+ /// @description Amiga Dev Machine — World Bootstrap Manager
+ 
+ window_set_size(display_get_width(),display_get_height()); // ensure full screen
++window_set_caption("ADAM - Amiga Dev Machine");
+ window_set_position(0,0);
+ 
+ // ============================================================================
+@@ -67,7 +68,16 @@ if (!directory_exists(_amiga_dev_data_path)) {
+ 
+ global.current_project_path = _amiga_dev_data_path + "/build_output";
+ global.current_volume_name = "AmigaDevDisk";
+-global.current_chipset_mode = "AGA";
++
++// Target machine. The launch picker (obj_machine_select) overrides this once
++// the user chooses; until then the last-used machine is active so nothing
++// that reads it during start-up sees an empty profile.
++scr_amiga_define_machine_profiles();
++global.current_machine = global.machine_profiles[0];
++global.current_machine_id = global.current_machine.id;
++global.current_chipset_mode = global.current_machine.chipset;
++global.launch_machine_id = scr_amiga_read_last_machine_id();
++scr_amiga_set_machine(global.launch_machine_id, false);
+ 
+ // Create the build-output directory when it does not already exist.
+ if (!directory_exists(global.current_project_path)) {
+@@ -628,3 +638,13 @@ global.sprite_anim_end = max(0, array_length(global.sprite_asset_names) - 1);
+ global.workspace_dirty = false;
+ global.autosave_due_time = -1;
+ global.autosave_recovery_pending = file_exists(global.autosave_workspace_path);
++
++// ============================================================================
++// 17. TARGET MACHINE PICKER
++// Appears once the logo has faded. Autosave recovery waits for it to close.
++// ============================================================================
++
++top_ui_machine_x = 1180;
++top_ui_machine_width = 330;
++
++scr_amiga_open_machine_select(false);
+diff --git a/objects/obj_amiga_manager/Draw_0.gml b/objects/obj_amiga_manager/Draw_0.gml
+index e2d6cfe..172709c 100644
+--- a/objects/obj_amiga_manager/Draw_0.gml
++++ b/objects/obj_amiga_manager/Draw_0.gml
+@@ -173,6 +173,21 @@ draw_text(top_ui_test_2_x + 4, top_ui_row_2_y , "T: SPR-BMP");
+ draw_set_colour(c_white);
+ draw_text(top_ui_macro_x, 2, "MACROS:");
+ 
++// Target machine badge / button.
++draw_text(top_ui_machine_x, 2, "MACHINE:");
++var _machine_fill = make_colour_rgb(0, 85, 170);
++if (global.current_machine.chipset == "AGA") {
++    _machine_fill = make_colour_rgb(170, 85, 0);
++}
++draw_set_colour(_machine_fill);
++draw_rectangle(top_ui_machine_x, top_ui_row_1_y, top_ui_machine_x + top_ui_machine_width, top_ui_row_1_y + top_ui_button_height, false);
++draw_set_colour(c_white);
++draw_rectangle(top_ui_machine_x, top_ui_row_1_y, top_ui_machine_x + top_ui_machine_width, top_ui_row_1_y + top_ui_button_height, true);
++draw_text(top_ui_machine_x + 4, top_ui_row_1_y, global.current_machine.short_name + "  " + global.current_machine.chipset_label);
++draw_set_colour(make_colour_rgb(150, 160, 200));
++draw_text(top_ui_machine_x, top_ui_row_2_y, global.current_machine.cpu_label);
++draw_set_colour(c_white);
++
+ draw_text(top_ui_editor_x, 2, "EDITORS:");
+ draw_set_colour(make_color_rgb(120, 60, 160));
+ draw_rectangle(top_ui_editor_x, top_ui_row_1_y, top_ui_editor_x + top_ui_button_width, top_ui_row_1_y + top_ui_button_height, false);
+diff --git a/objects/obj_amiga_manager/Step_0.gml b/objects/obj_amiga_manager/Step_0.gml
+index 64bd1c0..8e343b3 100644
+--- a/objects/obj_amiga_manager/Step_0.gml
++++ b/objects/obj_amiga_manager/Step_0.gml
+@@ -5,11 +5,18 @@ if (global.autosave_recovery_pending) {
+     var _startup_fade_finished = !instance_exists(obj_flashSplash);
+     if (!_startup_fade_finished) _startup_fade_finished = obj_flashSplash.fade <= 0;
+ 
++    // The launch machine picker must be answered first; the machine chosen
++    // there wins over whatever machine the recovered session was saved with.
++    if (instance_exists(obj_machine_select)) {
++        _startup_fade_finished = false;
++    }
++
+     if (_startup_fade_finished) {
+         global.autosave_recovery_pending = false;
+         try {
+             scr_load_workspace_from_path(global.autosave_workspace_path);
+-            scr_set_status_message("Previous session auto-loaded.", make_colour_rgb(0, 255, 255));
++            scr_amiga_set_machine(global.launch_machine_id, false);
++            scr_set_status_message("Previous session auto-loaded.  TARGET: " + global.current_machine.name, make_colour_rgb(0, 255, 255));
+         } catch (_autosave_error) {
+             show_debug_message("Temporary autosave recovery failed: " + string(_autosave_error));
+             scr_set_status_message("Previous temporary session could not be loaded.", c_red);
+@@ -35,7 +42,7 @@ if (global.workspace_dirty && global.autosave_due_time >= 0 && current_time >= g
+ 
+ // The bitmap editor and colour picker are both modal: do not pan, build,
+ // undo, click controls or mutate the graph behind either of them.
+-if (instance_exists(obj_bitmap_editor) || instance_exists(obj_bob_editor) || instance_exists(obj_colour_picker) || instance_exists(obj_cprbar_editor)) {
++if (instance_exists(obj_bitmap_editor) || instance_exists(obj_bob_editor) || instance_exists(obj_colour_picker) || instance_exists(obj_cprbar_editor) || instance_exists(obj_machine_select)) {
+     exit;
+ }
+ 
+@@ -179,12 +186,28 @@ if (build_state == "waiting_to_launch_fsuae") {
+         // don't pass --kickstart_file at all, so FS-UAE always uses its own
+         // bundled default rather than picking up something stale left over
+         // in settings.ini from earlier testing. Revisit together.
+-        var _uae_args = "--floppy_drive_0=\"" + build_adf_path + "\" --fullscreen=0 --window_x=500 --window_y=200 --window_width=900 --window_height=700 --zoom=1";
++        // Stock machine from the active ADAM profile: model, chipset and
++        // memory map are pinned explicitly so FS-UAE never adds fast RAM.
++        var _machine = global.current_machine;
++        var _uae_args = "--amiga_model=" + _machine.fsuae_model
++            + " --chip_memory=" + string(_machine.chip_kb)
++            + " --slow_memory=" + string(_machine.slow_kb)
++            + " --fast_memory=" + string(_machine.fast_kb)
++            + " --floppy_drive_0=\"" + build_adf_path + "\" --fullscreen=0 --window_x=500 --window_y=200 --window_width=900 --window_height=700 --zoom=1";
++        show_debug_message("obj_amiga_manager: FS-UAE " + _uae_args);
+ execute_shell_simple(global.fsuae_path, _uae_args);
+         build_state = "idle";
+     }
+ }
+ 
++// MACHINE button — reopens the target machine picker.
++var _over_machine_button = point_in_rectangle(mouse_x, mouse_y, top_ui_machine_x, top_ui_row_1_y, top_ui_machine_x + top_ui_machine_width, top_ui_row_1_y + top_ui_button_height);
++
++if (_over_machine_button && mouse_check_button_pressed(mb_left) && build_state == "idle") {
++    scr_amiga_open_machine_select(true);
++    exit;
++}
++
+ var _test_button_x = top_ui_test_x;
+ var _test_button_y = top_ui_row_1_y;
+ var _test_button_width = top_ui_button_width;
+diff --git a/objects/obj_amiga_root_node/Step_0.gml b/objects/obj_amiga_root_node/Step_0.gml
+index 2396762..a6e63a8 100644
+--- a/objects/obj_amiga_root_node/Step_0.gml
++++ b/objects/obj_amiga_root_node/Step_0.gml
+@@ -1,4 +1,4 @@
+-if (instance_exists(obj_bitmap_editor) || instance_exists(obj_bob_editor) || instance_exists(obj_colour_picker) || instance_exists(obj_cprbar_editor)) {
++if (instance_exists(obj_bitmap_editor) || instance_exists(obj_bob_editor) || instance_exists(obj_colour_picker) || instance_exists(obj_cprbar_editor) || instance_exists(obj_machine_select)) {
+     exit;
+ }
+ 
+diff --git a/objects/obj_machine_select/Create_0.gml b/objects/obj_machine_select/Create_0.gml
+new file mode 100644
+index 0000000..a19421f
+--- /dev/null
++++ b/objects/obj_machine_select/Create_0.gml
+@@ -0,0 +1,60 @@
++/// @description ADAM — target machine picker (modal)
++/// Shown at launch once the logo splash has faded, and again whenever the
++/// MACHINE button in the top strip is clicked. While it exists, the manager,
++/// nodes and palette treat it like any other modal editor.
++
++depth = -400000;
++
++// Set by scr_amiga_open_machine_select straight after creation.
++picker_mark_dirty = false;
++picker_is_launch = true;
++
++picker_visible = false;
++picker_alpha = 0;
++
++// Ignore the click that opened the picker.
++picker_input_delay = 3;
++
++picker_card_width = 560;
++picker_card_height = 330;
++picker_card_gap = 60;
++picker_card_y = (room_height / 2) - (picker_card_height / 2);
++picker_card_x = [];
++
++var _total_width = (picker_card_width * array_length(global.machine_profiles))
++    + (picker_card_gap * (array_length(global.machine_profiles) - 1));
++var _first_x = (room_width / 2) - (_total_width / 2);
++var _c = 0;
++
++while (_c < array_length(global.machine_profiles)) {
++    array_push(picker_card_x, _first_x + (_c * (picker_card_width + picker_card_gap)));
++    _c += 1;
++}
++
++picker_hover_index = -1;
++picker_highlight_index = 0;
++
++var _last_id = scr_amiga_read_last_machine_id();
++var _h = 0;
++
++while (_h < array_length(global.machine_profiles)) {
++    if (global.machine_profiles[_h].id == _last_id) {
++        picker_highlight_index = _h;
++    }
++    _h += 1;
++}
++
++picker_choose = function(_index) {
++    var _profile = global.machine_profiles[_index];
++    var _changed = (_profile.id != global.current_machine_id);
++
++    if (picker_is_launch) {
++        global.launch_machine_id = _profile.id;
++        scr_amiga_set_machine(_profile.id, false);
++    } else {
++        scr_amiga_set_machine(_profile.id, picker_mark_dirty && _changed);
++    }
++
++    scr_set_status_message("TARGET: " + _profile.name + "  (" + _profile.chipset_label + ", " + _profile.ram_label + ")", make_colour_rgb(0, 255, 255));
++    instance_destroy();
++};
+diff --git a/objects/obj_machine_select/Draw_0.gml b/objects/obj_machine_select/Draw_0.gml
+new file mode 100644
+index 0000000..71118cb
+--- /dev/null
++++ b/objects/obj_machine_select/Draw_0.gml
+@@ -0,0 +1,107 @@
++if (!picker_visible) {
++    exit;
++}
++
++draw_set_font(font_CyberVerse);
++draw_set_halign(fa_left);
++draw_set_valign(fa_top);
++
++// Dim everything behind the picker.
++draw_set_alpha(0.82 * picker_alpha);
++draw_set_colour(c_black);
++draw_rectangle(0, 0, room_width, room_height, false);
++draw_set_alpha(picker_alpha);
++
++var _title_y = picker_card_y - 90;
++
++draw_set_halign(fa_center);
++draw_set_colour(make_colour_rgb(255, 136, 0));
++draw_text_transformed(room_width / 2, _title_y, "ADAM", 2, 2, 0);
++draw_set_colour(c_white);
++draw_text(room_width / 2, _title_y + 44, "SELECT TARGET MACHINE");
++draw_set_halign(fa_left);
++
++var _c = 0;
++
++while (_c < array_length(global.machine_profiles)) {
++    var _profile = global.machine_profiles[_c];
++    var _x1 = picker_card_x[_c];
++    var _y1 = picker_card_y;
++    var _x2 = _x1 + picker_card_width;
++    var _y2 = _y1 + picker_card_height;
++    var _is_highlight = (_c == picker_highlight_index);
++    var _is_current = (_profile.id == global.current_machine_id);
++
++    // Card body.
++    var _body_colour = make_colour_rgb(22, 28, 48);
++    if (_is_highlight) {
++        _body_colour = make_colour_rgb(38, 52, 92);
++    }
++    draw_set_colour(_body_colour);
++    draw_rectangle(_x1, _y1, _x2, _y2, false);
++
++    // Workbench-style title bar.
++    var _bar_colour = make_colour_rgb(0, 85, 170);
++    if (_is_highlight) {
++        _bar_colour = make_colour_rgb(255, 136, 0);
++    }
++    draw_set_colour(_bar_colour);
++    draw_rectangle(_x1, _y1, _x2, _y1 + 34, false);
++
++    // Border.
++    var _border_colour = make_colour_rgb(110, 120, 160);
++    if (_is_highlight) {
++        _border_colour = c_white;
++    }
++    draw_set_colour(_border_colour);
++    draw_rectangle(_x1, _y1, _x2, _y2, true);
++    draw_rectangle(_x1 + 1, _y1 + 1, _x2 - 1, _y2 - 1, true);
++
++    // Heading.
++    draw_set_colour(c_white);
++    draw_text(_x1 + 14, _y1 + 8, string(_c + 1) + ".  " + _profile.name);
++
++    if (_is_current && !picker_is_launch) {
++        draw_set_halign(fa_right);
++        draw_text(_x2 - 14, _y1 + 8, "CURRENT");
++        draw_set_halign(fa_left);
++    }
++
++    // Spec rows.
++    var _row_y = _y1 + 58;
++    var _label_x = _x1 + 18;
++    var _value_x = _x1 + 170;
++
++    draw_set_colour(make_colour_rgb(150, 160, 200));
++    draw_text(_label_x, _row_y, "CHIPSET");
++    draw_text(_label_x, _row_y + 34, "CPU");
++    draw_text(_label_x, _row_y + 68, "MEMORY");
++    draw_text(_label_x, _row_y + 102, "COLOURS");
++    draw_text(_label_x, _row_y + 136, "BITPLANES");
++    draw_text(_label_x, _row_y + 170, "EMULATED AS");
++
++    draw_set_colour(c_white);
++    draw_text(_value_x, _row_y, _profile.chipset_label);
++    draw_text(_value_x, _row_y + 34, _profile.cpu_label);
++    draw_text(_value_x, _row_y + 68, _profile.ram_label + "  (STOCK, NO FAST RAM)");
++    draw_text(_value_x, _row_y + 102, _profile.colour_label);
++    draw_text(_value_x, _row_y + 136, string(_profile.max_bitplanes_lores) + " (LORES)");
++    draw_text(_value_x, _row_y + 170, "FS-UAE " + _profile.fsuae_model);
++
++    _c += 1;
++}
++
++// Footer hint.
++var _hint = "CLICK A MACHINE  -  OR PRESS 1 / 2  -  ARROWS + ENTER";
++if (!picker_is_launch) {
++    _hint = _hint + "  -  RIGHT-CLICK TO CANCEL";
++}
++
++draw_set_halign(fa_center);
++draw_set_colour(make_colour_rgb(150, 160, 200));
++draw_text(room_width / 2, picker_card_y + picker_card_height + 30, _hint);
++draw_text(room_width / 2, picker_card_y + picker_card_height + 54, "THE MACHINE CAN BE CHANGED LATER FROM THE TOP BAR");
++
++draw_set_halign(fa_left);
++draw_set_alpha(1);
++draw_set_colour(c_white);
+diff --git a/objects/obj_machine_select/Step_0.gml b/objects/obj_machine_select/Step_0.gml
+new file mode 100644
+index 0000000..7a9b9a0
+--- /dev/null
++++ b/objects/obj_machine_select/Step_0.gml
+@@ -0,0 +1,69 @@
++// Stay hidden and inert until the startup logo has faded out.
++if (instance_exists(obj_flashSplash)) {
++    if (obj_flashSplash.fade > 0) {
++        picker_visible = false;
++        exit;
++    }
++}
++
++picker_visible = true;
++
++if (picker_alpha < 1) {
++    picker_alpha = min(1, picker_alpha + 0.08);
++}
++
++if (picker_input_delay > 0) {
++    picker_input_delay -= 1;
++    exit;
++}
++
++// Hover / click.
++picker_hover_index = -1;
++var _c = 0;
++
++while (_c < array_length(picker_card_x)) {
++    var _x1 = picker_card_x[_c];
++    var _y1 = picker_card_y;
++
++    if (point_in_rectangle(mouse_x, mouse_y, _x1, _y1, _x1 + picker_card_width, _y1 + picker_card_height)) {
++        picker_hover_index = _c;
++        picker_highlight_index = _c;
++    }
++    _c += 1;
++}
++
++if (picker_hover_index != -1 && mouse_check_button_pressed(mb_left)) {
++    picker_choose(picker_hover_index);
++    exit;
++}
++
++// Keyboard: 1 / 2 pick directly, LEFT / RIGHT move, ENTER confirms.
++if (keyboard_check_pressed(ord("1"))) {
++    picker_choose(0);
++    exit;
++}
++
++if (keyboard_check_pressed(ord("2"))) {
++    if (array_length(global.machine_profiles) > 1) {
++        picker_choose(1);
++        exit;
++    }
++}
++
++if (keyboard_check_pressed(vk_left)) {
++    picker_highlight_index = max(0, picker_highlight_index - 1);
++}
++
++if (keyboard_check_pressed(vk_right)) {
++    picker_highlight_index = min(array_length(global.machine_profiles) - 1, picker_highlight_index + 1);
++}
++
++if (keyboard_check_pressed(vk_enter)) {
++    picker_choose(picker_highlight_index);
++    exit;
++}
++
++// Reopened from the MACHINE button: right-click backs out unchanged.
++if (!picker_is_launch && mouse_check_button_pressed(mb_right)) {
++    instance_destroy();
++}
+diff --git a/objects/obj_machine_select/obj_machine_select.yy b/objects/obj_machine_select/obj_machine_select.yy
+new file mode 100644
+index 0000000..227668f
+--- /dev/null
++++ b/objects/obj_machine_select/obj_machine_select.yy
+@@ -0,0 +1,37 @@
++{
++  "$GMObject":"",
++  "%Name":"obj_machine_select",
++  "eventList":[
++    {"$GMEvent":"v1","%Name":"","collisionObjectId":null,"eventNum":0,"eventType":0,"isDnD":false,"name":"","resourceType":"GMEvent","resourceVersion":"2.0",},
++    {"$GMEvent":"v1","%Name":"","collisionObjectId":null,"eventNum":0,"eventType":3,"isDnD":false,"name":"","resourceType":"GMEvent","resourceVersion":"2.0",},
++    {"$GMEvent":"v1","%Name":"","collisionObjectId":null,"eventNum":0,"eventType":8,"isDnD":false,"name":"","resourceType":"GMEvent","resourceVersion":"2.0",},
++  ],
++  "managed":true,
++  "name":"obj_machine_select",
++  "overriddenProperties":[],
++  "parent":{
++    "name":"OBJECTS",
++    "path":"folders/OBJECTS.yy",
++  },
++  "parentObjectId":null,
++  "persistent":false,
++  "physicsAngularDamping":0.1,
++  "physicsDensity":0.5,
++  "physicsFriction":0.2,
++  "physicsGroup":1,
++  "physicsKinematic":false,
++  "physicsLinearDamping":0.1,
++  "physicsObject":false,
++  "physicsRestitution":0.1,
++  "physicsSensor":false,
++  "physicsShape":1,
++  "physicsShapePoints":[],
++  "physicsStartAwake":true,
++  "properties":[],
++  "resourceType":"GMObject",
++  "resourceVersion":"2.0",
++  "solid":false,
++  "spriteId":null,
++  "spriteMaskId":null,
++  "visible":true,
++}
+diff --git a/objects/obj_opcode_node/Step_0.gml b/objects/obj_opcode_node/Step_0.gml
+index 15121dc..a24d736 100644
+--- a/objects/obj_opcode_node/Step_0.gml
++++ b/objects/obj_opcode_node/Step_0.gml
+@@ -1,4 +1,4 @@
+-if (instance_exists(obj_bitmap_editor) || instance_exists(obj_bob_editor) || instance_exists(obj_colour_picker) || instance_exists(obj_cprbar_editor)) {
++if (instance_exists(obj_bitmap_editor) || instance_exists(obj_bob_editor) || instance_exists(obj_colour_picker) || instance_exists(obj_cprbar_editor) || instance_exists(obj_machine_select)) {
+     exit;
+ }
+ 
+diff --git a/objects/obj_opcode_palette_item/Step_0.gml b/objects/obj_opcode_palette_item/Step_0.gml
+index eb2e35a..bd0d583 100644
+--- a/objects/obj_opcode_palette_item/Step_0.gml
++++ b/objects/obj_opcode_palette_item/Step_0.gml
+@@ -1,4 +1,4 @@
+-if (instance_exists(obj_bitmap_editor) || instance_exists(obj_bob_editor) || instance_exists(obj_colour_picker) || instance_exists(obj_cprbar_editor)) {
++if (instance_exists(obj_bitmap_editor) || instance_exists(obj_bob_editor) || instance_exists(obj_colour_picker) || instance_exists(obj_cprbar_editor) || instance_exists(obj_machine_select)) {
+     exit;
+ }
+ 
+diff --git a/scripts/scr_amiga_machine_profiles/scr_amiga_machine_profiles.gml b/scripts/scr_amiga_machine_profiles/scr_amiga_machine_profiles.gml
+new file mode 100644
+index 0000000..a3fd3ee
+--- /dev/null
++++ b/scripts/scr_amiga_machine_profiles/scr_amiga_machine_profiles.gml
+@@ -0,0 +1,124 @@
++/// ADAM — stock target machine profiles.
++///
++/// Every build, the emulator launch and (later) every no-code block reads its
++/// hardware limits from the active profile rather than hard-coding a chipset.
++/// Two stock machines are offered at launch:
++///
++///   A500_600 : OCS/ECS, MC68000 @ 7 MHz, 1MB chip RAM, no fast RAM
++///   A1200    : AGA,     MC68EC020 @ 14 MHz, 2MB chip RAM, no fast RAM
++///
++/// The A500/600 profile is emulated as a stock A600 (ECS Agnus, 1MB chip) —
++/// the common denominator that both a 1MB A500 and an A600 owner can run.
++
++
++/// @desc scr_amiga_define_machine_profiles()
++/// Builds global.machine_profiles. Called once from obj_amiga_manager Create.
++function scr_amiga_define_machine_profiles() {
++    global.machine_profiles = [
++        {
++            id                  : "A500_600",
++            name                : "AMIGA 500/600",
++            short_name          : "A500/600 1MB",
++            chipset             : "ECS",
++            chipset_label       : "OCS / ECS",
++            cpu_label           : "MC68000 @ 7.09 MHz",
++            chip_kb             : 1024,
++            slow_kb             : 0,
++            fast_kb             : 0,
++            ram_label           : "1MB CHIP RAM",
++            colour_label        : "32 COLOURS (64 EHB / 4096 HAM6)",
++            palette_bits        : 12,
++            max_bitplanes_lores : 6,
++            palette_registers   : 32,
++            fsuae_model         : "A600"
++        },
++        {
++            id                  : "A1200",
++            name                : "AMIGA 1200",
++            short_name          : "A1200 2MB",
++            chipset             : "AGA",
++            chipset_label       : "AGA",
++            cpu_label           : "MC68EC020 @ 14.18 MHz",
++            chip_kb             : 2048,
++            slow_kb             : 0,
++            fast_kb             : 0,
++            ram_label           : "2MB CHIP RAM",
++            colour_label        : "256 COLOURS (262144 HAM8)",
++            palette_bits        : 24,
++            max_bitplanes_lores : 8,
++            palette_registers   : 256,
++            fsuae_model         : "A1200"
++        }
++    ];
++}
++
++
++/// @desc scr_amiga_find_machine_profile(_id)
++/// Returns the profile struct for _id, or undefined when no profile matches.
++function scr_amiga_find_machine_profile(_id) {
++    var _count = array_length(global.machine_profiles);
++    var _i = 0;
++
++    while (_i < _count) {
++        if (global.machine_profiles[_i].id == _id) {
++            return global.machine_profiles[_i];
++        }
++        _i += 1;
++    }
++
++    return undefined;
++}
++
++
++/// @desc scr_amiga_set_machine(_id, _mark_dirty)
++/// Makes _id the active target. Unknown ids fall back to the first profile.
++/// _mark_dirty is true only when the user changes machine mid-session, so the
++/// workspace (which stores machine_id) is flagged for saving.
++function scr_amiga_set_machine(_id, _mark_dirty) {
++    var _profile = scr_amiga_find_machine_profile(_id);
++
++    if (_profile == undefined) {
++        _profile = global.machine_profiles[0];
++    }
++
++    global.current_machine = _profile;
++    global.current_machine_id = _profile.id;
++    global.current_chipset_mode = _profile.chipset;
++
++    ini_open("settings.ini");
++    ini_write_string("machine", "last", _profile.id);
++    ini_close();
++
++    if (_mark_dirty) {
++        scr_mark_workspace_dirty();
++    }
++}
++
++
++/// @desc scr_amiga_read_last_machine_id()
++/// The machine chosen last session, used as the launch picker's highlight.
++function scr_amiga_read_last_machine_id() {
++    ini_open("settings.ini");
++    var _last_id = ini_read_string("machine", "last", "A1200");
++    ini_close();
++
++    if (scr_amiga_find_machine_profile(_last_id) == undefined) {
++        _last_id = global.machine_profiles[0].id;
++    }
++
++    return _last_id;
++}
++
++
++/// @desc scr_amiga_open_machine_select(_mark_dirty)
++/// Opens the machine picker. _mark_dirty is false for the launch picker and
++/// true when reopened from the MACHINE button.
++function scr_amiga_open_machine_select(_mark_dirty) {
++    if (instance_exists(obj_machine_select)) {
++        exit;
++    }
++
++    var _picker = instance_create_depth(0, 0, -400000, obj_machine_select);
++    _picker.picker_mark_dirty = _mark_dirty;
++    _picker.picker_is_launch = !_mark_dirty;
++}
+diff --git a/scripts/scr_amiga_machine_profiles/scr_amiga_machine_profiles.yy b/scripts/scr_amiga_machine_profiles/scr_amiga_machine_profiles.yy
+new file mode 100644
+index 0000000..8257a7f
+--- /dev/null
++++ b/scripts/scr_amiga_machine_profiles/scr_amiga_machine_profiles.yy
+@@ -0,0 +1,13 @@
++{
++  "$GMScript":"v1",
++  "%Name":"scr_amiga_machine_profiles",
++  "isCompatibility":false,
++  "isDnD":false,
++  "name":"scr_amiga_machine_profiles",
++  "parent":{
++    "name":"SCRIPTS",
++    "path":"folders/Extensions/SCRIPTS.yy",
++  },
++  "resourceType":"GMScript",
++  "resourceVersion":"2.0",
++}
+diff --git a/scripts/scr_amiga_start_build/scr_amiga_start_build.gml b/scripts/scr_amiga_start_build/scr_amiga_start_build.gml
+index d8d2d71..5a53649 100644
+--- a/scripts/scr_amiga_start_build/scr_amiga_start_build.gml
++++ b/scripts/scr_amiga_start_build/scr_amiga_start_build.gml
+@@ -22,6 +22,10 @@ function scr_amiga_start_build(_node_array, _project_path, _chipset_mode) {
+         _asm_text += "; target: OCS/ECS\n";
+     }
+ 
++    _asm_text += "; machine: " + global.current_machine.name
++        + " (" + global.current_machine.cpu_label
++        + ", " + global.current_machine.ram_label + ")\n";
++
+     var _build_has_errors = false;
+     var _error_list = [];
+     _i = 0;
+diff --git a/scripts/scr_load_workspace_from_path/scr_load_workspace_from_path.gml b/scripts/scr_load_workspace_from_path/scr_load_workspace_from_path.gml
+index 0eaf951..d909636 100644
+--- a/scripts/scr_load_workspace_from_path/scr_load_workspace_from_path.gml
++++ b/scripts/scr_load_workspace_from_path/scr_load_workspace_from_path.gml
+@@ -115,6 +115,17 @@ function scr_load_workspace_from_path(_path) {
+         global.asset_list = _save_data.assets;
+     }
+ 
++    // Workspaces saved before machine profiles existed carry no machine_id
++    // and simply keep the current machine.
++    var _saved_machine_id = _save_data[$ "machine_id"];
++
++    if (is_string(_saved_machine_id)) {
++        if (_saved_machine_id != global.current_machine_id) {
++            scr_amiga_set_machine(_saved_machine_id, false);
++            scr_set_status_message("Workspace targets " + global.current_machine.name + " - machine switched.", make_colour_rgb(0, 255, 255));
++        }
++    }
++
+     global.workspace_dirty = false;
+     show_debug_message("Loaded workspace from " + _path);
+ }
+diff --git a/scripts/scr_save_workspace_to_path/scr_save_workspace_to_path.gml b/scripts/scr_save_workspace_to_path/scr_save_workspace_to_path.gml
+index 5c13833..71b2fcd 100644
+--- a/scripts/scr_save_workspace_to_path/scr_save_workspace_to_path.gml
++++ b/scripts/scr_save_workspace_to_path/scr_save_workspace_to_path.gml
+@@ -57,7 +57,7 @@ function scr_save_workspace_to_path(_path, _mark_clean = true) {
+         array_push(_node_array, _node_data);
+     }
+ 
+-    var _save_data = { roots : _root_array, nodes : _node_array, assets : global.asset_list };
++    var _save_data = { roots : _root_array, nodes : _node_array, assets : global.asset_list, machine_id : global.current_machine_id };
+     var _json_text = json_stringify(_save_data);
+ 
+     var _file = file_text_open_write(_path);
