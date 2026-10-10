@@ -18,7 +18,6 @@
   ],
   "ForcedPrefabProjectReferences":[],
   "IncludedFiles":[
-    {"$GMIncludedFile":"","%Name":"LICENCES.txt","CopyToMask":-1,"filePath":"datafiles","name":"LICENCES.txt","resourceType":"GMIncludedFile","resourceVersion":"2.0",},
     {"$GMIncludedFile":"","%Name":"boot.bin","CopyToMask":-1,"filePath":"datafiles/engine","name":"boot.bin","resourceType":"GMIncludedFile","resourceVersion":"2.0",},
     {"$GMIncludedFile":"","%Name":"boot.s","CopyToMask":-1,"filePath":"datafiles/engine","name":"boot.s","resourceType":"GMIncludedFile","resourceVersion":"2.0",},
     {"$GMIncludedFile":"","%Name":"engine.bin","CopyToMask":-1,"filePath":"datafiles/engine","name":"engine.bin","resourceType":"GMIncludedFile","resourceVersion":"2.0",},
@@ -33,6 +32,7 @@
     {"$GMIncludedFile":"","%Name":"Poppins-Medium.ttf","CopyToMask":-1,"filePath":"datafiles/fonts","name":"Poppins-Medium.ttf","resourceType":"GMIncludedFile","resourceVersion":"2.0",},
     {"$GMIncludedFile":"","%Name":"Poppins-OFL.txt","CopyToMask":-1,"filePath":"datafiles/fonts","name":"Poppins-OFL.txt","resourceType":"GMIncludedFile","resourceVersion":"2.0",},
     {"$GMIncludedFile":"","%Name":"Poppins-Regular.ttf","CopyToMask":-1,"filePath":"datafiles/fonts","name":"Poppins-Regular.ttf","resourceType":"GMIncludedFile","resourceVersion":"2.0",},
+    {"$GMIncludedFile":"","%Name":"LICENCES.txt","CopyToMask":-1,"filePath":"datafiles","name":"LICENCES.txt","resourceType":"GMIncludedFile","resourceVersion":"2.0",},
   ],
   "isEcma":false,
   "LibraryEmitters":[],
