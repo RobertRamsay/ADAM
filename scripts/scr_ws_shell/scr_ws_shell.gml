@@ -110,15 +110,25 @@ function draw_topbar(_gw)
         helpers_on = !helpers_on;
         settings_save();
     }
+    var _pg = ws_name(ws);
     _rx -= 70;
-    if (ui_button("top_redo", _rx, 14, 64, 32, "Redo", "Redo|Puts back the last change you undid. Shortcut: Ctrl+Y.", BTN_GHOST))
+    var _rst = BTN_GHOST;
+    if (redo_count() > 0) { _rst = BTN_NORMAL; }
+    if (ui_button("top_redo", _rx, 14, 64, 32, "Redo", "Redo (" + _pg + ")|Puts back the last change you undid on this page (" + string(redo_count()) + " to redo). Every page keeps its own history. Shortcut: Ctrl+Y.", _rst))
     {
         redo_do();
     }
     _rx -= 70;
-    if (ui_button("top_undo", _rx, 14, 64, 32, "Undo", "Undo|Takes back your last change. Shortcut: Ctrl+Z.", BTN_GHOST))
+    var _ust = BTN_GHOST;
+    if (undo_count() > 0) { _ust = BTN_NORMAL; }
+    if (ui_button("top_undo", _rx, 14, 64, 32, "Undo", "Undo (" + _pg + ")|Takes back your last change on this page (" + string(undo_count()) + " to undo). Every page keeps its own history, so undoing here never touches the other pages. Shortcut: Ctrl+Z.", _ust))
     {
         undo_do();
+    }
+    if (undo_count() > 0)
+    {
+        draw_circle_colour(_rx + 60, 18, 7, global.TH.accent, global.TH.accent_dark, false);
+        ui_text(_rx + 60, 18, string(min(99, undo_count())), c_white, fa_center, fa_middle, global.f_small, 1);
     }
 }
 

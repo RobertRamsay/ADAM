@@ -147,7 +147,17 @@ function adam_data_block(_p)
     var _ncol = 1 << _depth;
     var _acts = _p.actors;
     var _na = min(8, array_length(_acts));
-    var _rules = _p.rules;
+    var _rules = [];
+    for (var ru = 0; ru < array_length(_p.rules); ru++)
+    {
+        var _rr = _p.rules[ru];
+        var _off_grp = false;
+        if (_rr.group >= 0 && _rr.group < array_length(_p.groups))
+        {
+            if (!_p.groups[_rr.group].enabled) { _off_grp = true; }
+        }
+        if (!_off_grp) { array_push(_rules, _rr); }
+    }
     var _nr = min(100, array_length(_rules));
     var _b = buffer_create(262144, buffer_grow, 1);
     buf_zeros(_b, ADF_HDR);

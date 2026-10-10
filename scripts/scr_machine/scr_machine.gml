@@ -69,7 +69,7 @@ function machine_set(_id, _with_undo)
 {
     var _m = machine_get(_id);
     if (_m.id == proj.machine) { return; }
-    if (_with_undo) { undo_mark("machine" + string(current_time)); }
+    if (_with_undo) { undo_mark_full("machine" + string(current_time)); }
     proj.machine = _m.id;
     if (proj.depth > _m.max_depth)
     {

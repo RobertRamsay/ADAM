@@ -17,7 +17,7 @@ function tut_init()
         tut_step(WS_HOME, "home_lives", "Lives and score", "Choose how many lives the player gets and where the score and lives are shown. A rule on the Logic page takes lives away."),
         tut_step(WS_HOME, "home_over", "Messages", "These messages appear when the game ends. The player presses fire to play again."),
         tut_step(WS_HOME, "top_helpers", "Hover helpers", "Rest your mouse on anything and a helper line points to a bubble that explains it. Switch them off here once you know your way around."),
-        tut_step(WS_HOME, "top_undo", "Undo and Redo", "Made a mistake? Undo (Ctrl+Z) takes it back and Redo (Ctrl+Y) puts it back again. Nothing is ever lost."),
+        tut_step(WS_HOME, "top_undo", "Undo and Redo", "Made a mistake? Undo (Ctrl+Z) takes it back and Redo (Ctrl+Y) puts it back again. Every page keeps its own history, so undoing on one page never touches the others."),
         // ---------- BACKDROP ----------
         tut_step(WS_BACKDROP, "bd_canvas", "The backdrop", "This is your game's background: 320 x 256 pixels, the classic PAL Amiga low-res screen. Actors move on top of it. Left-click paints, right-click paints colour 0."),
         tut_step(WS_BACKDROP, "bd_tool_0", "Painting tools", "Brush, line, box, flood fill, text and colour pick. Alt-click picks a colour with any tool. The mouse wheel zooms in for detail."),
@@ -50,6 +50,7 @@ function tut_init()
         tut_step(WS_LOGIC, "logic_add", "Add a rule", "Press this to add a new rule, then change its parts with the drop-down menus."),
         tut_step(WS_LOGIC, "rule_0_when", "The WHEN part", "Choose what triggers the rule: two actors touching, the fire button, a timer, a score target, running out of lives or the game starting. (Add a rule first if the list is empty.)"),
         tut_step(WS_LOGIC, "rule_0_act", "The DO part", "Choose what happens: add score, lose or gain a life, play a sound, move or hide actors, change the background colour, win or game over."),
+        tut_step(WS_LOGIC, "logic_addgroup", "Groups", "Keep related rules together in named groups, like 'Hoppers hit the hero'. Collapse a group to tidy the list, or switch it off to test your game without those rules."),
         tut_step(WS_LOGIC, "logic_tpl_0", "Quick recipes", "Not sure where to start? These buttons add complete, ready-made rules for the most common game ideas."),
         // ---------- SOUND ----------
         tut_step(WS_SOUND, "snd_slot_0", "Eight sound effects", "Your game has 8 sound slots. Pick one to edit it, or press Play to hear it."),

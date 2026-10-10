@@ -152,6 +152,7 @@ sel_actor = 0;
 act_drag = false;
 act_drag_dx = 0;
 act_drag_dy = 0;
+logic_resort = false;
 ground_cache = array_create(BD_W, 256);
 ground_cache_time = -10000;
 
@@ -190,10 +191,11 @@ settings_load();
 // ---------- project ----------
 proj = project_new();
 proj_dirty = false;
-undo_stack = [];
-redo_stack = [];
+undo_stacks = [];
+redo_stacks = [];
 undo_last_tag = "";
 undo_last_time = 0;
+undo_clear_all();
 autosave_timer = 0;
 
 // restore the last session

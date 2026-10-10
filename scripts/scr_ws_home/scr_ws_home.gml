@@ -33,8 +33,7 @@ function home_new()
     proj.machine = _machine;
     proj_path = "";
     proj_dirty = false;
-    undo_stack = [];
-    redo_stack = [];
+    undo_clear_all();
     project_after_change();
     toast("New project ready", 0);
 }

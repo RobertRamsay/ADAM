@@ -83,7 +83,7 @@ function actor_new(_name)
 
 function rule_new()
 {
-    return { when : 0, a : 0, b : 1, n : 1, act : 0, target : 0, value : 10 };
+    return { when : 0, a : 0, b : 1, n : 1, act : 0, target : 0, value : 10, group : -1 };
 }
 
 function sfx_new(_name)
@@ -131,6 +131,7 @@ function project_new()
         sprites : [],
         actors : [],
         rules : [],
+        groups : [],
         sfx : [],
         lives : 3,
         show_score : true,
@@ -242,6 +243,18 @@ function project_from_loaded(_raw)
     }
     _p.rules = _rules;
 
+    var _grs = [];
+    var _lg = _raw[$ "groups"];
+    if (is_array(_lg))
+    {
+        for (var gi = 0; gi < array_length(_lg); gi++) { array_push(_grs, struct_overlay(group_new("Group"), _lg[gi])); }
+    }
+    _p.groups = _grs;
+    for (var ri = 0; ri < array_length(_p.rules); ri++)
+    {
+        if (_p.rules[ri].group >= array_length(_grs) || _p.rules[ri].group < -1) { _p.rules[ri].group = -1; }
+    }
+
     var _lv = [];
     if (is_array(_p.levels))
     {
@@ -312,8 +325,7 @@ function project_load_from(_path)
     proj_path = _path;
     proj_dirty = false;
     project_after_change();
-    undo_stack = [];
-    redo_stack = [];
+    undo_clear_all();
     toast("Opened " + filename_name(_path), 0);
     if (proj.machine != _old_machine)
     {
@@ -332,8 +344,84 @@ function project_after_change()
     build_listing = [];
 }
 
+// ---------------------------------------------------------------------------
+// Undo / redo, one history per editor. Each editor only snapshots the parts
+// of the project it changes, so undoing on the Logic page never touches the
+// backdrop you painted afterwards, and so on.
+// ---------------------------------------------------------------------------
+
+/// Project fields each editor owns
+function undo_keys(_ws)
+{
+    switch (_ws)
+    {
+        case WS_HOME:     return ["name", "lives", "show_score", "show_lives", "hud_row", "hud_colour", "msg_colour", "over_text", "win_text"];
+        case WS_BACKDROP: return ["pixels", "pal", "depth", "solid", "sky_on", "sky_top", "sky_mid", "sky_bot", "sky_mid_y", "hud_colour", "msg_colour", "terrain_cols"];
+        case WS_LEVELS:   return ["levels_on", "levels", "terrain_cols", "goal_on", "goal", "goal_label", "title_on", "title1", "title2", "lev_text"];
+        case WS_SPRITES:  return ["sprites"];
+        case WS_ACTORS:   return ["actors", "rules"];
+        case WS_LOGIC:    return ["rules", "groups"];
+        case WS_SOUND:    return ["sfx"];
+    }
+    return [];
+}
+
+/// Snapshot of the current editor's part of the project (or all of it)
+function undo_snapshot(_ws, _full)
+{
+    if (_full) { return { full : true, data : json_stringify(proj) }; }
+    var _keys = undo_keys(_ws);
+    var _part = {};
+    for (var i = 0; i < array_length(_keys); i++) { _part[$ _keys[i]] = proj[$ _keys[i]]; }
+    return { full : false, data : json_stringify(_part) };
+}
+
+/// Puts a snapshot back
+function undo_restore(_snap)
+{
+    var _raw = json_parse(_snap.data);
+    if (_snap.full)
+    {
+        proj = project_from_loaded(_raw);
+    }
+    else
+    {
+        // run the fields through the loader so they get the same checks as a saved file
+        var _tmp = json_parse(json_stringify(proj));
+        var _names = variable_struct_get_names(_raw);
+        for (var i = 0; i < array_length(_names); i++) { _tmp[$ _names[i]] = _raw[$ _names[i]]; }
+        proj = project_from_loaded(_tmp);
+    }
+    proj_dirty = true;
+    project_after_change();
+}
+
+function undo_clear_all()
+{
+    undo_stacks = array_create(WS_COUNT, 0);
+    redo_stacks = array_create(WS_COUNT, 0);
+    for (var i = 0; i < WS_COUNT; i++)
+    {
+        undo_stacks[i] = [];
+        redo_stacks[i] = [];
+    }
+    undo_last_tag = "";
+}
+
 /// Call BEFORE changing proj. Coalesces rapid edits with the same tag.
 function undo_mark(_tag)
+{
+    undo_mark_ex(_tag, false);
+}
+
+/// Like undo_mark, but saves the whole project (for changes that reach into
+/// every editor, such as switching machine)
+function undo_mark_full(_tag)
+{
+    undo_mark_ex(_tag, true);
+}
+
+function undo_mark_ex(_tag, _full)
 {
     proj_dirty = true;
     if (_tag == undo_last_tag && current_time - undo_last_time < 1200)
@@ -343,31 +431,49 @@ function undo_mark(_tag)
     }
     undo_last_tag = _tag;
     undo_last_time = current_time;
-    array_push(undo_stack, json_stringify(proj));
-    if (array_length(undo_stack) > 40) { array_delete(undo_stack, 0, 1); }
-    redo_stack = [];
+    var _w = ws;
+    if (!_full && array_length(undo_keys(_w)) == 0) { _full = true; }
+    array_push(undo_stacks[_w], undo_snapshot(_w, _full));
+    if (array_length(undo_stacks[_w]) > 40) { array_delete(undo_stacks[_w], 0, 1); }
+    redo_stacks[_w] = [];
 }
 
 function undo_do()
 {
-    if (array_length(undo_stack) == 0) { toast("Nothing to undo", 1); return; }
-    array_push(redo_stack, json_stringify(proj));
-    var _s = array_pop(undo_stack);
-    proj = project_from_loaded(json_parse(_s));
+    var _w = ws;
+    if (array_length(undo_stacks[_w]) == 0)
+    {
+        toast("Nothing to undo on the " + ws_name(_w) + " page", 1);
+        return;
+    }
+    var _snap = array_pop(undo_stacks[_w]);
+    array_push(redo_stacks[_w], undo_snapshot(_w, _snap.full));
+    undo_restore(_snap);
     undo_last_tag = "";
-    proj_dirty = true;
-    project_after_change();
 }
 
 function redo_do()
 {
-    if (array_length(redo_stack) == 0) { toast("Nothing to redo", 1); return; }
-    array_push(undo_stack, json_stringify(proj));
-    var _s = array_pop(redo_stack);
-    proj = project_from_loaded(json_parse(_s));
+    var _w = ws;
+    if (array_length(redo_stacks[_w]) == 0)
+    {
+        toast("Nothing to redo on the " + ws_name(_w) + " page", 1);
+        return;
+    }
+    var _snap = array_pop(redo_stacks[_w]);
+    array_push(undo_stacks[_w], undo_snapshot(_w, _snap.full));
+    undo_restore(_snap);
     undo_last_tag = "";
-    proj_dirty = true;
-    project_after_change();
+}
+
+function undo_count()
+{
+    return array_length(undo_stacks[ws]);
+}
+
+function redo_count()
+{
+    return array_length(redo_stacks[ws]);
 }
 
 /// Sets struct field with undo when the value changes
