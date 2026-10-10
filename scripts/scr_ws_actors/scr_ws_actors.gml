@@ -86,7 +86,7 @@ function ws_actors_draw(_x1, _y1, _x2, _y2)
     ui_panel(_x1, _y1, _x1 + _lw, _y2, "Cast  (" + string(_na) + " / 8)");
     var _ly = _y1 + 54;
     var _rowh = 58;
-    var _role_short = ["Player", "Bouncer", "Patrol L-R", "Patrol U-D", "Chaser", "Still"];
+    var _role_short = ["Player", "Bouncer", "Patrol L-R", "Patrol U-D", "Chaser", "Still", "Platform player", "Hopper", "Faller"];
     for (var i = 0; i < _na; i++)
     {
         var _ac = proj.actors[i];
@@ -107,7 +107,7 @@ function ws_actors_draw(_x1, _y1, _x2, _y2)
         ui_rrect(_x1 + 16, _ry + 5, _x1 + 50, _ry + _rowh - 11, 6, pal_col(0), pal_col(0), 1);
         draw_sprite_amiga_cols(_ac.sprite, _x1 + 25, _ry + 7, 1.5 * 16 / 24, actor_cols_from(_alloc, i), 1);
         ui_text(_x1 + 60, _ry + 16, ui_text_fit(_ac.name, global.f_bold, _lw - 84), global.TH.text, fa_left, fa_middle, global.f_bold, 1);
-        var _sub = _role_short[clamp(_ac.role, 0, 5)];
+        var _sub = _role_short[clamp(_ac.role, 0, 8)];
         if (i < array_length(_alloc.conflict))
         {
             if (_alloc.conflict[i]) { _sub += "  -  colours shared!"; }
@@ -175,6 +175,22 @@ function ws_actors_draw(_x1, _y1, _x2, _y2)
     var _fy = floor((_y1 + _y2 - _fh) / 2) - 10;
     ui_rrect(_fx - 6, _fy - 6, _fx + _fw + 6, _fy + _fh + 6, 10, c_black, c_black, 0.35);
     backdrop_draw(_fx, _fy, _scale);
+    // the ground line that walkers, hoppers and fallers stand on
+    if (current_time - ground_cache_time > 400)
+    {
+        ground_cache = ground_table_cached(proj);
+        ground_cache_time = current_time;
+    }
+    var _gtab = ground_cache;
+    draw_set_alpha(0.55);
+    for (var gl = 0; gl < BD_W - 1; gl++)
+    {
+        if (_gtab[gl] < 256 && _gtab[gl + 1] < 256 && (gl div 3) mod 2 == 0)
+        {
+            draw_line_width_colour(_fx + gl * _scale, _fy + _gtab[gl] * _scale, _fx + (gl + 1) * _scale, _fy + _gtab[gl + 1] * _scale, 2, global.TH.warn, global.TH.warn);
+        }
+    }
+    draw_set_alpha(1);
 
     ui_register("act_stage", _fx, _fy, _fx + _fw, _fy + _fh, "Stage|Drag actors to set where they start. Hidden actors are drawn faded.");
     var _hover = -1;
@@ -282,10 +298,13 @@ function ws_actors_draw(_x1, _y1, _x2, _y2)
         "Moves left and right, turning around at the screen edges.",
         "Moves up and down, turning around at the top and bottom.",
         "Always heads towards the player. Speed 1 is gentle, 3 is scary!",
-        "Stays where you put it. Great for pickups, doors and goals."
+        "Stays where you put it. Great for pickups, doors and goals.",
+        "Walks left and right on the ground and jumps with fire (or up). Follows the hills - set your ground colours on the Backdrop page.",
+        "Hops along the ground on its own, drifting left or right in the air. Jump over it or run under it.",
+        "Falls until it lands on the ground, then stays there. Use 'Move actor to another actor' to drop it from a cloud."
     ];
     ui_rrect(_fx2, _y, _fx2 + _fw2, _y + 50, 8, global.TH.inset_top, global.TH.inset_bot, 0.8);
-    ui_text_wrap(_fx2 + 10, _y + 7, _rdesc[clamp(_s.role, 0, 5)], global.TH.text_dim, _fw2 - 20, global.f_small, 1);
+    ui_text_wrap(_fx2 + 10, _y + 7, _rdesc[clamp(_s.role, 0, 8)], global.TH.text_dim, _fw2 - 20, global.f_small, 1);
     _y += 62;
     var _half = floor((_fw2 - 12) / 2);
     ui_heading(_fx2, _y, "Speed");

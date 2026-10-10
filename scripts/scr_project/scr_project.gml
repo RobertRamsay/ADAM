@@ -11,11 +11,11 @@
 
 function project_defs_init()
 {
-    global.ROLE_NAMES = ["Player (joystick)", "Bouncer (diagonal)", "Patrol left-right", "Patrol up-down", "Chaser (follows player)", "Still (does not move)"];
-    global.WHEN_NAMES = ["Actor touches actor", "Fire button is pressed", "Every few seconds", "Score reaches", "Lives run out", "The game starts"];
+    global.ROLE_NAMES = ["Player (joystick)", "Bouncer (diagonal)", "Patrol left-right", "Patrol up-down", "Chaser (follows player)", "Still (does not move)", "Platform player (walks + jumps)", "Hopper (jumps left and right)", "Faller (drops onto the ground)"];
+    global.WHEN_NAMES = ["Actor touches actor", "Fire button is pressed", "Every few seconds", "Score reaches", "Lives run out", "The game starts", "Actor jumps"];
     global.DO_NAMES   = ["Add to score", "Lose a life", "Play a sound", "Flash the screen", "Send actor back to start",
                          "Move actor to a random spot", "Hide actor", "Show actor", "Change background colour",
-                         "Game over", "You win!", "Speed up actor", "Slow down actor", "Add a life"];
+                         "Game over", "You win!", "Speed up actor", "Slow down actor", "Add a life", "Move actor to another actor"];
     global.WAVE_NAMES = ["Triangle (soft)", "Sawtooth (buzzy)", "Square (classic)", "Noise (crunchy)"];
     global.SFX_PRESET_NAMES = ["Coin", "Laser", "Explosion", "Jump", "Hit", "Power up", "Lose", "Blip"];
     global.TEMPLATE_NAMES = ["Player touches enemy: lose a life", "Player touches pickup: score + move pickup",
@@ -137,6 +137,7 @@ function project_new()
         msg_colour : 14,
         over_text : "GAME OVER - PRESS FIRE",
         win_text : "YOU WIN! - PRESS FIRE",
+        solid : array_create(PAL_MAX, 0),
         sky_on : false,
         sky_top : 0x102060,
         sky_mid : 0x4080c0,
@@ -181,6 +182,7 @@ function project_from_loaded(_raw)
     _p.depth = clamp(floor(_p.depth), 1, 7);
     if (!is_array(_p.pixels) || array_length(_p.pixels) != BD_W * BD_H) { _p.pixels = array_create(BD_W * BD_H, 0); }
     if (!is_array(_p.pal)) { _p.pal = _pal; }
+    if (!is_array(_p.solid) || array_length(_p.solid) != PAL_MAX) { _p.solid = array_create(PAL_MAX, 0); }
     if (array_length(_p.pal) < PAL_MAX)
     {
         for (var c = array_length(_p.pal); c < PAL_MAX; c++) { array_push(_p.pal, _pal[c]); }

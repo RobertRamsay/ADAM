@@ -24,6 +24,7 @@ function tut_init()
         tut_step(WS_BACKDROP, "bd_depth", "How many colours", "Every extra bitplane doubles the colours: 16 on the Amiga 500/600, up to 128 on the 1200. Colour 0 is also the border."),
         tut_step(WS_BACKDROP, "bd_pal", "The palette", "Click a colour to paint with it. The sliders below mix it from red, green and blue - 4096 colours on the 500/600 and 16.8 million on the 1200."),
         tut_step(WS_BACKDROP, "bd_import", "Import a picture", "Got artwork already? Import a PNG or JPG. ADAM fits it to the screen and chooses the best colours for it, with optional dithering."),
+        tut_step(WS_BACKDROP, "bd_solid", "Ground colours", "Mark the colours of your grass, floors and platforms as ground. Platform players, hoppers and fallers walk along the top of them - up and down every hill."),
         tut_step(WS_BACKDROP, "bd_tab_sky", "Copper sky", "The classic Amiga trick: the copper chip changes colour 0 on every line, painting a smooth sunset, sea or night sky behind your backdrop for free. Paint the sky areas in colour 0 to let it show."),
         // ---------- SPRITES ----------
         tut_step(WS_SPRITES, "spr_slot_0", "Your sprites", "Sprites are the pictures for the things that move. Each one is an Amiga hardware sprite: 16 pixels wide, 24 tall, 3 colours plus see-through."),

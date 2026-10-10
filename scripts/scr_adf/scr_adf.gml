@@ -71,6 +71,34 @@ function buf_text(_b, _s)
     buffer_write(_b, buffer_u8, 0);
 }
 
+/// Ground height per column (first ground-colour pixel from the top, 256 = none)
+function ground_table(_p)
+{
+    var _out = array_create(BD_W, 256);
+    for (var gx = 0; gx < BD_W; gx++)
+    {
+        for (var gy = 0; gy < BD_H; gy++)
+        {
+            if (_p.solid[_p.pixels[gy * BD_W + gx]] != 0)
+            {
+                _out[gx] = gy;
+                break;
+            }
+        }
+    }
+    return _out;
+}
+
+/// Ground table for previews: all 256 (no line) when no colour is ground
+function ground_table_cached(_p)
+{
+    for (var sc = 0; sc < PAL_MAX; sc++)
+    {
+        if (_p.solid[sc] != 0) { return ground_table(_p); }
+    }
+    return array_create(BD_W, 256);
+}
+
 /// Writes one hardware sprite block (POS, CTL, 24 lines x 2 words, end). Returns its offset.
 function adf_sprite_block(_b, _img)
 {
@@ -155,7 +183,7 @@ function adam_data_block(_p)
     for (var a2 = 0; a2 < _na; a2++)
     {
         var _ac = _acts[a2];
-        if (_ac.role == 0 && _player < 0) { _player = a2; }
+        if ((_ac.role == 0 || _ac.role == 6) && _player < 0) { _player = a2; }
         var _img2 = _p.sprites[clamp(_ac.sprite, 0, SPR_COUNT - 1)].px;
         var _bx0 = 99;
         var _by0 = 99;
@@ -184,7 +212,7 @@ function adam_data_block(_p)
         if (_ac.start_up) { _up = 1; }
         be16(_b, clamp(_ac.x, 0, ACT_XMAX));
         be16(_b, clamp(_ac.y, 0, ACT_YMAX));
-        be16(_b, clamp(_ac.role, 0, 5));
+        be16(_b, clamp(_ac.role, 0, 8));
         be16(_b, clamp(_ac.speed, 1, 8));
         be16(_b, _vis);
         be16(_b, _left);
@@ -213,11 +241,11 @@ function adam_data_block(_p)
         var _val = _ru.value;
         if (_ru.act == 8) { _val = clamp(_val, 0, _ncol - 1); }
         if (_ru.act == 2) { _val = clamp(_val, 0, 7); }
-        be16(_b, clamp(_ru.when, 0, 5));
+        be16(_b, clamp(_ru.when, 0, 6));
         be16(_b, clamp(_ru.a, 0, 7));
         be16(_b, clamp(_ru.b, 0, 7));
         be16(_b, clamp(_ru.n, 1, 65535));
-        be16(_b, clamp(_ru.act, 0, 13));
+        be16(_b, clamp(_ru.act, 0, 14));
         be16(_b, clamp(_ru.target, 0, 7));
         be16(_b, clamp(_val, 0, 65535));
         be16(_b, 0);
@@ -274,6 +302,21 @@ function adam_data_block(_p)
         buf_align(_b, 8);
     }
 
+    // ground: for each column, the first pixel from the top in a ground colour
+    var _off_ground = 0;
+    var _any_solid = false;
+    for (var sc = 0; sc < PAL_MAX; sc++)
+    {
+        if (_p.solid[sc] != 0) { _any_solid = true; }
+    }
+    if (_any_solid)
+    {
+        _off_ground = buffer_tell(_b);
+        var _gt = ground_table(_p);
+        for (var gx = 0; gx < BD_W; gx++) { be16(_b, _gt[gx]); }
+        buf_align(_b, 8);
+    }
+
     // the display bitplanes the game draws into
     var _off_disp = buffer_tell(_b);
     buf_zeros(_b, _depth * 10240);
@@ -312,6 +355,7 @@ function adam_data_block(_p)
     poke32(_b, 60, _off_sprcol);
     poke32(_b, 64, _off_disp);
     poke32(_b, 68, _off_grad);
+    poke32(_b, 72, _off_ground);
 
     if (_na == 0) { array_push(_warn, "There are no actors yet - the game will just show your backdrop."); }
     if (_player < 0 && _na > 0) { array_push(_warn, "No actor is set as Player, so the joystick will not move anything."); }

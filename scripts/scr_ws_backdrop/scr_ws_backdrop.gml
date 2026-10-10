@@ -384,7 +384,17 @@ function ws_backdrop_draw(_x1, _y1, _x2, _y2)
         undo_mark("bdcol" + string(bd_sel));
         proj.pal[bd_sel] = _nc;
     }
-    _y += 98;
+    _y += 94;
+    var _was = (proj.solid[bd_sel] != 0);
+    var _gr = ui_toggle("bd_solid", _fx, _y, "Ground colour (actors stand on it)", _was, "Ground colour|Platform players, hoppers and fallers stand on the first ground-coloured pixel in each column, so they walk up and down your hills. Marked with a dot in the palette. The Actors page shows the ground line.");
+    if (_gr != _was)
+    {
+        undo_mark("bdsolid" + string(current_time));
+        if (_gr) { proj.solid[bd_sel] = 1; }
+        else { proj.solid[bd_sel] = 0; }
+        ground_cache_time = -10000;
+    }
+    _y += 34;
 
     ui_heading(_fx, _y, "Picture");
     _y += 18;

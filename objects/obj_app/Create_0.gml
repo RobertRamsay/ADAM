@@ -140,6 +140,8 @@ sel_actor = 0;
 act_drag = false;
 act_drag_dx = 0;
 act_drag_dy = 0;
+ground_cache = array_create(BD_W, 256);
+ground_cache_time = -10000;
 
 // sound
 snd_sel = 0;

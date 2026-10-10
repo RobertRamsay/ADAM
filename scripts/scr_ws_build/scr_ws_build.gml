@@ -84,7 +84,7 @@ function ws_build_draw(_x1, _y1, _x2, _y2)
     var _has_player = false;
     for (var i = 0; i < _na; i++)
     {
-        if (proj.actors[i].role == 0) { _has_player = true; }
+        if (proj.actors[i].role == 0 || proj.actors[i].role == 6) { _has_player = true; }
     }
     var _lose = false;
     var _end = false;

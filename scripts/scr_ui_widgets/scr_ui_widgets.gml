@@ -480,6 +480,11 @@ function ui_palette_grid(_id, _x, _y, _cell, _cols, _value, _help)
         var _hot = ui_register(_cid, _cx, _cy, _cx + _cell, _cy + _cell, _help + " (colour " + string(i) + "  " + rgb_hex(proj.pal[i]) + ")");
         ui_rrect(_cx, _cy, _cx + _cell, _cy + _cell, 5, pal_col(i), pal_col(i), 1);
         ui_rrect_line(_cx, _cy, _cx + _cell, _cy + _cell, 5, c_black, 0.5, 1);
+        if (proj.solid[i] != 0)
+        {
+            draw_circle_colour(_cx + _cell - 5, _cy + _cell - 5, 3, c_white, c_white, false);
+            draw_circle_colour(_cx + _cell - 5, _cy + _cell - 5, 2, global.TH.warn, global.TH.warn, false);
+        }
         if (i == _v)
         {
             ui_rrect_line(_cx - 3, _cy - 3, _cx + _cell + 3, _cy + _cell + 3, 7, c_white, 1, 2);

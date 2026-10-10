@@ -38,6 +38,7 @@ H_TWIN      equ 56         ; offset: win text (0 terminated)
 H_SPRCOL    equ 60         ; offset: 4 sprite pairs x 3 longs $00RRGGBB
 H_DISP      equ 64         ; offset: display bitplanes (depth * 10240 bytes)
 H_GRAD      equ 68         ; offset: 256 copper sky colours ($0RGB words), 0 = none
+H_GROUND    equ 72         ; offset: 320 ground heights (words), 0 = none
 HDR_SIZE    equ 80
 
 ; actor record
@@ -75,9 +76,12 @@ YMAX        equ 232        ; 256 - 24
 SPR_H       equ 24
 SFX_PERIOD  equ 322        ; ~11015 Hz on PAL
 SCORE_MAX   equ 99999
+GRAVITY     equ 4          ; 1/16 pixel per frame per frame
+MAX_FALL    equ 96
+JUMP_V      equ 84         ; platform player jump speed (1/16 px)
 
 ; ---------------- engine variables (offsets from V) ----------------
-            rsreset
+            rsset   -128            ; a5 = V+128 so per-actor tables fit d8(a5,Dn)
 v_ax        rs.w 8
 v_ay        rs.w 8
 v_spd       rs.w 8
@@ -86,7 +90,13 @@ v_dx        rs.w 8
 v_dy        rs.w 8
 v_px        rs.w 8
 v_py        rs.w 8
+v_vy        rs.w 8         ; vertical speed in 1/16 pixels per frame
+v_ysub      rs.w 8
+v_tmr       rs.w 8
+v_gnd       rs.w 8         ; 1 = standing on the ground
 v_anim      rs.w 1
+v_joyprev   rs.w 1
+v_jumped    rs.w 1         ; bit per actor that jumped this frame
 v_gradfix   rs.w 1
 v_joy       rs.w 1
 v_fcount    rs.w 1
@@ -105,7 +115,7 @@ V_SIZE      rs.b 0
 
 ; ============================================================================
 start:
-            lea     V(pc),a5
+            lea     V+128(pc),a5
             lea     data_start(pc),a4
             lea     $dff000,a6
             move.w  #$7fff,$9a(a6)          ; INTENA  - all interrupts off
@@ -287,6 +297,10 @@ init_actors:
             move.w  A_UP(a2),v_dy(a5,d5.w)
             move.w  A_X(a2),v_px(a5,d5.w)
             move.w  A_Y(a2),v_py(a5,d5.w)
+            move.w  #0,v_vy(a5,d5.w)
+            move.w  #0,v_ysub(a5,d5.w)
+            move.w  #0,v_tmr(a5,d5.w)
+            move.w  #0,v_gnd(a5,d5.w)
             lea     ACT_SIZE(a2),a2
             addq.w  #1,d7
             cmp.w   d6,d7
@@ -373,6 +387,7 @@ setcol:
 frame:
             bsr     flash_tick              ; copper edits first, while the copper is idle
             addq.w  #1,v_anim(a5)
+            move.w  #0,v_jumped(a5)
             bsr     read_joy
             move.w  #0,v_sectick(a5)
             addq.w  #1,v_fcount(a5)
@@ -381,6 +396,7 @@ frame:
             move.w  #0,v_fcount(a5)
             move.w  #1,v_sectick(a5)
 .f1         bsr     move_actors
+            move.w  v_joy(a5),v_joyprev(a5)
             bsr     place_sprites
             bsr     run_rules
             bsr     sound_tick
@@ -423,6 +439,12 @@ move_actors:
             add.w   d5,d5
             move.w  A_ROLE(a2),d0
             beq.s   .player
+            cmp.w   #6,d0
+            beq     .platform
+            cmp.w   #7,d0
+            beq     .hopper
+            cmp.w   #8,d0
+            beq     .faller
             cmp.w   #4,d0
             beq     .chaser
             cmp.w   #3,d0
@@ -500,17 +522,17 @@ move_actors:
             moveq   #0,d0
             move.w  #0,v_dy(a5,d5.w)
 .vs         move.w  d0,v_ay(a5,d5.w)
-            bra.s   .next
+            bra     .next
 
 .chaser     move.w  H_PLAYER(a4),d4
             bge.s   .ct
             moveq   #0,d4
 .ct         cmp.w   d7,d4
-            beq.s   .next
+            beq     .next
             add.w   d4,d4
             move.w  v_spd(a5,d5.w),d3
             subq.w  #1,d3
-            bmi.s   .next
+            bmi     .next
 .cl         move.w  v_ax(a5,d5.w),d0
             cmp.w   v_ax(a5,d4.w),d0
             beq.s   .cy
@@ -527,14 +549,152 @@ move_actors:
 .cyi        addq.w  #1,v_ay(a5,d5.w)
 .cn         dbf     d3,.cl
 
+.platform  move.w  v_spd(a5,d5.w),d1      ; walk left / right
+            move.w  v_joy(a5),d2
+            btst    #2,d2
+            beq.s   .wl
+            move.w  v_ax(a5,d5.w),d0
+            sub.w   d1,d0
+            bge.s   .wl1
+            moveq   #0,d0
+.wl1        move.w  d0,v_ax(a5,d5.w)
+.wl         btst    #3,d2
+            beq.s   .wr
+            move.w  v_ax(a5,d5.w),d0
+            add.w   d1,d0
+            cmp.w   #XMAX,d0
+            ble.s   .wr1
+            move.w  #XMAX,d0
+.wr1        move.w  d0,v_ax(a5,d5.w)
+.wr         tst.w   v_gnd(a5,d5.w)          ; jump: fire or up, just pressed
+            beq.s   .pphys
+            move.w  v_joyprev(a5),d0
+            not.w   d0
+            and.w   d2,d0
+            and.w   #17,d0
+            beq.s   .pphys
+            move.w  #-JUMP_V,v_vy(a5,d5.w)
+            bsr     jumped
+.pphys      bsr     physics
+            bra     .next
+
+.hopper     tst.w   v_gnd(a5,d5.w)
+            beq.s   .hair
+            addq.w  #1,v_tmr(a5,d5.w)
+            bsr     rand
+            and.w   #31,d0
+            add.w   #20,d0
+            cmp.w   v_tmr(a5,d5.w),d0
+            bgt.s   .hphys
+            move.w  #0,v_tmr(a5,d5.w)
+            move.w  v_spd(a5,d5.w),d0       ; jump height grows with speed
+            lsl.w   #3,d0
+            add.w   #40,d0
+            neg.w   d0
+            move.w  d0,v_vy(a5,d5.w)
+            bsr     jumped
+            bsr     rand
+            and.w   #3,d0
+            bne.s   .hphys
+            eor.w   #1,v_dx(a5,d5.w)        ; sometimes turn round
+            bra.s   .hphys
+.hair       move.w  v_spd(a5,d5.w),d1       ; drift sideways while in the air
+            move.w  v_ax(a5,d5.w),d0
+            tst.w   v_dx(a5,d5.w)
+            bne.s   .hjl
+            add.w   d1,d0
+            cmp.w   #XMAX,d0
+            ble.s   .hjs
+            move.w  #XMAX,d0
+            move.w  #1,v_dx(a5,d5.w)
+            bra.s   .hjs
+.hjl        sub.w   d1,d0
+            bge.s   .hjs
+            moveq   #0,d0
+            move.w  #0,v_dx(a5,d5.w)
+.hjs        move.w  d0,v_ax(a5,d5.w)
+.hphys      bsr     physics
+            bra     .next
+
+.faller     bsr     physics
+            bra     .next
+
 .next       lea     ACT_SIZE(a2),a2
             addq.w  #1,d7
             cmp.w   d6,d7
             blt     .loop
 .done       rts
 
+; d7 = actor index -> sets its bit in v_jumped (d5 = actor offset)
+jumped:     move.w  #0,v_gnd(a5,d5.w)
+            move.w  v_jumped(a5),d0
+            bset    d7,d0
+            move.w  d0,v_jumped(a5)
+            rts
+
+; ground top under the middle of actor d5 -> d2 (256 when there is no ground)
+ground_y:   move.l  H_GROUND(a4),d2
+            beq.s   .none
+            lea     0(a4,d2.l),a0
+            move.w  v_ax(a5,d5.w),d2
+            addq.w  #8,d2
+            cmp.w   #319,d2
+            bls.s   .ok
+            move.w  #319,d2
+.ok         add.w   d2,d2
+            move.w  0(a0,d2.w),d2
+            rts
+.none       move.w  #256,d2
+            rts
+
+; gravity and ground contact for actor d5 (record a2)
+physics:    move.w  v_vy(a5,d5.w),d0
+            addq.w  #GRAVITY,d0
+            cmp.w   #MAX_FALL,d0
+            ble.s   .v
+            move.w  #MAX_FALL,d0
+.v          move.w  d0,v_vy(a5,d5.w)
+            add.w   v_ysub(a5,d5.w),d0
+            move.w  d0,d1
+            asr.w   #4,d1
+            and.w   #15,d0
+            move.w  d0,v_ysub(a5,d5.w)
+            add.w   d1,v_ay(a5,d5.w)
+            move.w  v_gnd(a5,d5.w),d4       ; was standing last frame?
+            move.w  #0,v_gnd(a5,d5.w)
+            bsr.s   ground_y
+            move.w  v_ay(a5,d5.w),d3        ; feet = y + bottom of the drawn pixels
+            add.w   A_BY1(a2),d3
+            addq.w  #1,d3
+            tst.w   d4                      ; walking downhill: stay stuck to the slope
+            beq.s   .chk
+            addq.w  #6,d3
+.chk        cmp.w   d2,d3
+            blt.s   .air
+            tst.w   v_vy(a5,d5.w)
+            bmi.s   .air
+            sub.w   A_BY1(a2),d2            ; stand on the ground (follows the hills)
+            subq.w  #1,d2
+            move.w  d2,v_ay(a5,d5.w)
+            move.w  #0,v_vy(a5,d5.w)
+            move.w  #0,v_ysub(a5,d5.w)
+            move.w  #1,v_gnd(a5,d5.w)
+.air        move.w  v_ay(a5,d5.w),d0
+            cmp.w   #YMAX,d0
+            ble.s   .top
+            move.w  #YMAX,v_ay(a5,d5.w)
+            move.w  #0,v_vy(a5,d5.w)
+            move.w  #1,v_gnd(a5,d5.w)
+            rts
+.top        tst.w   d0
+            bge.s   .ok
+            move.w  #0,v_ay(a5,d5.w)
+            move.w  #0,v_vy(a5,d5.w)
+.ok         rts
+
 ; ============================================================================
 ;  write every actor's sprite control words
+
 ; ============================================================================
 place_sprites:
             move.w  H_NACT(a4),d6
@@ -735,6 +895,15 @@ run_rules:
             beq     .score
             cmp.w   #4,d0
             beq     .lives
+            cmp.w   #6,d0
+            beq.s   .jump
+            bra     .next
+
+.jump       move.w  v_jumped(a5),d0         ; actor a jumped this frame
+            move.w  R_A(a3),d1
+            btst    d1,d0
+            beq     .next
+            bsr     fire_action
             bra     .next
 
 .touch      move.w  R_A(a3),d0
@@ -817,7 +986,7 @@ do_action:
             move.w  d5,d4
             add.w   d5,d5
             move.w  R_ACT(a3),d0
-            cmp.w   #13,d0
+            cmp.w   #14,d0
             bhi     act_none
             add.w   d0,d0
             move.w  acttab(pc,d0.w),d0
@@ -836,8 +1005,27 @@ acttab:     dc.w    act_score-acttab
             dc.w    act_faster-acttab
             dc.w    act_slower-acttab
             dc.w    act_addlife-acttab
+            dc.w    act_moveto-acttab
 
 act_none:   rts
+
+stop_fall:  move.w  #0,v_vy(a5,d5.w)
+            move.w  #0,v_ysub(a5,d5.w)
+            move.w  #0,v_gnd(a5,d5.w)
+            rts
+
+; target (d4/d5) goes to the place where actor R_VAL is
+act_moveto: cmp.w   H_NACT(a4),d4
+            bhs     act_none
+            move.w  R_VAL(a3),d0
+            cmp.w   H_NACT(a4),d0
+            bhs     act_none
+            add.w   d0,d0
+            move.w  v_ax(a5,d0.w),v_ax(a5,d5.w)
+            move.w  v_ay(a5,d0.w),d1
+            addq.w  #8,d1
+            move.w  d1,v_ay(a5,d5.w)
+            bra     stop_fall
 
 act_score:  moveq   #0,d0
             move.w  R_VAL(a3),d0
@@ -869,6 +1057,7 @@ act_flash:  move.w  #16,v_flash(a5)
 
 act_home:   cmp.w   H_NACT(a4),d4
             bhs     act_none
+            bsr     stop_fall
             bsr     actor_rec
             move.w  A_X(a0),v_ax(a5,d5.w)
             move.w  A_Y(a0),v_ay(a5,d5.w)
@@ -876,6 +1065,7 @@ act_home:   cmp.w   H_NACT(a4),d4
 
 act_random: cmp.w   H_NACT(a4),d4
             bhs     act_none
+            bsr     stop_fall
             bsr     rand
             and.l   #$ffff,d0
             divu    #XMAX+1,d0
@@ -1300,7 +1490,7 @@ cop_grad:   dc.w    $ffff,$fffe             ; sky lines are built here at run ti
             ds.b    256*8+16
 
             cnop    0,4
-V:          ds.b    V_SIZE
+V:          ds.b    V_SIZE+128
             cnop    0,4
 stack:      ds.b    2048
 stack_top:

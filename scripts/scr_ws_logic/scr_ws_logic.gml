@@ -20,8 +20,8 @@ function logic_add_template(_t)
         return;
     }
     undo_mark("tpl" + string(current_time));
-    var _pl = logic_find_role([0], 0);
-    var _en = logic_find_role([4, 1, 2, 3], min(1, max(0, array_length(proj.actors) - 1)));
+    var _pl = logic_find_role([0, 6], 0);
+    var _en = logic_find_role([4, 7, 1, 2, 3], min(1, max(0, array_length(proj.actors) - 1)));
     var _pk = logic_find_role([5], min(2, max(0, array_length(proj.actors) - 1)));
     var _r;
     switch (_t)
@@ -80,6 +80,7 @@ function logic_sentence(_r)
         case 3: _s += "the score reaches " + string(_r.n); break;
         case 4: _s += "the player runs out of lives"; break;
         case 5: _s += "the game starts"; break;
+        case 6: _s += _an + " jumps"; break;
     }
     var _tn = "?";
     if (_r.target < _na) { _tn = _names[_r.target]; }
@@ -100,6 +101,11 @@ function logic_sentence(_r)
         case 11: _s += "speed up " + _tn; break;
         case 12: _s += "slow down " + _tn; break;
         case 13: _s += "add a life"; break;
+        case 14:
+            var _vn = "?";
+            if (_r.value < _na) { _vn = _names[_r.value]; }
+            _s += "move " + _tn + " to " + _vn;
+            break;
     }
     return _s + ".";
 }
@@ -117,7 +123,7 @@ function ws_logic_draw(_x1, _y1, _x2, _y2)
         {
             undo_mark("ruleadd" + string(current_time));
             var _nrule = rule_new();
-            _nrule.a = logic_find_role([0], 0);
+            _nrule.a = logic_find_role([0, 6], 0);
             _nrule.b = min(1, max(0, array_length(proj.actors) - 1));
             array_push(proj.rules, _nrule);
             ds_map_replace(ui_scroll, "logic_list", 999999);
@@ -172,6 +178,10 @@ function ws_logic_draw(_x1, _y1, _x2, _y2)
                 set_val(_r, "n", ui_stepper(_rid + "_n", _wx + 48, _wy, 120, _r.n, 1, 60, "Seconds|How many seconds between each time this rule fires."), _rid + "n");
                 ui_text(_wx + 176, _wy + 15, "seconds", global.TH.text_dim, fa_left, fa_middle, global.f_body, 1);
                 break;
+            case 6:
+                set_val(_r, "a", ui_dropdown(_rid + "_a", _wx, _wy, 150, 30, _anames, _r.a, "Which actor|The actor whose jump fires this rule - great for a jump sound."), _rid + "a");
+                ui_text(_wx + 158, _wy + 15, "jumps", global.TH.text_dim, fa_left, fa_middle, global.f_body, 1);
+                break;
             case 3:
                 set_val(_r, "n", ui_stepper(_rid + "_n", _wx, _wy, 150, _r.n, 1, 9999, "Score target|The rule fires once when the score reaches this number. Hold Shift for steps of 10."), _rid + "n");
                 ui_text(_wx + 158, _wy + 15, "points", global.TH.text_dim, fa_left, fa_middle, global.f_body, 1);
@@ -187,7 +197,7 @@ function ws_logic_draw(_x1, _y1, _x2, _y2)
         set_val(_r, "act", ui_dropdown(_rid + "_act", _dx, _dy, 210, 30, global.DO_NAMES, _r.act, "DO|What happens when the WHEN part is true."), _rid + "act");
         _dx += 220;
         var _act = _r.act;
-        if (_act == 4 || _act == 5 || _act == 6 || _act == 7 || _act == 11 || _act == 12)
+        if (_act == 4 || _act == 5 || _act == 6 || _act == 7 || _act == 11 || _act == 12 || _act == 14)
         {
             set_val(_r, "target", ui_dropdown(_rid + "_t", _dx, _dy, 150, 30, _anames, _r.target, "Which actor|The actor this action changes."), _rid + "t");
             _dx += 160;
@@ -204,6 +214,11 @@ function ws_logic_draw(_x1, _y1, _x2, _y2)
             {
                 sfx_preview_play(proj.sfx[clamp(_r.value, 0, 7)]);
             }
+        }
+        if (_act == 14)
+        {
+            ui_text(_dx, _dy + 15, "to", global.TH.text_dim, fa_left, fa_middle, global.f_body, 1);
+            set_val(_r, "value", ui_dropdown(_rid + "_to", _dx + 24, _dy, 150, 30, _anames, clamp(_r.value, 0, max(0, array_length(proj.actors) - 1)), "To which actor|The first actor jumps to where this one is - drop a gem from a moving cloud, or respawn an enemy at a portal."), _rid + "to");
         }
         if (_act == 8)
         {
