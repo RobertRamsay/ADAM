@@ -129,6 +129,8 @@ function backdrop_gfx_init()
 {
     bd_surf = -1;
     bd_dirty = true;
+    bd_upload = true;
+    bd_buf = buffer_create(BD_W * BD_H * 4, buffer_fixed, 1);
     bd_uniform = shader_get_uniform(sh_palette, "u_pal");
     bd_pal_floats = array_create(PAL_MAX * 3, 0);
     bd_u_sky_on = shader_get_uniform(sh_palette, "u_sky_on");
@@ -138,29 +140,36 @@ function backdrop_gfx_init()
     bd_u_sky_midy = shader_get_uniform(sh_palette, "u_sky_midy");
 }
 
+/// The backdrop index surface. Painting only changes bd_buf (an exact copy of
+/// the pixels); the whole buffer is sent to the surface once per frame, so the
+/// picture can never be lost or overwritten by drawing into the surface.
 function backdrop_surface()
 {
     if (!surface_exists(bd_surf))
     {
         bd_surf = surface_create(BD_W, BD_H);
-        bd_dirty = true;
+        bd_upload = true;
     }
     if (bd_dirty)
     {
         var _n = BD_W * BD_H;
-        var _buf = buffer_create(_n * 4, buffer_fixed, 1);
+        buffer_seek(bd_buf, buffer_seek_start, 0);
         for (var i = 0; i < _n; i++)
         {
-            buffer_write(_buf, buffer_u32, 0xff000000 | proj.pixels[i]);
+            buffer_write(bd_buf, buffer_u32, 0xff000000 | proj.pixels[i]);
         }
-        buffer_set_surface(_buf, bd_surf, 0);
-        buffer_delete(_buf);
         bd_dirty = false;
+        bd_upload = true;
+    }
+    if (bd_upload)
+    {
+        buffer_set_surface(bd_buf, bd_surf, 0);
+        bd_upload = false;
     }
     return bd_surf;
 }
 
-/// Writes one backdrop pixel into the project and the index surface
+/// Writes one backdrop pixel into the project and the picture buffer
 function backdrop_plot(_x, _y, _v)
 {
     if (_x < 0 || _y < 0 || _x >= BD_W || _y >= BD_H) { return; }
@@ -168,14 +177,8 @@ function backdrop_plot(_x, _y, _v)
     if (proj.pixels[_i] == _v) { return; }
     proj.pixels[_i] = _v;
     proj_dirty = true;
-    if (surface_exists(bd_surf) && !bd_dirty)
-    {
-        surface_set_target(bd_surf);
-        gpu_set_blendenable(false);
-        px_rect(_x, _y, 1, 1, make_colour_rgb(_v, 0, 0));
-        gpu_set_blendenable(true);
-        surface_reset_target();
-    }
+    buffer_poke(bd_buf, _i * 4, buffer_u32, 0xff000000 | _v);
+    bd_upload = true;
 }
 
 /// Palette shader on, with the current palette and copper sky
@@ -217,6 +220,7 @@ function backdrop_draw(_x, _y, _scale)
 function backdrop_gfx_free()
 {
     if (surface_exists(bd_surf)) { surface_free(bd_surf); }
+    if (buffer_exists(bd_buf)) { buffer_delete(bd_buf); }
     if (surface_exists(terr_surf)) { surface_free(terr_surf); }
 }
 

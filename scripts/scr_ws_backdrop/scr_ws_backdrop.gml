@@ -1,6 +1,6 @@
 /// ADAM - Backdrop workspace (paint the 320 x 256 playfield)
 
-/// Fills a rectangle of backdrop pixels (clipped) with one surface write
+/// Fills a rectangle of backdrop pixels (clipped)
 function backdrop_fill_rect(_x1, _y1, _x2, _y2, _v)
 {
     var _ax = clamp(min(_x1, _x2), 0, BD_W - 1);
@@ -10,17 +10,14 @@ function backdrop_fill_rect(_x1, _y1, _x2, _y2, _v)
     for (var py = _ay; py <= _by; py++)
     {
         var _row = py * BD_W;
-        for (var px = _ax; px <= _bx; px++) { proj.pixels[_row + px] = _v; }
+        for (var px = _ax; px <= _bx; px++)
+        {
+            proj.pixels[_row + px] = _v;
+            buffer_poke(bd_buf, (_row + px) * 4, buffer_u32, 0xff000000 | _v);
+        }
     }
     proj_dirty = true;
-    if (surface_exists(bd_surf) && !bd_dirty)
-    {
-        surface_set_target(bd_surf);
-        gpu_set_blendenable(false);
-        px_rect(_ax, _ay, _bx - _ax + 1, _by - _ay + 1, make_colour_rgb(_v, 0, 0));
-        gpu_set_blendenable(true);
-        surface_reset_target();
-    }
+    bd_upload = true;
 }
 
 /// Square brush centred on a pixel
