@@ -33,6 +33,17 @@ Reassembling the engine (only needed when editing it):
 Sprites come in pairs that share colours; ADAM puts actors with matching
 colours on the same pair automatically.
 
+## Extras
+
+- **Copper sky** - colour 0 changes on every display line (three colour stops,
+  12-bit, works on OCS/ECS and AGA). The border follows it.
+- **Two-frame animation** - an actor can flip between two sprites, always or
+  only while it moves.
+- **Sampled sounds** - import a WAV, then choose Paula's playback rate
+  (4-28.8 kHz) and a bit crunch (8 down to 2 bits).
+- **Example games** - Gem Hunter, Deep Dive, Star Catcher and Dodge Ball in
+  `datafiles/examples`, loaded from Home.
+
 ## Playing
 
 Set the FS-UAE path on the Build page. No Kickstart ROM is needed - games boot

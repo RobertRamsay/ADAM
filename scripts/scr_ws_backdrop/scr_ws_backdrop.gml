@@ -317,9 +317,17 @@ function ws_backdrop_draw(_x1, _y1, _x2, _y2)
 
     // ---------------- tools panel ----------------
     var _px = _x2 - _rw;
-    ui_panel(_px, _y1, _x2, _y2, "Paint");
+    ui_panel(_px, _y1, _x2, _y2, "");
     var _fx = _px + 20;
     var _fw = _rw - 40;
+    var _tabw = floor((_rw - 28) / 2);
+    if (ui_tab("bd_tab_paint", _px + 14, _y1 + 10, _tabw, 30, "Paint", bd_panel == 0, "Paint|Tools, palette and picture import for the backdrop.")) { bd_panel = 0; }
+    if (ui_tab("bd_tab_sky", _px + 14 + _tabw, _y1 + 10, _tabw, 30, "Copper sky", bd_panel == 1, "Copper sky|The classic Amiga trick: the copper changes colour 0 on every line, giving a smooth sky behind the backdrop for free.")) { bd_panel = 1; }
+    if (bd_panel == 1)
+    {
+        backdrop_sky_panel(_fx, _y1 + 56, _fw, _y2);
+        return;
+    }
     var _y = _y1 + 56;
     var _names = ["Brush", "Line", "Box", "Fill", "Text", "Pick"];
     var _thelp = ["Brush|Paint freehand. Right-click paints colour 0.",
@@ -400,4 +408,78 @@ function ws_backdrop_draw(_x1, _y1, _x2, _y2)
     _y += 42;
     bd_show_actors = ui_toggle("bd_actors", _fx, _y, "Show actors", bd_show_actors, "Show actors|Draws your actors where they start, so you can paint around them.");
     bd_show_hud = ui_toggle("bd_hud", _fx + floor(_fw / 2), _y, "Show score", bd_show_hud, "Show score row|Shows where the score and lives text will be drawn over the backdrop.");
+}
+
+/// Copper sky settings (right panel, "Copper sky" tab)
+function backdrop_sky_panel(_fx, _y, _fw, _y2)
+{
+    var _on = ui_toggle("sky_on", _fx, _y, "Copper sky on", proj.sky_on, "Copper sky|Every pixel painted in colour 0, and the border, shows a smooth gradient made by the copper. It costs no memory and works on the A500/600 and the A1200.");
+    if (_on != proj.sky_on)
+    {
+        undo_mark("skyon" + string(current_time));
+        proj.sky_on = _on;
+    }
+    _y += 36;
+    ui_text_wrap(_fx, _y, "Paint the parts you want to see the sky through with colour 0. The copper writes 12-bit colours, so each stop has 16 steps per gun.", global.TH.text_dim, _fw, global.f_small, 1);
+    _y += 52;
+
+    ui_heading(_fx, _y, "Colour stops");
+    _y += 18;
+    var _names = ["Top", "Middle", "Bottom"];
+    var _keys = ["sky_top", "sky_mid", "sky_bot"];
+    var _bw = floor((_fw - 16) / 3);
+    for (var i = 0; i < 3; i++)
+    {
+        var _bx = _fx + i * (_bw + 8);
+        var _st = BTN_GHOST;
+        if (sky_stop == i) { _st = BTN_ACCENT; }
+        if (ui_button("sky_stop_" + string(i), _bx, _y, _bw, 44, "", _names[i] + " colour|Click to edit this colour stop with the sliders below.", _st)) { sky_stop = i; }
+        var _c = proj[$ _keys[i]];
+        var _gc = make_colour_rgb(gun12(rgb_r(_c)), gun12(rgb_g(_c)), gun12(rgb_b(_c)));
+        ui_rrect(_bx + 8, _y + 6, _bx + 26, _y + 24, 4, _gc, _gc, 1);
+        ui_text(_bx + 8, _y + 34, _names[i], global.TH.text, fa_left, fa_middle, global.f_small, 1);
+    }
+    _y += 54;
+    var _key = _keys[sky_stop];
+    var _cur = proj[$ _key];
+    var _gun = [gun12(rgb_r(_cur)) div 17, gun12(rgb_g(_cur)) div 17, gun12(rgb_b(_cur)) div 17];
+    var _lab = ["R", "G", "B"];
+    var _tint = [make_colour_rgb(255, 90, 90), make_colour_rgb(90, 230, 120), make_colour_rgb(100, 150, 255)];
+    for (var k = 0; k < 3; k++)
+    {
+        ui_text(_fx, _y + 13, _lab[k], _tint[k], fa_left, fa_middle, global.f_bold, 1);
+        _gun[k] = ui_slider("sky_rgb_" + _lab[k], _fx + 18, _y, _fw - 58, _gun[k], 0, 15, "Copper colour|Red, green and blue for this stop, 0 to 15 like a real copper list.");
+        ui_text(_fx + _fw, _y + 13, string(_gun[k]), global.TH.text, fa_right, fa_middle, global.f_bold, 1);
+        _y += 30;
+    }
+    var _nc = rgb_make(_gun[0] * 17, _gun[1] * 17, _gun[2] * 17);
+    if (_nc != rgb_make(gun12(rgb_r(_cur)), gun12(rgb_g(_cur)), gun12(rgb_b(_cur))))
+    {
+        undo_mark("skycol" + _key);
+        proj[$ _key] = _nc;
+    }
+    _y += 10;
+    ui_heading(_fx, _y, "Middle stop at line " + string(proj.sky_mid_y));
+    var _my = ui_slider("sky_midy", _fx, _y + 18, _fw, proj.sky_mid_y, 1, 254, "Middle line|Which of the 256 lines the middle colour sits on. Move it down for a lower horizon.");
+    set_val(proj, "sky_mid_y", _my, "skymidy");
+    _y += 58;
+
+    ui_heading(_fx, _y, "Ready-made skies");
+    _y += 18;
+    var _pr = sky_presets();
+    var _pw = floor((_fw - 8) / 2);
+    for (var p = 0; p < array_length(_pr); p++)
+    {
+        var _px = _fx + (p mod 2) * (_pw + 8);
+        var _py = _y + (p div 2) * 38;
+        if (ui_button("sky_preset_" + string(p), _px, _py, _pw, 32, _pr[p][0], "Sky preset|Sets all three colour stops and the middle line to a " + string_lower(_pr[p][0]) + " look, and turns the sky on.", BTN_NORMAL))
+        {
+            undo_mark("skypreset" + string(current_time));
+            proj.sky_top = _pr[p][1];
+            proj.sky_mid = _pr[p][2];
+            proj.sky_bot = _pr[p][3];
+            proj.sky_mid_y = _pr[p][4];
+            proj.sky_on = true;
+        }
+    }
 }

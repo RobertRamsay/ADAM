@@ -11,7 +11,7 @@ function tut_init()
         // ---------- HOME ----------
         tut_step(WS_HOME, "", "Welcome to ADAM", "You are going to make a real Amiga game without writing a single line of code. This tour visits every page. Use Next and Back, or the arrow keys. Press Esc to leave at any time."),
         tut_step(WS_HOME, "top_machine", "Your Amiga", "This is the machine your game is made for: the Amiga 500/600 (OCS/ECS, 1MB) or the Amiga 1200 (AGA, 2MB). Click it any time to switch. The 1200 allows many more colours."),
-        tut_step(WS_HOME, "home_example", "Try the example first", "This loads 'Gem Hunter', a finished little game. It is a great way to see how everything fits together. You can Undo or start a New project any time."),
+        tut_step(WS_HOME, "home_example", "Try an example first", "Pick one of four finished games - Gem Hunter, Deep Dive, Star Catcher or Dodge Ball. They are a great way to see how everything fits together. You can start a New project any time."),
         tut_step(WS_HOME, "home_card_0", "Six simple steps", "Every game is made the same way: paint a backdrop, draw sprites, place actors, write rules, add sounds, then build. Click any card to jump to that page."),
         tut_step(WS_HOME, "home_name", "Name your game", "Give your game a name. It is also used for the file names when you save and build."),
         tut_step(WS_HOME, "home_lives", "Lives and score", "Choose how many lives the player gets and where the score and lives are shown. A rule on the Logic page takes lives away."),
@@ -24,6 +24,7 @@ function tut_init()
         tut_step(WS_BACKDROP, "bd_depth", "How many colours", "Every extra bitplane doubles the colours: 16 on the Amiga 500/600, up to 128 on the 1200. Colour 0 is also the border."),
         tut_step(WS_BACKDROP, "bd_pal", "The palette", "Click a colour to paint with it. The sliders below mix it from red, green and blue - 4096 colours on the 500/600 and 16.8 million on the 1200."),
         tut_step(WS_BACKDROP, "bd_import", "Import a picture", "Got artwork already? Import a PNG or JPG. ADAM fits it to the screen and chooses the best colours for it, with optional dithering."),
+        tut_step(WS_BACKDROP, "bd_tab_sky", "Copper sky", "The classic Amiga trick: the copper chip changes colour 0 on every line, painting a smooth sunset, sea or night sky behind your backdrop for free. Paint the sky areas in colour 0 to let it show."),
         // ---------- SPRITES ----------
         tut_step(WS_SPRITES, "spr_slot_0", "Your sprites", "Sprites are the pictures for the things that move. Each one is an Amiga hardware sprite: 16 pixels wide, 24 tall, 3 colours plus see-through."),
         tut_step(WS_SPRITES, "spr_grid", "Draw pixels", "Left-click draws with the selected pen, right-click rubs out."),
@@ -36,6 +37,7 @@ function tut_init()
         tut_step(WS_ACTORS, "act_role", "Choose a behaviour", "This is the magic part: a Player follows the joystick, a Chaser hunts the player, Bouncers bounce and Still things stay put. No code needed."),
         tut_step(WS_ACTORS, "act_speed", "Speed", "How fast this actor moves. Try 1 or 2 for enemies to start with - you can always speed them up with a rule."),
         tut_step(WS_ACTORS, "act_vis", "Hidden actors", "Actors can start hidden and appear later using the 'Show actor' action."),
+        tut_step(WS_ACTORS, "act_anim", "Animation", "Give an actor a second sprite and it flips between the two - a walk cycle, a flapping fin or a twinkling star. 'Only when moving' is perfect for walking."),
         // ---------- LOGIC ----------
         tut_step(WS_LOGIC, "", "Rules make it a game", "Each rule is a sentence: WHEN something happens, DO something. For example: WHEN Hero touches Gem, DO add 10 to the score."),
         tut_step(WS_LOGIC, "logic_add", "Add a rule", "Press this to add a new rule, then change its parts with the drop-down menus."),
@@ -48,6 +50,7 @@ function tut_init()
         tut_step(WS_SOUND, "snd_wave", "Waveform", "The basic tone: soft triangle, buzzy sawtooth, classic square or crunchy noise."),
         tut_step(WS_SOUND, "snd_sweep", "Pitch slide", "Make the pitch rise or fall. Falling slides sound like lasers, rising slides like coins and power-ups."),
         tut_step(WS_SOUND, "snd_preview", "Listen", "ADAM turns the sound into a sample for the Amiga's Paula chip, so what you hear here is exactly what the game plays."),
+        tut_step(WS_SOUND, "snd_kind_1", "Your own samples", "Switch a sound to Sample to import a WAV file. Lower the sample rate and the bits for that crunchy Amiga sound - and to save chip RAM."),
         // ---------- BUILD ----------
         tut_step(WS_BUILD, "", "Time to play", "This page turns your project into a bootable Amiga floppy disk. The checklist warns you about anything that might be missing."),
         tut_step(WS_BUILD, "build_adf", "Build", "Press Build to create an .ADF disk image. It boots in FS-UAE or WinUAE, on a Gotek drive, or written to a real floppy."),

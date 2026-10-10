@@ -35,6 +35,7 @@ project_defs_init();
 font_init();
 pixel_sprite_init();
 boing_init();
+examples_init();
 
 // ---------- UI state ----------
 ui_mx = 0;
@@ -122,6 +123,8 @@ bd_text_start_x = 0;
 bd_show_actors = true;
 bd_show_hud = true;
 bd_dither = true;
+bd_panel = 0;
+sky_stop = 0;
 
 // sprites
 spr_sel = 0;
@@ -143,6 +146,8 @@ snd_sel = 0;
 preview_sound = -1;
 preview_buffer = -1;
 preview_inst = -1;
+snd_cache = {};
+snd_cache_count = 0;
 
 // build
 build_log = [];

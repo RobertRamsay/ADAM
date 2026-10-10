@@ -37,6 +37,8 @@ H_TOVER     equ 52         ; offset: game over text (0 terminated)
 H_TWIN      equ 56         ; offset: win text (0 terminated)
 H_SPRCOL    equ 60         ; offset: 4 sprite pairs x 3 longs $00RRGGBB
 H_DISP      equ 64         ; offset: display bitplanes (depth * 10240 bytes)
+H_GRAD      equ 68         ; offset: 256 copper sky colours ($0RGB words), 0 = none
+HDR_SIZE    equ 80
 
 ; actor record
 A_X         equ 0
@@ -52,7 +54,10 @@ A_BX1       equ 18
 A_BY1       equ 20
 A_SPR       equ 22         ; long offset of this actor's hardware sprite block
 A_CHAN      equ 26         ; hardware sprite channel 0..7 (colour pair = channel / 2)
-ACT_SIZE    equ 32
+A_SPR2      equ 28         ; long offset of the second animation frame, 0 = none
+A_ARATE     equ 32         ; frames per animation frame
+A_AMODE     equ 34         ; 0 = always animate, 1 = only while moving
+ACT_SIZE    equ 48
 
 ; rule record
 R_WHEN      equ 0
@@ -79,6 +84,10 @@ v_spd       rs.w 8
 v_vis       rs.w 8
 v_dx        rs.w 8
 v_dy        rs.w 8
+v_px        rs.w 8
+v_py        rs.w 8
+v_anim      rs.w 1
+v_gradfix   rs.w 1
 v_joy       rs.w 1
 v_fcount    rs.w 1
 v_sectick   rs.w 1
@@ -276,6 +285,8 @@ init_actors:
             move.w  A_VIS(a2),v_vis(a5,d5.w)
             move.w  A_LEFT(a2),v_dx(a5,d5.w)
             move.w  A_UP(a2),v_dy(a5,d5.w)
+            move.w  A_X(a2),v_px(a5,d5.w)
+            move.w  A_Y(a2),v_py(a5,d5.w)
             lea     ACT_SIZE(a2),a2
             addq.w  #1,d7
             cmp.w   d6,d7
@@ -286,6 +297,9 @@ clear_state:
             move.w  #0,v_fcount(a5)
             move.w  #0,v_sectick(a5)
             move.w  #0,v_flash(a5)
+            move.w  #-1,v_gradfix(a5)
+            move.w  #-1,d1
+            bsr     build_grad
             move.l  #0,v_score(a5)
             move.w  H_LIVES(a4),v_lives(a5)
             lea     v_spend(a5),a0
@@ -357,6 +371,8 @@ setcol:
 ;  one frame of game
 ; ============================================================================
 frame:
+            bsr     flash_tick              ; copper edits first, while the copper is idle
+            addq.w  #1,v_anim(a5)
             bsr     read_joy
             move.w  #0,v_sectick(a5)
             addq.w  #1,v_fcount(a5)
@@ -368,7 +384,6 @@ frame:
             bsr     place_sprites
             bsr     run_rules
             bsr     sound_tick
-            bsr     flash_tick
             rts
 
 read_joy:
@@ -523,14 +538,46 @@ move_actors:
 ; ============================================================================
 place_sprites:
             move.w  H_NACT(a4),d6
-            beq.s   .done
+            beq     .done
             move.l  H_ACTORS(a4),d0
             lea     0(a4,d0.l),a2
             moveq   #0,d7
 .loop       move.w  d7,d5
             add.w   d5,d5
-            move.l  A_SPR(a2),d0
-            lea     0(a4,d0.l),a0
+            move.l  A_SPR(a2),d0            ; pick the animation frame
+            move.l  A_SPR2(a2),d1
+            beq.s   .frame
+            moveq   #0,d2
+            move.w  v_anim(a5),d2
+            move.w  A_ARATE(a2),d3
+            bne.s   .rate
+            moveq   #8,d3
+.rate       divu    d3,d2
+            btst    #0,d2
+            beq.s   .moving
+            tst.w   A_AMODE(a2)
+            beq.s   .two
+            move.w  v_ax(a5,d5.w),d2        ; only while moving
+            cmp.w   v_px(a5,d5.w),d2
+            bne.s   .two
+            move.w  v_ay(a5,d5.w),d2
+            cmp.w   v_py(a5,d5.w),d2
+            beq.s   .frame
+.two        move.l  d1,d0
+.moving
+.frame      move.w  v_ax(a5,d5.w),v_px(a5,d5.w)
+            move.w  v_ay(a5,d5.w),v_py(a5,d5.w)
+            lea     0(a4,d0.l),a0           ; a0 = sprite block to show
+            move.l  a0,d0                   ; point this channel at it
+            lea     cop_spr(pc),a1
+            move.w  A_CHAN(a2),d1
+            and.w   #7,d1
+            lsl.w   #3,d1
+            add.w   d1,a1
+            swap    d0
+            move.w  d0,2(a1)
+            swap    d0
+            move.w  d0,6(a1)
             tst.w   v_vis(a5,d5.w)
             bne.s   .show
             move.l  #0,(a0)
@@ -563,7 +610,7 @@ place_sprites:
 .next       lea     ACT_SIZE(a2),a2
             addq.w  #1,d7
             cmp.w   d6,d7
-            blt.s   .loop
+            blt     .loop
 .done       rts
 
 hide_sprites:
@@ -575,6 +622,11 @@ hide_sprites:
 .h          move.l  A_SPR(a2),d0
             lea     0(a4,d0.l),a0
             move.l  #0,(a0)
+            move.l  A_SPR2(a2),d0
+            beq.s   .h2
+            lea     0(a4,d0.l),a0
+            move.l  #0,(a0)
+.h2
             lea     ACT_SIZE(a2),a2
             dbf     d6,.h
 .done       rts
@@ -595,10 +647,10 @@ touch_pair:
             lea     0(a4,d2.l),a0
             move.l  a0,a1
             move.w  d0,d4
-            lsl.w   #5,d4
+            mulu    #ACT_SIZE,d4
             add.w   d4,a0                   ; record a
             move.w  d1,d4
-            lsl.w   #5,d4
+            mulu    #ACT_SIZE,d4
             add.w   d4,a1                   ; record b
             move.w  d0,d4
             add.w   d4,d4
@@ -859,7 +911,13 @@ act_bgcol:  move.w  R_VAL(a3),d0
             add.w   d0,d0
             move.l  0(a0,d0.w),d1
             move.l  d1,v_bg(a5)
-            moveq   #0,d0
+            tst.l   H_GRAD(a4)
+            beq.s   .plain
+            bsr     rgb12                   ; the sky becomes this one colour
+            move.w  d4,v_gradfix(a5)
+            move.w  d4,d1
+            bra     build_grad
+.plain      moveq   #0,d0
             bra     setcol
 
 act_faster: cmp.w   H_NACT(a4),d4
@@ -934,7 +992,7 @@ end_screen:
 actor_rec:  move.l  H_ACTORS(a4),d0
             lea     0(a4,d0.l),a0
             move.w  d4,d0
-            lsl.w   #5,d0
+            mulu    #ACT_SIZE,d0
             add.w   d0,a0
             rts
 
@@ -968,13 +1026,80 @@ flash_tick:
             beq.s   .restore
             btst    #1,d0
             beq.s   .restore
-            moveq   #0,d0
+            tst.l   H_GRAD(a4)
+            beq.s   .white
+            move.w  #$0fff,d1
+            bra     build_grad
+.white      moveq   #0,d0
             move.l  #$ffffff,d1
             bra     setcol
-.restore    moveq   #0,d0
+.restore    tst.l   H_GRAD(a4)
+            beq.s   .plain
+            move.w  v_gradfix(a5),d1
+            bra     build_grad
+.plain      moveq   #0,d0
             move.l  v_bg(a5),d1
             bra     setcol
 .r          rts
+
+; ============================================================================
+;  copper sky: COLOR00 changes on every display line
+;  d1.w = -1 : use the gradient table      d1.w = $0RGB : one fixed colour
+; ============================================================================
+build_grad:
+            movem.l d0-d4/a0-a1,-(sp)
+            lea     cop_grad(pc),a0
+            move.l  H_GRAD(a4),d0
+            beq.s   .off
+            lea     0(a4,d0.l),a1
+            move.w  #$0180,(a0)+            ; top border = first colour
+            move.w  (a1),d2
+            tst.w   d1
+            bmi.s   .top
+            move.w  d1,d2
+.top        move.w  d2,(a0)+
+            moveq   #0,d3                   ; line index
+.line       move.w  d3,d4
+            add.w   #$2c,d4
+            cmp.w   #$100,d4                ; past line 255: wait for the wrap
+            bne.s   .w
+            move.l  #$ffdffffe,(a0)+
+.w          lsl.w   #8,d4
+            or.w    #$07,d4
+            move.w  d4,(a0)+
+            move.w  #$fffe,(a0)+
+            move.w  #$0180,(a0)+
+            bsr.s   .col
+            move.w  d2,(a0)+
+            addq.w  #1,d3
+            cmp.w   #256,d3
+            blt.s   .line
+.off        move.l  #$fffffffe,(a0)+
+            movem.l (sp)+,d0-d4/a0-a1
+            rts
+.col        move.w  (a1)+,d2                ; next table colour, or the fixed one
+            tst.w   d1
+            bmi.s   .t
+            move.w  d1,d2
+.t          rts
+
+; 24-bit $00RRGGBB in d1 -> 12-bit $0RGB in d4
+rgb12:      move.l  d3,-(sp)
+            move.l  d1,d3
+            lsr.l   #8,d3
+            lsr.l   #4,d3
+            and.w   #$0f00,d3
+            move.w  d3,d4
+            move.l  d1,d3
+            lsr.l   #8,d3
+            and.w   #$00f0,d3
+            or.w    d3,d4
+            move.l  d1,d3
+            lsr.l   #4,d3
+            and.w   #$000f,d3
+            or.w    d3,d4
+            move.l  (sp)+,d3
+            rts
 
 ; ============================================================================
 ;  Paula sound effects - one shot, channel = sound number AND 3
@@ -1001,7 +1126,10 @@ play_sfx:
             add.w   d4,a1
             move.l  d1,(a1)                 ; AUDxLC
             move.w  d2,4(a1)                ; AUDxLEN
-            move.w  #SFX_PERIOD,6(a1)       ; AUDxPER
+            move.w  6(a0),d4                ; per-sound period (sampled sounds)
+            bne.s   .per
+            move.w  #SFX_PERIOD,d4
+.per        move.w  d4,6(a1)                ; AUDxPER
             move.w  #64,8(a1)               ; AUDxVOL
             lea     v_spend(a5),a2
             add.w   d3,d3
@@ -1168,7 +1296,8 @@ cop_spr:    dc.w    $0120,0,$0122,0
             dc.w    $0134,0,$0136,0
             dc.w    $0138,0,$013a,0
             dc.w    $013c,0,$013e,0
-            dc.w    $ffff,$fffe
+cop_grad:   dc.w    $ffff,$fffe             ; sky lines are built here at run time
+            ds.b    256*8+16
 
             cnop    0,4
 V:          ds.b    V_SIZE

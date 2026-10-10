@@ -71,7 +71,10 @@ function actor_new(_name)
         y : 116,
         visible : true,
         start_left : false,
-        start_up : false
+        start_up : false,
+        anim_sprite : -1,
+        anim_rate : 8,
+        anim_moving : false
     };
 }
 
@@ -82,7 +85,12 @@ function rule_new()
 
 function sfx_new(_name)
 {
-    return { name : _name, wave : 2, pitch : 60, sweep : 0, len : 10, atk : 0, dec : 8, sus : 0, rel : 6 };
+    return {
+        name : _name, kind : 0,
+        wave : 2, pitch : 60, sweep : 0, len : 10, atk : 0, dec : 8, sus : 0, rel : 6,
+        smp : "", smp_rate : 0, smp_len : 0, smp_file : "",
+        rate : 11025, bits : 8, gain : 100, trim_a : 0, trim_b : 1000
+    };
 }
 
 function sfx_apply_preset(_s, _p)
@@ -128,7 +136,12 @@ function project_new()
         hud_colour : 1,
         msg_colour : 14,
         over_text : "GAME OVER - PRESS FIRE",
-        win_text : "YOU WIN! - PRESS FIRE"
+        win_text : "YOU WIN! - PRESS FIRE",
+        sky_on : false,
+        sky_top : 0x102060,
+        sky_mid : 0x4080c0,
+        sky_bot : 0xffa040,
+        sky_mid_y : 128
     };
     for (var i = 0; i < 8; i++)
     {
@@ -140,114 +153,6 @@ function project_new()
     {
         array_push(_p.sprites, sprite_new("Sprite " + string(k + 1)));
     }
-    return _p;
-}
-
-/// Builds a full working example game
-function project_example()
-{
-    var _p = project_new();
-    _p.name = "Gem Hunter";
-    // ---- backdrop: banded sky, two rows of hills, a frame and a title ----
-    var _sky = [4, 4, 5, 5, 6, 6, 7];
-    for (var py = 0; py < BD_H; py++)
-    {
-        for (var px = 0; px < BD_W; px++)
-        {
-            var _c = _sky[clamp(py div 26, 0, 6)];
-            var _far = 170 + round(sin(px / 23) * 10 + sin(px / 9) * 4);
-            var _near = 196 + round(sin(px / 37 + 1) * 12);
-            if (py > _far) { _c = 9; }
-            if (py > _near) { _c = 8; }
-            if (py > 236) { _c = 11; }
-            if (py > 240 && ((px div 8) + (py div 4)) mod 5 == 0) { _c = 12; }
-            if (px < 4 || px >= BD_W - 4 || py < 12 || py >= BD_H - 4) { _c = 2; }
-            _p.pixels[py * BD_W + px] = _c;
-        }
-    }
-    backdrop_text_into(_p, "COLLECT GEMS - AVOID GHOSTS", 52, 244, 1);
-
-    // ---- sprites ----
-    var _hero = _p.sprites[0];
-    _hero.name = "Hero";
-    _hero.cols = [0xffd23a, 0x3a2410, 0xffffff];
-    for (var y0 = 0; y0 < SPR_H; y0++)
-    {
-        for (var x0 = 0; x0 < SPR_W; x0++)
-        {
-            var _v = 0;
-            var _d = point_distance(x0, y0, 7.5, 9.5);
-            if (_d <= 7.4) { _v = 1; }
-            if ((x0 == 5 || x0 == 10) && (y0 == 7 || y0 == 8)) { _v = 2; }
-            if (y0 == 12 && x0 >= 5 && x0 <= 10) { _v = 2; }
-            if (y0 == 11 && (x0 == 4 || x0 == 11)) { _v = 2; }
-            if ((x0 == 5 || x0 == 10) && y0 == 6) { _v = 3; }
-            if (y0 >= 17 && y0 <= 22 && (x0 == 5 || x0 == 6 || x0 == 9 || x0 == 10)) { _v = 2; }
-            _hero.px[y0 * SPR_W + x0] = _v;
-        }
-    }
-    var _gh = _p.sprites[1];
-    _gh.name = "Ghost";
-    _gh.cols = [0xc060ff, 0xffffff, 0x201040];
-    for (var y1 = 0; y1 < SPR_H; y1++)
-    {
-        for (var x1 = 0; x1 < SPR_W; x1++)
-        {
-            var _in = false;
-            if (y1 < 9) { if (point_distance(x1, y1, 7.5, 9) <= 7.6) { _in = true; } }
-            else
-            {
-                if (y1 < 19) { _in = true; }
-                else { if (((x1 div 2) + y1) mod 3 != 0) { _in = true; } }
-            }
-            if (x1 < 0 || x1 > 15) { _in = false; }
-            var _gv = 0;
-            if (_in) { _gv = 1; }
-            if (_in && (x1 == 4 || x1 == 5 || x1 == 10 || x1 == 11) && y1 >= 6 && y1 <= 10) { _gv = 2; }
-            if (_in && (x1 == 5 || x1 == 11) && (y1 == 8 || y1 == 9)) { _gv = 3; }
-            _gh.px[y1 * SPR_W + x1] = _gv;
-        }
-    }
-    var _gem = _p.sprites[2];
-    _gem.name = "Gem";
-    _gem.cols = [0x30e0ff, 0xffffff, 0x1060a0];
-    for (var y2 = 0; y2 < SPR_H; y2++)
-    {
-        for (var x2 = 0; x2 < SPR_W; x2++)
-        {
-            var _m = abs(x2 - 7.5) * 1.15 + abs(y2 - 11.5);
-            var _gv2 = 0;
-            if (_m <= 8) { _gv2 = 1; }
-            if (_m <= 8 && _m > 6.8) { _gv2 = 3; }
-            if (_m <= 3.5 && x2 < 8 && y2 < 12) { _gv2 = 2; }
-            _gem.px[y2 * SPR_W + x2] = _gv2;
-        }
-    }
-
-    var _a0 = actor_new("Hero");
-    _a0.sprite = 0; _a0.role = 0; _a0.speed = 2; _a0.x = 152; _a0.y = 190;
-    var _a1 = actor_new("Ghost");
-    _a1.sprite = 1; _a1.role = 4; _a1.speed = 1; _a1.x = 30; _a1.y = 40;
-    var _a2 = actor_new("Bouncy Ghost");
-    _a2.sprite = 1; _a2.role = 1; _a2.speed = 2; _a2.x = 260; _a2.y = 60;
-    var _a3 = actor_new("Gem");
-    _a3.sprite = 2; _a3.role = 5; _a3.speed = 1; _a3.x = 240; _a3.y = 150;
-    _p.actors = [_a0, _a1, _a2, _a3];
-
-    _p.rules = [];
-    var _r;
-    _r = rule_new(); _r.when = 0; _r.a = 0; _r.b = 1; _r.act = 1; array_push(_p.rules, _r);
-    _r = rule_new(); _r.when = 0; _r.a = 0; _r.b = 1; _r.act = 4; _r.target = 0; array_push(_p.rules, _r);
-    _r = rule_new(); _r.when = 0; _r.a = 0; _r.b = 1; _r.act = 2; _r.value = 6; array_push(_p.rules, _r);
-    _r = rule_new(); _r.when = 0; _r.a = 0; _r.b = 2; _r.act = 1; array_push(_p.rules, _r);
-    _r = rule_new(); _r.when = 0; _r.a = 0; _r.b = 2; _r.act = 4; _r.target = 0; array_push(_p.rules, _r);
-    _r = rule_new(); _r.when = 0; _r.a = 0; _r.b = 2; _r.act = 3; array_push(_p.rules, _r);
-    _r = rule_new(); _r.when = 0; _r.a = 0; _r.b = 3; _r.act = 0; _r.value = 10; array_push(_p.rules, _r);
-    _r = rule_new(); _r.when = 0; _r.a = 0; _r.b = 3; _r.act = 5; _r.target = 3; array_push(_p.rules, _r);
-    _r = rule_new(); _r.when = 0; _r.a = 0; _r.b = 3; _r.act = 2; _r.value = 0; array_push(_p.rules, _r);
-    _r = rule_new(); _r.when = 2; _r.n = 10; _r.act = 11; _r.target = 2; array_push(_p.rules, _r);
-    _r = rule_new(); _r.when = 3; _r.n = 200; _r.act = 10; array_push(_p.rules, _r);
-    _r = rule_new(); _r.when = 4; _r.act = 9; array_push(_p.rules, _r);
     return _p;
 }
 
@@ -409,7 +314,7 @@ function undo_mark(_tag)
     undo_last_tag = _tag;
     undo_last_time = current_time;
     array_push(undo_stack, json_stringify(proj));
-    if (array_length(undo_stack) > 60) { array_delete(undo_stack, 0, 1); }
+    if (array_length(undo_stack) > 40) { array_delete(undo_stack, 0, 1); }
     redo_stack = [];
 }
 

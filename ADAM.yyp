@@ -18,6 +18,10 @@
   ],
   "ForcedPrefabProjectReferences":[],
   "IncludedFiles":[
+    {"$GMIncludedFile":"","%Name":"dodge_ball.adam","CopyToMask":-1,"filePath":"datafiles/examples","name":"dodge_ball.adam","resourceType":"GMIncludedFile","resourceVersion":"2.0",},
+    {"$GMIncludedFile":"","%Name":"deep_dive.adam","CopyToMask":-1,"filePath":"datafiles/examples","name":"deep_dive.adam","resourceType":"GMIncludedFile","resourceVersion":"2.0",},
+    {"$GMIncludedFile":"","%Name":"gem_hunter.adam","CopyToMask":-1,"filePath":"datafiles/examples","name":"gem_hunter.adam","resourceType":"GMIncludedFile","resourceVersion":"2.0",},
+    {"$GMIncludedFile":"","%Name":"star_catcher.adam","CopyToMask":-1,"filePath":"datafiles/examples","name":"star_catcher.adam","resourceType":"GMIncludedFile","resourceVersion":"2.0",},
     {"$GMIncludedFile":"","%Name":"boot.bin","CopyToMask":-1,"filePath":"datafiles/engine","name":"boot.bin","resourceType":"GMIncludedFile","resourceVersion":"2.0",},
     {"$GMIncludedFile":"","%Name":"boot.s","CopyToMask":-1,"filePath":"datafiles/engine","name":"boot.s","resourceType":"GMIncludedFile","resourceVersion":"2.0",},
     {"$GMIncludedFile":"","%Name":"engine.bin","CopyToMask":-1,"filePath":"datafiles/engine","name":"engine.bin","resourceType":"GMIncludedFile","resourceVersion":"2.0",},
@@ -39,6 +43,7 @@
     {"id":{"name":"obj_app","path":"objects/obj_app/obj_app.yy",},},
     {"id":{"name":"rm_studio","path":"rooms/rm_studio/rm_studio.yy",},},
     {"id":{"name":"scr_adf","path":"scripts/scr_adf/scr_adf.yy",},},
+    {"id":{"name":"scr_examples","path":"scripts/scr_examples/scr_examples.yy",},},
     {"id":{"name":"scr_gfx","path":"scripts/scr_gfx/scr_gfx.yy",},},
     {"id":{"name":"scr_machine","path":"scripts/scr_machine/scr_machine.yy",},},
     {"id":{"name":"scr_project","path":"scripts/scr_project/scr_project.yy",},},

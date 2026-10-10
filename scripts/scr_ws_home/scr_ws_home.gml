@@ -22,23 +22,21 @@ function home_open()
     if (_path != "") { project_load_from(_path); }
 }
 
-function home_new(_example)
+function home_new()
 {
     if (proj_dirty)
     {
         if (!show_question("You have unsaved changes. Start a new project anyway?")) { return; }
     }
     var _machine = proj.machine;
-    if (_example) { proj = project_example(); }
-    else { proj = project_new(); }
+    proj = project_new();
     proj.machine = _machine;
     proj_path = "";
     proj_dirty = false;
     undo_stack = [];
     redo_stack = [];
     project_after_change();
-    if (_example) { toast("Example game loaded - try Build to play it!", 0); }
-    else { toast("New project ready", 0); }
+    toast("New project ready", 0);
 }
 
 function ws_home_draw(_x1, _y1, _x2, _y2)
@@ -57,11 +55,9 @@ function ws_home_draw(_x1, _y1, _x2, _y2)
     {
         tut_start(-1);
     }
-    if (ui_button("home_example", _bx + 200, _by, 190, 40, "Load example game", "Example game|Loads 'Gem Hunter', a finished little game. Look around every page to see how it was made, then build it.", BTN_ON))
-    {
-        home_new(true);
-    }
-    if (ui_button("home_new", _bx + 400, _by, 80, 40, "New", "New project|Starts a blank project for the same machine.", BTN_NORMAL)) { home_new(false); }
+    var _ex = ui_menu_button("home_example", _bx + 200, _by, 190, 40, "Example games...", example_names(), "Example games|Four finished games to play and pull apart: Gem Hunter, Deep Dive, Star Catcher and Dodge Ball. Look around every page to see how they were made, then build them.", BTN_ON);
+    if (_ex >= 0) { example_load(_ex); }
+    if (ui_button("home_new", _bx + 400, _by, 80, 40, "New", "New project|Starts a blank project for the same machine.", BTN_NORMAL)) { home_new(); }
     if (ui_button("home_open", _bx + 488, _by, 80, 40, "Open", "Open project|Opens a .adam project file you saved earlier.", BTN_NORMAL)) { home_open(); }
     if (ui_button("home_save", _bx + 576, _by, 80, 40, "Save", "Save project|Saves your project (Ctrl+S). The first time it asks where to put it.", BTN_NORMAL)) { home_save(false); }
     if (ui_button("home_saveas", _bx + 664, _by, 96, 40, "Save as", "Save as|Saves a copy of your project under a new name.", BTN_GHOST)) { home_save(true); }

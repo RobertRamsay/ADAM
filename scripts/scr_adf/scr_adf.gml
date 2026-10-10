@@ -6,7 +6,7 @@
 /// The data block layout is documented at the top of engine.s.
 
 #macro ADF_SIZE 901120
-#macro ADF_HDR 68
+#macro ADF_HDR 80
 #macro OS_RESERVE_KB 160
 
 function be16(_b, _v)
@@ -71,6 +71,29 @@ function buf_text(_b, _s)
     buffer_write(_b, buffer_u8, 0);
 }
 
+/// Writes one hardware sprite block (POS, CTL, 24 lines x 2 words, end). Returns its offset.
+function adf_sprite_block(_b, _img)
+{
+    buf_align(_b, 8);
+    var _o = buffer_tell(_b);
+    be32(_b, 0);
+    for (var sy = 0; sy < SPR_H; sy++)
+    {
+        var _w0 = 0;
+        var _w1 = 0;
+        for (var sx = 0; sx < SPR_W; sx++)
+        {
+            var _sv = _img[sy * SPR_W + sx];
+            if ((_sv & 1) != 0) { _w0 = _w0 | (0x8000 >> sx); }
+            if ((_sv & 2) != 0) { _w1 = _w1 | (0x8000 >> sx); }
+        }
+        be16(_b, _w0);
+        be16(_b, _w1);
+    }
+    be32(_b, 0);
+    return _o;
+}
+
 /// Builds the game data block. Returns { buf, size, warnings[], sound_bytes, plane_bytes }.
 function adam_data_block(_p)
 {
@@ -112,28 +135,16 @@ function adam_data_block(_p)
     }
     buf_align(_b, 8);
 
-    // one hardware sprite block per actor: POS, CTL, 24 lines x 2 words, end
+    // hardware sprite blocks per actor (and a second one when it animates)
     var _spr_off = array_create(_na, 0);
+    var _spr2_off = array_create(_na, 0);
     for (var a = 0; a < _na; a++)
     {
-        buf_align(_b, 8);
-        _spr_off[a] = buffer_tell(_b);
-        var _img = _p.sprites[clamp(_acts[a].sprite, 0, SPR_COUNT - 1)].px;
-        be32(_b, 0);
-        for (var sy = 0; sy < SPR_H; sy++)
+        _spr_off[a] = adf_sprite_block(_b, _p.sprites[clamp(_acts[a].sprite, 0, SPR_COUNT - 1)].px);
+        if (_acts[a].anim_sprite >= 0 && _acts[a].anim_sprite < SPR_COUNT)
         {
-            var _w0 = 0;
-            var _w1 = 0;
-            for (var sx = 0; sx < SPR_W; sx++)
-            {
-                var _sv = _img[sy * SPR_W + sx];
-                if ((_sv & 1) != 0) { _w0 = _w0 | (0x8000 >> sx); }
-                if ((_sv & 2) != 0) { _w1 = _w1 | (0x8000 >> sx); }
-            }
-            be16(_b, _w0);
-            be16(_b, _w1);
+            _spr2_off[a] = adf_sprite_block(_b, _p.sprites[_acts[a].anim_sprite].px);
         }
-        be32(_b, 0);
     }
     buf_align(_b, 8);
 
@@ -184,7 +195,12 @@ function adam_data_block(_p)
         be16(_b, _by1);
         be32(_b, _spr_off[a2]);
         be16(_b, _alloc.chan[a2]);
-        be32(_b, 0);
+        be32(_b, _spr2_off[a2]);
+        be16(_b, clamp(_ac.anim_rate, 2, 30));
+        var _am = 0;
+        if (_ac.anim_moving) { _am = 1; }
+        be16(_b, _am);
+        buf_zeros(_b, 12);
         if (_alloc.conflict[a2]) { array_push(_warn, "Actor '" + _ac.name + "' shares a sprite colour pair with different colours - it will borrow its partner's colours."); }
     }
     buf_align(_b, 8);
@@ -225,14 +241,17 @@ function adam_data_block(_p)
     // sound samples, then their table
     var _snd_off = array_create(8, 0);
     var _snd_len = array_create(8, 0);
+    var _snd_per = array_create(8, 0);
     var _snd_bytes = 0;
     for (var s = 0; s < 8; s++)
     {
         buf_align(_b, 8);
         _snd_off[s] = buffer_tell(_b);
-        var _smp = sfx_render(_p.sfx[s]);
+        var _r = sfx_render_ex(_p.sfx[s]);
+        var _smp = _r.smp;
         for (var i = 0; i < array_length(_smp); i++) { buffer_write(_b, buffer_s8, _smp[i]); }
         _snd_len[s] = array_length(_smp) div 2;
+        _snd_per[s] = _r.period;
         _snd_bytes += array_length(_smp);
     }
     buf_align(_b, 8);
@@ -241,9 +260,19 @@ function adam_data_block(_p)
     {
         be32(_b, _snd_off[s2]);
         be16(_b, _snd_len[s2]);
-        be16(_b, 0);
+        be16(_b, _snd_per[s2]);
     }
     buf_align(_b, 8);
+
+    // copper sky: one $0RGB colour per display line
+    var _off_grad = 0;
+    if (_p.sky_on)
+    {
+        _off_grad = buffer_tell(_b);
+        var _sky = sky_table(_p);
+        for (var g = 0; g < 256; g++) { be16(_b, _sky[g]); }
+        buf_align(_b, 8);
+    }
 
     // the display bitplanes the game draws into
     var _off_disp = buffer_tell(_b);
@@ -282,6 +311,7 @@ function adam_data_block(_p)
     poke32(_b, 56, _off_win);
     poke32(_b, 60, _off_sprcol);
     poke32(_b, 64, _off_disp);
+    poke32(_b, 68, _off_grad);
 
     if (_na == 0) { array_push(_warn, "There are no actors yet - the game will just show your backdrop."); }
     if (_player < 0 && _na > 0) { array_push(_warn, "No actor is set as Player, so the joystick will not move anything."); }

@@ -131,6 +131,11 @@ function backdrop_gfx_init()
     bd_dirty = true;
     bd_uniform = shader_get_uniform(sh_palette, "u_pal");
     bd_pal_floats = array_create(PAL_MAX * 3, 0);
+    bd_u_sky_on = shader_get_uniform(sh_palette, "u_sky_on");
+    bd_u_sky_top = shader_get_uniform(sh_palette, "u_sky_top");
+    bd_u_sky_mid = shader_get_uniform(sh_palette, "u_sky_mid");
+    bd_u_sky_bot = shader_get_uniform(sh_palette, "u_sky_bot");
+    bd_u_sky_midy = shader_get_uniform(sh_palette, "u_sky_midy");
 }
 
 function backdrop_surface()
@@ -186,6 +191,13 @@ function backdrop_draw(_x, _y, _scale)
     gpu_set_texfilter(false);
     shader_set(sh_palette);
     shader_set_uniform_f_array(bd_uniform, bd_pal_floats);
+    var _on = 0;
+    if (proj.sky_on) { _on = 1; }
+    shader_set_uniform_f(bd_u_sky_on, _on);
+    shader_set_uniform_f(bd_u_sky_top, rgb_r(proj.sky_top) / 255, rgb_g(proj.sky_top) / 255, rgb_b(proj.sky_top) / 255);
+    shader_set_uniform_f(bd_u_sky_mid, rgb_r(proj.sky_mid) / 255, rgb_g(proj.sky_mid) / 255, rgb_b(proj.sky_mid) / 255);
+    shader_set_uniform_f(bd_u_sky_bot, rgb_r(proj.sky_bot) / 255, rgb_g(proj.sky_bot) / 255, rgb_b(proj.sky_bot) / 255);
+    shader_set_uniform_f(bd_u_sky_midy, clamp(proj.sky_mid_y, 1, 254));
     draw_surface_ext(_s, _x, _y, _scale, _scale, 0, c_white, 1);
     shader_reset();
     gpu_set_texfilter(true);
@@ -480,4 +492,46 @@ function backdrop_import(_path, _dither)
     }
     bd_dirty = true;
     return true;
+}
+
+// ---------------------------------------------------------------------------
+// Copper sky: colour 0 changes on every one of the 256 lines (and the border
+// with it). Three colour stops, rounded to 12-bit as the copper writes them.
+// ---------------------------------------------------------------------------
+
+/// 256 copper colours ($0RGB words) for project _p
+function sky_table(_p)
+{
+    var _out = array_create(256, 0);
+    var _my = clamp(_p.sky_mid_y, 1, 254);
+    for (var i = 0; i < 256; i++)
+    {
+        var _a = _p.sky_top;
+        var _b = _p.sky_mid;
+        var _t = i / _my;
+        if (i > _my)
+        {
+            _a = _p.sky_mid;
+            _b = _p.sky_bot;
+            _t = (i - _my) / (255 - _my);
+        }
+        var _r = round(lerp(rgb_r(_a), rgb_r(_b), _t) / 17);
+        var _g = round(lerp(rgb_g(_a), rgb_g(_b), _t) / 17);
+        var _bl = round(lerp(rgb_b(_a), rgb_b(_b), _t) / 17);
+        _out[i] = (clamp(_r, 0, 15) << 8) | (clamp(_g, 0, 15) << 4) | clamp(_bl, 0, 15);
+    }
+    return _out;
+}
+
+/// Ready-made skies: [name, top, middle, bottom, middle line]
+function sky_presets()
+{
+    return [
+        ["Sunset",    0x101040, 0x5080d0, 0xffa040, 150],
+        ["Blue sky",  0x2050c0, 0x60a0f0, 0xd0f0ff, 160],
+        ["Night",     0x000000, 0x101030, 0x302060, 180],
+        ["Under sea", 0x60d0f0, 0x1060a0, 0x001030, 90],
+        ["Neon",      0x400060, 0xc02090, 0x102080, 128],
+        ["Lava",      0x200000, 0x902000, 0xffc020, 170]
+    ];
 }

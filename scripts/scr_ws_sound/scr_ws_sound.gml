@@ -17,7 +17,9 @@ function ws_sound_draw(_x1, _y1, _x2, _y2)
         if (snd_sel == i) { ui_rrect(_x1 + 10, _ry, _x1 + _lw - 10, _ry + 46, 10, global.TH.accent, global.TH.accent_dark, 0.9); }
         else { ui_rrect(_x1 + 10, _ry, _x1 + _lw - 10, _ry + 46, 10, global.TH.btn_hot_top, global.TH.btn_hot_bot, 0.25 + _a * 0.75); }
         ui_text(_x1 + 24, _ry + 15, string(i + 1) + ". " + ui_text_fit(_f.name, global.f_bold, _lw - 120), global.TH.text, fa_left, fa_middle, global.f_bold, 1);
-        ui_text(_x1 + 24, _ry + 33, global.WAVE_NAMES[clamp(_f.wave, 0, 3)], global.TH.text_dim, fa_left, fa_middle, global.f_small, 1);
+        var _sub = global.WAVE_NAMES[clamp(_f.wave, 0, 3)];
+        if (_f.kind == 1) { _sub = "Sample: " + _f.smp_file; }
+        ui_text(_x1 + 24, _ry + 33, ui_text_fit(_sub, global.f_small, _lw - 100), global.TH.text_dim, fa_left, fa_middle, global.f_small, 1);
         if (ui_button(_id + "_play", _x1 + _lw - 64, _ry + 8, 44, 30, "Play", "Play|Hear this sound.", BTN_GHOST))
         {
             sfx_preview_play(_f);
@@ -38,6 +40,20 @@ function ws_sound_draw(_x1, _y1, _x2, _y2)
     ui_heading(_fx, _y, "Name");
     set_val(_s, "name", ui_textfield("snd_name", _fx, _y + 18, _colw, 32, _s.name, 16, "Sound name|Shown in the Logic page when you pick a sound to play."), "sndname");
     _y += 62;
+    ui_heading(_fx, _y, "Type of sound");
+    var _kw = floor((_colw - 8) / 2);
+    var _k0 = BTN_GHOST;
+    var _k1 = BTN_GHOST;
+    if (_s.kind == 0) { _k0 = BTN_ACCENT; }
+    else { _k1 = BTN_ACCENT; }
+    if (ui_button("snd_kind_0", _fx, _y + 18, _kw, 32, "Synth", "Synth sound|Built from a waveform, pitch slide and envelope. Tiny in memory.", _k0)) { set_val(_s, "kind", 0, "sndkind" + string(current_time)); }
+    if (ui_button("snd_kind_1", _fx + _kw + 8, _y + 18, _kw, 32, "Sample", "Sampled sound|Import a WAV - a voice, a drum hit, a real explosion - then crunch it down for Paula with the rate and bit settings.", _k1)) { set_val(_s, "kind", 1, "sndkind" + string(current_time)); }
+    _y += 62;
+    if (_s.kind == 1)
+    {
+        sound_sample_panel(_s, _fx, _y, _colw, _cx1, _x2, _y1, _y2);
+        return;
+    }
     ui_heading(_fx, _y, "Waveform");
     set_val(_s, "wave", ui_dropdown("snd_wave", _fx, _y + 18, _colw, 32, global.WAVE_NAMES, _s.wave, "Waveform|The basic tone. Triangle is soft and flute-like, sawtooth is buzzy, square is the classic chip sound and noise is for explosions and drums."), "sndwave");
     _y += 62;
@@ -126,5 +142,112 @@ function ws_sound_draw(_x1, _y1, _x2, _y2)
         }
     }
     _py += 3 * 42 + 10;
-    ui_text_wrap(_gx, _py, "ADAM turns each sound into an 8-bit sample (about 11 kHz, up to 1.5 seconds) stored in chip RAM. Sounds play on Paula channel 1 to 4 (sound number 1 and 5 share channel 1, and so on).", global.TH.text_faint, _gw, global.f_small, 1);
+    ui_text_wrap(_gx, _py, "ADAM turns synth sounds into 8-bit samples (about 11 kHz, up to 1.5 seconds) stored in chip RAM. Sounds play on Paula channel 1 to 4 (sound number 1 and 5 share channel 1, and so on).", global.TH.text_faint, _gw, global.f_small, 1);
+}
+
+/// Sample controls (Sound page when the sound is a sample)
+function sound_sample_panel(_s, _fx, _y, _colw, _cx1, _x2, _y1, _y2)
+{
+    if (ui_button("snd_import", _fx, _y, _colw, 38, "Import WAV...", "Import sample|Loads a .WAV file (8, 16, 24 or 32-bit, mono or stereo, any rate). Up to 5 seconds are kept; stereo is mixed to mono.", BTN_ACCENT))
+    {
+        var _f = get_open_filename("WAV sound|*.wav", "");
+        if (_f != "")
+        {
+            undo_mark("sndimport" + string(current_time));
+            if (sfx_import_wav(_s, _f))
+            {
+                toast("Sample imported", 0);
+                sfx_preview_play(_s);
+            }
+            else { toast("Could not read that WAV file", 2); }
+        }
+    }
+    _y += 46;
+    if (_s.smp == "")
+    {
+        ui_text_wrap(_fx, _y, "No sample yet. Import a WAV file, then choose how crunchy it should sound on the Amiga.", global.TH.text_dim, _colw, global.f_body, 1);
+        return;
+    }
+    ui_text(_fx, _y, ui_text_fit(_s.smp_file + "  -  " + string_format(_s.smp_len / max(1, _s.smp_rate), 1, 2) + " s", global.f_small, _colw), global.TH.text_faint, fa_left, fa_top, global.f_small, 1);
+    _y += 24;
+
+    var _rates = [4000, 5513, 8363, 11025, 16574, 22050, 28867];
+    var _rnames = ["4000 Hz  (very crunchy)", "5513 Hz", "8363 Hz  (tracker C-2)", "11025 Hz", "16574 Hz", "22050 Hz", "28867 Hz  (Paula maximum)"];
+    var _ri = 3;
+    for (var r = 0; r < array_length(_rates); r++)
+    {
+        if (_rates[r] == _s.rate) { _ri = r; }
+    }
+    var _half = floor((_colw - 12) / 2);
+    ui_heading(_fx, _y, "Sample rate");
+    var _nri = ui_dropdown("snd_rate", _fx, _y + 18, _colw, 32, _rnames, _ri, "Sample rate|How many samples per second Paula plays. Lower rates take less chip RAM and sound grittier - the classic Amiga crunch.");
+    if (_nri != _ri)
+    {
+        undo_mark("sndrate" + string(current_time));
+        _s.rate = _rates[_nri];
+        sfx_preview_play(_s);
+    }
+    _y += 62;
+    var _bits = [8, 7, 6, 5, 4, 3, 2];
+    var _bnames = ["8-bit  (clean)", "7-bit", "6-bit", "5-bit  (gritty)", "4-bit", "3-bit  (crushed)", "2-bit  (destroyed)"];
+    var _bi = 0;
+    for (var b = 0; b < array_length(_bits); b++)
+    {
+        if (_bits[b] == _s.bits) { _bi = b; }
+    }
+    ui_heading(_fx, _y, "Bit crunch");
+    var _nbi = ui_dropdown("snd_bits", _fx, _y + 18, _colw, 32, _bnames, _bi, "Bit crunch|Throws away detail from every sample. 8-bit is Paula's full quality; fewer bits give a lo-fi, crunchy sound.");
+    if (_nbi != _bi)
+    {
+        undo_mark("sndbits" + string(current_time));
+        _s.bits = _bits[_nbi];
+        sfx_preview_play(_s);
+    }
+    _y += 62;
+    ui_heading(_fx, _y, "Volume  " + string(_s.gain) + "%");
+    set_val(_s, "gain", ui_slider("snd_gain", _fx, _y + 18, _colw, _s.gain, 10, 300, "Volume|Makes the sample louder or quieter before it is crunched. Above 100% it clips, which can sound great on drums."), "sndgain");
+    _y += 54;
+    ui_heading(_fx, _y, "Start");
+    set_val(_s, "trim_a", ui_slider("snd_trim_a", _fx, _y + 18, _half, _s.trim_a, 0, 990, "Trim start|Cuts silence or unwanted sound from the beginning."), "sndtrima");
+    ui_heading(_fx + _half + 12, _y, "End");
+    set_val(_s, "trim_b", ui_slider("snd_trim_b", _fx + _half + 12, _y + 18, _half, _s.trim_b, 10, 1000, "Trim end|Cuts the end off. Shorter samples use less chip RAM."), "sndtrimb");
+    if (_s.trim_b <= _s.trim_a + 5) { _s.trim_b = min(1000, _s.trim_a + 10); }
+    _y += 58;
+    if (ui_button("snd_preview", _fx, _y, _colw, 44, "Play sound", "Play|Hear the sample exactly as the Amiga will play it, after rate and bit crunch.", BTN_ACCENT))
+    {
+        sfx_preview_play(_s);
+    }
+
+    // right column: the crunched waveform and its cost
+    var _r = sfx_render_ex(_s);
+    var _gx = _fx + _colw + 30;
+    var _gw = _x2 - 20 - _gx;
+    var _gy = _y1 + 74;
+    ui_heading(_gx, _gy - 18, "As Paula will play it");
+    ui_inset(_gx, _gy, _gx + _gw, _gy + 170, 10);
+    ui_register("snd_graph", _gx, _gy, _gx + _gw, _gy + 170, "Waveform|The sample after trimming, resampling and bit crunch - exactly the bytes that go on the disk.");
+    var _n = array_length(_r.smp);
+    var _mid = _gy + 85;
+    if (_n > 1)
+    {
+        var _cols = floor(_gw - 20);
+        draw_set_colour(global.TH.accent);
+        for (var c = 0; c < _cols; c++)
+        {
+            var _a = floor(c * _n / _cols);
+            var _e = max(_a + 1, floor((c + 1) * _n / _cols));
+            var _lo = 0;
+            var _hi = 0;
+            for (var k = _a; k < min(_e, _n); k++)
+            {
+                _lo = min(_lo, _r.smp[k]);
+                _hi = max(_hi, _r.smp[k]);
+            }
+            draw_line(_gx + 10 + c, _mid - _hi / 128 * 75, _gx + 10 + c, _mid - _lo / 128 * 75 + 1);
+        }
+    }
+    var _info = string(_n) + " bytes of chip RAM  -  " + string_format(_n / max(1, _r.rate), 1, 2) + " seconds at " + string(round(_r.rate)) + " Hz";
+    if (_r.capped) { _info += "  (cut to 3 seconds)"; }
+    ui_text(_gx, _gy + 180, _info, global.TH.text_dim, fa_left, fa_top, global.f_small, 1);
+    ui_text_wrap(_gx, _gy + 210, "Lower rates and fewer bits are the authentic Amiga sound - and they leave more chip RAM for your backdrop. Sounds play on Paula channel 1 to 4 (sound 1 and 5 share a channel, and so on).", global.TH.text_faint, _gw, global.f_small, 1);
 }

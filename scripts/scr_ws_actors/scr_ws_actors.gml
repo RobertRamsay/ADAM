@@ -216,7 +216,9 @@ function ws_actors_draw(_x1, _y1, _x2, _y2)
         var _dy = _fy + _ac2.y * _scale;
         var _alpha = 1;
         if (!_ac2.visible) { _alpha = 0.4; }
-        draw_sprite_amiga_cols(_ac2.sprite, _dx, _dy, _scale, actor_cols_from(_alloc, d), _alpha);
+        var _frame_spr = _ac2.sprite;
+        if (_ac2.anim_sprite >= 0 && !_ac2.anim_moving && ((current_time div (_ac2.anim_rate * 20)) mod 2) == 1) { _frame_spr = _ac2.anim_sprite; }
+        draw_sprite_amiga_cols(_frame_spr, _dx, _dy, _scale, actor_cols_from(_alloc, d), _alpha);
     }
     for (var d2 = 0; d2 < _na; d2++)
     {
@@ -307,6 +309,22 @@ function ws_actors_draw(_x1, _y1, _x2, _y2)
     ui_heading(_fx2 + _half + 12, _y, "Start Y");
     set_val(_s, "y", ui_stepper("act_y", _fx2 + _half + 12, _y + 18, _half, _s.y, 0, ACT_YMAX, "Start Y|Vertical start position (0 = top, 232 = bottom). Hold Shift for steps of 10."), "acty");
     _y += 66;
+
+    // two-frame animation
+    ui_heading(_fx2, _y, "Animation (second frame)");
+    var _anames = ["(none - one frame)"];
+    var _sn = sprite_names();
+    for (var an = 0; an < array_length(_sn); an++) { array_push(_anames, _sn[an]); }
+    var _na2 = ui_dropdown("act_anim", _fx2, _y + 18, _fw2, 32, _anames, _s.anim_sprite + 1, "Animation|Pick a second sprite and the actor flips between the two - a walk cycle, flapping wings or a twinkle. Use the same colours as the first frame (copy and paste on the Sprites page, then change a few pixels).") - 1;
+    set_val(_s, "anim_sprite", _na2, "actanim");
+    _y += 58;
+    if (_s.anim_sprite >= 0)
+    {
+        ui_heading(_fx2, _y, "Frames each");
+        set_val(_s, "anim_rate", ui_stepper("act_arate", _fx2, _y + 18, _half, _s.anim_rate, 2, 30, "Animation speed|How many 50ths of a second each frame stays on screen. 6 is a brisk walk, 15 a slow blink."), "actarate");
+        set_val(_s, "anim_moving", ui_toggle("act_amove", _fx2 + _half + 12, _y + 22, "Only when moving", _s.anim_moving, "Only when moving|The actor shows its first frame while standing still - perfect for walk cycles."), "actamove");
+        _y += 58;
+    }
 
     // hardware sprite channel
     if (sel_actor < array_length(_alloc.chan))
