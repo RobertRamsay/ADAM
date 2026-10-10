@@ -520,9 +520,18 @@ function build_adf(_path)
 //   3. a normal FS-UAE install in the usual places
 // Set ADAM_DEV_TOOLS to false for public (itch.io) builds: users then locate
 // their own FS-UAE and nothing is downloaded or bundled.
+//
+// macOS: GameMaker cannot start a program with arguments there (the
+// execute_shell_simple extension is a Windows DLL), so ADAM writes the
+// settings to a .fs-uae config file and asks Finder to open it - FS-UAE.app
+// is the app that opens .fs-uae files. The "test copy" on a Mac is the
+// official FS-UAE disk image (.dmg), opened in Finder for the user to drag
+// into Applications. Windows-only calls must stay behind os_type checks.
 // ---------------------------------------------------------------------------
 #macro ADAM_DEV_TOOLS true
 #macro FSUAE_ZIP_URL "https://github.com/FrodeSolheim/fs-uae/releases/download/v3.1.66/FS-UAE_3.1.66_Windows_x86-64.zip"
+// Intel build: runs on every Mac (through Rosetta on Apple silicon)
+#macro FSUAE_DMG_URL "https://github.com/FrodeSolheim/fs-uae/releases/download/v3.1.66/FS-UAE_3.1.66_macOS_x86-64.dmg"
 
 function fsuae_test_dir()
 {
@@ -534,9 +543,34 @@ function fsuae_test_exe()
     return fsuae_test_dir() + "FS-UAE/Windows/x86-64/fs-uae.exe";
 }
 
+/// True when _p is an FS-UAE the user can run (on a Mac an .app bundle is a folder)
+function fsuae_path_ok(_p)
+{
+    if (_p == "") { return false; }
+    if (file_exists(_p)) { return true; }
+    if (os_type == os_macosx && directory_exists(_p)) { return true; }
+    return false;
+}
+
 /// An installed FS-UAE in the usual places, or ""
 function fsuae_find_installed()
 {
+    if (os_type == os_macosx)
+    {
+        var _home = environment_get_variable("HOME");
+        var _mac = [
+            "/Applications/FS-UAE.app",
+            _home + "/Applications/FS-UAE.app",
+            "/Applications/FS-UAE Launcher.app",
+            _home + "/Applications/FS-UAE Launcher.app"
+        ];
+        for (var m = 0; m < array_length(_mac); m++)
+        {
+            if (directory_exists(_mac[m])) { return _mac[m]; }
+        }
+        return "";
+    }
+    if (os_type != os_windows) { return ""; }
     var _cands = [
         "C:/Program Files/FS-UAE/Windows/x86-64/fs-uae.exe",
         "C:/Program Files (x86)/FS-UAE/Windows/x86-64/fs-uae.exe",
@@ -550,10 +584,10 @@ function fsuae_find_installed()
     return "";
 }
 
-/// The fs-uae.exe ADAM will run, or "" when there is none
+/// The fs-uae.exe (FS-UAE.app on a Mac) ADAM will run, or "" when there is none
 function fsuae_exe()
 {
-    if (fsuae_path != "" && file_exists(fsuae_path)) { return fsuae_path; }
+    if (fsuae_path_ok(fsuae_path)) { return fsuae_path; }
     if (ADAM_DEV_TOOLS && file_exists(fsuae_test_exe())) { return fsuae_test_exe(); }
     return fsuae_find_installed();
 }
@@ -561,7 +595,7 @@ function fsuae_exe()
 /// Text for the Build page: where FS-UAE comes from
 function fsuae_source_label()
 {
-    if (fsuae_path != "" && file_exists(fsuae_path)) { return fsuae_path; }
+    if (fsuae_path_ok(fsuae_path)) { return fsuae_path; }
     if (ADAM_DEV_TOOLS && file_exists(fsuae_test_exe())) { return "ADAM's test copy (FS-UAE 3.1.66)"; }
     var _inst = fsuae_find_installed();
     if (_inst != "") { return _inst + "  (found)"; }
@@ -574,9 +608,22 @@ function fsuae_download(_then_run)
 {
     if (!ADAM_DEV_TOOLS) { return; }
     if (fsuae_dl_id >= 0) { return; }
+    if (os_type == os_macosx)
+    {
+        // a .dmg cannot be unpacked from GML: fetch it, then Finder opens it (see fsuae_download_async)
+        fsuae_dl_zip = game_save_id + "FS-UAE_3.1.66_macOS.dmg";
+        if (file_exists(fsuae_dl_zip)) { file_delete(fsuae_dl_zip); }
+        fsuae_dl_got = 0;
+        fsuae_dl_total = 0;
+        fsuae_dl_then_run = "";
+        fsuae_dl_id = http_get_file(FSUAE_DMG_URL, fsuae_dl_zip);
+        build_log_add("Downloading FS-UAE 3.1.66 for macOS (about 7 MB)...", 0);
+        toast("Downloading FS-UAE for testing...", 0);
+        return;
+    }
     if (os_type != os_windows)
     {
-        toast("The FS-UAE test copy is for Windows - use Find on other systems", 1);
+        toast("The FS-UAE test copy is for Windows and macOS - use Find on other systems", 1);
         return;
     }
     fsuae_dl_zip = game_save_id + "fsuae_download.zip";
@@ -603,6 +650,23 @@ function fsuae_download_async()
     }
     fsuae_dl_id = -1;
     var _ok = false;
+    if (os_type == os_macosx)
+    {
+        if (_status == 0 && async_load[? "http_status"] == 200 && file_exists(fsuae_dl_zip))
+        {
+            url_open(fsuae_file_url(fsuae_dl_zip));
+            build_log_add("FS-UAE disk image opened in Finder: drag FS-UAE into Applications, then press Build and play", 0);
+            build_log_add("(If nothing opened, double-click " + fsuae_dl_zip + ")", 0);
+            toast("Drag FS-UAE into Applications", 0);
+        }
+        else
+        {
+            build_log_add("Could not download FS-UAE - check the internet connection, or get it from fs-uae.net", 2);
+            toast("FS-UAE download failed", 2);
+        }
+        fsuae_dl_then_run = "";
+        return;
+    }
     if (_status == 0 && async_load[? "http_status"] == 200 && file_exists(fsuae_dl_zip))
     {
         zip_unzip(fsuae_dl_zip, fsuae_test_dir());
@@ -626,7 +690,7 @@ function fsuae_download_async()
 /// Starts FS-UAE on the built disk (after closing an old copy - see Step)
 function launch_fsuae(_adf)
 {
-    if (os_type != os_windows)
+    if (os_type != os_windows && os_type != os_macosx)
     {
         toast("Open " + filename_name(_adf) + " in FS-UAE to play", 1);
         return false;
@@ -638,8 +702,17 @@ function launch_fsuae(_adf)
             fsuae_download(_adf);
             return false;
         }
+        if (os_type == os_macosx)
+        {
+            toast("Install FS-UAE in Applications, or Find it on the Build page", 1);
+            return false;
+        }
         toast("Find fs-uae.exe on the Build page first", 1);
         return false;
+    }
+    if (os_type == os_macosx)
+    {
+        return launch_fsuae_mac(_adf);
     }
     execute_shell_simple("taskkill.exe", "/F /IM fs-uae.exe", "open", 0);
     launch_pending = _adf;
@@ -651,6 +724,7 @@ function launch_fsuae(_adf)
 /// Called from the Step event once the old emulator has had time to close
 function launch_fsuae_now(_adf)
 {
+    if (os_type != os_windows) { return; }
     var _exe = fsuae_exe();
     if (_exe == "") { return; }
     var _m = machine_cur();
@@ -672,6 +746,81 @@ function launch_fsuae_now(_adf)
         _args += " --kickstart_file=\"" + kick_path + "\"";
     }
     execute_shell_simple(_exe, _args, "open", 5, filename_dir(_exe));
+}
+
+/// "file://" URL for a local path, with spaces and other bytes %-escaped
+function fsuae_file_url(_path)
+{
+    var _hex = "0123456789ABCDEF";
+    var _out = "file://";
+    var _n = string_byte_length(_path);
+    for (var i = 1; i <= _n; i++)
+    {
+        var _b = string_byte_at(_path, i);
+        var _keep = false;
+        if (_b >= 0x30 && _b <= 0x39) { _keep = true; }
+        if (_b >= 0x41 && _b <= 0x5a) { _keep = true; }
+        if (_b >= 0x61 && _b <= 0x7a) { _keep = true; }
+        if (_b == 0x2f || _b == 0x2d || _b == 0x2e || _b == 0x5f || _b == 0x7e) { _keep = true; }
+        if (_keep)
+        {
+            _out += chr(_b);
+        }
+        else
+        {
+            _out += "%" + string_char_at(_hex, (_b >> 4) + 1) + string_char_at(_hex, (_b & 0x0f) + 1);
+        }
+    }
+    return _out;
+}
+
+/// macOS: write the same settings as launch_fsuae_now into a .fs-uae config
+/// file and let Finder open it with FS-UAE (no way to pass arguments from GML).
+function launch_fsuae_mac(_adf)
+{
+    var _m = machine_cur();
+    var _cfg = game_save_id + "adam_play.fs-uae";
+    var _f = file_text_open_write(_cfg);
+    if (_f < 0)
+    {
+        toast("Could not write the FS-UAE settings file", 2);
+        return false;
+    }
+    var _lines = [
+        "[fs-uae]",
+        "amiga_model = " + _m.fsuae_model,
+        "chip_memory = " + string(_m.chip_kb),
+        "slow_memory = 0",
+        "fast_memory = 0",
+        "floppy_drive_0 = " + _adf,
+        "floppy_drive_speed = 0",
+        "fullscreen = 0",
+        "window_width = 960",
+        "window_height = 720",
+        "automatic_input_grab = 0",
+        "initial_input_grab = 0"
+    ];
+    if (fsuae_light)
+    {
+        array_push(_lines, "video_sync = off");
+        array_push(_lines, "texture_filter = nearest");
+    }
+    if (kick_path != "" && file_exists(kick_path))
+    {
+        array_push(_lines, "kickstart_file = " + kick_path);
+    }
+    for (var i = 0; i < array_length(_lines); i++)
+    {
+        file_text_write_string(_f, _lines[i]);
+        file_text_writeln(_f);
+    }
+    file_text_close(_f);
+    // macOS does not let ADAM close an old FS-UAE window, so the user quits it first
+    url_open(fsuae_file_url(_cfg));
+    build_log_add("Opened " + _cfg + " - FS-UAE boots it. Quit any FS-UAE that is already running first (Cmd+Q).", 0);
+    build_log_add("If it opens in another app, right-click the file in Finder > Open With > FS-UAE (Always Open With).", 0);
+    toast("Opening FS-UAE...", 0);
+    return true;
 }
 
 /// Lines for the "show the engine" view: the engine source, then a data summary

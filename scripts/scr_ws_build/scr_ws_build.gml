@@ -147,7 +147,7 @@ function ws_build_draw(_x1, _y1, _x2, _y2)
     }
     _y += 54;
     var _rst = BTN_ON;
-    if (os_type != os_windows) { _rst = BTN_GHOST; }
+    if (os_type != os_windows && os_type != os_macosx) { _rst = BTN_GHOST; }
     if (ui_button("build_run", _fx, _y, _fw, 46, "Build and play in FS-UAE", "Build and play|Builds the disk and boots it in FS-UAE as a stock " + _m.name + ". Joystick: FS-UAE maps a gamepad, or the cursor keys and right Ctrl, to port 2.", _rst))
     {
         build_ws_build(true);
@@ -179,6 +179,7 @@ function ws_build_draw(_x1, _y1, _x2, _y2)
         if (_src == "")
         {
             _src = "(not found - click Find to choose fs-uae.exe)";
+            if (os_type == os_macosx) { _src = "(not found - install FS-UAE in Applications, or Find it)"; }
             if (ADAM_DEV_TOOLS) { _src = "(not found - Get test copy, or Find your own)"; }
             _scol = global.TH.warn;
         }
@@ -186,7 +187,9 @@ function ws_build_draw(_x1, _y1, _x2, _y2)
     }
     if (ui_button("build_fsuae", _fx + _fw - _btn_w, _y + 18, _btn_w, 32, "Find", "Find FS-UAE|Point ADAM at your own fs-uae.exe (free from fs-uae.net). Your choice always wins over ADAM's test copy. Right-click clears it.", BTN_NORMAL))
     {
-        var _v = get_open_filename("FS-UAE|fs-uae.exe;fs-uae", "");
+        var _filter = "FS-UAE|fs-uae.exe;fs-uae";
+        if (os_type == os_macosx) { _filter = "FS-UAE|*.app;fs-uae"; }
+        var _v = get_open_filename(_filter, "");
         if (_v != "")
         {
             fsuae_path = _v;
@@ -209,7 +212,7 @@ function ws_build_draw(_x1, _y1, _x2, _y2)
     {
         var _glab = "Get test copy";
         if (file_exists(fsuae_test_exe())) { _glab = "Re-download"; }
-        if (ui_button("build_fsuae_get", _fx + _fw - _btn_w * 2 - 8, _y + 18, _btn_w, 32, _glab, "FS-UAE test copy|Developer convenience: downloads the official FS-UAE 3.1.66 for Windows into ADAM's save folder, so Build and play works straight away. 'Build and play' fetches it by itself when no FS-UAE is found.", BTN_GHOST))
+        if (ui_button("build_fsuae_get", _fx + _fw - _btn_w * 2 - 8, _y + 18, _btn_w, 32, _glab, "FS-UAE test copy|Developer convenience: downloads the official FS-UAE 3.1.66 for Windows into ADAM's save folder, so Build and play works straight away (on a Mac it opens the FS-UAE disk image to drag into Applications). 'Build and play' fetches it by itself when no FS-UAE is found.", BTN_GHOST))
         {
             fsuae_download("");
         }
