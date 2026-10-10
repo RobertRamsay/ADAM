@@ -58,18 +58,18 @@ with trackdisk (showing a copper loading bar) and jumps in. Registers held:
 the signed 8-bit displacement), `a6` = $dff000.
 
 **Data block header** (offsets from data start; longs are offsets from data start, 0 = absent):
-`0 'ADAM' | 4 version | 6 flags (bit0 AGA) | 8 depth | 10 nact | 12 nrule | 14 lives | 16 show score | 18 show lives | 20 hud row | 22 hud colour | 24 msg colour | 26 player actor (-1) | 28 game block | 32 palette | 36 planes (original) | 40 actors | 44 rules | 48 sfx table | 52 game-over text | 56 win text | 60 sprite pair colours | 64 display planes | 68 copper sky (256 x $0RGB) | 72 painted ground (320 words) | 76 work planes (backdrop + hills)` — header is 80 bytes.
+`0 'ADAM' | 4 version | 6 flags (bit0 AGA) | 8 depth | 10 nact | 12 nrule | 14 lives | 16 show score | 18 show lives | 20 hud row | 22 hud colour | 24 msg colour | 26 player actor (-1) | 28 game block | 32 palette | 36 planes (original) | 40 actors | 44 rules | 48 sfx table | 52 game-over text | 56 win text | 60 sprite pair colours | 64 display planes | 68 copper sky (256 x $0RGB) | 72 painted ground (320 words) | 76 work planes (backdrop + hills) | 80 music table` — header is 84 bytes, version 2. Music table (`M_*`, see docs/MUSIC_CONTRACT.md): nsongs word, 10 level-song bytes ($FF none), then { offset, length } of each ProTracker MOD.
 
 - Actor record = 48 bytes (`A_*` equates), rule record = 16 bytes (`R_*`), sfx entry = 8 bytes (offset, length in words, Paula period), game block = `G_*` (levels, terrain colours, goal, title text, 320 heights per level).
 - **Any layout change must be made in three places: `engine.s`, `scr_adf.gml`, `tools/reference/adf_reference.py`.**
 - Roles: 0 player, 1 bouncer, 2 patrol L-R, 3 patrol U-D, 4 chaser, 5 still, 6 platform player, 7 hopper, 8 faller.
 - WHEN: 0 touch, 1 fire, 2 every N s, 3 score reaches, 4 lives out, 5 game starts, 6 actor jumps, 7 level starts.
-- DO: 0 score, 1 lose life, 2 sound, 3 flash, 4 home, 5 random spot, 6 hide, 7 show, 8 background colour, 9 game over, 10 win, 11 faster, 12 slower, 13 add life, 14 move to actor, 15 show for a moment, 16 safe for a while, 17 count toward goal.
+- DO: 0 score, 1 lose life, 2 sound, 3 flash, 4 home, 5 random spot, 6 hide, 7 show, 8 background colour, 9 game over, 10 win, 11 faster, 12 slower, 13 add life, 14 move to actor, 15 show for a moment, 16 safe for a while, 17 count toward goal, 18 play music (value = song), 19 stop music.
 
 ### Hardware limits ADAM respects
 - 8 hardware sprites (16 x 24, 3 colours), 4 colour pairs; actors with matching colours are paired automatically (`actors_alloc_channels`).
 - Backdrop 320 x 256: up to 16 colours on A500/600 (sprites use colours 17-31), up to 128 on A1200 (sprites moved to 240-255 via BPLCON4).
-- 4 Paula channels; sound n plays on channel n & 3.
+- 4 Paula channels, driven by ptplayer (`datafiles/engine/ptplayer`, public domain) from CIA-B level-6 interrupts; the engine runs in supervisor mode. With no music, sound n plays on channel n & 3; while a song plays ptplayer picks the least disruptive channel.
 
 ### vasm pitfalls seen so far
 - Local labels (`.x`) are scoped to the last global label — don't reuse names in one routine.

@@ -12,7 +12,18 @@
 ;     a4 = data_start (game data block)
 ;     a5 = V          (engine variables)
 ;     a6 = $dff000    (custom chips)
+;
+;  Music and sound effects are played by Frank Wille's ptplayer (public
+;  domain, ptplayer/ptplayer.asm, included near the end). It runs from CIA-B
+;  timer interrupts (level 6), so the engine runs in supervisor mode with only
+;  the EXTER interrupt enabled. Sound effects go through _mt_playfx, which
+;  mixes them into the music on the same 4 Paula channels.
 ; ============================================================================
+
+; ptplayer options (see ptplayer/ptplayer.readme): the default single-section
+; CIA-B version, with the word at address 0 used for idling channels (the
+; engine clears it), so sound effects need no leading zero word.
+NULL_IS_CLEARED equ 1
 
 ; ---------------- game data header (offsets from data_start) ----------------
 H_MAGIC     equ 0
@@ -41,7 +52,13 @@ H_DISP      equ 64         ; offset: display bitplanes (depth * 10240 bytes)
 H_GRAD      equ 68         ; offset: 256 copper sky colours ($0RGB words), 0 = none
 H_GROUND    equ 72         ; offset: 320 ground heights (words), 0 = none
 H_WORK      equ 76         ; offset: backdrop + terrain copy (depth * 10240 bytes)
-HDR_SIZE    equ 80
+H_MUSIC     equ 80         ; offset: music table, 0 = no music
+HDR_SIZE    equ 84
+
+; music table (offsets from data_start like every header long)
+M_NSONGS    equ 0          ; word: number of songs 0..4
+M_LEVEL     equ 4          ; 10 bytes: song per level, $ff = none (single screen: entry 0)
+M_SONGS     equ 16         ; nsongs x { long offset of the MOD bytes, long length }
 
 ; actor record
 A_X         equ 0
@@ -135,7 +152,9 @@ v_score     rs.l 1
 v_flash     rs.w 1
 v_bg        rs.l 1
 v_rand      rs.l 1
-v_spend     rs.w 4
+v_music     rs.l 1         ; music table address, 0 = no music
+v_song      rs.w 1         ; song playing, -1 = none
+v_sfx       rs.b 12        ; ptplayer sfx structure: ptr.l len.w per.w vol.w cha.b pri.b
 v_disp      rs.l 1
 v_digits    rs.b 8
 v_opaque    rs.w 1
@@ -143,20 +162,49 @@ v_latch     rs.w 128
 V_SIZE      rs.b 0
 
 ; ============================================================================
+; Entered from the bootblock in user mode with the OS still running.
 start:
+            move.l  4.w,a6                  ; ExecBase
+            moveq   #0,d0                   ; vector base: 0 on a 68000
+            btst    #0,297(a6)              ; AttnFlags AFF_68010 (set on 68010 and up)
+            beq.s   .vbr
+            lea     get_vbr(pc),a5
+            jsr     -30(a6)                 ; Supervisor(get_vbr) -> d0 = VBR
+.vbr        move.l  d0,d7
+            moveq   #0,d6                   ; CIA timers: NTSC clock unless PAL
+            cmp.b   #50,530(a6)             ; VBlankFrequency
+            bne.s   .ntsc
+            moveq   #1,d6
+.ntsc       lea     in_super(pc),a5
+            jsr     -30(a6)                 ; Supervisor(in_super) - never returns
+
+; d0 = VBR (68010 and up only - runs in supervisor mode)
+get_vbr:    dc.l    $4e7a0801               ; movec vbr,d0
+            rte
+
+; Supervisor mode from here on. The OS is never returned to, so the
+; exception frame Supervisor() left on the system stack is simply dropped.
+in_super:   move.w  #$2700,sr               ; mask all CPU interrupts while taking over
+            lea     stack_top(pc),a7
             lea     V+128(pc),a5
             lea     data_start(pc),a4
             lea     $dff000,a6
             move.w  #$7fff,$9a(a6)          ; INTENA  - all interrupts off
             move.w  #$7fff,$9c(a6)          ; INTREQ  - clear pending
             move.w  #$7fff,$96(a6)          ; DMACON  - all DMA off
-            lea     stack_top(pc),a7
+            clr.l   $0.w                    ; idle word for ptplayer (NULL_IS_CLEARED)
             move.l  #$2a5b7c19,v_rand(a5)
+            move.l  d7,a0                   ; VBR
+            move.l  d6,d0                   ; PAL flag
+            bsr     _mt_install             ; level 6 vector, CIA-B timers A and B
+            move.w  #$c000,$9a(a6)          ; INTENA master on (only EXTER is enabled)
+            move.w  #$2000,sr               ; supervisor, CPU interrupts allowed
+            bsr     init_music
             bsr     init_display
 
 game_restart:
             lea     stack_top(pc),a7
-            move.w  #$000f,$96(a6)          ; audio DMA off
+            bsr     music_stop              ; silence: music and effects
             move.w  #1,v_level(a5)
             bsr     init_palette
             bsr     clear_state
@@ -184,7 +232,6 @@ game_restart:
 ; next level: show which one is coming, then play it
 level_next: addq.w  #1,v_level(a5)
 level_card: lea     stack_top(pc),a7
-            move.w  #$000f,$96(a6)
             bsr     hide_sprites
             bsr     restore_backdrop
             move.l  v_game(a5),d0
@@ -207,6 +254,7 @@ level_start:
             move.w  #0,v_goal(a5)
             bsr     draw_hud
             bsr     place_sprites
+            bsr     level_music             ; this level's song, before its rules
             moveq   #7,d0                   ; 'a level starts' rules
             bsr     run_when_rules
 mainloop:
@@ -306,16 +354,19 @@ init_display:
 
 ; ============================================================================
 ;  wait for the bottom of the frame (line 300)
+;  Checks 'line 300 or later' rather than 'line 300 exactly': a music
+;  interrupt can take longer than one raster line, and must not make the
+;  game miss a frame.
 ; ============================================================================
 wait_vbl:
-.w1         move.l  $04(a6),d0
+.w1         move.l  $04(a6),d0              ; still at the bottom: wait for the next frame
             and.l   #$1ff00,d0
             cmp.l   #$12c00,d0
-            bne.s   .w1
-.w2         move.l  $04(a6),d0
+            bhs.s   .w1
+.w2         move.l  $04(a6),d0              ; then wait for line 300
             and.l   #$1ff00,d0
             cmp.l   #$12c00,d0
-            beq.s   .w2
+            blo.s   .w2
             rts
 
 ; ============================================================================
@@ -502,9 +553,6 @@ clear_state:
             move.w  #-1,v_gradfix(a5)
             move.w  #-1,d1
             bsr     build_grad
-            lea     v_spend(a5),a0
-            move.l  #0,(a0)+
-            move.l  #0,(a0)+
             bsr     clear_latches
             move.w  $06(a6),d0              ; VHPOSR into the random seed
             eor.w   d0,v_rand+2(a5)
@@ -582,7 +630,6 @@ frame:
             move.w  v_joy(a5),v_joyprev(a5)
             bsr     place_sprites
             bsr     run_rules
-            bsr     sound_tick
             rts
 
 read_joy:
@@ -1222,7 +1269,7 @@ do_action:
             move.w  d5,d4
             add.w   d5,d5
             move.w  R_ACT(a3),d0
-            cmp.w   #17,d0
+            cmp.w   #19,d0
             bhi     act_none
             add.w   d0,d0
             move.w  acttab(pc,d0.w),d0
@@ -1245,8 +1292,16 @@ acttab:     dc.w    act_score-acttab
             dc.w    act_moment-acttab
             dc.w    act_safe-acttab
             dc.w    act_goal-acttab
+            dc.w    act_music-acttab
+            dc.w    act_nomusic-acttab
 
 act_none:   rts
+
+; play song R_VAL from the top / stop the music
+act_music:  move.w  R_VAL(a3),d0
+            bra     music_play
+act_nomusic:
+            bra     music_stop
 
 act_moment: cmp.w   H_NACT(a4),d4
             bhs     act_none
@@ -1398,7 +1453,7 @@ act_win:    move.l  H_TWIN(a4),d0
 
 ; a0 = message.  Shows it, waits for fire, then restarts the game.
 end_screen:
-            move.w  #$000f,$96(a6)          ; audio off
+            bsr     music_stop              ; music and effects off
             move.l  a0,-(sp)
             bsr     hide_sprites
             move.l  (sp)+,a0
@@ -1685,64 +1740,107 @@ rgb12:      move.l  d3,-(sp)
             rts
 
 ; ============================================================================
-;  Paula sound effects - one shot, channel = sound number AND 3
+;  music and sound effects - both played by ptplayer (CIA-B interrupts)
 ; ============================================================================
+init_music:
+            move.w  #-1,v_song(a5)
+            moveq   #0,d0
+            move.l  H_MUSIC(a4),d1
+            beq.s   .none
+            move.l  d1,d0
+            add.l   a4,d0
+.none       move.l  d0,v_music(a5)
+            rts
+
+; d0.w = song index: plays that song from the top. A song that is not in
+; the music table (or is empty) leaves the music stopped.
+music_play:
+            movem.l d0-d1/a0-a1,-(sp)
+            bsr     music_stop
+            move.l  v_music(a5),d1
+            beq.s   .out
+            move.l  d1,a0
+            cmp.w   M_NSONGS(a0),d0         ; unsigned: a negative index fails too
+            bhs.s   .out
+            move.w  d0,d1
+            lsl.w   #3,d1
+            lea     M_SONGS(a0,d1.w),a0
+            move.l  (a0)+,d1                ; offset of the MOD bytes
+            tst.l   (a0)                    ; length
+            beq.s   .out
+            move.w  d0,v_song(a5)
+            lea     0(a4,d1.l),a0           ; a0 = MOD
+            sub.l   a1,a1                   ; samples follow the patterns
+            moveq   #0,d0                   ; from the first song position
+            bsr     _mt_init
+            lea     _mt_Enable(pc),a0
+            st      (a0)                    ; go
+.out        movem.l (sp)+,d0-d1/a0-a1
+            rts
+
+; stops the music and any sound effects
+music_stop:
+            movem.l d0-d1/a0-a1,-(sp)
+            move.w  #-1,v_song(a5)
+            bsr     _mt_end                 ; also clears _mt_Enable
+            movem.l (sp)+,d0-d1/a0-a1
+            rts
+
+; at 'level starts': this level's song (entry 0 for a single screen game).
+; A song that is already playing carries on; a level with no song leaves
+; the music as it is (a 'play music' or 'stop music' rule decides).
+level_music:
+            movem.l d0-d1/a0,-(sp)
+            move.l  v_music(a5),d0
+            beq.s   .out
+            move.l  d0,a0
+            move.w  v_level(a5),d1
+            subq.w  #1,d1
+            cmp.w   #9,d1
+            bls.s   .lv
+            moveq   #0,d1
+.lv         moveq   #0,d0
+            move.b  M_LEVEL(a0,d1.w),d0
+            cmp.w   #$ff,d0
+            beq.s   .out
+            cmp.w   v_song(a5),d0
+            beq.s   .out
+            bsr     music_play
+.out        movem.l (sp)+,d0-d1/a0
+            rts
+
+; d0 = sound 0..7. With no music it plays on channel (sound AND 3), as it
+; always did; while a song plays ptplayer picks the channel that disturbs
+; the music least. The channel goes back to the music when the sound ends.
 play_sfx:
-            movem.l d0-d4/a0-a2,-(sp)
+            movem.l d0-d1/a0-a1,-(sp)
+            and.w   #7,d0
             move.l  H_SFX(a4),d1
             lea     0(a4,d1.l),a0
             move.w  d0,d1
             lsl.w   #3,d1
-            add.w   d1,a0
-            move.w  4(a0),d2                ; length in words
+            add.w   d1,a0                   ; a0 = sound entry
+            tst.w   4(a0)                   ; length in words
             beq.s   .out
+            lea     v_sfx(a5),a1
             move.l  (a0),d1
-            add.l   a4,d1                   ; sample address
-            move.w  d0,d3
-            and.w   #3,d3
-            moveq   #1,d4
-            lsl.w   d3,d4
-            move.w  d4,$96(a6)              ; channel DMA off
-            move.w  d3,d4
-            lsl.w   #4,d4
-            lea     $a0(a6),a1
-            add.w   d4,a1
-            move.l  d1,(a1)                 ; AUDxLC
-            move.w  d2,4(a1)                ; AUDxLEN
-            move.w  6(a0),d4                ; per-sound period (sampled sounds)
+            add.l   a4,d1
+            move.l  d1,(a1)                 ; sfx_ptr
+            move.w  4(a0),4(a1)             ; sfx_len
+            move.w  6(a0),d1                ; per-sound period (sampled sounds)
             bne.s   .per
-            move.w  #SFX_PERIOD,d4
-.per        move.w  d4,6(a1)                ; AUDxPER
-            move.w  #64,8(a1)               ; AUDxVOL
-            lea     v_spend(a5),a2
-            add.w   d3,d3
-            move.w  #2,0(a2,d3.w)
-.out        movem.l (sp)+,d0-d4/a0-a2
-            rts
-
-sound_tick:
-            lea     v_spend(a5),a2
-            lea     $a0(a6),a1
-            moveq   #0,d3
-.c          move.w  (a2),d0
-            beq.s   .n
-            cmp.w   #2,d0
-            bne.s   .stop
-            moveq   #1,d4                   ; start the sample
-            lsl.w   d3,d4
-            or.w    #$8000,d4
-            move.w  d4,$96(a6)
-            move.w  #1,(a2)
-            bra.s   .n
-.stop       lea     silence(pc),a0          ; then loop silence
-            move.l  a0,(a1)
-            move.w  #1,4(a1)
-            move.w  #0,(a2)
-.n          addq.l  #2,a2
-            lea     16(a1),a1
-            addq.w  #1,d3
-            cmp.w   #4,d3
-            blt.s   .c
+            move.w  #SFX_PERIOD,d1
+.per        move.w  d1,6(a1)                ; sfx_per
+            move.w  #64,8(a1)               ; sfx_vol
+            and.w   #3,d0
+            tst.w   v_song(a5)
+            bmi.s   .cha
+            moveq   #-1,d0                  ; music playing: best channel
+.cha        move.b  d0,10(a1)               ; sfx_cha
+            move.b  #64,11(a1)              ; sfx_pri: all equal, newest wins
+            move.l  a1,a0
+            bsr     _mt_playfx
+.out        movem.l (sp)+,d0-d1/a0-a1
             rts
 
 ; ============================================================================
@@ -1892,10 +1990,19 @@ font:
             include "font.inc"
 
 ; ============================================================================
+;  ptplayer 6.4 by Frank Wille (public domain - ptplayer/LICENSE).
+;  Unmodified except that its closing "end" directive is commented out.
+;  Single section, PC-relative with its own base register, so it is
+;  position independent like the rest of the engine. Every entry point
+;  used here (_mt_install, _mt_init, _mt_end, _mt_playfx) saves a4/a5.
+; ============================================================================
+            even
+            include "ptplayer/ptplayer.asm"
+
+; ============================================================================
 ;  chip data
 ; ============================================================================
             cnop    0,8
-silence:    dc.w    0,0
 null_spr:   dc.l    0,0
 
 copper:

@@ -255,7 +255,7 @@ function ws_build_draw(_x1, _y1, _x2, _y2)
         ui_rrect(_bx, _y + 2, _bx + _sw, _y + 24, 4, global.TH.warn, merge_colour(global.TH.warn, c_black, 0.3), 1);
         _bx += _sw;
         ui_rrect(_bx, _y + 2, _bx + _ow, _y + 24, 4, make_colour_rgb(95, 211, 140), make_colour_rgb(60, 150, 100), 1);
-        var _mem_help = "Chip RAM|Blue: the ADAM engine. Orange: the backdrop (the original, a copy with the hills, and the screen). Yellow: sound samples. Green: sprites, rules and the rest. The full bar is the chip RAM left free on a stock " + _m.name + ".";
+        var _mem_help = "Chip RAM|Blue: the ADAM engine (about " + string(ceil(build_engine_size / 1024)) + " KB, including the ProTracker music player). Orange: the backdrop (the original, a copy with the hills, and the screen). Yellow: sound samples and music. Green: sprites, rules and the rest. The full bar is the chip RAM left free on a stock " + _m.name + ".";
         if (!_m.aga)
         {
             // red tick: the most that fits an A500 with only 512KB of chip RAM
@@ -265,7 +265,7 @@ function ws_build_draw(_x1, _y1, _x2, _y2)
         }
         ui_register("build_mem", _fx, _y, _fx + _fw, _y + 26, _mem_help);
         _y += 34;
-        ui_text(_fx, _y, "Engine   Backdrop   Sounds   Other        " + string(ceil(build_size / 1024)) + " KB of about " + string(build_chip_free div 1024) + " KB", global.TH.text_faint, fa_left, fa_top, global.f_small, 1);
+        ui_text(_fx, _y, "Engine   Backdrop   Sound & music   Other        " + string(ceil(build_size / 1024)) + " KB of about " + string(build_chip_free div 1024) + " KB", global.TH.text_faint, fa_left, fa_top, global.f_small, 1);
     }
     else
     {

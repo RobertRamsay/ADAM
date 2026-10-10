@@ -16,7 +16,8 @@ function project_defs_init()
     global.DO_NAMES   = ["Add to score", "Lose a life", "Play a sound", "Flash the screen", "Send actor back to start",
                          "Move actor to a random spot", "Hide actor", "Show actor", "Change background colour",
                          "Game over", "You win!", "Speed up actor", "Slow down actor", "Add a life", "Move actor to another actor",
-                         "Show actor for a moment", "Make actor safe for a while", "Count towards the level goal"];
+                         "Show actor for a moment", "Make actor safe for a while", "Count towards the level goal",
+                         "Play music", "Stop music"];
     global.WAVE_NAMES = ["Triangle (soft)", "Sawtooth (buzzy)", "Square (classic)", "Noise (crunchy)"];
     global.SFX_PRESET_NAMES = ["Coin", "Laser", "Explosion", "Jump", "Hit", "Power up", "Lose", "Blip"];
     global.TEMPLATE_NAMES = ["Player touches enemy: lose a life", "Player touches pickup: score + move pickup",
@@ -156,7 +157,9 @@ function project_new()
         sky_top : 0x102060,
         sky_mid : 0x4080c0,
         sky_bot : 0xffa040,
-        sky_mid_y : 128
+        sky_mid_y : 128,
+        songs : [],                              // Phase 2 contract: 0..4 songs (Music page)
+        level_song : array_create(LEVEL_MAX, -1) // Phase 2 contract: song per level, -1 = none
     };
     for (var i = 0; i < 8; i++)
     {
@@ -270,6 +273,9 @@ function project_from_loaded(_raw)
     }
     _p.levels = _lv;
     if (!is_array(_p.terrain_cols) || array_length(_p.terrain_cols) != 4) { _p.terrain_cols = [10, 9, 11, 12]; }
+    // Phase 2 contract: older files have no music
+    if (!is_array(_p.songs)) { _p.songs = []; }
+    if (!is_array(_p.level_song) || array_length(_p.level_song) != LEVEL_MAX) { _p.level_song = array_create(LEVEL_MAX, -1); }
     return _p;
 }
 

@@ -66,6 +66,28 @@ function sfx_names()
     return _n;
 }
 
+/// Name of song _i for rule sentences, or "(no song)" when it does not exist
+function logic_song_name(_i)
+{
+    if (!is_array(proj.songs)) { return "(no song)"; }
+    if (_i < 0 || _i >= array_length(proj.songs)) { return "(no song)"; }
+    var _s = proj.songs[_i];
+    if (is_struct(_s))
+    {
+        if (is_string(_s[$ "name"])) { return _s[$ "name"]; }
+    }
+    return "Song " + string(_i + 1);
+}
+
+/// "1: name" for each song (Play music dropdown)
+function logic_song_names()
+{
+    var _n = [];
+    if (!is_array(proj.songs)) { return _n; }
+    for (var i = 0; i < min(ADF_SONGS_MAX, array_length(proj.songs)); i++) { array_push(_n, string(i + 1) + ": " + logic_song_name(i)); }
+    return _n;
+}
+
 function logic_sentence(_r)
 {
     var _names = actor_names();
@@ -117,6 +139,8 @@ function logic_sentence(_r)
         case 15: _s += "show " + _tn + " for a moment"; break;
         case 16: _s += "make " + _tn + " safe for a while (it flashes)"; break;
         case 17: _s += "count one towards the " + string_lower(proj.goal_label) + " goal"; break;
+        case 18: _s += "play the music '" + logic_song_name(_r.value) + "' from the start"; break;
+        case 19: _s += "stop the music"; break;
     }
     return _s + ".";
 }
@@ -267,6 +291,18 @@ function logic_rule_card(_r, i, _cx, _cy, _cw, _anames, _snames, _gnames)
     {
         ui_text(_dx, _dy + 15, "to", global.TH.text_dim, fa_left, fa_middle, global.f_body, 1);
         set_val(_r, "value", ui_dropdown(_rid + "_to", _dx + 24, _dy, 150, 30, _anames, clamp(_r.value, 0, max(0, array_length(proj.actors) - 1)), "To which actor|The first actor jumps to where this one is - drop a gem from a moving cloud, or respawn an enemy at a portal."), _rid + "to");
+    }
+    if (_act == 18)
+    {
+        var _mnames = logic_song_names();
+        if (array_length(_mnames) > 0)
+        {
+            set_val(_r, "value", ui_dropdown(_rid + "_song", _dx, _dy, 200, 30, _mnames, clamp(_r.value, 0, array_length(_mnames) - 1), "Song|Which song to play. It starts from the beginning, and sound effects still play over it. Make songs on the Music page."), _rid + "song");
+        }
+        else
+        {
+            ui_text(_dx, _dy + 15, "No songs yet - make one on the Music page", global.TH.warn, fa_left, fa_middle, global.f_body, 1);
+        }
     }
     if (_act == 8)
     {

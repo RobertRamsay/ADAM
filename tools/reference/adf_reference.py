@@ -16,7 +16,7 @@ def build(proj, aga):
     blob=bytearray()
     def align(n):
         while len(blob)%n: blob.append(0)
-    blob+= b'\0'*80
+    blob+= b'\0'*84
     align(8)
     off_pal=len(blob)
     for i in range(ncol):
@@ -108,6 +108,27 @@ def build(proj, aga):
         for lv in g['levels']:
             for h in lv: blob.extend(struct.pack('>H',h))
     align(8)
+    # music table (engine.s M_*): proj['songs'] = list of MOD files as bytes (up to 4),
+    # proj['level_song'] = song index per level (10 entries, -1 = none)
+    off_music=0
+    songs=list(proj.get('songs',[]))[:4]
+    if songs:
+        align(8)
+        off_music=len(blob)
+        ls=list(proj.get('level_song',[]))
+        lvb=bytearray()
+        for lv in range(10):
+            v=ls[lv] if lv<len(ls) else -1
+            lvb.append(v if 0<=v<len(songs) else 0xff)
+        blob.extend(struct.pack('>HH',len(songs),0)+bytes(lvb)+struct.pack('>H',0))
+        tab=len(blob)
+        blob.extend(b'\0'*(8*len(songs)))
+        for i,m in enumerate(songs):
+            if len(m)<1084: continue          # not a MOD: the engine keeps quiet
+            align(8)
+            struct.pack_into('>LL',blob,tab+i*8,len(blob),len(m))
+            blob.extend(m)
+        align(8)
     off_work=len(blob)
     blob+=b'\0'*(depth*10240)
     align(8)
@@ -116,10 +137,10 @@ def build(proj, aga):
     player=-1
     for i,a in enumerate(actors):
         if a['role'] in (0,6): player=i; break
-    hdr=struct.pack('>4sHHHHHHHHHHHH',b'ADAM',1,1 if aga else 0,depth,len(actors),len(rules),proj['lives'],
+    hdr=struct.pack('>4sHHHHHHHHHHHH',b'ADAM',2,1 if aga else 0,depth,len(actors),len(rules),proj['lives'],
                     int(proj['show_score']),int(proj['show_lives']),proj['hud_row'],proj['hud_col'],proj['msg_col'],player & 0xffff)+struct.pack('>L',off_game)
-    hdr+=struct.pack('>LLLLLLLLLLLL',off_pal,off_planes,off_act,off_rules,off_sfx,off_over,off_win,off_sprcol,off_disp,off_grad,off_ground,off_work)
-    blob[0:80]=hdr
+    hdr+=struct.pack('>LLLLLLLLLLLLL',off_pal,off_planes,off_act,off_rules,off_sfx,off_over,off_win,off_sprcol,off_disp,off_grad,off_ground,off_work,off_music)
+    blob[0:84]=hdr
     return bytes(blob)
 
 def render_sfx(s):

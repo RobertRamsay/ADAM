@@ -17,6 +17,14 @@ font8x8 by Daniel Hepper, released into the public domain.
 https://github.com/dhepper/font8x8
 
 
+PTPLAYER (the music player inside your games)
+ptplayer 6.4, a ProTracker player for the Amiga, written by Frank Wille in
+2013, 2016 - 2024 and released into the public domain. It is built into the
+game engine and plays your songs and sound effects on the Amiga.
+Source and licence: engine/ptplayer next to ADAM.exe, and
+https://aminet.net/package/mus/play/ptplayer
+
+
 FS-UAE (the Amiga emulator)
 FS-UAE by Frode Solheim and contributors is free software under the GNU
 General Public License, version 2. It is a separate program: it is not part

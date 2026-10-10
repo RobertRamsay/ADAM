@@ -6,7 +6,8 @@
 /// The data block layout is documented at the top of engine.s.
 
 #macro ADF_SIZE 901120
-#macro ADF_HDR 80
+#macro ADF_HDR 84
+#macro ADF_SONGS_MAX 4
 #macro OS_RESERVE_KB 160
 // Original A500s have only 512KB of chip RAM. Even with a trapdoor slow-RAM card
 // the engine, data and screens must all be in chip RAM, so the usable budget is
@@ -275,11 +276,12 @@ function adam_data_block(_p)
         var _val = _ru.value;
         if (_ru.act == 8) { _val = clamp(_val, 0, _ncol - 1); }
         if (_ru.act == 2) { _val = clamp(_val, 0, 7); }
+        if (_ru.act == 18) { _val = clamp(_val, 0, ADF_SONGS_MAX - 1); }
         be16(_b, clamp(_ru.when, 0, 7));
         be16(_b, clamp(_ru.a, 0, 7));
         be16(_b, clamp(_ru.b, 0, 7));
         be16(_b, clamp(_ru.n, 1, 65535));
-        be16(_b, clamp(_ru.act, 0, 17));
+        be16(_b, clamp(_ru.act, 0, 19));
         be16(_b, clamp(_ru.target, 0, 7));
         be16(_b, clamp(_val, 0, 65535));
         be16(_b, 0);
@@ -386,6 +388,10 @@ function adam_data_block(_p)
         buf_align(_b, 8);
     }
 
+    // music: the songs as ProTracker MODs, played by ptplayer in the engine
+    var _mus = adf_music_table(_b, _p, _warn);
+    var _off_music = _mus.off;
+
     // the backdrop + hills working copy (score text is restored from it)
     var _off_work = buffer_tell(_b);
     buf_zeros(_b, _depth * 10240);
@@ -407,7 +413,7 @@ function adam_data_block(_p)
     if (_p.show_score) { _sc = 1; }
     var _lv = 0;
     if (_p.show_lives) { _lv = 1; }
-    poke16(_b, 4, 1);
+    poke16(_b, 4, 2);                    // data block version 2: adds the music table
     poke16(_b, 6, _flags);
     poke16(_b, 8, _depth);
     poke16(_b, 10, _na);
@@ -432,10 +438,89 @@ function adam_data_block(_p)
     poke32(_b, 72, _off_ground);
     poke32(_b, 76, _off_work);
     poke32(_b, 28, _off_game);
+    poke32(_b, 80, _off_music);
 
+    for (var rm = 0; rm < _nr; rm++)
+    {
+        if (_rules[rm].act == 18 && _rules[rm].value >= _mus.nsongs)
+        {
+            array_push(_warn, "A rule plays a song that does not exist - make it on the Music page.");
+            break;
+        }
+    }
     if (_na == 0) { array_push(_warn, "There are no actors yet - the game will just show your backdrop."); }
     if (_player < 0 && _na > 0) { array_push(_warn, "No actor is set as Player, so the joystick will not move anything."); }
-    return { buf : _b, size : _size, warnings : _warn, sound_bytes : _snd_bytes, plane_bytes : _depth * 10240 * 3 };
+    return { buf : _b, size : _size, warnings : _warn, sound_bytes : _snd_bytes + _mus.bytes, plane_bytes : _depth * 10240 * 3 };
+}
+
+/// Writes the music table and the songs (as ProTracker MODs) at the end of _b.
+/// Layout (engine.s M_*): word nsongs, word 0, 10 bytes song per level ($ff = none),
+/// word 0, then nsongs x { long offset of the MOD bytes, long length }.
+/// Returns { off (0 = no music), bytes, nsongs }.
+function adf_music_table(_b, _p, _warn)
+{
+    var _res = { off : 0, bytes : 0, nsongs : 0 };
+    if (!is_array(_p.songs)) { return _res; }
+    var _ns = min(ADF_SONGS_MAX, array_length(_p.songs));
+    if (_ns <= 0) { return _res; }
+
+    buf_align(_b, 8);
+    var _off = buffer_tell(_b);
+    be16(_b, _ns);
+    be16(_b, 0);
+    for (var lv = 0; lv < LEVEL_MAX; lv++)
+    {
+        var _ls = -1;
+        if (is_array(_p.level_song) && lv < array_length(_p.level_song)) { _ls = _p.level_song[lv]; }
+        if (!is_numeric(_ls)) { _ls = -1; }
+        _ls = floor(_ls);
+        if (_ls < 0 || _ls >= _ns) { _ls = 0xff; }
+        buffer_write(_b, buffer_u8, _ls);
+    }
+    be16(_b, 0);
+    var _tab = buffer_tell(_b);
+    buf_zeros(_b, _ns * 8);
+
+    for (var s = 0; s < _ns; s++)
+    {
+        var _song = _p.songs[s];
+        var _mb = undefined;
+        var _ms = song_to_modsong(_song);
+        if (!is_undefined(_ms)) { _mb = mod_write(_ms); }
+        var _have = false;
+        if (!is_undefined(_mb))
+        {
+            if (buffer_exists(_mb)) { _have = true; }
+        }
+        var _len = 0;
+        if (_have) { _len = buffer_get_size(_mb); }
+        if (_len < 1084)
+        {
+            // 1084 = the smallest possible M.K. header (no patterns, no samples)
+            var _nm = "Song " + string(s + 1);
+            if (is_struct(_song))
+            {
+                if (is_string(_song[$ "name"])) { _nm = _song[$ "name"]; }
+            }
+            array_push(_warn, "Song '" + _nm + "' could not be turned into a MOD - it will be silent.");
+            if (_have) { buffer_delete(_mb); }
+            continue;
+        }
+        // the MOD starts on an even address (samples must be word aligned for Paula)
+        buf_align(_b, 8);
+        var _pos = buffer_tell(_b);
+        if (buffer_get_size(_b) < _pos + _len) { buffer_resize(_b, _pos + _len + 65536); }
+        buffer_copy(_mb, 0, _len, _b, _pos);
+        buffer_seek(_b, buffer_seek_start, _pos + _len);
+        buffer_delete(_mb);
+        poke32(_b, _tab + s * 8, _pos);
+        poke32(_b, _tab + s * 8 + 4, _len);
+        _res.bytes += _len;
+    }
+    buf_align(_b, 8);
+    _res.off = _off;
+    _res.nsongs = _ns;
+    return _res;
 }
 
 /// Builds the ADF file. Returns true on success and fills build_* fields.
