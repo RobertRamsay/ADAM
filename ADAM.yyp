@@ -18,6 +18,7 @@
   ],
   "ForcedPrefabProjectReferences":[],
   "IncludedFiles":[
+    {"$GMIncludedFile":"","%Name":"LICENCES.txt","CopyToMask":-1,"filePath":"datafiles","name":"LICENCES.txt","resourceType":"GMIncludedFile","resourceVersion":"2.0",},
     {"$GMIncludedFile":"","%Name":"boot.bin","CopyToMask":-1,"filePath":"datafiles/engine","name":"boot.bin","resourceType":"GMIncludedFile","resourceVersion":"2.0",},
     {"$GMIncludedFile":"","%Name":"boot.s","CopyToMask":-1,"filePath":"datafiles/engine","name":"boot.s","resourceType":"GMIncludedFile","resourceVersion":"2.0",},
     {"$GMIncludedFile":"","%Name":"engine.bin","CopyToMask":-1,"filePath":"datafiles/engine","name":"engine.bin","resourceType":"GMIncludedFile","resourceVersion":"2.0",},
@@ -27,6 +28,7 @@
     {"$GMIncludedFile":"","%Name":"dodge_ball.adam","CopyToMask":-1,"filePath":"datafiles/examples","name":"dodge_ball.adam","resourceType":"GMIncludedFile","resourceVersion":"2.0",},
     {"$GMIncludedFile":"","%Name":"gem_hunter.adam","CopyToMask":-1,"filePath":"datafiles/examples","name":"gem_hunter.adam","resourceType":"GMIncludedFile","resourceVersion":"2.0",},
     {"$GMIncludedFile":"","%Name":"star_catcher.adam","CopyToMask":-1,"filePath":"datafiles/examples","name":"star_catcher.adam","resourceType":"GMIncludedFile","resourceVersion":"2.0",},
+    {"$GMIncludedFile":"","%Name":"OFL.txt","CopyToMask":-1,"filePath":"datafiles/fonts","name":"OFL.txt","resourceType":"GMIncludedFile","resourceVersion":"2.0",},
     {"$GMIncludedFile":"","%Name":"Poppins-Bold.ttf","CopyToMask":-1,"filePath":"datafiles/fonts","name":"Poppins-Bold.ttf","resourceType":"GMIncludedFile","resourceVersion":"2.0",},
     {"$GMIncludedFile":"","%Name":"Poppins-Medium.ttf","CopyToMask":-1,"filePath":"datafiles/fonts","name":"Poppins-Medium.ttf","resourceType":"GMIncludedFile","resourceVersion":"2.0",},
     {"$GMIncludedFile":"","%Name":"Poppins-OFL.txt","CopyToMask":-1,"filePath":"datafiles/fonts","name":"Poppins-OFL.txt","resourceType":"GMIncludedFile","resourceVersion":"2.0",},
@@ -42,6 +44,7 @@
     {"id":{"name":"execute_shell_simple_ext","path":"extensions/execute_shell_simple_ext/execute_shell_simple_ext.yy",},},
     {"id":{"name":"obj_app","path":"objects/obj_app/obj_app.yy",},},
     {"id":{"name":"rm_studio","path":"rooms/rm_studio/rm_studio.yy",},},
+    {"id":{"name":"scr_about","path":"scripts/scr_about/scr_about.yy",},},
     {"id":{"name":"scr_adf","path":"scripts/scr_adf/scr_adf.yy",},},
     {"id":{"name":"scr_examples","path":"scripts/scr_examples/scr_examples.yy",},},
     {"id":{"name":"scr_gfx","path":"scripts/scr_gfx/scr_gfx.yy",},},

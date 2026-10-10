@@ -116,7 +116,7 @@ if (launch_timer > 0)
 
 shortcuts_step();
 
-var _cap = "ADAM - " + proj.name + "  (" + machine_cur().name + ")";
+var _cap = "ADAM " + ADAM_VERSION + " - " + proj.name + "  (" + machine_cur().name + ")";
 if (proj_dirty) { _cap += " *"; }
 if (_cap != caption_last)
 {

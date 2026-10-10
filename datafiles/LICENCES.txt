@@ -1,0 +1,24 @@
+ADAM - Amiga Developmental Machine
+Copyright (c) 2026 Polytricity Ltd.
+
+ADAM uses the following work by other people.
+
+
+POPPINS (the interface font)
+Copyright 2020 The Poppins Project Authors (https://github.com/itfoundry/Poppins)
+Designed by Indian Type Foundry - Ninad Kale (Devanagari), Jonny Pinhorn (Latin).
+Licensed under the SIL Open Font License, Version 1.1. The font files and the
+full licence are in the "fonts" folder next to ADAM.exe (fonts/OFL.txt). The
+licence is also shown on the Home page under "About ADAM & licences".
+
+
+FONT8X8 (the 8 x 8 pixel font, in the editor and in your games)
+font8x8 by Daniel Hepper, released into the public domain.
+https://github.com/dhepper/font8x8
+
+
+FS-UAE (the Amiga emulator)
+FS-UAE by Frode Solheim and contributors is free software under the GNU
+General Public License, version 2. It is a separate program: it is not part
+of ADAM and is not included with ADAM. ADAM only starts the copy of FS-UAE
+that you installed yourself. Get it from https://fs-uae.net

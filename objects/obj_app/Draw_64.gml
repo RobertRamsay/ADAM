@@ -23,6 +23,7 @@ switch (ws)
 draw_topbar(gui_w);
 ui_status_bar(gui_w, gui_h);
 ui_popup_draw(gui_w, gui_h);
+about_draw(gui_w, gui_h);
 ui_help_draw(gui_w, gui_h);
 toasts_draw(gui_w, gui_h);
 tut_draw(gui_w, gui_h);

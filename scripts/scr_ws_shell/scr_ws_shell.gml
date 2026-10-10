@@ -136,6 +136,7 @@ function shortcuts_step()
 {
     if (ui_focus != "") { return; }
     if (machine_pick_active) { return; }
+    if (about_active) { return; }
     var _ctrl = keyboard_check(vk_control);
     if (_ctrl && keyboard_check_pressed(ord("Z"))) { undo_do(); }
     if (_ctrl && keyboard_check_pressed(ord("Y"))) { redo_do(); }

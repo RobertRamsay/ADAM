@@ -95,6 +95,11 @@ machine_pick_anim = 0;
 machine_pick_index = 0;
 last_machine = "A1200";
 
+// ---------- about & licences screen (Track D) ----------
+about_active = false;
+about_anim = 0;
+about_text = "";
+
 // ---------- workspaces ----------
 ws = WS_HOME;
 ws_seen = array_create(WS_COUNT, false);

@@ -179,4 +179,8 @@ function ws_home_draw(_x1, _y1, _x2, _y2)
         settings_save();
         toast("Page tutorials will show again", 0);
     }
+    if (ui_button("home_about", _fx + 210, _y, 200, 30, "About ADAM & licences", "About ADAM|Shows ADAM's version and the licences for the fonts and programs it uses (Poppins, font8x8, FS-UAE).", BTN_GHOST))
+    {
+        about_open();
+    }
 }
