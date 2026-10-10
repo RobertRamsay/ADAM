@@ -229,5 +229,9 @@ project_after_change();
 // Track C: packed project files - dev-only round-trip check (IDE Output window)
 if (ADAM_DEV_TOOLS) { project_pack_selftest(); }
 
+// Phase 2 Track C: MOD export/import - dev-only round-trip check (IDE Output window),
+// also leaves game_save_id + "adam_selftest.mod" to open in OpenMPT / ProTracker
+if (ADAM_DEV_TOOLS) { mod_selftest(); }
+
 // pick the Amiga before anything else (the Home tutorial follows it)
 machine_pick_open(true);
