@@ -372,17 +372,29 @@ function music_library_panel(_x1, _y1, _x2, _y2)
         "FX|Zaps, risers and swells for builds and drops.",
         "Mine|Loops you have edited in this song. Right-click one that is not used anywhere to delete it."
     ];
+    // three tabs a row when the names fit, otherwise two
+    draw_set_font(global.f_bold);
+    var _catw = 0;
+    for (var cw = 0; cw < 6; cw++) { _catw = max(_catw, ui_sw(global.MUS_CAT_NAMES[cw])); }
+    var _ncol = 3;
     var _bw = floor((_x2 - _x1 - 32 - 12) / 3);
+    if (_bw < _catw + 16)
+    {
+        _ncol = 2;
+        _bw = floor((_x2 - _x1 - 32 - 6) / 2);
+    }
     for (var c = 0; c < 6; c++)
     {
-        var _bx = _x1 + 16 + (c mod 3) * (_bw + 6);
-        var _by = _y1 + 52 + (c div 3) * 34;
+        var _bx = _x1 + 16 + (c mod _ncol) * (_bw + 6);
+        var _by = _y1 + 52 + (c div _ncol) * 34;
         var _st = BTN_GHOST;
         if (mus_cat == c) { _st = BTN_ACCENT; }
         if (ui_button("mus_cat_" + string(c), _bx, _by, _bw, 28, global.MUS_CAT_NAMES[c], _helps[c], _st)) { mus_cat = c; }
     }
-    var _ly1 = _y1 + 126;
-    var _ly2 = _y2 - 78;
+    var _ly1 = _y1 + 58 + ceil(6 / _ncol) * 34;
+    var _tip = "Click a loop to hear it. Click or drag on the timeline to paint it in, right-click to rub out, double-click a bar to edit its notes.";
+    draw_set_font(global.f_small);
+    var _ly2 = _y2 - ceil(ui_sh_ext(_tip, _x2 - _x1 - 32)) - 24;
     var _items = music_lib_items(mus_cat);
     var _ih = 40;
     var _content = array_length(_items) * (_ih + 4) + 4;
@@ -443,7 +455,7 @@ function music_library_panel(_x1, _y1, _x2, _y2)
         ui_text_wrap(_x1 + 20, _ly1 + 10, "Loops you change in the editor show up here. Double-click a bar on the timeline to edit its loop.", global.TH.text_faint, _x2 - _x1 - 40, global.f_small, 1);
     }
     ui_scroll_end("mus_lib", _x1 + 8, _ly1, _x2 - 8, _ly2, _content);
-    ui_text_wrap(_x1 + 16, _ly2 + 10, "Click a loop to hear it. Click or drag on the timeline to paint it in, right-click to rub out, double-click a bar to edit its notes.", global.TH.text_faint, _x2 - _x1 - 32, global.f_small, 1);
+    ui_text_wrap(_x1 + 16, _ly2 + 10, _tip, global.TH.text_faint, _x2 - _x1 - 32, global.f_small, 1);
 }
 
 function music_toolbar(_cx1, _y1, _x2, _song)
@@ -655,8 +667,9 @@ function music_timeline(_tx1, _ty1, _tx2, _song, _lane_h)
         var _ly = _gy1 + l * _lane_h;
         ui_register("mus_lane_" + string(l), _tx1 + 6, _ly + 2, _gx1 - 6, _ly + _lane_h - 2, "Lane " + string(l + 1) + "|One of Paula's 4 sound channels - it plays one note at a time. Channels 1 and 4 come out of the left speaker, 2 and 3 out of the right. Sound effects in the game borrow channel (sound number) the same way.");
         ui_rrect(_tx1 + 6, _ly + 3, _gx1 - 6, _ly + _lane_h - 3, 7, global.TH.btn_top, global.TH.btn_bot, 0.6);
-        ui_text(_tx1 + 14, _ly + _lane_h * 0.5, "Lane " + string(l + 1), global.TH.text, fa_left, fa_middle, global.f_bold, 1);
-        ui_text(_gx1 - 12, _ly + _lane_h * 0.5, _side[l], global.TH.text_faint, fa_right, fa_middle, global.f_small, 1);
+        // name with the speaker side under it, so the two never overlap
+        ui_text(_tx1 + 14, _ly + _lane_h * 0.5 - 7, "Lane " + string(l + 1), global.TH.text, fa_left, fa_middle, global.f_bold, 1);
+        ui_text(_tx1 + 14, _ly + _lane_h * 0.5 + 8, _side[l], global.TH.text_faint, fa_left, fa_middle, global.f_small, 1);
     }
 
     // ruler
@@ -907,7 +920,9 @@ function music_editor(_ex1, _ey1, _ex2, _ey2, _song)
     var _uses = music_loop_uses(_song, _li);
     if (_uses > 1)
     {
-        if (ui_button("mus_ed_copy", _hx, _hy, 136, 30, "Copy for this bar", "Make a copy|This loop is used in " + string(_uses) + " bars and edits change all of them. Press this to give the bar you double-clicked its own copy to change.", BTN_NORMAL))
+        draw_set_font(global.f_bold);
+        var _cpw = ceil(ui_sw("Copy for this bar")) + 28;
+        if (ui_button("mus_ed_copy", _hx, _hy, _cpw, 30, "Copy for this bar", "Make a copy|This loop is used in " + string(_uses) + " bars and edits change all of them. Press this to give the bar you double-clicked its own copy to change.", BTN_NORMAL))
         {
             var _cl = mus_edit_cell[0];
             var _cb = mus_edit_cell[1];
@@ -929,7 +944,7 @@ function music_editor(_ex1, _ey1, _ex2, _ey2, _song)
                 }
             }
         }
-        _hx += 144;
+        _hx += _cpw + 8;
     }
     if (ui_button("mus_ed_clear", _hx, _hy, 70, 30, "Clear", "Clear|Removes every note from this loop.", BTN_GHOST))
     {
