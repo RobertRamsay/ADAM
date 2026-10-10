@@ -11,7 +11,7 @@
   "option_windows_description_info":"Make Amiga games without code",
   "option_windows_disable_sandbox":true,
   "option_windows_display_cursor":true,
-  "option_windows_display_name":"ADAM",
+  "option_windows_display_name":"ADAM_V1.0.0",
   "option_windows_enable_steam":false,
   "option_windows_executable_name":"ADAM.exe",
   "option_windows_icon":"${options_dir}/windows/icons/icon.ico",
