@@ -91,9 +91,12 @@ function draw_topbar(_gw)
         }
     }
 
+    // sized from the label so "Tutorial (F1)" is never cut short
+    draw_set_font(global.f_bold);
+    var _tutw = max(104, ceil(ui_sw("Tutorial (F1)")) + 24);
     var _rx = _gw - 14;
-    _rx -= 104;
-    if (ui_button("top_tutorial", _rx, 14, 104, 32, "Tutorial (F1)", "Tutorial|Shows a step-by-step guide for the page you are on. Every page has its own tutorial.", BTN_ACCENT))
+    _rx -= _tutw;
+    if (ui_button("top_tutorial", _rx, 14, _tutw, 32, "Tutorial (F1)", "Tutorial|Shows a step-by-step guide for the page you are on. Every page has its own tutorial.", BTN_ACCENT))
     {
         tut_start(ws);
     }
