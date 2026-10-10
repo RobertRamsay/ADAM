@@ -61,7 +61,7 @@ function mask_to_surface(_surf, _w, _h, _mask)
     var _buf = buffer_create(_w * _h * 4, buffer_fixed, 1);
     for (var i = 0; i < _w * _h; i++)
     {
-        if (_mask[i] != 0) { buffer_write(_buf, buffer_u32, $ffffffff); }
+        if (_mask[i] != 0) { buffer_write(_buf, buffer_u32, 0xffffffff); }
         else { buffer_write(_buf, buffer_u32, 0); }
     }
     buffer_set_surface(_buf, _surf, 0);
@@ -146,7 +146,7 @@ function backdrop_surface()
         var _buf = buffer_create(_n * 4, buffer_fixed, 1);
         for (var i = 0; i < _n; i++)
         {
-            buffer_write(_buf, buffer_u32, $ff000000 | proj.pixels[i]);
+            buffer_write(_buf, buffer_u32, 0xff000000 | proj.pixels[i]);
         }
         buffer_set_surface(_buf, bd_surf, 0);
         buffer_delete(_buf);

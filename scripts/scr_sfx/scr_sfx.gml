@@ -54,8 +54,8 @@ function sfx_render(_s)
                 var _q = floor(_phase * 4);
                 if (_q != _last_q)
                 {
-                    _rnd = (_rnd * 1103515245 + 12345) & $7fffffff;
-                    _noise = (_rnd / $3fffffff) - 1;
+                    _rnd = (_rnd * 1103515245 + 12345) & 0x7fffffff;
+                    _noise = (_rnd / 0x3fffffff) - 1;
                     _last_q = _q;
                 }
                 _v = _noise;

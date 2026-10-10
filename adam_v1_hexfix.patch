@@ -1,0 +1,171 @@
+diff --git a/scripts/scr_adf/scr_adf.gml b/scripts/scr_adf/scr_adf.gml
+index b7bb524..927dd22 100644
+--- a/scripts/scr_adf/scr_adf.gml
++++ b/scripts/scr_adf/scr_adf.gml
+@@ -11,14 +11,14 @@
+ 
+ function be16(_b, _v)
+ {
+-    var _w = floor(_v) & $ffff;
++    var _w = floor(_v) & 0xffff;
+     buffer_write(_b, buffer_u8, (_w >> 8) & 255);
+     buffer_write(_b, buffer_u8, _w & 255);
+ }
+ 
+ function be32(_b, _v)
+ {
+-    var _l = floor(_v) & $ffffffff;
++    var _l = floor(_v) & 0xffffffff;
+     buffer_write(_b, buffer_u8, (_l >> 24) & 255);
+     buffer_write(_b, buffer_u8, (_l >> 16) & 255);
+     buffer_write(_b, buffer_u8, (_l >> 8) & 255);
+@@ -27,14 +27,14 @@ function be32(_b, _v)
+ 
+ function poke16(_b, _o, _v)
+ {
+-    var _w = floor(_v) & $ffff;
++    var _w = floor(_v) & 0xffff;
+     buffer_poke(_b, _o, buffer_u8, (_w >> 8) & 255);
+     buffer_poke(_b, _o + 1, buffer_u8, _w & 255);
+ }
+ 
+ function poke32(_b, _o, _v)
+ {
+-    var _l = floor(_v) & $ffffffff;
++    var _l = floor(_v) & 0xffffffff;
+     buffer_poke(_b, _o, buffer_u8, (_l >> 24) & 255);
+     buffer_poke(_b, _o + 1, buffer_u8, (_l >> 16) & 255);
+     buffer_poke(_b, _o + 2, buffer_u8, (_l >> 8) & 255);
+@@ -127,8 +127,8 @@ function adam_data_block(_p)
+             for (var sx = 0; sx < SPR_W; sx++)
+             {
+                 var _sv = _img[sy * SPR_W + sx];
+-                if ((_sv & 1) != 0) { _w0 = _w0 | ($8000 >> sx); }
+-                if ((_sv & 2) != 0) { _w1 = _w1 | ($8000 >> sx); }
++                if ((_sv & 1) != 0) { _w0 = _w0 | (0x8000 >> sx); }
++                if ((_sv & 2) != 0) { _w1 = _w1 | (0x8000 >> sx); }
+             }
+             be16(_b, _w0);
+             be16(_b, _w1);
+@@ -337,9 +337,9 @@ function build_adf(_path)
+     {
+         if (i == 1) { continue; }
+         _sum += peek32(_adf, i * 4);
+-        if (_sum > $ffffffff) { _sum = (_sum & $ffffffff) + 1; }
++        if (_sum > 0xffffffff) { _sum = (_sum & 0xffffffff) + 1; }
+     }
+-    poke32(_adf, 4, $ffffffff - _sum);
++    poke32(_adf, 4, 0xffffffff - _sum);
+     buffer_copy(_eng, 0, _esize, _adf, 1024);
+     buffer_copy(_data.buf, 0, _data.size, _adf, 1024 + _esize);
+     buffer_save(_adf, _path);
+diff --git a/scripts/scr_gfx/scr_gfx.gml b/scripts/scr_gfx/scr_gfx.gml
+index 5daf8c2..cdba921 100644
+--- a/scripts/scr_gfx/scr_gfx.gml
++++ b/scripts/scr_gfx/scr_gfx.gml
+@@ -61,7 +61,7 @@ function mask_to_surface(_surf, _w, _h, _mask)
+     var _buf = buffer_create(_w * _h * 4, buffer_fixed, 1);
+     for (var i = 0; i < _w * _h; i++)
+     {
+-        if (_mask[i] != 0) { buffer_write(_buf, buffer_u32, $ffffffff); }
++        if (_mask[i] != 0) { buffer_write(_buf, buffer_u32, 0xffffffff); }
+         else { buffer_write(_buf, buffer_u32, 0); }
+     }
+     buffer_set_surface(_buf, _surf, 0);
+@@ -146,7 +146,7 @@ function backdrop_surface()
+         var _buf = buffer_create(_n * 4, buffer_fixed, 1);
+         for (var i = 0; i < _n; i++)
+         {
+-            buffer_write(_buf, buffer_u32, $ff000000 | proj.pixels[i]);
++            buffer_write(_buf, buffer_u32, 0xff000000 | proj.pixels[i]);
+         }
+         buffer_set_surface(_buf, bd_surf, 0);
+         buffer_delete(_buf);
+diff --git a/scripts/scr_project/scr_project.gml b/scripts/scr_project/scr_project.gml
+index 462e5ce..ea58d40 100644
+--- a/scripts/scr_project/scr_project.gml
++++ b/scripts/scr_project/scr_project.gml
+@@ -28,8 +28,8 @@ function project_defs_init()
+ function palette_default()
+ {
+     var _p = [
+-        $000000, $ffffff, $0055aa, $ff8800, $1a2a4a, $33598c, $5c9cd6, $a8d8ff,
+-        $1e4a1e, $3f8a2e, $7acc44, $6a4426, $b07a45, $dd3322, $ffdd33, $8a8a8a
++        0x000000, 0xffffff, 0x0055aa, 0xff8800, 0x1a2a4a, 0x33598c, 0x5c9cd6, 0xa8d8ff,
++        0x1e4a1e, 0x3f8a2e, 0x7acc44, 0x6a4426, 0xb07a45, 0xdd3322, 0xffdd33, 0x8a8a8a
+     ];
+     for (var i = 16; i < PAL_MAX; i++)
+     {
+@@ -56,7 +56,7 @@ function sprite_new(_name)
+     return {
+         name : _name,
+         px : array_create(SPR_W * SPR_H, 0),
+-        cols : [$ffdd33, $dd3322, $ffffff]
++        cols : [0xffdd33, 0xdd3322, 0xffffff]
+     };
+ }
+ 
+@@ -170,7 +170,7 @@ function project_example()
+     // ---- sprites ----
+     var _hero = _p.sprites[0];
+     _hero.name = "Hero";
+-    _hero.cols = [$ffd23a, $3a2410, $ffffff];
++    _hero.cols = [0xffd23a, 0x3a2410, 0xffffff];
+     for (var y0 = 0; y0 < SPR_H; y0++)
+     {
+         for (var x0 = 0; x0 < SPR_W; x0++)
+@@ -188,7 +188,7 @@ function project_example()
+     }
+     var _gh = _p.sprites[1];
+     _gh.name = "Ghost";
+-    _gh.cols = [$c060ff, $ffffff, $201040];
++    _gh.cols = [0xc060ff, 0xffffff, 0x201040];
+     for (var y1 = 0; y1 < SPR_H; y1++)
+     {
+         for (var x1 = 0; x1 < SPR_W; x1++)
+@@ -210,7 +210,7 @@ function project_example()
+     }
+     var _gem = _p.sprites[2];
+     _gem.name = "Gem";
+-    _gem.cols = [$30e0ff, $ffffff, $1060a0];
++    _gem.cols = [0x30e0ff, 0xffffff, 0x1060a0];
+     for (var y2 = 0; y2 < SPR_H; y2++)
+     {
+         for (var x2 = 0; x2 < SPR_W; x2++)
+@@ -287,7 +287,7 @@ function project_from_loaded(_raw)
+         var _s = sprite_new("Sprite " + string(i + 1));
+         if (is_array(_ls) && i < array_length(_ls)) { struct_overlay(_s, _ls[i]); }
+         if (!is_array(_s.px) || array_length(_s.px) != SPR_W * SPR_H) { _s.px = array_create(SPR_W * SPR_H, 0); }
+-        if (!is_array(_s.cols) || array_length(_s.cols) != 3) { _s.cols = [$ffdd33, $dd3322, $ffffff]; }
++        if (!is_array(_s.cols) || array_length(_s.cols) != 3) { _s.cols = [0xffdd33, 0xdd3322, 0xffffff]; }
+         _sprites[i] = _s;
+     }
+     _p.sprites = _sprites;
+diff --git a/scripts/scr_sfx/scr_sfx.gml b/scripts/scr_sfx/scr_sfx.gml
+index fc13bc1..84e3d56 100644
+--- a/scripts/scr_sfx/scr_sfx.gml
++++ b/scripts/scr_sfx/scr_sfx.gml
+@@ -54,8 +54,8 @@ function sfx_render(_s)
+                 var _q = floor(_phase * 4);
+                 if (_q != _last_q)
+                 {
+-                    _rnd = (_rnd * 1103515245 + 12345) & $7fffffff;
+-                    _noise = (_rnd / $3fffffff) - 1;
++                    _rnd = (_rnd * 1103515245 + 12345) & 0x7fffffff;
++                    _noise = (_rnd / 0x3fffffff) - 1;
+                     _last_q = _q;
+                 }
+                 _v = _noise;
+diff --git a/scripts/scr_theme/scr_theme.gml b/scripts/scr_theme/scr_theme.gml
+index dd8bc78..175dfd7 100644
+--- a/scripts/scr_theme/scr_theme.gml
++++ b/scripts/scr_theme/scr_theme.gml
+@@ -115,7 +115,7 @@ function gun12(_v)
+ /// The colour the selected machine will really show
+ function rgb_machine(_c)
+ {
+-    if (machine_cur().aga) { return _c & $ffffff; }
++    if (machine_cur().aga) { return _c & 0xffffff; }
+     return rgb_make(gun12(rgb_r(_c)), gun12(rgb_g(_c)), gun12(rgb_b(_c)));
+ }
+ 

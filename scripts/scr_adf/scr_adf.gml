@@ -11,14 +11,14 @@
 
 function be16(_b, _v)
 {
-    var _w = floor(_v) & $ffff;
+    var _w = floor(_v) & 0xffff;
     buffer_write(_b, buffer_u8, (_w >> 8) & 255);
     buffer_write(_b, buffer_u8, _w & 255);
 }
 
 function be32(_b, _v)
 {
-    var _l = floor(_v) & $ffffffff;
+    var _l = floor(_v) & 0xffffffff;
     buffer_write(_b, buffer_u8, (_l >> 24) & 255);
     buffer_write(_b, buffer_u8, (_l >> 16) & 255);
     buffer_write(_b, buffer_u8, (_l >> 8) & 255);
@@ -27,14 +27,14 @@ function be32(_b, _v)
 
 function poke16(_b, _o, _v)
 {
-    var _w = floor(_v) & $ffff;
+    var _w = floor(_v) & 0xffff;
     buffer_poke(_b, _o, buffer_u8, (_w >> 8) & 255);
     buffer_poke(_b, _o + 1, buffer_u8, _w & 255);
 }
 
 function poke32(_b, _o, _v)
 {
-    var _l = floor(_v) & $ffffffff;
+    var _l = floor(_v) & 0xffffffff;
     buffer_poke(_b, _o, buffer_u8, (_l >> 24) & 255);
     buffer_poke(_b, _o + 1, buffer_u8, (_l >> 16) & 255);
     buffer_poke(_b, _o + 2, buffer_u8, (_l >> 8) & 255);
@@ -127,8 +127,8 @@ function adam_data_block(_p)
             for (var sx = 0; sx < SPR_W; sx++)
             {
                 var _sv = _img[sy * SPR_W + sx];
-                if ((_sv & 1) != 0) { _w0 = _w0 | ($8000 >> sx); }
-                if ((_sv & 2) != 0) { _w1 = _w1 | ($8000 >> sx); }
+                if ((_sv & 1) != 0) { _w0 = _w0 | (0x8000 >> sx); }
+                if ((_sv & 2) != 0) { _w1 = _w1 | (0x8000 >> sx); }
             }
             be16(_b, _w0);
             be16(_b, _w1);
@@ -337,9 +337,9 @@ function build_adf(_path)
     {
         if (i == 1) { continue; }
         _sum += peek32(_adf, i * 4);
-        if (_sum > $ffffffff) { _sum = (_sum & $ffffffff) + 1; }
+        if (_sum > 0xffffffff) { _sum = (_sum & 0xffffffff) + 1; }
     }
-    poke32(_adf, 4, $ffffffff - _sum);
+    poke32(_adf, 4, 0xffffffff - _sum);
     buffer_copy(_eng, 0, _esize, _adf, 1024);
     buffer_copy(_data.buf, 0, _data.size, _adf, 1024 + _esize);
     buffer_save(_adf, _path);

@@ -115,7 +115,7 @@ function gun12(_v)
 /// The colour the selected machine will really show
 function rgb_machine(_c)
 {
-    if (machine_cur().aga) { return _c & $ffffff; }
+    if (machine_cur().aga) { return _c & 0xffffff; }
     return rgb_make(gun12(rgb_r(_c)), gun12(rgb_g(_c)), gun12(rgb_b(_c)));
 }
 

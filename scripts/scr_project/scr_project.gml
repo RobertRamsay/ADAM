@@ -28,8 +28,8 @@ function project_defs_init()
 function palette_default()
 {
     var _p = [
-        $000000, $ffffff, $0055aa, $ff8800, $1a2a4a, $33598c, $5c9cd6, $a8d8ff,
-        $1e4a1e, $3f8a2e, $7acc44, $6a4426, $b07a45, $dd3322, $ffdd33, $8a8a8a
+        0x000000, 0xffffff, 0x0055aa, 0xff8800, 0x1a2a4a, 0x33598c, 0x5c9cd6, 0xa8d8ff,
+        0x1e4a1e, 0x3f8a2e, 0x7acc44, 0x6a4426, 0xb07a45, 0xdd3322, 0xffdd33, 0x8a8a8a
     ];
     for (var i = 16; i < PAL_MAX; i++)
     {
@@ -56,7 +56,7 @@ function sprite_new(_name)
     return {
         name : _name,
         px : array_create(SPR_W * SPR_H, 0),
-        cols : [$ffdd33, $dd3322, $ffffff]
+        cols : [0xffdd33, 0xdd3322, 0xffffff]
     };
 }
 
@@ -170,7 +170,7 @@ function project_example()
     // ---- sprites ----
     var _hero = _p.sprites[0];
     _hero.name = "Hero";
-    _hero.cols = [$ffd23a, $3a2410, $ffffff];
+    _hero.cols = [0xffd23a, 0x3a2410, 0xffffff];
     for (var y0 = 0; y0 < SPR_H; y0++)
     {
         for (var x0 = 0; x0 < SPR_W; x0++)
@@ -188,7 +188,7 @@ function project_example()
     }
     var _gh = _p.sprites[1];
     _gh.name = "Ghost";
-    _gh.cols = [$c060ff, $ffffff, $201040];
+    _gh.cols = [0xc060ff, 0xffffff, 0x201040];
     for (var y1 = 0; y1 < SPR_H; y1++)
     {
         for (var x1 = 0; x1 < SPR_W; x1++)
@@ -210,7 +210,7 @@ function project_example()
     }
     var _gem = _p.sprites[2];
     _gem.name = "Gem";
-    _gem.cols = [$30e0ff, $ffffff, $1060a0];
+    _gem.cols = [0x30e0ff, 0xffffff, 0x1060a0];
     for (var y2 = 0; y2 < SPR_H; y2++)
     {
         for (var x2 = 0; x2 < SPR_W; x2++)
@@ -287,7 +287,7 @@ function project_from_loaded(_raw)
         var _s = sprite_new("Sprite " + string(i + 1));
         if (is_array(_ls) && i < array_length(_ls)) { struct_overlay(_s, _ls[i]); }
         if (!is_array(_s.px) || array_length(_s.px) != SPR_W * SPR_H) { _s.px = array_create(SPR_W * SPR_H, 0); }
-        if (!is_array(_s.cols) || array_length(_s.cols) != 3) { _s.cols = [$ffdd33, $dd3322, $ffffff]; }
+        if (!is_array(_s.cols) || array_length(_s.cols) != 3) { _s.cols = [0xffdd33, 0xdd3322, 0xffffff]; }
         _sprites[i] = _s;
     }
     _p.sprites = _sprites;
