@@ -1,0 +1,277 @@
+diff --git a/objects/obj_app/Create_0.gml b/objects/obj_app/Create_0.gml
+index c340c47..72b3d9a 100644
+--- a/objects/obj_app/Create_0.gml
++++ b/objects/obj_app/Create_0.gml
+@@ -156,6 +156,11 @@ build_chip_free = 1;
+ build_show_asm = false;
+ launch_pending = "";
+ launch_timer = 0;
++fsuae_dl_id = -1;
++fsuae_dl_zip = "";
++fsuae_dl_got = 0;
++fsuae_dl_total = 0;
++fsuae_dl_then_run = "";
+ 
+ // ---------- tutorials + settings ----------
+ tut_init();
+@@ -191,7 +196,6 @@ if (file_exists(_auto))
+ }
+ proj_path = _keep_path;
+ project_after_change();
+-fsuae_autodetect();
+ 
+ // pick the Amiga before anything else (the Home tutorial follows it)
+ machine_pick_open(true);
+diff --git a/objects/obj_app/Other_62.gml b/objects/obj_app/Other_62.gml
+new file mode 100644
+index 0000000..5f52f5d
+--- /dev/null
++++ b/objects/obj_app/Other_62.gml
+@@ -0,0 +1,3 @@
++/// Async - HTTP: the FS-UAE test copy download
++
++fsuae_download_async();
+diff --git a/objects/obj_app/obj_app.yy b/objects/obj_app/obj_app.yy
+index edefcc8..bb7678b 100644
+--- a/objects/obj_app/obj_app.yy
++++ b/objects/obj_app/obj_app.yy
+@@ -7,6 +7,7 @@
+     {"$GMEvent":"v1","%Name":"","collisionObjectId":null,"eventNum":64,"eventType":8,"isDnD":false,"name":"","resourceType":"GMEvent","resourceVersion":"2.0",},
+     {"$GMEvent":"v1","%Name":"","collisionObjectId":null,"eventNum":0,"eventType":12,"isDnD":false,"name":"","resourceType":"GMEvent","resourceVersion":"2.0",},
+     {"$GMEvent":"v1","%Name":"","collisionObjectId":null,"eventNum":3,"eventType":7,"isDnD":false,"name":"","resourceType":"GMEvent","resourceVersion":"2.0",},
++    {"$GMEvent":"v1","%Name":"","collisionObjectId":null,"eventNum":62,"eventType":7,"isDnD":false,"name":"","resourceType":"GMEvent","resourceVersion":"2.0",},
+   ],
+   "managed":true,
+   "name":"obj_app",
+diff --git a/scripts/scr_adf/scr_adf.gml b/scripts/scr_adf/scr_adf.gml
+index 927dd22..3c43675 100644
+--- a/scripts/scr_adf/scr_adf.gml
++++ b/scripts/scr_adf/scr_adf.gml
+@@ -358,39 +358,133 @@ function build_adf(_path)
+     return true;
+ }
+ 
+-/// Finds FS-UAE in the usual places when no path is set
+-function fsuae_autodetect()
++// ---------------------------------------------------------------------------
++// FS-UAE.  Order of preference:
++//   1. the fs-uae.exe the user chose with Find (always allowed)
++//   2. ADAM's own test copy, downloaded on demand from the official FS-UAE
++//      release into the save folder (only while ADAM_DEV_TOOLS is true)
++//   3. a normal FS-UAE install in the usual places
++// Set ADAM_DEV_TOOLS to false for public (itch.io) builds: users then locate
++// their own FS-UAE and nothing is downloaded or bundled.
++// ---------------------------------------------------------------------------
++#macro ADAM_DEV_TOOLS true
++#macro FSUAE_ZIP_URL "https://github.com/FrodeSolheim/fs-uae/releases/download/v3.1.66/FS-UAE_3.1.66_Windows_x86-64.zip"
++
++function fsuae_test_dir()
++{
++    return game_save_id + "fs-uae/";
++}
++
++function fsuae_test_exe()
++{
++    return fsuae_test_dir() + "FS-UAE/Windows/x86-64/fs-uae.exe";
++}
++
++/// An installed FS-UAE in the usual places, or ""
++function fsuae_find_installed()
+ {
+-    if (fsuae_path != "" && file_exists(fsuae_path)) { return; }
+     var _cands = [
+-        working_directory + "fs-uae/fs-uae.exe",
+         "C:/Program Files/FS-UAE/Windows/x86-64/fs-uae.exe",
+         "C:/Program Files (x86)/FS-UAE/Windows/x86-64/fs-uae.exe",
+-        environment_get_variable("LOCALAPPDATA") + "/Programs/FS-UAE/Windows/x86-64/fs-uae.exe"
++        environment_get_variable("LOCALAPPDATA") + "/Programs/FS-UAE/Windows/x86-64/fs-uae.exe",
++        environment_get_variable("USERPROFILE") + "/Documents/FS-UAE/Windows/x86-64/fs-uae.exe"
+     ];
+     for (var i = 0; i < array_length(_cands); i++)
+     {
+-        if (file_exists(_cands[i]))
+-        {
+-            fsuae_path = _cands[i];
+-            settings_save();
+-            return;
+-        }
++        if (file_exists(_cands[i])) { return _cands[i]; }
++    }
++    return "";
++}
++
++/// The fs-uae.exe ADAM will run, or "" when there is none
++function fsuae_exe()
++{
++    if (fsuae_path != "" && file_exists(fsuae_path)) { return fsuae_path; }
++    if (ADAM_DEV_TOOLS && file_exists(fsuae_test_exe())) { return fsuae_test_exe(); }
++    return fsuae_find_installed();
++}
++
++/// Text for the Build page: where FS-UAE comes from
++function fsuae_source_label()
++{
++    if (fsuae_path != "" && file_exists(fsuae_path)) { return fsuae_path; }
++    if (ADAM_DEV_TOOLS && file_exists(fsuae_test_exe())) { return "ADAM's test copy (FS-UAE 3.1.66)"; }
++    var _inst = fsuae_find_installed();
++    if (_inst != "") { return _inst + "  (found)"; }
++    return "";
++}
++
++/// Downloads the official FS-UAE Windows release for testing.
++/// _then_run = an ADF to boot when it is ready, or "".
++function fsuae_download(_then_run)
++{
++    if (!ADAM_DEV_TOOLS) { return; }
++    if (fsuae_dl_id >= 0) { return; }
++    if (os_type != os_windows)
++    {
++        toast("The FS-UAE test copy is for Windows - use Find on other systems", 1);
++        return;
+     }
++    fsuae_dl_zip = game_save_id + "fsuae_download.zip";
++    if (file_exists(fsuae_dl_zip)) { file_delete(fsuae_dl_zip); }
++    fsuae_dl_got = 0;
++    fsuae_dl_total = 0;
++    fsuae_dl_then_run = _then_run;
++    fsuae_dl_id = http_get_file(FSUAE_ZIP_URL, fsuae_dl_zip);
++    build_log_add("Downloading FS-UAE 3.1.66 for testing (about 9 MB)...", 0);
++    toast("Downloading FS-UAE for testing...", 0);
++}
++
++/// Async HTTP event handler for the download
++function fsuae_download_async()
++{
++    if (fsuae_dl_id < 0) { return; }
++    if (async_load[? "id"] != fsuae_dl_id) { return; }
++    var _status = async_load[? "status"];
++    if (_status == 1)
++    {
++        fsuae_dl_got = async_load[? "sizeDownloaded"];
++        fsuae_dl_total = async_load[? "contentLength"];
++        return;
++    }
++    fsuae_dl_id = -1;
++    var _ok = false;
++    if (_status == 0 && async_load[? "http_status"] == 200 && file_exists(fsuae_dl_zip))
++    {
++        zip_unzip(fsuae_dl_zip, fsuae_test_dir());
++        file_delete(fsuae_dl_zip);
++        _ok = file_exists(fsuae_test_exe());
++    }
++    if (_ok)
++    {
++        build_log_add("FS-UAE test copy ready (GPL - its licences are in the FS-UAE/Licenses folder)", 0);
++        toast("FS-UAE is ready", 0);
++        if (fsuae_dl_then_run != "") { launch_fsuae(fsuae_dl_then_run); }
++    }
++    else
++    {
++        build_log_add("Could not download FS-UAE - check the internet connection, or use Find", 2);
++        toast("FS-UAE download failed", 2);
++    }
++    fsuae_dl_then_run = "";
+ }
+ 
+ /// Starts FS-UAE on the built disk (after closing an old copy - see Step)
+ function launch_fsuae(_adf)
+ {
+-    fsuae_autodetect();
+-    if (fsuae_path == "" || !file_exists(fsuae_path))
++    if (os_type != os_windows)
+     {
+-        toast("Set the FS-UAE path first", 1);
++        toast("Open " + filename_name(_adf) + " in FS-UAE to play", 1);
+         return false;
+     }
+-    if (os_type != os_windows)
++    if (fsuae_exe() == "")
+     {
+-        toast("Open " + filename_name(_adf) + " in FS-UAE to play", 1);
++        if (ADAM_DEV_TOOLS)
++        {
++            fsuae_download(_adf);
++            return false;
++        }
++        toast("Find fs-uae.exe on the Build page first", 1);
+         return false;
+     }
+     execute_shell_simple("taskkill.exe", "/F /IM fs-uae.exe", "open", 0);
+@@ -403,6 +497,8 @@ function launch_fsuae(_adf)
+ /// Called from the Step event once the old emulator has had time to close
+ function launch_fsuae_now(_adf)
+ {
++    var _exe = fsuae_exe();
++    if (_exe == "") { return; }
+     var _m = machine_cur();
+     var _args = "--amiga_model=" + _m.fsuae_model
+         + " --chip_memory=" + string(_m.chip_kb)
+@@ -414,7 +510,7 @@ function launch_fsuae_now(_adf)
+     {
+         _args += " --kickstart_file=\"" + kick_path + "\"";
+     }
+-    execute_shell_simple(fsuae_path, _args, "open", 5, filename_dir(fsuae_path));
++    execute_shell_simple(_exe, _args, "open", 5, filename_dir(_exe));
+ }
+ 
+ /// Lines for the "show the engine" view: the engine source, then a data summary
+diff --git a/scripts/scr_ws_build/scr_ws_build.gml b/scripts/scr_ws_build/scr_ws_build.gml
+index 003adb0..58ea71f 100644
+--- a/scripts/scr_ws_build/scr_ws_build.gml
++++ b/scripts/scr_ws_build/scr_ws_build.gml
+@@ -141,7 +141,32 @@ function ws_build_draw(_x1, _y1, _x2, _y2)
+         build_choose_output();
+     }
+     _y += 60;
+-    if (build_path_row("build_fsuae", _fx, _y, _fw, "FS-UAE emulator", fsuae_path, "(not set - click Find to choose fs-uae.exe)", "Find", "Find FS-UAE|Point ADAM at fs-uae.exe (download FS-UAE free from fs-uae.net)."))
++    // FS-UAE: the user's own copy, ADAM's test copy, or an install found on disk
++    ui_heading(_fx, _y, "FS-UAE emulator");
++    var _btn_w = 88;
++    var _row_w = _fw - _btn_w - 8;
++    if (ADAM_DEV_TOOLS) { _row_w -= _btn_w + 8; }
++    ui_inset(_fx, _y + 18, _fx + _row_w, _y + 50, 8);
++    if (fsuae_dl_id >= 0)
++    {
++        var _t = 0;
++        if (fsuae_dl_total > 0) { _t = clamp(fsuae_dl_got / fsuae_dl_total, 0, 1); }
++        ui_rrect(_fx + 4, _y + 22, _fx + 4 + (_row_w - 8) * _t, _y + 46, 6, global.TH.accent2, merge_colour(global.TH.accent2, c_black, 0.3), 1);
++        ui_text(_fx + 10, _y + 34, "Downloading FS-UAE...  " + string(round(_t * 100)) + "%", global.TH.text, fa_left, fa_middle, global.f_small, 1);
++    }
++    else
++    {
++        var _src = fsuae_source_label();
++        var _scol = global.TH.text_dim;
++        if (_src == "")
++        {
++            _src = "(not found - click Find to choose fs-uae.exe)";
++            if (ADAM_DEV_TOOLS) { _src = "(not found - Get test copy, or Find your own)"; }
++            _scol = global.TH.warn;
++        }
++        ui_text(_fx + 10, _y + 34, ui_text_fit(_src, global.f_small, _row_w - 20), _scol, fa_left, fa_middle, global.f_small, 1);
++    }
++    if (ui_button("build_fsuae", _fx + _fw - _btn_w, _y + 18, _btn_w, 32, "Find", "Find FS-UAE|Point ADAM at your own fs-uae.exe (free from fs-uae.net). Your choice always wins over ADAM's test copy. Right-click clears it.", BTN_NORMAL))
+     {
+         var _v = get_open_filename("FS-UAE|fs-uae.exe;fs-uae", "");
+         if (_v != "")
+@@ -150,6 +175,21 @@ function ws_build_draw(_x1, _y1, _x2, _y2)
+             settings_save();
+         }
+     }
++    if (ui_hot == "build_fsuae" && ui_rpressed)
++    {
++        fsuae_path = "";
++        settings_save();
++        toast("Using ADAM's test copy or an installed FS-UAE", 0);
++    }
++    if (ADAM_DEV_TOOLS)
++    {
++        var _glab = "Get test copy";
++        if (file_exists(fsuae_test_exe())) { _glab = "Re-download"; }
++        if (ui_button("build_fsuae_get", _fx + _fw - _btn_w * 2 - 8, _y + 18, _btn_w, 32, _glab, "FS-UAE test copy|Developer convenience: downloads the official FS-UAE 3.1.66 for Windows into ADAM's save folder, so Build and play works straight away. 'Build and play' fetches it by itself when no FS-UAE is found.", BTN_GHOST))
++        {
++            fsuae_download("");
++        }
++    }
+     _y += 60;
+     if (build_path_row("build_kick", _fx, _y, _fw, "Kickstart ROM (optional)", kick_path, "(none - FS-UAE uses its free AROS ROM)", "Find", "Kickstart ROM|Optional. ADAM games boot on FS-UAE's built-in AROS ROM, but you can use your own Kickstart for the most authentic test. Right-click clears it."))
+     {

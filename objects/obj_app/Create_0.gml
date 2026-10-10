@@ -156,6 +156,11 @@ build_chip_free = 1;
 build_show_asm = false;
 launch_pending = "";
 launch_timer = 0;
+fsuae_dl_id = -1;
+fsuae_dl_zip = "";
+fsuae_dl_got = 0;
+fsuae_dl_total = 0;
+fsuae_dl_then_run = "";
 
 // ---------- tutorials + settings ----------
 tut_init();
@@ -191,7 +196,6 @@ if (file_exists(_auto))
 }
 proj_path = _keep_path;
 project_after_change();
-fsuae_autodetect();
 
 // pick the Amiga before anything else (the Home tutorial follows it)
 machine_pick_open(true);

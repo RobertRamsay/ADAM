@@ -141,13 +141,53 @@ function ws_build_draw(_x1, _y1, _x2, _y2)
         build_choose_output();
     }
     _y += 60;
-    if (build_path_row("build_fsuae", _fx, _y, _fw, "FS-UAE emulator", fsuae_path, "(not set - click Find to choose fs-uae.exe)", "Find", "Find FS-UAE|Point ADAM at fs-uae.exe (download FS-UAE free from fs-uae.net)."))
+    // FS-UAE: the user's own copy, ADAM's test copy, or an install found on disk
+    ui_heading(_fx, _y, "FS-UAE emulator");
+    var _btn_w = 88;
+    var _row_w = _fw - _btn_w - 8;
+    if (ADAM_DEV_TOOLS) { _row_w -= _btn_w + 8; }
+    ui_inset(_fx, _y + 18, _fx + _row_w, _y + 50, 8);
+    if (fsuae_dl_id >= 0)
+    {
+        var _t = 0;
+        if (fsuae_dl_total > 0) { _t = clamp(fsuae_dl_got / fsuae_dl_total, 0, 1); }
+        ui_rrect(_fx + 4, _y + 22, _fx + 4 + (_row_w - 8) * _t, _y + 46, 6, global.TH.accent2, merge_colour(global.TH.accent2, c_black, 0.3), 1);
+        ui_text(_fx + 10, _y + 34, "Downloading FS-UAE...  " + string(round(_t * 100)) + "%", global.TH.text, fa_left, fa_middle, global.f_small, 1);
+    }
+    else
+    {
+        var _src = fsuae_source_label();
+        var _scol = global.TH.text_dim;
+        if (_src == "")
+        {
+            _src = "(not found - click Find to choose fs-uae.exe)";
+            if (ADAM_DEV_TOOLS) { _src = "(not found - Get test copy, or Find your own)"; }
+            _scol = global.TH.warn;
+        }
+        ui_text(_fx + 10, _y + 34, ui_text_fit(_src, global.f_small, _row_w - 20), _scol, fa_left, fa_middle, global.f_small, 1);
+    }
+    if (ui_button("build_fsuae", _fx + _fw - _btn_w, _y + 18, _btn_w, 32, "Find", "Find FS-UAE|Point ADAM at your own fs-uae.exe (free from fs-uae.net). Your choice always wins over ADAM's test copy. Right-click clears it.", BTN_NORMAL))
     {
         var _v = get_open_filename("FS-UAE|fs-uae.exe;fs-uae", "");
         if (_v != "")
         {
             fsuae_path = _v;
             settings_save();
+        }
+    }
+    if (ui_hot == "build_fsuae" && ui_rpressed)
+    {
+        fsuae_path = "";
+        settings_save();
+        toast("Using ADAM's test copy or an installed FS-UAE", 0);
+    }
+    if (ADAM_DEV_TOOLS)
+    {
+        var _glab = "Get test copy";
+        if (file_exists(fsuae_test_exe())) { _glab = "Re-download"; }
+        if (ui_button("build_fsuae_get", _fx + _fw - _btn_w * 2 - 8, _y + 18, _btn_w, 32, _glab, "FS-UAE test copy|Developer convenience: downloads the official FS-UAE 3.1.66 for Windows into ADAM's save folder, so Build and play works straight away. 'Build and play' fetches it by itself when no FS-UAE is found.", BTN_GHOST))
+        {
+            fsuae_download("");
         }
     }
     _y += 60;
