@@ -188,6 +188,7 @@ function project_from_loaded(_raw)
 {
     var _p = project_new();
     if (!is_struct(_raw)) { return _p; }
+    project_unpack(_raw);
     var _sprites = _p.sprites;
     var _sfx = _p.sfx;
     var _pal = _p.pal;
@@ -293,9 +294,217 @@ function file_read_text(_path)
     return _s;
 }
 
+// ---------------------------------------------------------------------------
+// Packed arrays. The backdrop (81920 pixels), sprite pixels and level heights
+// are written to .adam files and undo snapshots as zlib-compressed bytes in
+// base64 ("pixels_z", "pxz", "heights_z") instead of long JSON number lists.
+// In memory they stay plain arrays; project_from_loaded unpacks them, and
+// files without the packed keys (older saves, the examples) load as before.
+// ---------------------------------------------------------------------------
+
+/// Array of whole numbers 0-255 -> base64 of the zlib-compressed bytes
+function pack_u8(_arr)
+{
+    var _n = array_length(_arr);
+    if (_n == 0) { return ""; }
+    var _b = buffer_create(_n, buffer_fixed, 1);
+    for (var i = 0; i < _n; i++) { buffer_write(_b, buffer_u8, clamp(_arr[i], 0, 255)); }
+    var _z = buffer_compress(_b, 0, _n);
+    buffer_delete(_b);
+    var _s = buffer_base64_encode(_z, 0, buffer_get_size(_z));
+    buffer_delete(_z);
+    return _s;
+}
+
+/// The reverse of pack_u8. Returns an array of exactly _n entries, or
+/// undefined if the text is damaged or holds a different number of bytes.
+function unpack_u8(_str, _n)
+{
+    if (!is_string(_str) || _str == "" || _n <= 0) { return undefined; }
+    var _z = buffer_base64_decode(_str);
+    if (!buffer_exists(_z)) { return undefined; }
+    var _b = buffer_decompress(_z);
+    buffer_delete(_z);
+    if (!buffer_exists(_b)) { return undefined; }
+    if (buffer_get_size(_b) != _n)
+    {
+        buffer_delete(_b);
+        return undefined;
+    }
+    var _arr = array_create(_n, 0);
+    buffer_seek(_b, buffer_seek_start, 0);
+    for (var i = 0; i < _n; i++) { _arr[i] = buffer_read(_b, buffer_u8); }
+    buffer_delete(_b);
+    return _arr;
+}
+
+/// Shallow copy of a project (or part of one, as in an undo snapshot) with
+/// the big arrays packed. _src itself is not changed.
+function project_pack(_src)
+{
+    var _out = {};
+    var _names = variable_struct_get_names(_src);
+    for (var i = 0; i < array_length(_names); i++) { _out[$ _names[i]] = _src[$ _names[i]]; }
+
+    if (is_array(_src[$ "pixels"]))
+    {
+        variable_struct_remove(_out, "pixels");
+        _out.pixels_z = pack_u8(_src.pixels);
+    }
+
+    var _ls = _src[$ "sprites"];
+    if (is_array(_ls))
+    {
+        var _ns = [];
+        for (var k = 0; k < array_length(_ls); k++)
+        {
+            var _s = _ls[k];
+            if (is_struct(_s) && is_array(_s[$ "px"]))
+            {
+                var _c = struct_overlay({}, _s);
+                variable_struct_remove(_c, "px");
+                _c.pxz = pack_u8(_s.px);
+                _s = _c;
+            }
+            array_push(_ns, _s);
+        }
+        _out.sprites = _ns;
+    }
+
+    var _lv = _src[$ "levels"];
+    if (is_array(_lv))
+    {
+        var _nl = [];
+        for (var l = 0; l < array_length(_lv); l++)
+        {
+            var _v = _lv[l];
+            if (is_struct(_v) && is_array(_v[$ "heights"]))
+            {
+                var _cl = struct_overlay({}, _v);
+                variable_struct_remove(_cl, "heights");
+                _cl.heights_z = pack_u8(_v.heights);
+                _v = _cl;
+            }
+            array_push(_nl, _v);
+        }
+        _out.levels = _nl;
+    }
+    return _out;
+}
+
+/// Unpacks a freshly parsed file or snapshot in place (packed keys become
+/// plain arrays again). Plain-array data is left alone.
+function project_unpack(_raw)
+{
+    if (!is_struct(_raw)) { return _raw; }
+
+    var _pz = _raw[$ "pixels_z"];
+    if (is_string(_pz))
+    {
+        _raw.pixels = unpack_u8(_pz, BD_W * BD_H);
+        variable_struct_remove(_raw, "pixels_z");
+    }
+
+    var _ls = _raw[$ "sprites"];
+    if (is_array(_ls))
+    {
+        for (var k = 0; k < array_length(_ls); k++)
+        {
+            var _s = _ls[k];
+            if (is_struct(_s) && is_string(_s[$ "pxz"]))
+            {
+                _s.px = unpack_u8(_s.pxz, SPR_W * SPR_H);
+                variable_struct_remove(_s, "pxz");
+            }
+        }
+    }
+
+    var _lv = _raw[$ "levels"];
+    if (is_array(_lv))
+    {
+        for (var l = 0; l < array_length(_lv); l++)
+        {
+            var _v = _lv[l];
+            if (is_struct(_v) && is_string(_v[$ "heights_z"]))
+            {
+                _v.heights = unpack_u8(_v.heights_z, BD_W);
+                variable_struct_remove(_v, "heights_z");
+            }
+        }
+    }
+    return _raw;
+}
+
+/// The project as .adam text (packed)
+function project_to_json(_p)
+{
+    return json_stringify(project_pack(_p));
+}
+
+/// Dev-only (ADAM_DEV_TOOLS): round-trips test patterns and the Gem Hunter
+/// example through the packed format and prints sizes, times and PASS/FAIL
+/// to the IDE Output window.
+function project_pack_selftest()
+{
+    var _ok = true;
+    var _n = BD_W * BD_H;
+    for (var t = 0; t < 4; t++)
+    {
+        var _a = array_create(_n, 0);
+        for (var i = 0; i < _n; i++)
+        {
+            if (t == 1) { _a[i] = i mod 256; }
+            if (t == 2) { _a[i] = irandom(255); }
+            if (t == 3) { _a[i] = (i div 700) mod 128; }
+        }
+        var _back = unpack_u8(pack_u8(_a), _n);
+        if (!is_array(_back) || !array_equals(_a, _back))
+        {
+            _ok = false;
+            show_debug_message("ADAM pack self-test: pattern " + string(t) + " FAILED");
+        }
+    }
+    if (!is_undefined(unpack_u8("not base64 at all!", _n))) { _ok = false; show_debug_message("ADAM pack self-test: damaged text not rejected"); }
+    if (!is_undefined(unpack_u8(pack_u8([1, 2, 3]), _n))) { _ok = false; show_debug_message("ADAM pack self-test: wrong length not rejected"); }
+
+    var _txt = file_read_text(working_directory + "examples/gem_hunter.adam");
+    if (_txt != "")
+    {
+        var _t0 = get_timer();
+        var _p = project_from_loaded(json_parse(_txt));
+        var _t1 = get_timer();
+        var _old = json_stringify(_p);
+        var _t2 = get_timer();
+        var _new = project_to_json(_p);
+        var _t3 = get_timer();
+        var _q = project_from_loaded(json_parse(_new));
+        var _t4 = get_timer();
+        if (!array_equals(_p.pixels, _q.pixels)) { _ok = false; show_debug_message("ADAM pack self-test: Gem Hunter pixels differ"); }
+        for (var k = 0; k < SPR_COUNT; k++)
+        {
+            if (!array_equals(_p.sprites[k].px, _q.sprites[k].px)) { _ok = false; show_debug_message("ADAM pack self-test: sprite " + string(k) + " differs"); }
+        }
+        if (array_length(_p.levels) != array_length(_q.levels)) { _ok = false; show_debug_message("ADAM pack self-test: level count differs"); }
+        else
+        {
+            for (var l = 0; l < array_length(_p.levels); l++)
+            {
+                if (!array_equals(_p.levels[l].heights, _q.levels[l].heights)) { _ok = false; show_debug_message("ADAM pack self-test: level " + string(l) + " differs"); }
+            }
+        }
+        show_debug_message("ADAM pack: Gem Hunter old file " + string(string_byte_length(_txt)) + " bytes, plain JSON " + string(string_byte_length(_old)) + " bytes, packed " + string(string_byte_length(_new)) + " bytes");
+        show_debug_message("ADAM pack: load old " + string((_t1 - _t0) / 1000) + " ms, stringify plain " + string((_t2 - _t1) / 1000) + " ms, pack+stringify " + string((_t3 - _t2) / 1000) + " ms, load packed " + string((_t4 - _t3) / 1000) + " ms");
+    }
+    if (_ok) { show_debug_message("ADAM pack self-test: PASS"); }
+    else { show_debug_message("ADAM pack self-test: FAIL"); }
+    return _ok;
+}
+
 function project_save_to(_path)
 {
-    file_write_text(_path, json_stringify(proj));
+    var _t0 = get_timer();
+    file_write_text(_path, project_to_json(proj));
+    if (ADAM_DEV_TOOLS) { show_debug_message("ADAM save: " + string((get_timer() - _t0) / 1000) + " ms"); }
     proj_path = _path;
     proj_dirty = false;
     settings_save();
@@ -369,31 +578,34 @@ function undo_keys(_ws)
 /// Snapshot of the current editor's part of the project (or all of it)
 function undo_snapshot(_ws, _full)
 {
-    if (_full) { return { full : true, data : json_stringify(proj) }; }
+    if (_full) { return { full : true, data : project_to_json(proj) }; }
     var _keys = undo_keys(_ws);
     var _part = {};
     for (var i = 0; i < array_length(_keys); i++) { _part[$ _keys[i]] = proj[$ _keys[i]]; }
-    return { full : false, data : json_stringify(_part) };
+    return { full : false, data : project_to_json(_part) };
 }
 
 /// Puts a snapshot back
 function undo_restore(_snap)
 {
-    var _raw = json_parse(_snap.data);
+    var _t0 = get_timer();
+    var _raw = project_unpack(json_parse(_snap.data));
     if (_snap.full)
     {
         proj = project_from_loaded(_raw);
     }
     else
     {
-        // run the fields through the loader so they get the same checks as a saved file
-        var _tmp = json_parse(json_stringify(proj));
+        // run the fields through the loader so they get the same checks as a saved file.
+        // A shallow copy is enough: the old proj is replaced, so sharing its arrays is safe.
+        var _tmp = struct_overlay({}, proj);
         var _names = variable_struct_get_names(_raw);
         for (var i = 0; i < array_length(_names); i++) { _tmp[$ _names[i]] = _raw[$ _names[i]]; }
         proj = project_from_loaded(_tmp);
     }
     proj_dirty = true;
     project_after_change();
+    if (ADAM_DEV_TOOLS) { show_debug_message("ADAM undo restore: " + string((get_timer() - _t0) / 1000) + " ms, snapshot " + string(string_byte_length(_snap.data)) + " bytes"); }
 }
 
 function undo_clear_all()
@@ -433,7 +645,10 @@ function undo_mark_ex(_tag, _full)
     undo_last_time = current_time;
     var _w = ws;
     if (!_full && array_length(undo_keys(_w)) == 0) { _full = true; }
-    array_push(undo_stacks[_w], undo_snapshot(_w, _full));
+    var _t0 = get_timer();
+    var _snap = undo_snapshot(_w, _full);
+    if (ADAM_DEV_TOOLS) { show_debug_message("ADAM undo mark (" + ws_name(_w) + ", full " + string(_full) + "): " + string((get_timer() - _t0) / 1000) + " ms, " + string(string_byte_length(_snap.data)) + " bytes"); }
+    array_push(undo_stacks[_w], _snap);
     if (array_length(undo_stacks[_w]) > 40) { array_delete(undo_stacks[_w], 0, 1); }
     redo_stacks[_w] = [];
 }

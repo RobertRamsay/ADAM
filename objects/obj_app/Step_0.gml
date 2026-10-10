@@ -99,7 +99,7 @@ if (autosave_timer > 30)
     autosave_timer = 0;
     if (proj_dirty)
     {
-        file_write_text(autosave_path(), json_stringify(proj));
+        file_write_text(autosave_path(), project_to_json(proj));
     }
 }
 

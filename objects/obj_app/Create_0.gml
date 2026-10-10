@@ -221,5 +221,8 @@ if (file_exists(_auto))
 proj_path = _keep_path;
 project_after_change();
 
+// Track C: packed project files - dev-only round-trip check (IDE Output window)
+if (ADAM_DEV_TOOLS) { project_pack_selftest(); }
+
 // pick the Amiga before anything else (the Home tutorial follows it)
 machine_pick_open(true);
