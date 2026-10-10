@@ -3,6 +3,8 @@
 /// Two stock machines, picked when ADAM starts and stored in each project:
 ///   A500_600 : OCS/ECS, MC68000 @ 7 MHz, 1MB chip RAM  (FS-UAE model A600)
 ///   A1200    : AGA, MC68EC020 @ 14 MHz, 2MB chip RAM    (FS-UAE model A1200)
+/// A500s with only 512KB of chip RAM are not a target, but the Build page warns
+/// (amber, never blocks) when an A500/600 game would not fit in one (mem_note).
 /// Everything that depends on the hardware (colour depth, colour precision,
 /// emulator model, memory budget) reads it from machine_cur().
 
@@ -18,6 +20,7 @@ function machine_defs_init()
             cpu         : "MC68000 @ 7.09 MHz",
             chip_kb     : 1024,
             ram_label   : "1MB chip RAM",
+            mem_note    : "Made for 1MB of chip RAM (A500+, A600, or an A500 upgraded to 1MB chip). An A500 with 512KB of chip RAM (even with a trapdoor slow-RAM card) only fits small games - the Build page warns when a game is too big for one.",
             max_depth   : 4,
             gun_label   : "4096-colour palette (12-bit)",
             fsuae_model : "A600"
@@ -31,6 +34,7 @@ function machine_defs_init()
             cpu         : "MC68EC020 @ 14.18 MHz",
             chip_kb     : 2048,
             ram_label   : "2MB chip RAM",
+            mem_note    : "Plenty of chip RAM for any ADAM game.",
             max_depth   : 7,
             gun_label   : "16.8 million-colour palette (24-bit)",
             fsuae_model : "A1200"
@@ -192,7 +196,7 @@ function machine_pick_draw(_gw, _gh)
         var _m = global.MACHINES[i];
         var _x = _x0 + i * (_cw + _gap);
         var _id = "machine_card_" + string(i);
-        var _hot = ui_register(_id, _x, _cy, _x + _cw, _cy + _ch, _m.name + "|" + _m.chipset + ", " + _m.cpu + ", " + _m.ram_label + ". Click to make games for this machine.");
+        var _hot = ui_register(_id, _x, _cy, _x + _cw, _cy + _ch, _m.name + "|" + _m.chipset + ", " + _m.cpu + ", " + _m.ram_label + ". " + _m.mem_note + " Click to make games for this machine.");
         if (_hot) { machine_pick_index = i; }
         var _sel = 0;
         if (machine_pick_index == i) { _sel = 1; }

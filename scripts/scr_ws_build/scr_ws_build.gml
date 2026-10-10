@@ -103,6 +103,12 @@ function ws_build_draw(_x1, _y1, _x2, _y2)
     var _kinds = [];
     array_push(_items, "Target: " + _m.name + " (" + _m.chipset + ", " + _m.ram_label + ")");
     array_push(_kinds, 0);
+    // a 512KB-chip A500 is not the target, so a big game only warns (see A500_512K_CHIP_KB)
+    if (build_ok && !_m.aga)
+    {
+        if (build_size > (A500_512K_CHIP_KB - OS_RESERVE_KB) * 1024) { array_push(_items, "Last build is too big for a 512KB chip A500 (fine on 1MB)"); array_push(_kinds, 1); }
+        else { array_push(_items, "Last build also fits a 512KB chip A500"); array_push(_kinds, 0); }
+    }
     if (_has_player) { array_push(_items, "There is a Player actor for the joystick"); array_push(_kinds, 0); }
     else { array_push(_items, "No Player actor - set one on the Actors page"); array_push(_kinds, 1); }
     array_push(_items, string(_na) + " of 8 hardware sprites used");
@@ -246,7 +252,15 @@ function ws_build_draw(_x1, _y1, _x2, _y2)
         ui_rrect(_bx, _y + 2, _bx + _sw, _y + 24, 4, global.TH.warn, merge_colour(global.TH.warn, c_black, 0.3), 1);
         _bx += _sw;
         ui_rrect(_bx, _y + 2, _bx + _ow, _y + 24, 4, make_colour_rgb(95, 211, 140), make_colour_rgb(60, 150, 100), 1);
-        ui_register("build_mem", _fx, _y, _fx + _fw, _y + 26, "Chip RAM|Blue: the ADAM engine. Orange: the backdrop (the original, a copy with the hills, and the screen). Yellow: sound samples. Green: sprites, rules and the rest. The full bar is the chip RAM left free on a stock " + _m.name + ".");
+        var _mem_help = "Chip RAM|Blue: the ADAM engine. Orange: the backdrop (the original, a copy with the hills, and the screen). Yellow: sound samples. Green: sprites, rules and the rest. The full bar is the chip RAM left free on a stock " + _m.name + ".";
+        if (!_m.aga)
+        {
+            // red tick: the most that fits an A500 with only 512KB of chip RAM
+            var _kx = _fx + 2 + min(1, (A500_512K_CHIP_KB - OS_RESERVE_KB) * 1024 / _range) * _iw;
+            draw_line_width_colour(_kx, _y - 2, _kx, _y + 28, 2, global.TH.danger, global.TH.danger);
+            _mem_help += " The red tick is about " + string(A500_512K_CHIP_KB - OS_RESERVE_KB) + " KB: games past it will not run on an A500 with only 512KB of chip RAM (it shows a red screen).";
+        }
+        ui_register("build_mem", _fx, _y, _fx + _fw, _y + 26, _mem_help);
         _y += 34;
         ui_text(_fx, _y, "Engine   Backdrop   Sounds   Other        " + string(ceil(build_size / 1024)) + " KB of about " + string(build_chip_free div 1024) + " KB", global.TH.text_faint, fa_left, fa_top, global.f_small, 1);
     }

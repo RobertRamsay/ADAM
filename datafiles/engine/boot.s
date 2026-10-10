@@ -1,6 +1,7 @@
 ; ============================================================================
 ;  ADAM bootblock - loads the game (engine + data) into chip RAM and runs it,
-;  showing a loading bar while the disk is read.
+;  showing a loading bar while the disk is read. If there is not enough chip
+;  RAM for the game it shows a solid red screen and stops.
 ;  Entered by the Kickstart strap: a1 = trackdisk IOStdReq, a6 = ExecBase.
 ;  ADAM patches 'loadsize' and the checksum when it writes the ADF.
 ;  Assemble:  vasmm68k_mot -Fbin -pic -m68000 -no-opt -o boot.bin boot.s
@@ -87,8 +88,16 @@ boot:
             blo.s   .nocc
             jsr     -636(a6)                ; CacheClearU
 .nocc       jmp     (a3)                    ; the engine never returns
-.fail       moveq   #-1,d0
-            rts
+; Not enough chip RAM for the game (e.g. a big game on a 512KB A500): take
+; over the display and show a solid red screen. Returning to the Kickstart
+; would only bring back the insert-disk screen with no clue why.
+.fail       lea     $dff000,a5
+            move.w  #$7fff,$9a(a5)          ; INTENA - all interrupts off
+            move.w  #$7fff,$96(a5)          ; DMACON - all DMA off (copper, planes, sprites)
+            move.w  #$0200,$100(a5)         ; BPLCON0 - no bitplanes
+            move.w  #0,$106(a5)             ; BPLCON3 (ECS/AGA) - bank 0, border not blanked
+.red        move.w  #$0f00,$180(a5)         ; COLOR00 red, for ever
+            bra.s   .red
 
 ; a4 = 512 byte chip block -> copper list: no bitplanes, dark screen,
 ; empty sprites, and an 8 line bar (fill | trough | background per line)

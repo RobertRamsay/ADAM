@@ -8,6 +8,12 @@
 #macro ADF_SIZE 901120
 #macro ADF_HDR 80
 #macro OS_RESERVE_KB 160
+// Original A500s have only 512KB of chip RAM. Even with a trapdoor slow-RAM card
+// the engine, data and screens must all be in chip RAM, so the usable budget is
+// 512KB minus the same OS_RESERVE_KB (Kickstart, trackdisk buffers, strap
+// display, the boot copper list) = about 352KB. ADAM targets 1MB, so a bigger
+// game only gets a warning; on a 512KB A500 the bootblock shows a red screen.
+#macro A500_512K_CHIP_KB 512
 
 function be16(_b, _v)
 {
@@ -499,6 +505,10 @@ function build_adf(_path)
     build_sound_size = _data.sound_bytes;
     build_chip_free = _chip_free;
     build_msg = "Built " + filename_name(_path) + " for the " + _m.name + " - " + string(ceil(_game / 1024)) + " KB of chip RAM";
+    if (!_m.aga && _game > (A500_512K_CHIP_KB - OS_RESERVE_KB) * 1024)
+    {
+        array_push(build_warnings, "Too big for an A500 with only 512KB of chip RAM (about " + string(A500_512K_CHIP_KB - OS_RESERVE_KB) + " KB free) - it will show a red screen there. Fine on 1MB machines.");
+    }
     return true;
 }
 
