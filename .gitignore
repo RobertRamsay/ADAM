@@ -3,3 +3,5 @@ tools/reference/__pycache__/
 tools/intro/frames/
 tools/intro/intro.wav
 tools/intro/*.mp4
+.claude/worktrees/
+ADAM.zip
