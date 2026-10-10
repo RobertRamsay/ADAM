@@ -94,6 +94,7 @@ function tut_start(_tab)
     if (array_length(tut_list) == 0) { return; }
     tut_index = 0;
     tut_active = true;
+    tut_offer_on = false;
     tut_anim = 0;
     ui_popup_open = false;
     ui_focus = "";
@@ -237,4 +238,69 @@ function tut_draw(_gw, _gh)
         tut_target_rect = [];
         tut_card_rect = [0, 0, 0, 0];
     }
+}
+
+/// Asks before starting a page's tutorial (_tab = -1 offers the guided tour)
+function tut_offer(_tab)
+{
+    tut_offer_on = true;
+    tut_offer_tab = _tab;
+    tut_offer_anim = 0;
+}
+
+/// Small "Show me around?" card in the bottom-right corner. The page stays
+/// usable; only clicks on the card itself are taken (see ui_frame_begin).
+function tut_offer_draw(_gw, _gh)
+{
+    if (!tut_offer_on || tut_active || machine_pick_active || about_active)
+    {
+        tut_offer_rect = [0, 0, 0, 0];
+        return;
+    }
+    tut_offer_anim = lerp(tut_offer_anim, 1, 0.15);
+    var _a = tut_offer_anim;
+    var _title = "Take the guided tour?";
+    var _body = "A quick walk through every page, from painting the backdrop to building a disk.";
+    if (tut_offer_tab >= 0)
+    {
+        _title = "Show me around the " + ws_name(tut_offer_tab) + " page?";
+        _body = "A few quick steps point out what each part of this page does.";
+    }
+    // buttons sized from their labels; the card is at least wide enough for them
+    draw_set_font(global.f_bold);
+    var _yw = max(90, ceil(ui_sw("Show me")) + 28);
+    var _nw = max(90, ceil(ui_sw("Not now")) + 28);
+    var _dw = ceil(ui_sw("Don't ask again")) + 28;
+    var _cw = max(400, 24 + _dw + 24 + _nw + 8 + _yw + 24);
+    draw_set_font(global.f_body);
+    var _bh = ui_sh_ext(_body, _cw - 48);
+    var _ch = 108 + _bh;
+    var _cx = _gw - _cw - 20;
+    var _cy = _gh - 46 - _ch - 14 + (1 - _a) * 20;
+    tut_offer_rect = [_cx, _cy, _cx + _cw, _cy + _ch];
+    ui_shadow(_cx, _cy, _cx + _cw, _cy + _ch, 16, 2);
+    ui_rrect(_cx, _cy, _cx + _cw, _cy + _ch, 16, global.TH.btn_top, global.TH.panel_bot, _a);
+    ui_rrect_line(_cx, _cy, _cx + _cw, _cy + _ch, 16, global.TH.warn, 0.8 * _a, 1);
+    ui_text(_cx + 24, _cy + 18, _title, c_white, fa_left, fa_top, global.f_bold, _a);
+    ui_text_wrap(_cx + 24, _cy + 44, _body, global.TH.text_dim, _cw - 48, global.f_body, _a);
+
+    ui_force_input = true;
+    var _by = _cy + _ch - 44;
+    if (ui_button("tut_offer_yes", _cx + _cw - 24 - _yw, _by, _yw, 32, "Show me", "Start the tutorial|You can start it again any time with F1 or the Tutorial button.", BTN_ACCENT))
+    {
+        tut_offer_on = false;
+        tut_start(tut_offer_tab);
+    }
+    if (ui_button("tut_offer_no", _cx + _cw - 32 - _yw - _nw, _by, _nw, 32, "Not now", "Not now|Hides this. The Tutorial (F1) button still starts it.", BTN_GHOST))
+    {
+        tut_offer_on = false;
+    }
+    if (ui_button("tut_offer_never", _cx + 24, _by, _dw, 32, "Don't ask again", "Stop offering tutorials|Turns off 'Offer a tutorial on each new page' (Home page, Studio). Tutorial (F1) still works.", BTN_GHOST))
+    {
+        tut_offer_on = false;
+        auto_tutorials = false;
+        settings_save();
+    }
+    ui_force_input = false;
+    if (!tut_offer_on) { tut_offer_rect = [0, 0, 0, 0]; }
 }

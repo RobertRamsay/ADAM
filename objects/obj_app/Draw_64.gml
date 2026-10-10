@@ -26,6 +26,7 @@ ui_popup_draw(gui_w, gui_h);
 about_draw(gui_w, gui_h);
 ui_help_draw(gui_w, gui_h);
 toasts_draw(gui_w, gui_h);
+tut_offer_draw(gui_w, gui_h);
 tut_draw(gui_w, gui_h);
 machine_pick_draw(gui_w, gui_h);
 ui_frame_end();

@@ -105,6 +105,10 @@ ws = WS_HOME;
 ws_seen = array_create(WS_COUNT, false);
 helpers_on = true;
 auto_tutorials = true;
+tut_offer_on = false;       // "Show me around?" card for a page seen for the first time
+tut_offer_tab = 0;          // page it offers (-1 = the guided tour)
+tut_offer_anim = 0;
+tut_offer_rect = [0, 0, 0, 0];
 fsuae_path = "";
 kick_path = "";
 fsuae_light = true;

@@ -16,11 +16,13 @@ function ws_set(_i)
     ws = _i;
     ui_focus = "";
     ui_popup_open = false;
+    // an offer for the page we are leaving no longer applies
+    tut_offer_on = false;
     if (!tut_active && auto_tutorials && !ws_seen[_i])
     {
         ws_seen[_i] = true;
         settings_save();
-        tut_start(_i);
+        tut_offer(_i);
     }
 }
 

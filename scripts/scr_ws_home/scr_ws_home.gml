@@ -159,7 +159,7 @@ function ws_home_draw(_x1, _y1, _x2, _y2)
     _y += 64;
     ui_heading(_fx, _y, "Studio");
     _y += 20;
-    var _at = ui_toggle("home_autotut", _fx, _y, "Offer a tutorial on each new page", auto_tutorials, "Automatic tutorials|The first time you open each page its tutorial starts by itself. Turn this off once you know your way around.");
+    var _at = ui_toggle("home_autotut", _fx, _y, "Offer a tutorial on each new page", auto_tutorials, "Tutorial offers|The first time you open each page, a small card asks if you'd like its tutorial. Turn this off once you know your way around.");
     if (_at != auto_tutorials)
     {
         auto_tutorials = _at;
@@ -177,7 +177,7 @@ function ws_home_draw(_x1, _y1, _x2, _y2)
     {
         for (var w = 0; w < WS_COUNT; w++) { ws_seen[w] = false; }
         settings_save();
-        toast("Page tutorials will show again", 0);
+        toast("Each page will offer its tutorial again", 0);
     }
     if (ui_button("home_about", _fx + 210, _y, 200, 30, "About ADAM & licences", "About ADAM|Shows ADAM's version and the licences for the fonts and programs it uses (Poppins, font8x8, FS-UAE).", BTN_GHOST))
     {

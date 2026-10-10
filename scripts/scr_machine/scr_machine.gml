@@ -113,7 +113,7 @@ function machine_pick_choose(_i)
         {
             ws_seen[WS_HOME] = true;
             settings_save();
-            tut_start(-1);
+            tut_offer(-1);
         }
     }
     else

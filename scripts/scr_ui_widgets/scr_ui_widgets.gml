@@ -58,6 +58,11 @@ function ui_frame_begin()
             }
         }
     }
+    // the "Show me around?" card takes clicks over its own area only
+    if (tut_offer_on && point_in_rectangle(ui_mx, ui_my, tut_offer_rect[0], tut_offer_rect[1], tut_offer_rect[2], tut_offer_rect[3]))
+    {
+        ui_input_ok = false;
+    }
     if (!ui_held)
     {
         ui_drag_id = "";
