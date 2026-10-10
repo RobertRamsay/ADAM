@@ -124,6 +124,13 @@ bd_show_actors = true;
 bd_show_hud = true;
 bd_dither = true;
 bd_panel = 0;
+bd_show_hills = true;
+terr_surf = -1;
+terr_key = "";
+terr_version = 0;
+lvl_sel = 0;
+lvl_drawing = false;
+lvl_last_x = -1;
 sky_stop = 0;
 
 // sprites

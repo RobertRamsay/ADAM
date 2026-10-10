@@ -7,7 +7,8 @@
 #macro WS_LOGIC 4
 #macro WS_SOUND 5
 #macro WS_BUILD 6
-#macro WS_COUNT 7
+#macro WS_LEVELS 7
+#macro WS_COUNT 8
 
 function ws_set(_i)
 {
@@ -167,12 +168,12 @@ function ui_scale_step(_d)
 
 function ws_tabs()
 {
-    return [WS_HOME, WS_BACKDROP, WS_SPRITES, WS_ACTORS, WS_LOGIC, WS_SOUND, WS_BUILD];
+    return [WS_HOME, WS_BACKDROP, WS_LEVELS, WS_SPRITES, WS_ACTORS, WS_LOGIC, WS_SOUND, WS_BUILD];
 }
 
 function ws_name(_w)
 {
-    var _n = ["Home", "Backdrop", "Sprites", "Actors", "Logic", "Sound", "Build"];
+    var _n = ["Home", "Backdrop", "Sprites", "Actors", "Logic", "Sound", "Build", "Levels"];
     return _n[_w];
 }
 
@@ -185,7 +186,8 @@ function ws_help(_w)
         "Actors|Place the things that move: the player, enemies and pickups. Choose how each one behaves.",
         "Logic|Make the game rules in plain English: WHEN something happens, DO something.",
         "Sound|Design up to 8 sound effects for the Amiga's Paula chip and hear them instantly.",
-        "Build|Turn your game into a bootable Amiga disk (.ADF) and play it in FS-UAE or on a real Amiga."
+        "Build|Turn your game into a bootable Amiga disk (.ADF) and play it in FS-UAE or on a real Amiga.",
+        "Levels|Up to 10 levels, each with its own hills grown from a seed and shaped by hand. Also the level goal counter and the title screen."
     ];
     return _h[_w];
 }

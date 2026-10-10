@@ -12,11 +12,11 @@
 function project_defs_init()
 {
     global.ROLE_NAMES = ["Player (joystick)", "Bouncer (diagonal)", "Patrol left-right", "Patrol up-down", "Chaser (follows player)", "Still (does not move)", "Platform player (walks + jumps)", "Hopper (jumps left and right)", "Faller (drops onto the ground)"];
-    global.WHEN_NAMES = ["Actor touches actor", "Fire button is pressed", "Every few seconds", "Score reaches", "Lives run out", "The game starts", "Actor jumps"];
+    global.WHEN_NAMES = ["Actor touches actor", "Fire button is pressed", "Every few seconds", "Score reaches", "Lives run out", "The game starts", "Actor jumps", "A level starts"];
     global.DO_NAMES   = ["Add to score", "Lose a life", "Play a sound", "Flash the screen", "Send actor back to start",
                          "Move actor to a random spot", "Hide actor", "Show actor", "Change background colour",
                          "Game over", "You win!", "Speed up actor", "Slow down actor", "Add a life", "Move actor to another actor",
-                         "Show actor for a moment", "Make actor safe for a while"];
+                         "Show actor for a moment", "Make actor safe for a while", "Count towards the level goal"];
     global.WAVE_NAMES = ["Triangle (soft)", "Sawtooth (buzzy)", "Square (classic)", "Noise (crunchy)"];
     global.SFX_PRESET_NAMES = ["Coin", "Laser", "Explosion", "Jump", "Hit", "Power up", "Lose", "Blip"];
     global.TEMPLATE_NAMES = ["Player touches enemy: lose a life", "Player touches pickup: score + move pickup",
@@ -75,7 +75,9 @@ function actor_new(_name)
         start_up : false,
         anim_sprite : -1,
         anim_rate : 8,
-        anim_moving : false
+        anim_moving : false,
+        from_level : 1,
+        faster_every : 0
     };
 }
 
@@ -139,6 +141,16 @@ function project_new()
         over_text : "GAME OVER - PRESS FIRE",
         win_text : "YOU WIN! - PRESS FIRE",
         solid : array_create(PAL_MAX, 0),
+        levels_on : false,
+        levels : [],
+        terrain_cols : [10, 9, 11, 12],
+        goal_on : false,
+        goal : 20,
+        goal_label : "GEMS",
+        title_on : false,
+        title1 : "MY AMIGA GAME",
+        title2 : "PRESS FIRE TO START",
+        lev_text : "LEVEL",
         sky_on : false,
         sky_top : 0x102060,
         sky_mid : 0x4080c0,
@@ -229,6 +241,21 @@ function project_from_loaded(_raw)
         }
     }
     _p.rules = _rules;
+
+    var _lv = [];
+    if (is_array(_p.levels))
+    {
+        for (var l = 0; l < min(LEVEL_MAX, array_length(_p.levels)); l++)
+        {
+            var _src = _p.levels[l];
+            var _nl = level_new(1000 + l * 37);
+            struct_overlay(_nl, _src);
+            if (!is_array(_nl.heights) || array_length(_nl.heights) != BD_W) { _nl.heights = terrain_generate(_nl.seed, _nl.hilly, _nl.base); }
+            array_push(_lv, _nl);
+        }
+    }
+    _p.levels = _lv;
+    if (!is_array(_p.terrain_cols) || array_length(_p.terrain_cols) != 4) { _p.terrain_cols = [10, 9, 11, 12]; }
     return _p;
 }
 

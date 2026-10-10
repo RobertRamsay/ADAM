@@ -41,6 +41,12 @@ colours on the same pair automatically.
   only while it moves.
 - **Sampled sounds** - import a WAV, then choose Paula's playback rate
   (4-28.8 kHz) and a bit crunch (8 down to 2 bits).
+- **Levels** - up to 10 levels; each has hills grown from a seed and shaped by
+  hand, drawn by the engine at the start of the level. Goal counter
+  (e.g. GEMS 00/20), title screen, level cards, enemies that join on later
+  levels and get faster.
+- **Platform behaviours** - platform player (walk + jump), hopper, faller,
+  ground colours, flashing immunity, show-for-a-moment pops.
 - **Example games** - Gem Hunter, Deep Dive, Star Catcher and Dodge Ball in
   `datafiles/examples`, loaded from Home.
 

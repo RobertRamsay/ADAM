@@ -175,10 +175,13 @@ function ws_actors_draw(_x1, _y1, _x2, _y2)
     var _fy = floor((_y1 + _y2 - _fh) / 2) - 10;
     ui_rrect(_fx - 6, _fy - 6, _fx + _fw + 6, _fy + _fh + 6, 10, c_black, c_black, 0.35);
     backdrop_draw(_fx, _fy, _scale);
+    terrain_draw(_fx, _fy, _scale);
     // the ground line that walkers, hoppers and fallers stand on
     if (current_time - ground_cache_time > 400)
     {
         ground_cache = ground_table_cached(proj);
+        var _lh = level_heights_shown();
+        if (!is_undefined(_lh)) { ground_cache = _lh; }
         ground_cache_time = current_time;
     }
     var _gtab = ground_cache;
@@ -328,6 +331,16 @@ function ws_actors_draw(_x1, _y1, _x2, _y2)
     ui_heading(_fx2 + _half + 12, _y, "Start Y");
     set_val(_s, "y", ui_stepper("act_y", _fx2 + _half + 12, _y + 18, _half, _s.y, 0, ACT_YMAX, "Start Y|Vertical start position (0 = top, 232 = bottom). Hold Shift for steps of 10."), "acty");
     _y += 66;
+
+    // levels
+    if (proj.levels_on)
+    {
+        ui_heading(_fx2, _y, "Joins on level");
+        set_val(_s, "from_level", ui_stepper("act_from", _fx2, _y + 18, _half, _s.from_level, 1, LEVEL_MAX, "Joins on level|The first level this actor appears on - add an extra enemy every level."), "actfrom");
+        ui_heading(_fx2 + _half + 12, _y, "+1 speed every");
+        set_val(_s, "faster_every", ui_stepper("act_fast", _fx2 + _half + 12, _y + 18, _half, _s.faster_every, 0, LEVEL_MAX, "Faster on later levels|0 = never. 3 = one step faster on levels 4, 7 and 10."), "actfast");
+        _y += 62;
+    }
 
     // two-frame animation
     ui_heading(_fx2, _y, "Animation (second frame)");

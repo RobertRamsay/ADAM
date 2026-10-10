@@ -118,6 +118,7 @@ function ws_backdrop_draw(_x1, _y1, _x2, _y2)
     ui_rrect(_ox - 6, _oy - 6, _ox + _cw + 6, _oy + _ch + 6, 8, c_black, c_black, 0.35);
     ui_scissor(_ox, _oy, _cw, _ch);
     backdrop_draw(_ox - bd_pan_x * _scale, _oy - bd_pan_y * _scale, _scale);
+    if (bd_show_hills && proj.levels_on) { terrain_draw(_ox - bd_pan_x * _scale, _oy - bd_pan_y * _scale, _scale); }
     if (bd_show_actors)
     {
         for (var a = 0; a < array_length(proj.actors); a++)
@@ -418,6 +419,11 @@ function ws_backdrop_draw(_x1, _y1, _x2, _y2)
     _y += 42;
     bd_show_actors = ui_toggle("bd_actors", _fx, _y, "Show actors", bd_show_actors, "Show actors|Draws your actors where they start, so you can paint around them.");
     bd_show_hud = ui_toggle("bd_hud", _fx + floor(_fw / 2), _y, "Show score", bd_show_hud, "Show score row|Shows where the score and lives text will be drawn over the backdrop.");
+    if (proj.levels_on)
+    {
+        _y += 32;
+        bd_show_hills = ui_toggle("bd_hills", _fx, _y, "Show level hills", bd_show_hills, "Show hills|Draws the hills of the level selected on the Levels page over the backdrop, as the game will.");
+    }
 }
 
 /// Copper sky settings (right panel, "Copper sky" tab)

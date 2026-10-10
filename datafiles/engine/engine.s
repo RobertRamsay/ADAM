@@ -28,6 +28,7 @@ H_HUDROW    equ 20         ; text row 0..31
 H_HUDCOL    equ 22         ; palette index
 H_MSGCOL    equ 24         ; palette index
 H_PLAYER    equ 26         ; actor index or -1
+H_GAME      equ 28         ; offset: levels / goal / title block, 0 = single screen
 H_PAL       equ 32         ; offset: palette, (1<<depth) longs $00RRGGBB
 H_PLANES    equ 36         ; offset: pristine backdrop, depth * 10240 bytes
 H_ACTORS    equ 40         ; offset: actor records
@@ -39,6 +40,7 @@ H_SPRCOL    equ 60         ; offset: 4 sprite pairs x 3 longs $00RRGGBB
 H_DISP      equ 64         ; offset: display bitplanes (depth * 10240 bytes)
 H_GRAD      equ 68         ; offset: 256 copper sky colours ($0RGB words), 0 = none
 H_GROUND    equ 72         ; offset: 320 ground heights (words), 0 = none
+H_WORK      equ 76         ; offset: backdrop + terrain copy (depth * 10240 bytes)
 HDR_SIZE    equ 80
 
 ; actor record
@@ -58,6 +60,8 @@ A_CHAN      equ 26         ; hardware sprite channel 0..7 (colour pair = channel
 A_SPR2      equ 28         ; long offset of the second animation frame, 0 = none
 A_ARATE     equ 32         ; frames per animation frame
 A_AMODE     equ 34         ; 0 = always animate, 1 = only while moving
+A_FROM      equ 36         ; first level this actor appears on (1..10)
+A_FAST      equ 38         ; +1 speed every N levels, 0 = never
 ACT_SIZE    equ 48
 
 ; rule record
@@ -70,6 +74,18 @@ R_TGT       equ 10
 R_VAL       equ 12
 RULE_SIZE   equ 16
 
+; game block (levels, goal, title)
+G_NLEVELS   equ 0          ; number of levels, 0 = no levels
+G_TERRAIN   equ 2          ; 1 = draw the hills from the height maps
+G_COLS      equ 4          ; 4 words: edge, grass, soil, speck colour
+G_GOAL      equ 12         ; things to collect per level, 0 = no goal counter
+G_TITLE     equ 14         ; 1 = title screen
+G_LABEL     equ 16         ; 8 bytes, e.g. "GEMS"
+G_TITLE1    equ 24         ; 40 bytes, big title line
+G_TITLE2    equ 64         ; 40 bytes, small line under it
+G_LEVTXT    equ 104        ; 16 bytes, e.g. "LEVEL"
+G_HEIGHTS   equ 120        ; nlevels x 320 words
+
 PLANE_SIZE  equ 10240      ; 320 x 256 / 8
 XMAX        equ 304        ; 320 - 16
 YMAX        equ 232        ; 256 - 24
@@ -78,9 +94,9 @@ SFX_PERIOD  equ 322        ; ~11015 Hz on PAL
 SCORE_MAX   equ 99999
 GRAVITY     equ 4          ; 1/16 pixel per frame per frame
 MAX_FALL    equ 96
-JUMP_V      equ 84         ; platform player jump speed (1/16 px)
+JUMP_V      equ 59         ; platform player jump speed (1/16 px)
 HOP_SQUAT   equ 14         ; frames a hopper crouches before it jumps
-HOP_JUMP    equ 60         ; hopper jump speed (+8 per speed step)
+HOP_JUMP    equ 52         ; hopper jump speed (+8 per speed step)
 HOP_GRAVITY equ 2
 SAFE_TIME   equ 150        ; 3 seconds of flashing immunity
 MOMENT      equ 25         ; 'show for a moment' = half a second
@@ -105,6 +121,11 @@ v_safe      rs.w 8         ; frames of flashing immunity left
 v_anim      rs.w 1
 v_joyprev   rs.w 1
 v_jumped    rs.w 1         ; bit per actor that jumped this frame
+v_level     rs.w 1         ; 1..10
+v_goal      rs.w 1
+v_work      rs.l 1
+v_game      rs.l 1         ; game block address, 0 = none
+v_text      rs.b 32
 v_gradfix   rs.w 1
 v_joy       rs.w 1
 v_fcount    rs.w 1
@@ -136,13 +157,58 @@ start:
 game_restart:
             lea     stack_top(pc),a7
             move.w  #$000f,$96(a6)          ; audio DMA off
-            bsr     restore_backdrop
+            move.w  #1,v_level(a5)
             bsr     init_palette
-            bsr     init_actors
             bsr     clear_state
+            move.l  #0,v_score(a5)
+            move.w  H_LIVES(a4),v_lives(a5)
+            bsr     hide_sprites
+            bsr     restore_backdrop
+            move.l  v_game(a5),d0           ; title screen
+            beq.s   .notitle
+            move.l  d0,a0
+            tst.w   G_TITLE(a0)
+            beq.s   .notitle
+            lea     G_TITLE1(a0),a0
+            moveq   #72,d2
+            bsr     big_text
+            move.l  v_game(a5),a0
+            lea     G_TITLE2(a0),a0
+            moveq   #16,d2
+            bsr     centre_text
+            bsr     wait_fire
+.notitle    moveq   #5,d0                   ; 'the game starts' rules
+            bsr     run_when_rules
+            bra.s   level_card
+
+; next level: show which one is coming, then play it
+level_next: addq.w  #1,v_level(a5)
+level_card: lea     stack_top(pc),a7
+            move.w  #$000f,$96(a6)
+            bsr     hide_sprites
+            bsr     restore_backdrop
+            move.l  v_game(a5),d0
+            beq.s   level_start
+            move.l  d0,a0
+            cmp.w   #2,G_NLEVELS(a0)        ; only show cards when there are levels
+            blt.s   level_start
+            bsr     level_text              ; "LEVEL 3" in big letters
+            lea     v_text(a5),a0
+            moveq   #88,d2
+            bsr     big_text
+            lea     str_fire(pc),a0
+            moveq   #16,d2
+            bsr     centre_text
+            bsr     wait_fire
+            bsr     restore_backdrop
+level_start:
+            bsr     init_actors
+            bsr     clear_latches
+            move.w  #0,v_goal(a5)
             bsr     draw_hud
             bsr     place_sprites
-            bsr     run_start_rules
+            moveq   #7,d0                   ; 'a level starts' rules
+            bsr     run_when_rules
 mainloop:
             bsr     wait_vbl
             bsr     frame
@@ -152,6 +218,15 @@ mainloop:
 ;  display set-up
 ; ============================================================================
 init_display:
+            move.l  H_WORK(a4),d0
+            add.l   a4,d0
+            move.l  d0,v_work(a5)
+            moveq   #0,d0
+            move.l  H_GAME(a4),d1
+            beq.s   .nog
+            move.l  d1,d0
+            add.l   a4,d0
+.nog        move.l  d0,v_game(a5)
             move.l  H_DISP(a4),d0
             add.l   a4,d0
             move.l  d0,v_disp(a5)
@@ -247,14 +322,94 @@ wait_vbl:
 ;  game state
 ; ============================================================================
 restore_backdrop:
-            move.l  H_PLANES(a4),d0
+            move.l  H_PLANES(a4),d0         ; original backdrop -> work copy
             lea     0(a4,d0.l),a0
-            move.l  v_disp(a5),a1
+            move.l  v_work(a5),a1
             move.w  H_DEPTH(a4),d7
             mulu    #PLANE_SIZE/4,d7
             subq.l  #1,d7
 .cp         move.l  (a0)+,(a1)+
             dbf     d7,.cp
+            bsr     draw_terrain            ; this level's hills into the work copy
+            move.l  v_work(a5),a0           ; work copy -> screen
+            move.l  v_disp(a5),a1
+            move.w  H_DEPTH(a4),d7
+            mulu    #PLANE_SIZE/4,d7
+            subq.l  #1,d7
+.cp2        move.l  (a0)+,(a1)+
+            dbf     d7,.cp2
+            rts
+
+; a0 -> this level's 320 height words (needs a game block with terrain)
+level_heights:
+            move.l  v_game(a5),a0
+            move.w  v_level(a5),d0
+            subq.w  #1,d0
+            mulu    #640,d0
+            lea     G_HEIGHTS(a0,d0.l),a0
+            rts
+
+; paints the hills: edge, grass, then soil with specks, down to the bottom
+draw_terrain:
+            movem.l d0-d7/a0-a3,-(sp)
+            move.l  v_game(a5),d0
+            beq     .out
+            move.l  d0,a3
+            tst.w   G_TERRAIN(a3)
+            beq     .out
+            bsr     level_heights
+            move.l  a0,a2                   ; heights
+            moveq   #0,d4                   ; column
+.col        move.w  (a2)+,d5                ; top of the ground
+            cmp.w   #256,d5
+            bhs     .ncol
+.row        move.w  d5,d6
+            sub.w   -2(a2),d6               ; depth below the edge
+            move.w  G_COLS(a3),d3           ; edge
+            cmp.w   #2,d6
+            blt.s   .pix
+            move.w  G_COLS+2(a3),d3         ; grass
+            cmp.w   #10,d6
+            blt.s   .pix
+            move.w  G_COLS+4(a3),d3         ; soil, with the odd speck
+            move.w  d4,d0                   ; scattered specks: (x*97 + y*57)^2
+            mulu    #97,d0
+            move.w  d5,d1
+            mulu    #57,d1
+            add.w   d1,d0
+            mulu    d0,d0
+            lsr.l   #7,d0
+            and.w   #31,d0
+            bne.s   .pix
+            move.w  G_COLS+6(a3),d3
+.pix        move.w  d5,d0                   ; plot (d4, d5) in colour d3
+            mulu    #40,d0
+            move.w  d4,d1
+            lsr.w   #3,d1
+            add.w   d1,d0
+            move.l  v_work(a5),a1
+            add.l   d0,a1
+            move.w  d4,d1
+            not.w   d1
+            and.w   #7,d1                   ; bit number
+            move.w  H_DEPTH(a4),d7
+            subq.w  #1,d7
+            moveq   #0,d2                   ; plane
+.pl         btst    d2,d3
+            beq.s   .clr
+            bset    d1,(a1)
+            bra.s   .nx
+.clr        bclr    d1,(a1)
+.nx         add.l   #PLANE_SIZE,a1
+            addq.w  #1,d2
+            dbf     d7,.pl
+            addq.w  #1,d5
+            cmp.w   #256,d5
+            blt     .row
+.ncol       addq.w  #1,d4
+            cmp.w   #320,d4
+            blt     .col
+.out        movem.l (sp)+,d0-d7/a0-a3
             rts
 
 init_palette:
@@ -291,7 +446,7 @@ init_palette:
 
 init_actors:
             move.w  H_NACT(a4),d6
-            beq.s   .done
+            beq     .done
             move.l  H_ACTORS(a4),d0
             lea     0(a4,d0.l),a2
             moveq   #0,d7
@@ -299,9 +454,24 @@ init_actors:
             add.w   d5,d5
             move.w  A_X(a2),v_ax(a5,d5.w)
             move.w  A_Y(a2),v_ay(a5,d5.w)
-            move.w  A_SPD(a2),v_spd(a5,d5.w)
+            move.w  A_SPD(a2),d0            ; faster on later levels
+            move.w  A_FAST(a2),d1
+            beq.s   .spd
+            moveq   #0,d2
+            move.w  v_level(a5),d2
+            subq.w  #1,d2
+            divu    d1,d2
+            add.w   d2,d0
+            cmp.w   #8,d0
+            ble.s   .spd
+            moveq   #8,d0
+.spd        move.w  d0,v_spd(a5,d5.w)
             move.w  A_VIS(a2),v_vis(a5,d5.w)
-            move.w  A_LEFT(a2),v_dx(a5,d5.w)
+            move.w  A_FROM(a2),d0           ; not on this level yet: hidden
+            cmp.w   v_level(a5),d0
+            ble.s   .here
+            move.w  #0,v_vis(a5,d5.w)
+.here       move.w  A_LEFT(a2),v_dx(a5,d5.w)
             move.w  A_UP(a2),v_dy(a5,d5.w)
             move.w  A_X(a2),v_px(a5,d5.w)
             move.w  A_Y(a2),v_py(a5,d5.w)
@@ -315,8 +485,15 @@ init_actors:
             lea     ACT_SIZE(a2),a2
             addq.w  #1,d7
             cmp.w   d6,d7
-            blt.s   .a
+            blt     .a
 .done       rts
+
+clear_latches:
+            lea     v_latch(a5),a0
+            move.w  #127,d7
+.l          move.w  #0,(a0)+
+            dbf     d7,.l
+            rts
 
 clear_state:
             move.w  #0,v_fcount(a5)
@@ -325,15 +502,10 @@ clear_state:
             move.w  #-1,v_gradfix(a5)
             move.w  #-1,d1
             bsr     build_grad
-            move.l  #0,v_score(a5)
-            move.w  H_LIVES(a4),v_lives(a5)
             lea     v_spend(a5),a0
             move.l  #0,(a0)+
             move.l  #0,(a0)+
-            lea     v_latch(a5),a0
-            move.w  #127,d7
-.l          move.w  #0,(a0)+
-            dbf     d7,.l
+            bsr     clear_latches
             move.w  $06(a6),d0              ; VHPOSR into the random seed
             eor.w   d0,v_rand+2(a5)
             tst.l   v_rand(a5)
@@ -456,7 +628,10 @@ move_actors:
             subq.w  #1,v_life(a5,d5.w)
             bne.s   .nolife
             move.w  #0,v_vis(a5,d5.w)
-.nolife     move.w  A_ROLE(a2),d0
+.nolife     move.w  A_FROM(a2),d0           ; not on this level yet
+            cmp.w   v_level(a5),d0
+            bgt     .next
+            move.w  A_ROLE(a2),d0
             beq     .player
             cmp.w   #6,d0
             beq     .platform
@@ -613,7 +788,7 @@ move_actors:
 .squat      subq.w  #1,v_squat(a5,d5.w)
             bne     .hphys
             move.w  v_spd(a5,d5.w),d0       ; jump height grows with speed
-            lsl.w   #3,d0
+            mulu    #7,d0
             add.w   #HOP_JUMP,d0
             neg.w   d0
             move.w  d0,v_vy(a5,d5.w)
@@ -660,9 +835,19 @@ jumped:     move.w  #0,v_gnd(a5,d5.w)
             rts
 
 ; ground top under the middle of actor d5 -> d2 (256 when there is no ground)
-ground_y:   move.l  H_GROUND(a4),d2
+ground_y:   move.l  v_game(a5),d2           ; level hills win over painted ground
+            beq.s   .paint
+            move.l  d2,a0
+            tst.w   G_TERRAIN(a0)
+            beq.s   .paint
+            move.w  d0,-(sp)
+            bsr     level_heights
+            move.w  (sp)+,d0
+            bra.s   .col
+.paint      move.l  H_GROUND(a4),d2
             beq.s   .none
             lea     0(a4,d2.l),a0
+.col
             move.w  v_ax(a5,d5.w),d2
             addq.w  #8,d2
             cmp.w   #319,d2
@@ -1006,15 +1191,19 @@ run_rules:
             blt     .r
 .done       rts
 
-run_start_rules:
+; runs every rule whose WHEN is d0 (5 = game starts, 7 = level starts)
+run_when_rules:
+            move.w  d0,d4
             move.w  H_NRULE(a4),d6
             beq.s   .done
             move.l  H_RULES(a4),d0
             lea     0(a4,d0.l),a3
             moveq   #0,d7
-.r          cmp.w   #5,R_WHEN(a3)
+.r          cmp.w   R_WHEN(a3),d4
             bne.s   .n
+            move.w  d4,-(sp)
             bsr     fire_action
+            move.w  (sp)+,d4
 .n          lea     RULE_SIZE(a3),a3
             addq.w  #1,d7
             cmp.w   d6,d7
@@ -1033,7 +1222,7 @@ do_action:
             move.w  d5,d4
             add.w   d5,d5
             move.w  R_ACT(a3),d0
-            cmp.w   #16,d0
+            cmp.w   #17,d0
             bhi     act_none
             add.w   d0,d0
             move.w  acttab(pc,d0.w),d0
@@ -1055,6 +1244,7 @@ acttab:     dc.w    act_score-acttab
             dc.w    act_moveto-acttab
             dc.w    act_moment-acttab
             dc.w    act_safe-acttab
+            dc.w    act_goal-acttab
 
 act_none:   rts
 
@@ -1068,6 +1258,22 @@ act_safe:   cmp.w   H_NACT(a4),d4
             bhs     act_none
             move.w  #SAFE_TIME,v_safe(a5,d5.w)
             rts
+
+; one more towards the level goal; reaching it finishes the level
+act_goal:   move.l  v_game(a5),d0
+            beq     act_none
+            move.l  d0,a0
+            move.w  G_GOAL(a0),d1
+            beq     act_none
+            addq.w  #1,v_goal(a5)
+            bsr     draw_hud
+            move.w  v_goal(a5),d0
+            cmp.w   d1,d0
+            blt     act_none
+            move.w  v_level(a5),d0          ; last level done: congratulations
+            cmp.w   G_NLEVELS(a0),d0
+            bge     act_win
+            bra     level_next
 
 stop_fall:  move.w  #0,v_vy(a5,d5.w)
             move.w  #0,v_ysub(a5,d5.w)
@@ -1227,16 +1433,143 @@ end_screen:
 .endd       moveq   #' ',d0
             bsr     draw_char
             move.w  #0,v_opaque(a5)
-.wr         bsr     wait_vbl                ; fire released...
+            bsr     wait_fire
+            bra     game_restart
+
+; waits for fire to be released, pressed and released again
+wait_fire:
+.wr         bsr     wait_vbl
             btst    #7,$bfe001
             beq.s   .wr
-.wp         bsr     wait_vbl                ; ...pressed...
+.wp         bsr     wait_vbl
             btst    #7,$bfe001
             bne.s   .wp
-.wu         bsr     wait_vbl                ; ...and released again
+.wu         bsr     wait_vbl
             btst    #7,$bfe001
             beq.s   .wu
-            bra     game_restart
+            rts
+
+; "LEVEL 3" into v_text
+level_text: move.l  v_game(a5),a0
+            lea     G_LEVTXT(a0),a0
+            lea     v_text(a5),a1
+.c          move.b  (a0)+,(a1)+
+            bne.s   .c
+            move.b  #' ',-1(a1)
+            move.w  v_level(a5),d0
+            cmp.w   #10,d0
+            blt.s   .one
+            move.b  #'1',(a1)+
+            sub.w   #10,d0
+.one        add.b   #'0',d0
+            move.b  d0,(a1)+
+            move.b  #0,(a1)
+            rts
+
+; a0 = text, d2 = text row: centred, small letters, message colour
+centre_text:
+            move.l  a0,a1
+            moveq   #0,d1
+.len        tst.b   (a1)+
+            beq.s   .l2
+            addq.w  #1,d1
+            bra.s   .len
+.l2         neg.w   d1
+            add.w   #40,d1
+            asr.w   #1,d1
+            bpl.s   .ok
+            moveq   #0,d1
+.ok         move.w  H_MSGCOL(a4),d3
+            bra     draw_text
+
+; a0 = text, d2 = pixel line: centred, double-size letters straight onto the screen
+big_text:   movem.l d0-d7/a0-a3,-(sp)
+            move.l  a0,a1
+            moveq   #0,d1
+.len        tst.b   (a1)+
+            beq.s   .l2
+            addq.w  #1,d1
+            bra.s   .len
+.l2         cmp.w   #20,d1
+            ble.s   .l3
+            moveq   #20,d1
+.l3         move.w  d1,d4                   ; characters
+            add.w   d1,d1
+            neg.w   d1
+            add.w   #40,d1
+            lsr.w   #1,d1                   ; first byte column
+            subq.w  #1,d4
+            bmi.s   .out
+.ch         moveq   #0,d0
+            move.b  (a0)+,d0
+            bsr     big_char
+            addq.w  #2,d1
+            dbf     d4,.ch
+.out        movem.l (sp)+,d0-d7/a0-a3
+            rts
+
+; d0 = character, d1 = byte column, d2 = pixel line (16 x 16, transparent)
+big_char:   movem.l d0-d7/a0-a3,-(sp)
+            and.w   #$ff,d0
+            cmp.w   #96,d0
+            blo.s   .up
+            sub.w   #32,d0
+.up         cmp.w   #32,d0
+            blo.s   .sp
+            cmp.w   #96,d0
+            blo.s   .ok
+.sp         moveq   #32,d0
+.ok         sub.w   #32,d0
+            lsl.w   #3,d0
+            lea     font(pc),a1
+            add.w   d0,a1
+            move.w  d2,d4
+            mulu    #40,d4
+            add.w   d1,d4
+            move.l  v_disp(a5),a2
+            add.l   d4,a2                   ; top-left byte on screen
+            move.w  H_MSGCOL(a4),d3
+            moveq   #7,d7                   ; 8 glyph rows
+.row        move.b  (a1)+,d0                ; double every bit -> 16 bit mask
+            moveq   #0,d5
+            moveq   #7,d6
+.bit        add.w   d5,d5
+            add.w   d5,d5
+            btst    d6,d0
+            beq.s   .b0
+            or.w    #3,d5
+.b0         dbf     d6,.bit
+            move.w  d5,d6
+            not.w   d6
+            moveq   #0,d4                   ; plane
+            move.l  a2,a3
+            move.w  H_DEPTH(a4),d1
+            subq.w  #1,d1
+.pl         move.b  (a3),d0                 ; two screen lines, high byte then low byte
+            ror.w   #8,d6
+            and.b   d6,d0
+            ror.w   #8,d5
+            btst    d4,d3
+            beq.s   .c1
+            or.b    d5,d0
+.c1         move.b  d0,(a3)
+            move.b  d0,40(a3)
+            move.b  1(a3),d0
+            ror.w   #8,d6
+            and.b   d6,d0
+            ror.w   #8,d5
+            btst    d4,d3
+            beq.s   .c2
+            or.b    d5,d0
+.c2         move.b  d0,1(a3)
+            move.b  d0,41(a3)
+            add.l   #PLANE_SIZE,a3
+            addq.w  #1,d4
+            dbf     d1,.pl
+            lea     80(a2),a2
+            dbf     d7,.row
+            movem.l (sp)+,d0-d7/a0-a3
+            rts
 
 ; d4 = actor index -> a0 = actor record
 actor_rec:  move.l  H_ACTORS(a4),d0
@@ -1450,9 +1783,8 @@ draw_char:
             add.w   d1,d4                   ; byte offset of the cell
             move.l  v_disp(a5),a2
             add.l   d4,a2
-            move.l  H_PLANES(a4),d5
-            lea     0(a4,d5.l),a3
-            add.l   d4,a3                   ; pristine backdrop under the cell
+            move.l  v_work(a5),a3
+            add.l   d4,a3                   ; backdrop + hills under the cell
             move.w  H_DEPTH(a4),d6
             subq.w  #1,d6
             moveq   #0,d5                   ; plane number
@@ -1481,8 +1813,24 @@ draw_char:
             movem.l (sp)+,d0-d7/a0-a3
             rts
 
+; d0 = 0..99 drawn as two digits at d1 (d1 moves on)
+two_digits: movem.l d0/d4,-(sp)
+            and.l   #$ffff,d0
+            divu    #10,d0
+            move.l  d0,d4
+            add.b   #'0',d0
+            bsr     draw_char
+            addq.w  #1,d1
+            swap    d4
+            move.w  d4,d0
+            add.b   #'0',d0
+            bsr     draw_char
+            addq.w  #1,d1
+            movem.l (sp)+,d0/d4
+            rts
+
 draw_hud:
-            movem.l d0-d3/a0,-(sp)
+            movem.l d0-d3/a0-a1,-(sp)
             move.w  H_HUDROW(a4),d2
             move.w  H_HUDCOL(a4),d3
             tst.w   H_SHOWSC(a4)
@@ -1503,7 +1851,27 @@ draw_hud:
             dbf     d1,.dg
             moveq   #7,d1
             bsr     draw_text
-.nosc       tst.w   H_SHOWLV(a4)
+.nosc       move.l  v_game(a5),d0           ; goal counter
+            beq.s   .nogoal
+            move.l  d0,a1
+            tst.w   G_GOAL(a1)
+            beq.s   .nogoal
+            lea     G_LABEL(a1),a0
+            moveq   #15,d1
+            bsr     draw_text
+.lab        tst.b   (a0)+                   ; column after the label
+            beq.s   .labd
+            addq.w  #1,d1
+            bra.s   .lab
+.labd       addq.w  #1,d1
+            move.w  v_goal(a5),d0
+            bsr     two_digits
+            moveq   #'/',d0
+            bsr     draw_char
+            addq.w  #1,d1
+            move.w  G_GOAL(a1),d0
+            bsr     two_digits
+.nogoal     tst.w   H_SHOWLV(a4)
             beq.s   .nolv
             lea     str_lives(pc),a0
             moveq   #31,d1
@@ -1512,11 +1880,12 @@ draw_hud:
             add.w   v_lives(a5),d0
             moveq   #37,d1
             bsr     draw_char
-.nolv       movem.l (sp)+,d0-d3/a0
+.nolv       movem.l (sp)+,d0-d3/a0-a1
             rts
 
 str_score:  dc.b    "SCORE ",0
 str_lives:  dc.b    "LIVES ",0
+str_fire:   dc.b    "PRESS FIRE",0
             even
 
 font:

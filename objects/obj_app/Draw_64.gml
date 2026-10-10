@@ -17,6 +17,7 @@ switch (ws)
     case WS_LOGIC:    ws_logic_draw(_x1, _y1, _x2, _y2);    break;
     case WS_SOUND:    ws_sound_draw(_x1, _y1, _x2, _y2);    break;
     case WS_BUILD:    ws_build_draw(_x1, _y1, _x2, _y2);    break;
+    case WS_LEVELS:   ws_levels_draw(_x1, _y1, _x2, _y2);   break;
 }
 
 draw_topbar(gui_w);

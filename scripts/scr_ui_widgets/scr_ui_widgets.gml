@@ -568,7 +568,23 @@ function ui_popup_draw(_gw, _gh)
             ui_popup_scroll = clamp(ui_popup_scroll - ui_wheel * 28, 0, _maxs);
             ui_wheel = 0;
         }
-        ui_scissor(_x, _y + 2, _w, _h - 4);
+        if (_maxs > 0)
+        {
+            var _pbh = max(24, _h * (_h / _content));
+            var _pby = _y + (_h - _pbh) * (ui_popup_scroll / _maxs);
+            if (point_in_rectangle(ui_mx, ui_my, _x + _w - 14, _y, _x + _w, _y + _h) && ui_pressed)
+            {
+                ui_drag_id = "popup_sb";
+                ui_take_click();
+            }
+            if (ui_drag_id == "popup_sb" && ui_held)
+            {
+                ui_popup_scroll = round(clamp((ui_my - _y - _pbh * 0.5) / max(1, _h - _pbh), 0, 1) * _maxs);
+                _pby = _y + (_h - _pbh) * (ui_popup_scroll / _maxs);
+            }
+            ui_rrect(_x + _w - 9, _pby + 2, _x + _w - 3, _pby + _pbh - 2, 3, global.TH.text_dim, global.TH.text_faint, 0.9);
+        }
+        ui_scissor(_x, _y + 2, _w - 12, _h - 4);
         for (var i = 0; i < _n; i++)
         {
             var _iy = _y + 4 + i * 28 - ui_popup_scroll;
@@ -649,6 +665,7 @@ function ui_scroll_begin(_id, _x1, _y1, _x2, _y2, _content_h)
     ds_map_replace(ui_scroll, _id, _off);
     ui_scissor(_x1, _y1, _x2 - _x1, _y2 - _y1);
     ui_clip = [_x1, _y1, _x2, _y2];
+    if (_max > 0) { ui_clip = [_x1, _y1, _x2 - 14, _y2]; }   // keep the scroll bar free to drag
     ui_clip_on = true;
     return _off;
 }
@@ -671,7 +688,32 @@ function ui_scroll_end(_id, _x1, _y1, _x2, _y2, _content_h)
     {
         var _bh = max(30, _view * (_view / _content_h));
         var _by = _y1 + (_view - _bh) * (_off / _max);
-        ui_rrect(_x2 - 7, _y1 + 2, _x2 - 3, _y2 - 2, 2, c_black, c_black, 0.25);
-        ui_rrect(_x2 - 7, _by, _x2 - 3, _by + _bh, 2, global.TH.text_dim, global.TH.text_faint, 0.8);
+        var _sid = _id + "_sb";
+        var _bar_hot = false;
+        if (ui_can_input() && point_in_rectangle(ui_mx, ui_my, _x2 - 14, _y1, _x2, _y2)) { _bar_hot = true; }
+        if (_bar_hot && ui_pressed)
+        {
+            // grab the thumb where it was clicked, or jump the thumb to the click
+            var _grab = ui_my - _by;
+            if (_grab < 0 || _grab > _bh) { _grab = _bh * 0.5; }
+            ds_map_replace(ui_scroll, _id + "_grab", _grab);
+            ui_drag_id = _sid;
+            ui_take_click();
+        }
+        if (ui_drag_id == _sid && ui_held)
+        {
+            var _g = ds_map_find_value(ui_scroll, _id + "_grab");
+            if (is_undefined(_g)) { _g = _bh * 0.5; }
+            var _tt = clamp((ui_my - _g - _y1) / max(1, _view - _bh), 0, 1);
+            _off = round(_tt * _max);
+            ds_map_replace(ui_scroll, _id, _off);
+            _by = _y1 + (_view - _bh) * (_off / _max);
+        }
+        var _hl = 0;
+        if (_bar_hot || ui_drag_id == _sid) { _hl = 1; }
+        var _ha = ui_anim_to(_sid, _hl);
+        var _bw = 4 + _ha * 4;
+        ui_rrect(_x2 - 3 - _bw, _y1 + 2, _x2 - 3, _y2 - 2, 3, c_black, c_black, 0.25 + 0.1 * _ha);
+        ui_rrect(_x2 - 3 - _bw, _by, _x2 - 3, _by + _bh, 3, merge_colour(global.TH.text_dim, global.TH.accent, _ha), global.TH.text_faint, 0.8 + 0.2 * _ha);
     }
 }

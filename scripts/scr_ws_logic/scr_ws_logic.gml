@@ -82,6 +82,7 @@ function logic_sentence(_r)
         case 4: _s += "the player runs out of lives"; break;
         case 5: _s += "the game starts"; break;
         case 6: _s += _an + " jumps"; break;
+        case 7: _s += "a level starts"; break;
     }
     var _tn = "?";
     if (_r.target < _na) { _tn = _names[_r.target]; }
@@ -109,6 +110,7 @@ function logic_sentence(_r)
             break;
         case 15: _s += "show " + _tn + " for a moment"; break;
         case 16: _s += "make " + _tn + " safe for a while (it flashes)"; break;
+        case 17: _s += "count one towards the " + string_lower(proj.goal_label) + " goal"; break;
     }
     return _s + ".";
 }

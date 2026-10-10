@@ -45,6 +45,7 @@
     {"id":{"name":"scr_adf","path":"scripts/scr_adf/scr_adf.yy",},},
     {"id":{"name":"scr_examples","path":"scripts/scr_examples/scr_examples.yy",},},
     {"id":{"name":"scr_gfx","path":"scripts/scr_gfx/scr_gfx.yy",},},
+    {"id":{"name":"scr_levels","path":"scripts/scr_levels/scr_levels.yy",},},
     {"id":{"name":"scr_machine","path":"scripts/scr_machine/scr_machine.yy",},},
     {"id":{"name":"scr_project","path":"scripts/scr_project/scr_project.yy",},},
     {"id":{"name":"scr_sfx","path":"scripts/scr_sfx/scr_sfx.yy",},},

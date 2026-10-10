@@ -41,5 +41,5 @@ void main()
         }
         c = floor(s * 15.0 + 0.5) / 15.0;
     }
-    gl_FragColor = vec4(c, v_vColour.a);
+    gl_FragColor = vec4(c, t.a * v_vColour.a);
 }

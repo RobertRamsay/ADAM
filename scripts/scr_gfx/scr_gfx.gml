@@ -178,9 +178,9 @@ function backdrop_plot(_x, _y, _v)
     }
 }
 
-function backdrop_draw(_x, _y, _scale)
+/// Palette shader on, with the current palette and copper sky
+function backdrop_shader_begin()
 {
-    var _s = backdrop_surface();
     for (var i = 0; i < PAL_MAX; i++)
     {
         var _c = rgb_machine(proj.pal[i]);
@@ -198,14 +198,26 @@ function backdrop_draw(_x, _y, _scale)
     shader_set_uniform_f(bd_u_sky_mid, rgb_r(proj.sky_mid) / 255, rgb_g(proj.sky_mid) / 255, rgb_b(proj.sky_mid) / 255);
     shader_set_uniform_f(bd_u_sky_bot, rgb_r(proj.sky_bot) / 255, rgb_g(proj.sky_bot) / 255, rgb_b(proj.sky_bot) / 255);
     shader_set_uniform_f(bd_u_sky_midy, clamp(proj.sky_mid_y, 1, 254));
-    draw_surface_ext(_s, _x, _y, _scale, _scale, 0, c_white, 1);
+}
+
+function backdrop_shader_end()
+{
     shader_reset();
     gpu_set_texfilter(true);
+}
+
+function backdrop_draw(_x, _y, _scale)
+{
+    var _s = backdrop_surface();
+    backdrop_shader_begin();
+    draw_surface_ext(_s, _x, _y, _scale, _scale, 0, c_white, 1);
+    backdrop_shader_end();
 }
 
 function backdrop_gfx_free()
 {
     if (surface_exists(bd_surf)) { surface_free(bd_surf); }
+    if (surface_exists(terr_surf)) { surface_free(terr_surf); }
 }
 
 // ---------------------------------------------------------------------------

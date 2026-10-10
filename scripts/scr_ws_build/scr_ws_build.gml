@@ -91,7 +91,7 @@ function ws_build_draw(_x1, _y1, _x2, _y2)
     for (var r = 0; r < _nr; r++)
     {
         if (proj.rules[r].act == 1) { _lose = true; }
-        if (proj.rules[r].act == 9 || proj.rules[r].act == 10) { _end = true; }
+        if (proj.rules[r].act == 9 || proj.rules[r].act == 10 || proj.rules[r].act == 17) { _end = true; }
     }
     var _alloc = actors_alloc_channels();
     var _conf = 0;
@@ -112,6 +112,18 @@ function ws_build_draw(_x1, _y1, _x2, _y2)
     if (_nr > 0) { array_push(_kinds, 0); } else { array_push(_kinds, 1); }
     if (_end) { array_push(_items, "The game can end (game over or win)"); array_push(_kinds, 0); }
     else { array_push(_items, "Nothing ends the game yet - add a Game over or You win rule"); array_push(_kinds, 1); }
+    if (proj.levels_on)
+    {
+        array_push(_items, string(array_length(proj.levels)) + " level(s) with hills");
+        array_push(_kinds, 0);
+        var _gl = false;
+        for (var g = 0; g < _nr; g++)
+        {
+            if (proj.rules[g].act == 17) { _gl = true; }
+        }
+        if (proj.goal_on && _gl) { array_push(_items, "Collect " + string(proj.goal) + " " + string_lower(proj.goal_label) + " to finish each level"); array_push(_kinds, 0); }
+        else { array_push(_items, "Nothing finishes a level - add a 'Count towards the level goal' rule"); array_push(_kinds, 1); }
+    }
     if (proj.show_lives && !_lose) { array_push(_items, "Lives are shown but no rule takes a life away"); array_push(_kinds, 1); }
     ui_heading(_fx, _y, "Checklist");
     _y += 22;
@@ -222,9 +234,9 @@ function ws_build_draw(_x1, _y1, _x2, _y2)
         var _range = max(1, build_chip_free);
         var _iw = _fw - 4;
         var _ew = build_engine_size / _range * _iw;
-        var _pw = build_plane_size * 2 / _range * _iw;
+        var _pw = build_plane_size / _range * _iw;
         var _sw = build_sound_size / _range * _iw;
-        var _rest = max(0, build_size - build_engine_size - build_plane_size * 2 - build_sound_size);
+        var _rest = max(0, build_size - build_engine_size - build_plane_size - build_sound_size);
         var _ow = _rest / _range * _iw;
         var _bx = _fx + 2;
         ui_rrect(_bx, _y + 2, _bx + _ew, _y + 24, 4, global.TH.accent, global.TH.accent_dark, 1);
@@ -234,7 +246,7 @@ function ws_build_draw(_x1, _y1, _x2, _y2)
         ui_rrect(_bx, _y + 2, _bx + _sw, _y + 24, 4, global.TH.warn, merge_colour(global.TH.warn, c_black, 0.3), 1);
         _bx += _sw;
         ui_rrect(_bx, _y + 2, _bx + _ow, _y + 24, 4, make_colour_rgb(95, 211, 140), make_colour_rgb(60, 150, 100), 1);
-        ui_register("build_mem", _fx, _y, _fx + _fw, _y + 26, "Chip RAM|Blue: the ADAM engine. Orange: the backdrop (a clean copy plus the screen). Yellow: sound samples. Green: sprites, rules and the rest. The full bar is the chip RAM left free on a stock " + _m.name + ".");
+        ui_register("build_mem", _fx, _y, _fx + _fw, _y + 26, "Chip RAM|Blue: the ADAM engine. Orange: the backdrop (the original, a copy with the hills, and the screen). Yellow: sound samples. Green: sprites, rules and the rest. The full bar is the chip RAM left free on a stock " + _m.name + ".");
         _y += 34;
         ui_text(_fx, _y, "Engine   Backdrop   Sounds   Other        " + string(ceil(build_size / 1024)) + " KB of about " + string(build_chip_free div 1024) + " KB", global.TH.text_faint, fa_left, fa_top, global.f_small, 1);
     }

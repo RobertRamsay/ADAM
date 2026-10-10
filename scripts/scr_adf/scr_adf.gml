@@ -58,6 +58,22 @@ function buf_zeros(_b, _n)
     for (var k = 0; k < (_n mod 4); k++) { buffer_write(_b, buffer_u8, 0); }
 }
 
+/// Text in a fixed-size, zero-padded field (upper case, font characters only)
+function buf_fixed_text(_b, _s, _n)
+{
+    var _t = string_upper(string_copy(_s, 1, _n - 1));
+    for (var i = 1; i <= _n; i++)
+    {
+        var _c = 0;
+        if (i <= string_length(_t))
+        {
+            _c = ord(string_char_at(_t, i));
+            if (_c < 32 || _c > 95) { _c = 32; }
+        }
+        buffer_write(_b, buffer_u8, _c);
+    }
+}
+
 /// Upper-case ASCII the engine font can draw, zero terminated
 function buf_text(_b, _s)
 {
@@ -228,7 +244,9 @@ function adam_data_block(_p)
         var _am = 0;
         if (_ac.anim_moving) { _am = 1; }
         be16(_b, _am);
-        buf_zeros(_b, 12);
+        be16(_b, clamp(_ac.from_level, 1, LEVEL_MAX));
+        be16(_b, clamp(_ac.faster_every, 0, LEVEL_MAX));
+        buf_zeros(_b, 8);
         if (_alloc.conflict[a2]) { array_push(_warn, "Actor '" + _ac.name + "' shares a sprite colour pair with different colours - it will borrow its partner's colours."); }
     }
     buf_align(_b, 8);
@@ -241,11 +259,11 @@ function adam_data_block(_p)
         var _val = _ru.value;
         if (_ru.act == 8) { _val = clamp(_val, 0, _ncol - 1); }
         if (_ru.act == 2) { _val = clamp(_val, 0, 7); }
-        be16(_b, clamp(_ru.when, 0, 6));
+        be16(_b, clamp(_ru.when, 0, 7));
         be16(_b, clamp(_ru.a, 0, 7));
         be16(_b, clamp(_ru.b, 0, 7));
         be16(_b, clamp(_ru.n, 1, 65535));
-        be16(_b, clamp(_ru.act, 0, 16));
+        be16(_b, clamp(_ru.act, 0, 17));
         be16(_b, clamp(_ru.target, 0, 7));
         be16(_b, clamp(_val, 0, 65535));
         be16(_b, 0);
@@ -317,6 +335,46 @@ function adam_data_block(_p)
         buf_align(_b, 8);
     }
 
+    // game block: levels and their hills, goal counter, title screen
+    var _off_game = 0;
+    var _lv_on = (_p.levels_on && array_length(_p.levels) > 0);
+    if (_lv_on || _p.goal_on || _p.title_on)
+    {
+        _off_game = buffer_tell(_b);
+        var _nlv = 1;
+        if (_lv_on) { _nlv = array_length(_p.levels); }
+        var _terr = 0;
+        if (_lv_on) { _terr = 1; }
+        var _goal = 0;
+        if (_p.goal_on) { _goal = clamp(_p.goal, 1, 99); }
+        var _tit = 0;
+        if (_p.title_on) { _tit = 1; }
+        be16(_b, _nlv);
+        be16(_b, _terr);
+        for (var tc = 0; tc < 4; tc++) { be16(_b, clamp(_p.terrain_cols[tc], 0, _ncol - 1)); }
+        be16(_b, _goal);
+        be16(_b, _tit);
+        buf_fixed_text(_b, _p.goal_label, 8);
+        buf_fixed_text(_b, _p.title1, 40);
+        buf_fixed_text(_b, _p.title2, 40);
+        buf_fixed_text(_b, _p.lev_text, 16);
+        for (var lv = 0; lv < _nlv; lv++)
+        {
+            for (var hx = 0; hx < BD_W; hx++)
+            {
+                var _hv = 256;
+                if (_lv_on) { _hv = clamp(_p.levels[lv].heights[hx], 100, 240); }
+                be16(_b, _hv);
+            }
+        }
+        buf_align(_b, 8);
+    }
+
+    // the backdrop + hills working copy (score text is restored from it)
+    var _off_work = buffer_tell(_b);
+    buf_zeros(_b, _depth * 10240);
+    buf_align(_b, 8);
+
     // the display bitplanes the game draws into
     var _off_disp = buffer_tell(_b);
     buf_zeros(_b, _depth * 10240);
@@ -356,10 +414,12 @@ function adam_data_block(_p)
     poke32(_b, 64, _off_disp);
     poke32(_b, 68, _off_grad);
     poke32(_b, 72, _off_ground);
+    poke32(_b, 76, _off_work);
+    poke32(_b, 28, _off_game);
 
     if (_na == 0) { array_push(_warn, "There are no actors yet - the game will just show your backdrop."); }
     if (_player < 0 && _na > 0) { array_push(_warn, "No actor is set as Player, so the joystick will not move anything."); }
-    return { buf : _b, size : _size, warnings : _warn, sound_bytes : _snd_bytes, plane_bytes : _depth * 10240 };
+    return { buf : _b, size : _size, warnings : _warn, sound_bytes : _snd_bytes, plane_bytes : _depth * 10240 * 3 };
 }
 
 /// Builds the ADF file. Returns true on success and fills build_* fields.

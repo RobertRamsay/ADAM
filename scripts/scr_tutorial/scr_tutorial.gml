@@ -26,6 +26,12 @@ function tut_init()
         tut_step(WS_BACKDROP, "bd_import", "Import a picture", "Got artwork already? Import a PNG or JPG. ADAM fits it to the screen and chooses the best colours for it, with optional dithering."),
         tut_step(WS_BACKDROP, "bd_solid", "Ground colours", "Mark the colours of your grass, floors and platforms as ground. Platform players, hoppers and fallers walk along the top of them - up and down every hill."),
         tut_step(WS_BACKDROP, "bd_tab_sky", "Copper sky", "The classic Amiga trick: the copper chip changes colour 0 on every line, painting a smooth sunset, sea or night sky behind your backdrop for free. Paint the sky areas in colour 0 to let it show."),
+        // ---------- LEVELS ----------
+        tut_step(WS_LEVELS, "lvl_on", "Levels", "Switch levels on for a game of up to 10 levels. Each one has its own hills for platform players, hoppers and fallers to walk on."),
+        tut_step(WS_LEVELS, "lvl_canvas", "Shape the ground", "Drag across the picture to draw where the ground is, or right-drag to smooth it. The hills are drawn by the Amiga at the start of each level, so they cost almost no memory."),
+        tut_step(WS_LEVELS, "lvl_gen", "Grow hills from a seed", "Every level starts from a seed number. The same seed always grows the same hills - change it and press Generate for a new shape."),
+        tut_step(WS_LEVELS, "lvl_goal_on", "The level goal", "Show a counter like GEMS 00/20. The 'Count towards the level goal' action adds one, and reaching the target moves on to the next level."),
+        tut_step(WS_LEVELS, "lvl_title_on", "Title and level cards", "A title screen before the game, a 'LEVEL 2 - PRESS FIRE' card between levels, and your Win message after the last one."),
         // ---------- SPRITES ----------
         tut_step(WS_SPRITES, "spr_slot_0", "Your sprites", "Sprites are the pictures for the things that move. Each one is an Amiga hardware sprite: 16 pixels wide, 24 tall, 3 colours plus see-through."),
         tut_step(WS_SPRITES, "spr_grid", "Draw pixels", "Left-click draws with the selected pen, right-click rubs out."),
