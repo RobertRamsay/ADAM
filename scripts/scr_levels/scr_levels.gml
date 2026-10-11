@@ -285,12 +285,12 @@ function ws_levels_draw(_x1, _y1, _x2, _y2)
 /// Lowest drawn row of a sprite (feet)
 function sprite_bottom(_si)
 {
-    var _px = proj.sprites[clamp(_si, 0, SPR_COUNT - 1)].px;
-    for (var q = SPR_W * SPR_H - 1; q >= 0; q--)
+    var _s = proj.sprites[clamp(_si, 0, SPR_COUNT - 1)];
+    for (var q = _s.w * _s.h - 1; q >= 0; q--)
     {
-        if (_px[q] != 0) { return q div SPR_W; }
+        if (_s.px[q] != 0) { return q div _s.w; }
     }
-    return SPR_H - 1;
+    return _s.h - 1;
 }
 
 function levels_side_panel(_px, _y1, _x2, _y2)

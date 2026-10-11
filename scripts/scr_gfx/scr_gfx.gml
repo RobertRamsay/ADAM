@@ -264,17 +264,24 @@ function backdrop_gfx_free()
 
 function spr_cache_update(_i)
 {
+    var _s = proj.sprites[_i];
     for (var c = 0; c < 3; c++)
     {
+        if (surface_exists(spr_surf[_i][c]))
+        {
+            if (surface_get_width(spr_surf[_i][c]) != _s.w || surface_get_height(spr_surf[_i][c]) != _s.h)
+            {
+                surface_free(spr_surf[_i][c]);
+            }
+        }
         if (!surface_exists(spr_surf[_i][c]))
         {
-            spr_surf[_i][c] = surface_create(SPR_W, SPR_H);
+            spr_surf[_i][c] = surface_create(_s.w, _s.h);
             spr_dirty[_i] = true;
         }
     }
     if (!spr_dirty[_i]) { return; }
-    var _s = proj.sprites[_i];
-    var _n = SPR_W * SPR_H;
+    var _n = _s.w * _s.h;
     for (var k = 1; k <= 3; k++)
     {
         var _mask = array_create(_n, 0);
@@ -282,7 +289,7 @@ function spr_cache_update(_i)
         {
             if (_s.px[q] == k) { _mask[q] = 1; }
         }
-        mask_to_surface(spr_surf[_i][k - 1], SPR_W, SPR_H, _mask);
+        mask_to_surface(spr_surf[_i][k - 1], _s.w, _s.h, _mask);
     }
     spr_dirty[_i] = false;
 }

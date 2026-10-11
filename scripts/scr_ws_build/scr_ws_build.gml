@@ -123,9 +123,9 @@ function ws_build_draw(_x1, _y1, _x2, _y2)
     array_push(_items, _sline);
     if (_na > 0) { array_push(_kinds, 0); } else { array_push(_kinds, 1); }
     var _bmax = bobs_max(_m, proj.depth);
-    if (_nbob > _bmax)
+    if (bobs_load() > _bmax)
     {
-        array_push(_items, string(_nbob) + " BOBs is a lot for the " + _m.short_name + " at " + string(1 << proj.depth) + " colours - about " + string(_bmax) + " keep it smooth, more and the game slows down");
+        array_push(_items, string(_nbob) + " BOBs is a lot for the " + _m.short_name + " at " + string(1 << proj.depth) + " colours - about " + string(_bmax) + " small ones keep it smooth (big BOBs count as several), more and the game slows down");
         array_push(_kinds, 1);
     }
     if (_na > array_length(_alloc.chan))

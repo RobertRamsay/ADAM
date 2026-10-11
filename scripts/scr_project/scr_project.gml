@@ -7,6 +7,8 @@
 #macro BD_H 256
 #macro ACT_XMAX 304
 #macro ACT_YMAX 232
+#macro SPR_BIG_W 64             // ADAM Pro: sprites up to 64 x 64 (drawn as BOBs)
+#macro SPR_BIG_H 64
 #macro PAL_MAX 128
 
 function project_defs_init()
@@ -57,9 +59,34 @@ function sprite_new(_name)
 {
     return {
         name : _name,
+        w : SPR_W,
+        h : SPR_H,
         px : array_create(SPR_W * SPR_H, 0),
         cols : [0xffdd33, 0xdd3322, 0xffffff]
     };
+}
+
+/// Sprite sizes: 16 x 24 (a hardware sprite), and in ADAM Pro 16-64 wide in
+/// steps of 16 and 16, 24, 32, 48 or 64 high (bigger than 16 x 24 = a BOB)
+function spr_size_ok(_w, _h)
+{
+    if (!is_real(_w) || !is_real(_h)) { return false; }
+    if (_w != 16 && _w != 32 && _w != 48 && _w != 64) { return false; }
+    if (_h != 16 && _h != 24 && _h != 32 && _h != 48 && _h != 64) { return false; }
+    return true;
+}
+
+/// Pixel (0 = clear, 1-3) of sprite struct _s; 0 outside it
+function spr_get(_s, _px, _py)
+{
+    if (_px < 0 || _py < 0 || _px >= _s.w || _py >= _s.h) { return 0; }
+    return _s.px[_py * _s.w + _px];
+}
+
+/// True when the sprite is too big for a hardware sprite (so it can only be a BOB)
+function spr_is_big(_s)
+{
+    return _s.w > SPR_W || _s.h > SPR_H;
 }
 
 function actor_new(_name)
@@ -212,7 +239,8 @@ function project_from_loaded(_raw)
     {
         var _s = sprite_new("Sprite " + string(i + 1));
         if (is_array(_ls) && i < array_length(_ls)) { struct_overlay(_s, _ls[i]); }
-        if (!is_array(_s.px) || array_length(_s.px) != SPR_W * SPR_H) { _s.px = array_create(SPR_W * SPR_H, 0); }
+        if (!spr_size_ok(_s.w, _s.h)) { _s.w = SPR_W; _s.h = SPR_H; }
+        if (!is_array(_s.px) || array_length(_s.px) != _s.w * _s.h) { _s.px = array_create(_s.w * _s.h, 0); }
         if (!is_array(_s.cols) || array_length(_s.cols) != 3) { _s.cols = [0xffdd33, 0xdd3322, 0xffffff]; }
         _sprites[i] = _s;
     }
@@ -448,7 +476,10 @@ function project_unpack(_raw)
             var _s = _ls[k];
             if (is_struct(_s) && is_string(_s[$ "pxz"]))
             {
-                _s.px = unpack_u8(_s.pxz, SPR_W * SPR_H);
+                var _pw = _s[$ "w"];
+                var _ph = _s[$ "h"];
+                if (!is_real(_pw) || !is_real(_ph) || !spr_size_ok(_pw, _ph)) { _pw = SPR_W; _ph = SPR_H; }
+                _s.px = unpack_u8(_s.pxz, _pw * _ph);
                 variable_struct_remove(_s, "pxz");
             }
         }

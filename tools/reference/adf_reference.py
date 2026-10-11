@@ -34,52 +34,69 @@ def build(proj, aga):
     align(8)
     # sprite blocks
     spr_offs=[]; spr2_offs=[]
-    def sblock(img):
+    # sprite dicts: px is w x h (default 16 x 24); pixel (x, y), 0 outside
+    def sw(s): return s.get('w',16)
+    def sh(s): return s.get('h',24)
+    def pix(s,x,y):
+        if x<0 or y<0 or x>=sw(s) or y>=sh(s): return 0
+        return s['px'][y*sw(s)+x]
+    def sblock(s):
+        # hardware sprite: the top-left 16 x 24 pixels
         align(8); o=len(blob)
         blob.extend(b'\0\0\0\0')
         for y in range(24):
             w0=w1=0
             for x in range(16):
-                v=img[y*16+x]
+                v=pix(s,x,y)
                 if v&1: w0|=0x8000>>x
                 if v&2: w1|=0x8000>>x
             blob.extend(struct.pack('>HH',w0,w1))
         blob.extend(b'\0\0\0\0'); return o
-    def bimg(img,cmap):
-        # BOB image (engine.s BOB_*): 24 mask words, then depth x 24 words of bitplanes;
-        # sprite pixel 1-3 becomes backdrop colour cmap[0-2]
+    def bimg(s,cmap,bw,bh):
+        # BOB image (engine.s A_BSIZE): bw/16 x bh mask words, then depth planes
+        # the same size; sprite pixel 1-3 becomes backdrop colour cmap[0-2]
         align(8); o=len(blob)
-        for y in range(24):
-            m=0
-            for x in range(16):
-                if img[y*16+x]: m|=0x8000>>x
-            blob.extend(struct.pack('>H',m))
-        for p in range(depth):
-            for y in range(24):
-                w=0
+        for y in range(bh):
+            for wx in range(0,bw,16):
+                m=0
                 for x in range(16):
-                    v=img[y*16+x]
-                    if v and (cmap[v-1]>>p)&1: w|=0x8000>>x
-                blob.extend(struct.pack('>H',w))
+                    if pix(s,wx+x,y): m|=0x8000>>x
+                blob.extend(struct.pack('>H',m))
+        for p in range(depth):
+            for y in range(bh):
+                for wx in range(0,bw,16):
+                    w=0
+                    for x in range(16):
+                        v=pix(s,wx+x,y)
+                        if v and (cmap[v-1]>>p)&1: w|=0x8000>>x
+                    blob.extend(struct.pack('>H',w))
         return o
-    # actor dict: bob=1 draws it with the blitter, bobmap = backdrop colours for pixels 1-3
+    # actor dict: bob=1 draws it with the blitter, bobmap = backdrop colours for pixels 1-3;
+    # a BOB is its sprite's size, a hardware sprite 16 x 24
+    def asize(a):
+        s=proj['sprites'][a['sprite']]
+        if a.get('bob'): return sw(s),sh(s)
+        return 16,24
     for a in actors:
-        if a.get('bob'): mk=lambda im,a=a: bimg(im,a['bobmap'])
+        bw,bh=asize(a)
+        if a.get('bob'): mk=lambda s,a=a,bw=bw,bh=bh: bimg(s,a['bobmap'],bw,bh)
         else: mk=sblock
-        spr_offs.append(mk(proj['sprites'][a['sprite']]['px']))
-        if a.get('anim',-1)>=0: spr2_offs.append(mk(proj['sprites'][a['anim']]['px']))
+        spr_offs.append(mk(proj['sprites'][a['sprite']]))
+        if a.get('anim',-1)>=0: spr2_offs.append(mk(proj['sprites'][a['anim']]))
         else: spr2_offs.append(0)
     align(8)
     off_act=len(blob)
     for i,a in enumerate(actors):
-        img=proj['sprites'][a['sprite']]['px']
-        xs=[x for y in range(24) for x in range(16) if img[y*16+x]]
-        ys=[y for y in range(24) for x in range(16) if img[y*16+x]]
-        bx0,bx1=(min(xs),max(xs)) if xs else (0,15)
-        by0,by1=(min(ys),max(ys)) if ys else (0,23)
-        blob+=struct.pack('>HHHHHHHHHHHL',a['x'],a['y'],a['role'],a['speed'],int(a['visible']),int(a['left']),int(a['up']),bx0,by0,bx1,by1,spr_offs[i])
-        blob+=struct.pack('>HLHHHHH',a.get('chan',i),spr2_offs[i],a.get('rate',8),a.get('amode',0),a.get('from',1),a.get('fast',0),
-                          1 if a.get('bob') else 0)+b'\0'*6
+        s=proj['sprites'][a['sprite']]
+        bw,bh=asize(a)
+        xs=[x for y in range(bh) for x in range(bw) if pix(s,x,y)]
+        ys=[y for y in range(bh) for x in range(bw) if pix(s,x,y)]
+        bx0,bx1=(min(xs),max(xs)) if xs else (0,bw-1)
+        by0,by1=(min(ys),max(ys)) if ys else (0,bh-1)
+        bsize=(bh<<6)|(bw//16+1) if a.get('bob') else 0
+        blob+=struct.pack('>HHHHHHHHHHHL',min(a['x'],320-bw),min(a['y'],256-bh),a['role'],a['speed'],int(a['visible']),int(a['left']),int(a['up']),bx0,by0,bx1,by1,spr_offs[i])
+        blob+=struct.pack('>HLHHHHHHHH',a.get('chan',i),spr2_offs[i],a.get('rate',8),a.get('amode',0),a.get('from',1),a.get('fast',0),
+                          1 if a.get('bob') else 0,320-bw,256-bh,bsize)
     align(8)
     off_rules=len(blob)
     for r in rules:
@@ -166,7 +183,7 @@ def build(proj, aga):
     player=-1
     for i,a in enumerate(actors):
         if a['role'] in (0,6): player=i; break
-    hdr=struct.pack('>4sHHHHHHHHHHHH',b'ADAM',3,1 if aga else 0,depth,len(actors),len(rules),proj['lives'],
+    hdr=struct.pack('>4sHHHHHHHHHHHH',b'ADAM',4,1 if aga else 0,depth,len(actors),len(rules),proj['lives'],
                     int(proj['show_score']),int(proj['show_lives']),proj['hud_row'],proj['hud_col'],proj['msg_col'],player & 0xffff)+struct.pack('>L',off_game)
     hdr+=struct.pack('>LLLLLLLLLLLLLLL',off_pal,off_planes,off_act,off_rules,off_sfx,off_over,off_win,off_sprcol,off_disp,off_grad,off_ground,off_work,off_music,off_disp2,off_back)
     blob[0:92]=hdr

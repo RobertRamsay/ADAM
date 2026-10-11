@@ -41,6 +41,24 @@ function bobs_max(_m, _depth)
     return floor(_budget / (BOB_CYCLES_PER_PLANE * max(1, _depth)));
 }
 
+/// Blitter time of this project's BOBs, counted in 16 x 24 BOBs (a 32 x 32
+/// one counts as 2, a 64 x 64 one as about 6.7): each costs height x (width
+/// in words + 1) words x 6 cycles per plane
+function bobs_load()
+{
+    var _bob = actors_bob_flags();
+    var _cyc = 0;
+    for (var i = 0; i < array_length(_bob); i++)
+    {
+        if (_bob[i])
+        {
+            var _s = proj.sprites[clamp(proj.actors[i].sprite, 0, SPR_COUNT - 1)];
+            _cyc += _s.h * (_s.w div 16 + 1) * 6;
+        }
+    }
+    return _cyc / BOB_CYCLES_PER_PLANE;
+}
+
 /// How many actors go on the disk: 8 in ADAM Lite, up to 32 in ADAM Pro
 function actors_on_disk()
 {
@@ -59,7 +77,7 @@ function actors_bob_flags()
     var _spr = 0;
     for (var i = 0; i < _n; i++)
     {
-        if (proj.actors[i].bob || _spr >= ACT_MAX_SPR)
+        if (proj.actors[i].bob || _spr >= ACT_MAX_SPR || spr_is_big(proj.sprites[clamp(proj.actors[i].sprite, 0, SPR_COUNT - 1)]))
         {
             _out[i] = true;
         }

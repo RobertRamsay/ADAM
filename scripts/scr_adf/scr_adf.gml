@@ -122,8 +122,9 @@ function ground_table_cached(_p)
     return array_create(BD_W, 256);
 }
 
-/// Writes one hardware sprite block (POS, CTL, 24 lines x 2 words, end). Returns its offset.
-function adf_sprite_block(_b, _img)
+/// Writes one hardware sprite block (POS, CTL, 24 lines x 2 words, end) from sprite
+/// struct _s (its top-left 16 x 24 pixels). Returns its offset.
+function adf_sprite_block(_b, _s)
 {
     buf_align(_b, 8);
     var _o = buffer_tell(_b);
@@ -134,7 +135,7 @@ function adf_sprite_block(_b, _img)
         var _w1 = 0;
         for (var sx = 0; sx < SPR_W; sx++)
         {
-            var _sv = _img[sy * SPR_W + sx];
+            var _sv = spr_get(_s, sx, sy);
             if ((_sv & 1) != 0) { _w0 = _w0 | (0x8000 >> sx); }
             if ((_sv & 2) != 0) { _w1 = _w1 | (0x8000 >> sx); }
         }
@@ -169,38 +170,53 @@ function pal_nearest(_p, _rgb, _ncol)
     return _best;
 }
 
-/// Writes one BOB image (engine.s BOB_*): 24 mask words, then _depth x 24
-/// words of bitplanes. Sprite pixel 1-3 becomes backdrop colour _map[0-2]. Returns its offset.
-function adf_bob_image(_b, _img, _map, _depth)
+/// Writes one BOB image (engine.s A_BSIZE) of sprite struct _s, _bw x _bh
+/// pixels (cropped or padded to that): _bw/16 x _bh mask words, then _depth
+/// planes the same size. Sprite pixel 1-3 becomes backdrop colour _map[0-2]. Returns its offset.
+function adf_bob_image(_b, _s, _bw, _bh, _map, _depth)
 {
     buf_align(_b, 8);
     var _o = buffer_tell(_b);
-    for (var my = 0; my < SPR_H; my++)
+    var _nw = _bw div 16;
+    for (var my = 0; my < _bh; my++)
     {
-        var _m = 0;
-        for (var mx = 0; mx < SPR_W; mx++)
+        for (var mw = 0; mw < _nw; mw++)
         {
-            if (_img[my * SPR_W + mx] != 0) { _m = _m | (0x8000 >> mx); }
+            var _m = 0;
+            for (var mx = 0; mx < 16; mx++)
+            {
+                if (spr_get(_s, mw * 16 + mx, my) != 0) { _m = _m | (0x8000 >> mx); }
+            }
+            be16(_b, _m);
         }
-        be16(_b, _m);
     }
     for (var pl = 0; pl < _depth; pl++)
     {
-        for (var py = 0; py < SPR_H; py++)
+        for (var py = 0; py < _bh; py++)
         {
-            var _w = 0;
-            for (var px = 0; px < SPR_W; px++)
+            for (var pw = 0; pw < _nw; pw++)
             {
-                var _v = _img[py * SPR_W + px];
-                if (_v != 0)
+                var _w = 0;
+                for (var px = 0; px < 16; px++)
                 {
-                    if (((_map[_v - 1] >> pl) & 1) != 0) { _w = _w | (0x8000 >> px); }
+                    var _v = spr_get(_s, pw * 16 + px, py);
+                    if (_v != 0)
+                    {
+                        if (((_map[_v - 1] >> pl) & 1) != 0) { _w = _w | (0x8000 >> px); }
+                    }
                 }
+                be16(_b, _w);
             }
-            be16(_b, _w);
         }
     }
     return _o;
+}
+
+/// [width, height] in pixels that actor _a is drawn at as a BOB: its sprite's size
+function adf_bob_dims(_p, _a)
+{
+    var _s = _p.sprites[clamp(_p.actors[_a].sprite, 0, SPR_COUNT - 1)];
+    return [_s.w, _s.h];
 }
 
 /// Builds the game data block. Returns { buf, size, warnings[], sound_bytes, plane_bytes }.
@@ -272,18 +288,19 @@ function adam_data_block(_p)
         {
             var _scol = _p.sprites[_si].cols;
             var _map = [pal_nearest(_p, _scol[0], _ncol), pal_nearest(_p, _scol[1], _ncol), pal_nearest(_p, _scol[2], _ncol)];
-            _spr_off[a] = adf_bob_image(_b, _p.sprites[_si].px, _map, _depth);
+            var _bsz = adf_bob_dims(_p, a);
+            _spr_off[a] = adf_bob_image(_b, _p.sprites[_si], _bsz[0], _bsz[1], _map, _depth);
             if (_ai >= 0 && _ai < SPR_COUNT)
             {
-                _spr2_off[a] = adf_bob_image(_b, _p.sprites[_ai].px, _map, _depth);
+                _spr2_off[a] = adf_bob_image(_b, _p.sprites[_ai], _bsz[0], _bsz[1], _map, _depth);
             }
         }
         else
         {
-            _spr_off[a] = adf_sprite_block(_b, _p.sprites[_si].px);
+            _spr_off[a] = adf_sprite_block(_b, _p.sprites[_si]);
             if (_ai >= 0 && _ai < SPR_COUNT)
             {
-                _spr2_off[a] = adf_sprite_block(_b, _p.sprites[_ai].px);
+                _spr2_off[a] = adf_sprite_block(_b, _p.sprites[_ai]);
             }
         }
     }
@@ -297,24 +314,41 @@ function adam_data_block(_p)
     {
         var _ac = _acts[a2];
         if ((_ac.role == 0 || _ac.role == 6) && _player < 0) { _player = a2; }
-        var _img2 = _p.sprites[clamp(_ac.sprite, 0, SPR_COUNT - 1)].px;
+        var _s2 = _p.sprites[clamp(_ac.sprite, 0, SPR_COUNT - 1)];
+        var _aw = SPR_W;                 // size on screen: 16 x 24 for a sprite
+        var _ah = SPR_H;
+        var _bsize = 0;
+        if (_bob[a2])
+        {
+            var _bd = adf_bob_dims(_p, a2);
+            _aw = _bd[0];
+            _ah = _bd[1];
+            _bsize = (_ah << 6) | (_aw div 16 + 1);
+        }
+        else if (spr_is_big(_s2))
+        {
+            array_push(_warn, "Actor '" + _ac.name + "' uses a sprite bigger than 16 x 24 - as a hardware sprite only its top-left 16 x 24 shows.");
+        }
         var _bx0 = 99;
         var _by0 = 99;
         var _bx1 = -1;
         var _by1 = -1;
-        for (var q = 0; q < SPR_W * SPR_H; q++)
+        for (var qy = 0; qy < _ah; qy++)
         {
-            if (_img2[q] != 0)
+            for (var qx = 0; qx < _aw; qx++)
             {
-                _bx0 = min(_bx0, q mod SPR_W);
-                _bx1 = max(_bx1, q mod SPR_W);
-                _by0 = min(_by0, q div SPR_W);
-                _by1 = max(_by1, q div SPR_W);
+                if (spr_get(_s2, qx, qy) != 0)
+                {
+                    _bx0 = min(_bx0, qx);
+                    _bx1 = max(_bx1, qx);
+                    _by0 = min(_by0, qy);
+                    _by1 = max(_by1, qy);
+                }
             }
         }
         if (_bx1 < 0)
         {
-            _bx0 = 0; _by0 = 0; _bx1 = SPR_W - 1; _by1 = SPR_H - 1;
+            _bx0 = 0; _by0 = 0; _bx1 = _aw - 1; _by1 = _ah - 1;
             array_push(_warn, "Actor '" + _ac.name + "' uses an empty sprite - it will be invisible.");
         }
         var _vis = 0;
@@ -323,8 +357,8 @@ function adam_data_block(_p)
         if (_ac.start_left) { _left = 1; }
         var _up = 0;
         if (_ac.start_up) { _up = 1; }
-        be16(_b, clamp(_ac.x, 0, ACT_XMAX));
-        be16(_b, clamp(_ac.y, 0, ACT_YMAX));
+        be16(_b, clamp(_ac.x, 0, BD_W - _aw));
+        be16(_b, clamp(_ac.y, 0, BD_H - _ah));
         be16(_b, clamp(_ac.role, 0, 8));
         be16(_b, clamp(_ac.speed, 1, 8));
         be16(_b, _vis);
@@ -346,9 +380,15 @@ function adam_data_block(_p)
         var _isbob = 0;
         if (_bob[a2]) { _isbob = 1; }
         be16(_b, _isbob);                // A_BOB
-        buf_zeros(_b, 6);
+        be16(_b, BD_W - _aw);            // A_XMAX
+        be16(_b, BD_H - _ah);            // A_YMAX
+        be16(_b, _bsize);                // A_BSIZE
         if (_alloc.conflict[a2]) { array_push(_warn, "Actor '" + _ac.name + "' shares a sprite colour pair with different colours - it will borrow its partner's colours."); }
-        if (_bob[a2] && !_ac.bob) { array_push(_warn, "Actor '" + _ac.name + "' is drawn as a BOB - the Amiga has 8 hardware sprites."); }
+        if (_bob[a2] && !_ac.bob)
+        {
+            if (spr_is_big(_s2)) { array_push(_warn, "Actor '" + _ac.name + "' is drawn as a BOB - its sprite is bigger than a hardware sprite (16 x 24)."); }
+            else { array_push(_warn, "Actor '" + _ac.name + "' is drawn as a BOB - the Amiga has 8 hardware sprites."); }
+        }
         if (!pro_on() && _ac.bob) { array_push(_warn, "Actor '" + _ac.name + "' is set to BOB - BOBs are part of ADAM Pro, so it is a sprite here."); }
     }
     buf_align(_b, 8);
@@ -519,7 +559,7 @@ function adam_data_block(_p)
     if (_p.show_score) { _sc = 1; }
     var _lv = 0;
     if (_p.show_lives) { _lv = 1; }
-    poke16(_b, 4, 3);                    // data block version 3: adds BOBs (H_DISP2, H_BACK, A_BOB)
+    poke16(_b, 4, 4);                    // data block version 4: BOBs (H_DISP2, H_BACK, A_BOB) of any size (A_XMAX, A_YMAX, A_BSIZE)
     poke16(_b, 6, _flags);
     poke16(_b, 8, _depth);
     poke16(_b, 10, _na);
@@ -564,9 +604,9 @@ function adam_data_block(_p)
         if (_bob[bc]) { _nbobs += 1; }
     }
     var _bmax = bobs_max(_m, _depth);
-    if (_nbobs > _bmax)
+    if (bobs_load() > _bmax)
     {
-        array_push(_warn, string(_nbobs) + " BOBs is a lot for the " + _m.short_name + " at " + string(_ncol) + " colours - about " + string(_bmax) + " run at full speed; with more the game slows down. Fewer BOBs or fewer colours help.");
+        array_push(_warn, string(_nbobs) + " BOBs is a lot for the " + _m.short_name + " at " + string(_ncol) + " colours - about " + string(_bmax) + " small ones run at full speed (big BOBs count as several); with more the game slows down. Fewer BOBs or fewer colours help.");
     }
     if (array_length(_acts) > _na)
     {

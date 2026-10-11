@@ -82,12 +82,13 @@ A_AMODE     equ 34         ; 0 = always animate, 1 = only while moving
 A_FROM      equ 36         ; first level this actor appears on (1..10)
 A_FAST      equ 38         ; +1 speed every N levels, 0 = never
 A_BOB       equ 40         ; 1 = BOB: A_SPR / A_SPR2 point at BOB images, A_CHAN is unused
+A_XMAX      equ 42         ; furthest right it goes: 320 - width
+A_YMAX      equ 44         ; furthest down it goes: 256 - height
+A_BSIZE     equ 46         ; BOB: BLTSIZE (height << 6) | (width in words + 1), 0 for a sprite
 ACT_SIZE    equ 48
 
-; BOB image (ADAM Pro): 16 x 24 pixels - 24 mask words, then depth x 24 words of bitplanes
-BOB_H       equ 24
-BOB_PLANE   equ 48         ; bytes per mask / plane
-BOB_SIZE    equ (BOB_H<<6)|2   ; BLTSIZE: 24 lines of 2 words (the image word + one for the shift)
+; BOB image (ADAM Pro): 16, 32, 48 or 64 pixels wide (w words) and h lines -
+; w x h mask words, then depth x w x h words of bitplanes
 
 ; rule record
 R_WHEN      equ 0
@@ -112,8 +113,6 @@ G_LEVTXT    equ 104        ; 16 bytes, e.g. "LEVEL"
 G_HEIGHTS   equ 120        ; nlevels x 320 words
 
 PLANE_SIZE  equ 10240      ; 320 x 256 / 8
-XMAX        equ 304        ; 320 - 16
-YMAX        equ 232        ; 256 - 24
 SPR_H       equ 24
 SFX_PERIOD  equ 322        ; ~11015 Hz on PAL
 SCORE_MAX   equ 99999
@@ -184,7 +183,7 @@ v_draw      rs.l 1         ; BOBs: the display being drawn (not on screen)
 v_bobbuf    rs.w 1         ; 0 = v_draw is v_disp, 1 = v_disp2
 v_drawn     rs.w 1         ; 1 = v_draw is ready to show
 v_bobn      rs.w 2         ; BOBs drawn into each display
-v_bobold    rs.w 2*MAX_ACT ; where they were (byte offset in a plane), to wipe them
+v_bobold    rs.w 4*MAX_ACT ; where they were (byte offset in a plane, BLTSIZE), to wipe them
 V_SIZE      rs.b 0
 
 ; ============================================================================
@@ -791,9 +790,9 @@ move_actors:
             beq.s   .pd
             move.w  v_ay(a5,d5.w),d0
             add.w   d1,d0
-            cmp.w   #YMAX,d0
+            cmp.w   A_YMAX(a2),d0
             ble.s   .pd1
-            move.w  #YMAX,d0
+            move.w  A_YMAX(a2),d0
 .pd1        move.w  d0,v_ay(a5,d5.w)
 .pd         btst    #2,d2
             beq.s   .pl
@@ -806,9 +805,9 @@ move_actors:
             beq.s   .pr
             move.w  v_ax(a5,d5.w),d0
             add.w   d1,d0
-            cmp.w   #XMAX,d0
+            cmp.w   A_XMAX(a2),d0
             ble.s   .pr1
-            move.w  #XMAX,d0
+            move.w  A_XMAX(a2),d0
 .pr1        move.w  d0,v_ax(a5,d5.w)
 .pr         bra     .next
 
@@ -817,9 +816,9 @@ move_actors:
             tst.w   v_dx(a5,d5.w)
             bne.s   .hl
             add.w   d1,d0
-            cmp.w   #XMAX,d0
+            cmp.w   A_XMAX(a2),d0
             ble.s   .hs
-            move.w  #XMAX,d0
+            move.w  A_XMAX(a2),d0
             move.w  #1,v_dx(a5,d5.w)
             bra.s   .hs
 .hl         sub.w   d1,d0
@@ -835,9 +834,9 @@ move_actors:
             tst.w   v_dy(a5,d5.w)
             bne.s   .vu
             add.w   d1,d0
-            cmp.w   #YMAX,d0
+            cmp.w   A_YMAX(a2),d0
             ble.s   .vs
-            move.w  #YMAX,d0
+            move.w  A_YMAX(a2),d0
             move.w  #1,v_dy(a5,d5.w)
             bra.s   .vs
 .vu         sub.w   d1,d0
@@ -885,9 +884,9 @@ move_actors:
             beq.s   .wr
             move.w  v_ax(a5,d5.w),d0
             add.w   d1,d0
-            cmp.w   #XMAX,d0
+            cmp.w   A_XMAX(a2),d0
             ble.s   .wr1
-            move.w  #XMAX,d0
+            move.w  A_XMAX(a2),d0
 .wr1        move.w  d0,v_ax(a5,d5.w)
 .wr         tst.w   v_gnd(a5,d5.w)          ; jump: fire or up, just pressed
             beq.s   .pphys
@@ -934,9 +933,9 @@ move_actors:
             tst.w   v_dx(a5,d5.w)
             bne.s   .hjl
             add.w   d1,d0
-            cmp.w   #XMAX,d0
+            cmp.w   A_XMAX(a2),d0
             ble.s   .hjs
-            move.w  #XMAX,d0
+            move.w  A_XMAX(a2),d0
             move.w  #1,v_dx(a5,d5.w)
             bra.s   .hjs
 .hjl        sub.w   d1,d0
@@ -977,8 +976,11 @@ ground_y:   move.l  v_game(a5),d2           ; level hills win over painted groun
             beq.s   .none
             lea     0(a4,d2.l),a0
 .col
+            move.w  #320,d1                 ; x + half the width
+            sub.w   A_XMAX(a2),d1
+            lsr.w   #1,d1
             move.w  v_ax(a5,d5.w),d2
-            addq.w  #8,d2
+            add.w   d1,d2
             cmp.w   #319,d2
             bls.s   .ok
             move.w  #319,d2
@@ -1008,7 +1010,7 @@ physics:    move.w  v_vy(a5,d5.w),d0
             add.w   d1,v_ay(a5,d5.w)
             move.w  v_gnd(a5,d5.w),d4       ; was standing last frame?
             move.w  #0,v_gnd(a5,d5.w)
-            bsr.s   ground_y
+            bsr     ground_y
             move.w  v_ay(a5,d5.w),d3        ; feet = y + bottom of the drawn pixels
             add.w   A_BY1(a2),d3
             addq.w  #1,d3
@@ -1026,9 +1028,9 @@ physics:    move.w  v_vy(a5,d5.w),d0
             move.w  #0,v_ysub(a5,d5.w)
             move.w  #1,v_gnd(a5,d5.w)
 .air        move.w  v_ay(a5,d5.w),d0
-            cmp.w   #YMAX,d0
+            cmp.w   A_YMAX(a2),d0
             ble.s   .top
-            move.w  #YMAX,v_ay(a5,d5.w)
+            move.w  A_YMAX(a2),v_ay(a5,d5.w)
             move.w  #0,v_vy(a5,d5.w)
             move.w  #1,v_gnd(a5,d5.w)
             rts
@@ -1167,8 +1169,9 @@ hide_sprites:
 ;  draws them at their new places; bob_flip shows it at the start of the
 ;  next frame, so nothing is ever drawn into the picture being shown.
 ;  Cookie-cut per plane: A = mask, B = image plane, C = D = screen,
-;  D = AB + ~AC. The image is one word wide; the blit is two words wide for
-;  the shift, with A's last word masked off (BLTALWM = 0) and A/B modulo -2.
+;  D = AB + ~AC. The image is w words wide (A_BSIZE); the blit is one word
+;  wider for the shift, with A's last word masked off (BLTALWM = 0) and A/B
+;  modulo -2, and C/D modulo 40 - 2 * (w + 1).
 ; ============================================================================
 ;
 ;  Waiting for the blitter: DMACONR's busy flag (BBUSY) only rises once a
@@ -1214,31 +1217,38 @@ bob_draw:
             lea     v_bobn(a5),a1           ; a1 = its count
             tst.w   v_bobbuf(a5)
             beq.s   .b0
-            lea     MAX_ACT*2(a3),a3
+            lea     MAX_ACT*4(a3),a3
             addq.l  #2,a1
 .b0
             ; ---- wipe last time's BOBs: background -> display
             bsr     bwait
             move.l  #$09f00000,$40(a6)      ; BLTCON0/1: D = A
             move.l  #$ffffffff,$44(a6)      ; first / last word masks
-            move.w  #40-4,$64(a6)           ; AMOD
-            move.w  #40-4,$66(a6)           ; DMOD
             move.w  (a1),d6
             subq.w  #1,d6
             bmi.s   .wiped
             move.l  a3,a0
 .wipe       moveq   #0,d4
-            move.w  (a0)+,d4
+            move.w  (a0)+,d4                ; byte offset in a plane
+            move.w  (a0)+,d5                ; BLTSIZE
+            move.w  d5,d0
+            and.w   #63,d0
+            add.w   d0,d0
+            moveq   #40,d1
+            sub.w   d0,d1                   ; modulo: 40 - blit width in bytes
             move.l  v_back(a5),d2
             add.l   d4,d2
             move.l  v_draw(a5),d3
             add.l   d4,d3
             move.w  H_DEPTH(a4),d7
             subq.w  #1,d7
+            bsr     bwait
+            move.w  d1,$64(a6)              ; AMOD
+            move.w  d1,$66(a6)              ; DMOD
 .wpl        bsr     bwait
             move.l  d2,$50(a6)              ; BLTAPT
             move.l  d3,$54(a6)              ; BLTDPT
-            move.w  #BOB_SIZE,d0
+            move.w  d5,d0
             bsr     bgo
             add.l   #PLANE_SIZE,d2
             add.l   #PLANE_SIZE,d3
@@ -1275,8 +1285,9 @@ bob_draw:
             add.w   d1,d1
             add.w   d1,d0                   ; byte offset in a plane
             move.w  (a1),d1                 ; remember it for next time's wipe
-            add.w   d1,d1
+            lsl.w   #2,d1
             move.w  d0,0(a3,d1.w)
+            move.w  A_BSIZE(a2),2(a3,d1.w)
             addq.w  #1,(a1)
             move.l  v_draw(a5),d3
             add.l   d0,d3                   ; d3 = screen, plane 0
@@ -1290,10 +1301,20 @@ bob_draw:
             move.l  #$ffff0000,$44(a6)      ; keep A's first word, drop the extra one
             move.w  #-2,$64(a6)             ; AMOD
             move.w  #-2,$62(a6)             ; BMOD
-            move.w  #40-4,$60(a6)           ; CMOD
-            move.w  #40-4,$66(a6)           ; DMOD
+            move.w  A_BSIZE(a2),d4
+            move.w  d4,d0
+            and.w   #63,d0
+            add.w   d0,d0                   ; blit width in bytes
+            moveq   #40,d1
+            sub.w   d0,d1
+            move.w  d1,$60(a6)              ; CMOD
+            move.w  d1,$66(a6)              ; DMOD
+            subq.w  #2,d0                   ; image width in bytes
+            move.w  d4,d1
+            lsr.w   #6,d1                   ; lines
+            mulu    d1,d0                   ; d0 = bytes per mask / plane
             move.l  a0,d2
-            add.l   #BOB_PLANE,d2           ; d2 = image, plane 0
+            add.l   d0,d2                   ; d2 = image, plane 0
             move.w  H_DEPTH(a4),d1
             subq.w  #1,d1
 .pl         bsr     bwait
@@ -1301,9 +1322,11 @@ bob_draw:
             move.l  d2,$4c(a6)              ; B = image plane
             move.l  d3,$48(a6)              ; C = screen
             move.l  d3,$54(a6)              ; D = screen
-            move.w  #BOB_SIZE,d0
+            move.w  d0,-(sp)
+            move.w  d4,d0
             bsr     bgo
-            add.l   #BOB_PLANE,d2
+            move.w  (sp)+,d0
+            add.l   d0,d2
             add.l   #PLANE_SIZE,d3
             dbf     d1,.pl
 .nxt        lea     ACT_SIZE(a2),a2
@@ -1636,14 +1659,19 @@ act_home:   cmp.w   H_NACT(a4),d4
 act_random: cmp.w   H_NACT(a4),d4
             bhs     act_none
             bsr     stop_fall
+            bsr     actor_rec
+            move.w  A_XMAX(a0),d2
+            addq.w  #1,d2
+            move.w  A_YMAX(a0),d3
+            sub.w   #15,d3
             bsr     rand
             and.l   #$ffff,d0
-            divu    #XMAX+1,d0
+            divu    d2,d0
             swap    d0
             move.w  d0,v_ax(a5,d5.w)
             bsr     rand
             and.l   #$ffff,d0
-            divu    #YMAX+1-16,d0
+            divu    d3,d0
             swap    d0
             add.w   #16,d0                  ; keep clear of the top row
             move.w  d0,v_ay(a5,d5.w)
