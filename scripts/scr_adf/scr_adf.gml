@@ -712,7 +712,7 @@ function build_adf(_path)
 }
 
 /// Dev tool (ADAM_DEV_TOOLS): build a disk without the UI, then quit.
-///     Runner.exe -game data.win -adam_build in.adam out.adf
+///     Runner.exe -game data.win -adam_build in.adam out.adf [-adam_mod song.mod]
 /// The session's own project is put back before quitting, so the autosave
 /// and settings are unchanged. The result goes to the debug output and out.adf.log.
 function dev_cli_build()
@@ -728,6 +728,19 @@ function dev_cli_build()
         try
         {
             proj = project_from_loaded(json_parse(file_read_text(_in)));
+            // -adam_mod file.mod adds that module as the next song (as Music > Import does)
+            for (var m = 0; m < _n - 1; m++)
+            {
+                if (parameter_string(m) != "-adam_mod") { continue; }
+                var _raw = mod_read(parameter_string(m + 1));
+                if (is_undefined(_raw)) { continue; }
+                var _ms = modsong_sanitize(_raw);
+                if (is_undefined(_ms)) { continue; }
+                var _song = song_new("Test");
+                _song.kind = 1;
+                _song[$ "mod"] = _ms;
+                array_push(proj.songs, _song);
+            }
             _ok = build_adf(_out);
         }
         catch (_e)
@@ -746,6 +759,114 @@ function dev_cli_build()
         return true;
     }
     return false;
+}
+
+/// Dev tool (ADAM_DEV_TOOLS): a PNG of every page, then quit.
+///     Runner.exe -game data.win -adam_shots in.adam outdir [-adam_shots_w 1920 -adam_shots_h 1080]
+/// The window is set to that size at 100% scale, the mouse is ignored and nothing is
+/// saved (no autosave, settings or window place), so the session is unchanged.
+function dev_cli_shots()
+{
+    var _n = parameter_count();
+    for (var i = 0; i < _n - 2; i++)
+    {
+        if (parameter_string(i) != "-adam_shots") { continue; }
+        var _in = parameter_string(i + 1);
+        shot_dir = parameter_string(i + 2);
+        var _sw = 1920;
+        var _sh = 1080;
+        for (var k = 0; k < _n - 1; k++)
+        {
+            if (parameter_string(k) == "-adam_shots_w") { _sw = real(parameter_string(k + 1)); }
+            if (parameter_string(k) == "-adam_shots_h") { _sh = real(parameter_string(k + 1)); }
+        }
+        try
+        {
+            proj = project_from_loaded(json_parse(file_read_text(_in)));
+        }
+        catch (_e)
+        {
+            show_debug_message("ADAM shots: could not read " + _in);
+            game_end();
+            return true;
+        }
+        project_after_change();
+        proj_dirty = false;
+        shot_on = true;
+        shot_i = 0;
+        shot_wait = 0;
+        shot_w = _sw;
+        shot_h = _sh;
+        auto_tutorials = false;
+        start_fullscreen = false;
+        ui_scale_pref = 1;
+        // the player's sprite is the one to show off on the Sprites page
+        if (array_length(proj.actors) > 0) { spr_sel = clamp(proj.actors[0].sprite, 0, SPR_COUNT - 1); }
+        return true;
+    }
+    return false;
+}
+
+/// Step: holds the window size and moves to the next page once the last one is saved
+function dev_shots_step()
+{
+    if (!shot_on) { return; }
+    if (window_get_fullscreen()) { window_set_fullscreen(false); }
+    if (window_get_width() != shot_w || window_get_height() != shot_h)
+    {
+        window_set_size(shot_w, shot_h);
+        shot_wait = 0;
+    }
+    machine_pick_active = false;
+    tut_offer_on = false;
+    toasts = [];
+    proj_dirty = false;
+    autosave_timer = 0;
+    ui_scale_pref = 1;
+    if (shot_i >= array_length(shot_pages))
+    {
+        game_end();
+        return;
+    }
+    var _pg = shot_pages[shot_i];
+    ws = _pg.ws;
+    bd_panel = _pg.panel;
+    shot_wait += 1;
+}
+
+/// Draw GUI: true when this frame is captured (draw into shot_surf, then dev_shots_end)
+function dev_shots_begin()
+{
+    if (!shot_on) { return false; }
+    // the mouse stays out of the way
+    ui_mx = -10000;
+    ui_my = -10000;
+    ui_pressed = false;
+    ui_held = false;
+    ui_released = false;
+    ui_rpressed = false;
+    ui_rheld = false;
+    ui_pressed_raw = false;
+    ui_wheel = 0;
+    if (shot_wait < 40 || shot_i >= array_length(shot_pages)) { return false; }
+    if (!surface_exists(shot_surf) || surface_get_width(shot_surf) != gui_w || surface_get_height(shot_surf) != gui_h)
+    {
+        if (surface_exists(shot_surf)) { surface_free(shot_surf); }
+        shot_surf = surface_create(gui_w, gui_h);
+    }
+    surface_set_target(shot_surf);
+    draw_clear(c_black);
+    return true;
+}
+
+function dev_shots_end()
+{
+    surface_reset_target();
+    var _f = shot_dir + "/" + string(shot_i + 1) + "_" + shot_pages[shot_i].name + ".png";
+    surface_save(shot_surf, _f);
+    show_debug_message("ADAM shots: " + _f);
+    shot_i += 1;
+    shot_wait = 0;
 }
 
 // ---------------------------------------------------------------------------

@@ -1,6 +1,7 @@
 /// The whole studio is drawn here in GUI space
 
 ui_frame_begin();
+var _shot = dev_shots_begin();
 ui_background(gui_w, gui_h);
 
 var _x1 = 16;
@@ -32,6 +33,7 @@ tut_draw(gui_w, gui_h);
 lesson_draw(gui_w, gui_h);
 machine_pick_draw(gui_w, gui_h);
 ui_frame_end();
+if (_shot) { dev_shots_end(); }
 
 draw_set_colour(c_white);
 draw_set_alpha(1);

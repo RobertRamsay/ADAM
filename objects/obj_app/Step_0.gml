@@ -21,8 +21,11 @@ if (startup_frames == 2)
     }
 }
 
+// dev: page screenshots (-adam_shots) - keeps its own window size, saves nothing
+dev_shots_step();
+
 // remember the window: full screen or not, and its size and place when windowed
-if (startup_frames > 10)
+if (startup_frames > 10 && !shot_on)
 {
     wsave_timer += 1;
     if (wsave_timer >= 30)

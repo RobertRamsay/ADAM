@@ -309,5 +309,27 @@ if (ADAM_DEV_TOOLS) { lessons_selftest(); }
 // dev: -adam_build in.adam out.adf builds a disk without the UI, then quits
 if (ADAM_DEV_TOOLS) { dev_cli_build(); }
 
+// dev: -adam_shots in.adam outdir saves a PNG of every page, then quits
+shot_on = false;
+shot_dir = "";
+shot_i = 0;
+shot_wait = 0;
+shot_w = 1920;
+shot_h = 1080;
+shot_surf = -1;
+shot_pages = [
+    { ws : WS_HOME,     panel : 0, name : "home" },
+    { ws : WS_BACKDROP, panel : 0, name : "backdrop" },
+    { ws : WS_BACKDROP, panel : 1, name : "copper_sky" },
+    { ws : WS_LEVELS,   panel : 0, name : "levels" },
+    { ws : WS_SPRITES,  panel : 0, name : "sprites" },
+    { ws : WS_ACTORS,   panel : 0, name : "actors" },
+    { ws : WS_LOGIC,    panel : 0, name : "logic" },
+    { ws : WS_SOUND,    panel : 0, name : "sound" },
+    { ws : WS_MUSIC,    panel : 0, name : "music" },
+    { ws : WS_BUILD,    panel : 0, name : "build" }
+];
+if (ADAM_DEV_TOOLS) { dev_cli_shots(); }
+
 // pick the Amiga before anything else (the Home tutorial follows it)
 machine_pick_open(true);
