@@ -183,7 +183,10 @@ function ws_build_draw(_x1, _y1, _x2, _y2)
     ui_heading(_fx, _y, "FS-UAE emulator");
     var _btn_w = 88;
     var _row_w = _fw - _btn_w - 8;
+    // release builds: "Get FS-UAE" opens fs-uae.net (dev builds have "Get test copy" there)
+    var _get_w = 108;
     if (ADAM_DEV_TOOLS) { _row_w -= _btn_w + 8; }
+    else { _row_w -= _get_w + 8; }
     ui_inset(_fx, _y + 18, _fx + _row_w, _y + 50, 8);
     if (fsuae_dl_id >= 0)
     {
@@ -198,8 +201,8 @@ function ws_build_draw(_x1, _y1, _x2, _y2)
         var _scol = global.TH.text_dim;
         if (_src == "")
         {
-            _src = "(not found - click Find to choose fs-uae.exe)";
-            if (os_type == os_macosx) { _src = "(not found - install FS-UAE in Applications, or Find it)"; }
+            _src = "(not found - Get FS-UAE and install it, or Find it)";
+            if (os_type == os_macosx) { _src = "(not found - Get FS-UAE, put it in Applications)"; }
             if (ADAM_DEV_TOOLS) { _src = "(not found - Get test copy, or Find your own)"; }
             _scol = global.TH.warn;
         }
@@ -235,6 +238,15 @@ function ws_build_draw(_x1, _y1, _x2, _y2)
     {
         fsuae_pad = _pd;
         settings_save();
+    }
+    if (!ADAM_DEV_TOOLS)
+    {
+        var _gst = BTN_GHOST;
+        if (fsuae_exe() == "") { _gst = BTN_ACCENT; }
+        if (ui_button("build_fsuae_web", _fx + _fw - _btn_w - 8 - _get_w, _y + 18, _get_w, 32, "Get FS-UAE", "Get FS-UAE|Opens fs-uae.net, where you can download FS-UAE - the free Amiga emulator that plays your games on your computer. Install it and ADAM finds it by itself; if you put it somewhere unusual, use Find.", _gst))
+        {
+            url_open(FSUAE_HOME_URL);
+        }
     }
     if (ADAM_DEV_TOOLS)
     {
