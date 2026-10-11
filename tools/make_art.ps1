@@ -1,6 +1,8 @@
 # Draws ADAM's artwork from the title's boing ball and four Amiga stripes:
 #   options/windows/icons/icon.ico   app icon (16-256 px)
 #   promo/itch_cover.png             itch.io cover, 630 x 500
+#   promo/itch_banner.png            itch.io page banner, 960 x 250
+#   promo/itch_background.png        itch.io page background, 1920 x 1080 (soft slate, blurred balls)
 #   options/windows/installer/header.bmp, finished.bmp   installer header 150 x 57, welcome/finish panel 164 x 314
 # Usage:  powershell -File tools\make_art.ps1 [-Png icon256.png]   (-Png also saves the 256px icon)
 param(
@@ -312,6 +314,123 @@ public static class AdamArt
         }
     }
 
+    // ---------- itch.io banner 960 x 250 ----------
+    const double BHor = 182;
+    const double BBx = 826, BBy = 112, BBr = 86;
+
+    static double[] BannerBack(double u, double v)
+    {
+        double[] c = { 0, 0, 0, 1 };
+        double t = Math.Min(1, v / BHor);
+        double band = Math.Floor(t * 12) / 12;
+        c[0] = (14 + 70 * band) / 255; c[1] = (18 + 16 * band) / 255; c[2] = (48 + 70 * band) / 255;
+        if (v >= BHor)
+        {
+            double dv = v - BHor + 0.5;
+            double fz = (v - BHor) / (250 - BHor);
+            c[0] = (34 + 26 * fz) / 255; c[1] = (22 + 12 * fz) / 255; c[2] = (56 + 30 * fz) / 255;
+            double gx = (u - 700) * 2.0 / dv, gz = 500 / dv;
+            double ppx = dv / 2.0, ppz = dv * dv / 500;
+            double ex = Math.Abs(gx - Math.Round(gx)) * ppx, ez = Math.Abs(gz - Math.Round(gz)) * ppz;
+            double line = 0;
+            if (ex < 1.0) { line = Math.Min(1, ppx / 4); }
+            if (ez < 1.0) { line = Math.Max(line, Math.Min(1, (ppz - 1.5) / 5)); }
+            if (line > 0) { Mix(c, 175 / 255.0, 95 / 255.0, 235 / 255.0, 0.9 * line); }
+            if (v < BHor + 1.5) { Mix(c, 1, 0.75, 0.95, 0.6); }
+        }
+        double sx = (u - BBx - 22) / 92, sy = (v - 222) / 13;
+        double e = sx * sx + sy * sy;
+        if (e < 1) { Mix(c, 0, 0, 0, 0.6 * (1 - e)); }
+        return c;
+    }
+
+    static double[] BannerBall(double u, double v)
+    {
+        double[] c = { 0, 0, 0, 0 };
+        Ball(c, u, v, BBx, BBy, BBr);
+        return c;
+    }
+
+    public static void WriteBanner(string path, string fontDir)
+    {
+        using (var bmp = Render(960, 250, 1.0, BannerBack, 3))
+        using (var ball = Render(960, 250, 1.0, BannerBall, 4))
+        using (var g = Graphics.FromImage(bmp))
+        using (var fonts = new PrivateFontCollection())
+        {
+            fonts.AddFontFile(Path.Combine(fontDir, "Poppins-Bold.ttf"));
+            FontFamily pop = fonts.Families[0];
+            g.SmoothingMode = SmoothingMode.AntiAlias;
+            g.TextRenderingHint = TextRenderingHint.AntiAliasGridFit;
+            g.PixelOffsetMode = PixelOffsetMode.HighQuality;
+            DrawTitle(g, pop, "ADAM", 96, 40, 34, 10, 14, true);
+            var orange = new SolidBrush(Color.FromArgb(255, 150, 40));
+            var dim = new SolidBrush(Color.FromArgb(205, 212, 232));
+            var f1 = new Font(pop, 30, FontStyle.Bold, GraphicsUnit.Pixel);
+            var f2 = new Font(pop, 17, FontStyle.Bold, GraphicsUnit.Pixel);
+            g.DrawString("Make Amiga games.", f1, Brushes.White, 44, 150, StringFormat.GenericTypographic);
+            float w1 = g.MeasureString("Make Amiga games.", f1, 2000, StringFormat.GenericTypographic).Width;
+            g.DrawString("No code needed.", f1, orange, 44 + w1 + 12, 150, StringFormat.GenericTypographic);
+            g.DrawString("Bootable disks for the Amiga 500, 600 and 1200", f2, dim, 46, 196, StringFormat.GenericTypographic);
+            g.DrawImage(ball, 0, 0, 960, 250);
+            g.Flush();
+            bmp.Save(path, ImageFormat.Png);
+        }
+    }
+
+    // ---------- itch.io page background 1920 x 1080: soft slate, blurred balls ----------
+    static double[] AmbientSample(double u, double v)
+    {
+        // u, v in a 480 x 270 space; the picture is drawn small and scaled up, which blurs it
+        double[] c = { 0, 0, 0, 1 };
+        double t = v / 270;
+        c[0] = (62 - 26 * t) / 255; c[1] = (70 - 28 * t) / 255; c[2] = (82 - 30 * t) / 255;
+        double vx = (u - 240) / 300, vy = (v - 120) / 220;          // gentle light in the middle
+        Mix(c, 92 / 255.0, 102 / 255.0, 118 / 255.0, Math.Max(0, 0.45 - (vx * vx + vy * vy) * 0.5));
+        double[][] balls = { new double[] {64, 150, 46, 0.30}, new double[] {420, 205, 58, 0.26}, new double[] {388, 52, 20, 0.22}, new double[] {120, 228, 26, 0.20} };
+        foreach (var b in balls)
+        {
+            double[] bc = { 0, 0, 0, 0 };
+            if (Ball(bc, u, v, b[0], b[1], b[2])) { Mix(c, bc[0], bc[1], bc[2], b[3]); }
+        }
+        return c;
+    }
+
+    public static void WriteBackground(string path, string fontDir)
+    {
+        using (var small = Render(480, 270, 1.0, AmbientSample, 3))
+        using (var bmp = new Bitmap(1920, 1080, PixelFormat.Format32bppArgb))
+        using (var g = Graphics.FromImage(bmp))
+        using (var fonts = new PrivateFontCollection())
+        {
+            g.InterpolationMode = InterpolationMode.HighQualityBicubic;
+            g.PixelOffsetMode = PixelOffsetMode.HighQuality;
+            using (var mid = new Bitmap(small, 120, 68)) { g.DrawImage(mid, -8, -8, 1936, 1096); }   // extra blur
+            using (var wash = new Bitmap(small)) { var ia = new ImageAttributes(); var cm = new ColorMatrix(); cm.Matrix33 = 0.55f; ia.SetColorMatrix(cm); g.DrawImage(wash, new Rectangle(0, 0, 1920, 1080), 0, 0, 480, 270, GraphicsUnit.Pixel, ia); }
+            // a faint ADAM logo, blurred the same way
+            fonts.AddFontFile(Path.Combine(fontDir, "Poppins-Bold.ttf"));
+            using (var logo = new Bitmap(480, 270, PixelFormat.Format32bppArgb))
+            using (var lg = Graphics.FromImage(logo))
+            {
+                lg.SmoothingMode = SmoothingMode.AntiAlias;
+                lg.TextRenderingHint = TextRenderingHint.AntiAliasGridFit;
+                DrawTitle(lg, fonts.Families[0], "ADAM", 30, 16, 12, 3.3f, 5, false);
+                var ia = new ImageAttributes(); var cm = new ColorMatrix(); cm.Matrix33 = 0.16f; ia.SetColorMatrix(cm);
+                g.DrawImage(logo, new Rectangle(0, 0, 1920, 1080), 0, 0, 480, 270, GraphicsUnit.Pixel, ia);
+            }
+            // fine noise so the gradient does not band
+            var rnd = new Random(1985);
+            for (int i = 0; i < 60000; i++)
+            {
+                int px = rnd.Next(1920), py = rnd.Next(1080);
+                Color o = bmp.GetPixel(px, py);
+                int d = rnd.Next(-4, 5);
+                bmp.SetPixel(px, py, Color.FromArgb(255, Math.Max(0, Math.Min(255, o.R + d)), Math.Max(0, Math.Min(255, o.G + d)), Math.Max(0, Math.Min(255, o.B + d))));
+            }
+            bmp.Save(path, ImageFormat.Png);
+        }
+    }
+
     public static void WriteCover(string path, string fontDir)
     {
         using (var bmp = Render(630, 500, 1.0, CoverBack, 4))
@@ -371,6 +490,9 @@ if (-not (Test-Path $promo)) { New-Item -ItemType Directory $promo | Out-Null }
 $cover = Join-Path $promo "itch_cover.png"
 [AdamArt]::WriteCover($cover, (Join-Path $root "datafiles\fonts"))
 Write-Host "Wrote $cover"
+[AdamArt]::WriteBanner((Join-Path $promo "itch_banner.png"), (Join-Path $root "datafiles\fonts"))
+[AdamArt]::WriteBackground((Join-Path $promo "itch_background.png"), (Join-Path $root "datafiles\fonts"))
+Write-Host "Wrote $promo\itch_banner.png and itch_background.png"
 $inst = Join-Path $root "options\windows\installer"
 [AdamArt]::WriteInstaller((Join-Path $inst "header.bmp"), (Join-Path $inst "finished.bmp"), (Join-Path $root "datafiles\fonts"))
 Write-Host "Wrote $inst\header.bmp and finished.bmp"
