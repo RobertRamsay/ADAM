@@ -807,6 +807,16 @@ function launch_fsuae(_adf)
     return true;
 }
 
+/// FS-UAE device for joystick port 2 (FS-UAE port 1), where ADAM games read the joystick.
+/// Keyboard: cursor keys move, right Ctrl fires (FS-UAE won't put it there by itself).
+/// Gamepad: "auto" makes FS-UAE pick the first controller it finds. Always set one or the
+/// other - some FS-UAE setups default port 1 to nothing.
+function fsuae_port_1()
+{
+    if (fsuae_pad == 1) { return "auto"; }
+    return "keyboard";
+}
+
 /// Called from the Step event once the old emulator has had time to close
 function launch_fsuae_now(_adf)
 {
@@ -821,15 +831,13 @@ function launch_fsuae_now(_adf)
         + " --floppy_drive_speed=0"
         + " --fullscreen=0"
         + " --window_width=960 --window_height=720"
-        + " --automatic_input_grab=0 --initial_input_grab=0"
-        // games read the joystick in port 2 (FS-UAE port 1): put the keyboard there -
-        // cursor keys move, right Ctrl fires. Without it the keys do nothing.
-        + " --joystick_port_1=keyboard";
+        + " --automatic_input_grab=0 --initial_input_grab=0";
     if (fsuae_light)
     {
         // light mode: no host vsync spin-wait and no smoothing filter - far less CPU/GPU load
         _args += " --video_sync=off --texture_filter=nearest";
     }
+    _args += " --joystick_port_1=" + fsuae_port_1();
     if (kick_path != "" && file_exists(kick_path))
     {
         _args += " --kickstart_file=\"" + kick_path + "\"";
@@ -888,7 +896,7 @@ function launch_fsuae_mac(_adf)
         "window_height = 720",
         "automatic_input_grab = 0",
         "initial_input_grab = 0",
-        "joystick_port_1 = keyboard"
+        "joystick_port_1 = " + fsuae_port_1()
     ];
     if (fsuae_light)
     {

@@ -148,7 +148,7 @@ function ws_build_draw(_x1, _y1, _x2, _y2)
     _y += 54;
     var _rst = BTN_ON;
     if (os_type != os_windows && os_type != os_macosx) { _rst = BTN_GHOST; }
-    if (ui_button("build_run", _fx, _y, _fw, 46, "Build and play in FS-UAE", "Build and play|Builds the disk and boots it in FS-UAE as a stock " + _m.name + ". Joystick: the cursor keys move and right Ctrl fires.", _rst))
+    if (ui_button("build_run", _fx, _y, _fw, 46, "Build and play in FS-UAE", "Build and play|Builds the disk and boots it in FS-UAE as a stock " + _m.name + ". Pick keyboard or gamepad under Joystick below.", _rst))
     {
         build_ws_build(true);
     }
@@ -208,6 +208,14 @@ function ws_build_draw(_x1, _y1, _x2, _y2)
         fsuae_light = _lt;
         settings_save();
     }
+    ui_text(_fx, _y + 106, "Joystick", global.TH.text, fa_left, fa_middle, global.f_body, 1);
+    var _pad_w = min(240, _fw - 90);
+    var _pd = ui_dropdown("build_pad", _fx + _fw - _pad_w, _y + 90, _pad_w, 32, global.FSUAE_PAD_NAMES, fsuae_pad, "Joystick|What plays the Amiga joystick in FS-UAE. Keyboard: cursor keys move, right Ctrl fires. Gamepad: your USB or Bluetooth controller (FS-UAE picks the first one it finds).");
+    if (_pd != fsuae_pad)
+    {
+        fsuae_pad = _pd;
+        settings_save();
+    }
     if (ADAM_DEV_TOOLS)
     {
         var _glab = "Get test copy";
@@ -217,7 +225,7 @@ function ws_build_draw(_x1, _y1, _x2, _y2)
             fsuae_download("");
         }
     }
-    _y += 92;
+    _y += 132;
     if (build_path_row("build_kick", _fx, _y, _fw, "Kickstart ROM (optional)", kick_path, "(none - FS-UAE uses its free AROS ROM)", "Find", "Kickstart ROM|Optional. ADAM games boot on FS-UAE's built-in AROS ROM, but you can use your own Kickstart for the most authentic test. Right-click clears it."))
     {
         var _k = get_open_filename("Kickstart ROM|*.rom;*.bin", "");

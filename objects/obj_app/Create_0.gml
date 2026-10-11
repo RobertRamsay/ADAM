@@ -113,6 +113,8 @@ tut_offer_rect = [0, 0, 0, 0];
 fsuae_path = "";
 kick_path = "";
 fsuae_light = true;
+fsuae_pad = 0;              // FS-UAE joystick: 0 keyboard (cursors + right Ctrl), 1 gamepad
+global.FSUAE_PAD_NAMES = ["Keyboard", "Gamepad"];
 app_focused = true;
 out_path = "";
 
