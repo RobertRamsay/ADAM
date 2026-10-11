@@ -97,5 +97,18 @@ the layout changed, examples regenerated if needed, and a short "how to verify" 
 - **Track B (editor):** Music page — 4 lanes (Paula channels) x bars timeline; left loop library (Drums / Bass / Chords / Lead / FX) with preview; drag or paint 1-bar loops onto lanes; double-click opens a 16-step grid / piano roll; instruments from built-in chip synth presets (rendered like the Sound page) and the user's WAV samples; BPM, swing, loop point; whole-song preview by mixing in GML.
 - **Track C (export/import):** write the arrangement as a standard 4-channel ProTracker MOD (so the engine plays it with ptplayer); import `.mod` files made in ProTracker / OpenMPT.
 
-### Phase 3 — Should-fix features
-- BOBs (blitter objects) for more than 8 moving things; bullets / "fire shoots"; second fire button and pause; sprite editor animated preview and PNG import; proper DOS disk so the ADF shows a named disk on Workbench; more genre examples once bullets/BOBs exist.
+### Product: ADAM Lite (free) and ADAM Pro (paid)
+- **Lite** makes and shares a complete small game: backdrop, copper sky, sprites, actors, rules, levels, Sound page (synth + WAV import), Music page (loop library, step editor, .mod import/export), lessons, bootable ADF. Never cripple Lite; Pro adds power and polish.
+- **Pro** = the Phase 4 features below. Planned unlock: one build + licence key (itch.io keys), checked like the `ADAM_DEV_TOOLS` switch - not two separate builds. Optional "Made with ADAM" card in Lite games that Pro removes.
+- Gate a Pro feature in one place (a `pro_on()` check) so the UI shows it locked with a short "Pro" note rather than hiding it.
+
+### Phase 3 — Should-fix features (Lite)
+- Sprite editor animated preview and PNG import; more genre examples.
+
+### Phase 4 — ADAM Pro
+- **Graphics:** dither gradients and drawing with dither patterns; BOBs (blitter objects) beyond the 8 hardware sprites; scrolling playfields (horizontal / vertical) with a tile level editor; parallax / dual playfield; colour cycling, raster bars and per-level copper effects (build on `copper_blend_lines`); IFF/ILBM import and export (Deluxe Paint / PPaint); attached sprites (15 colours), more animation frames, flipping.
+- **Gameplay:** bullets / "fire shoots" for player and enemies; variables and counters in rules; rooms / multiple screens per level; two players; pause and second fire button / CD32 pad; high-score table saved to disk.
+- **Sound and music:** instrument editor (synth envelopes, sample loop points); tracker effects in the step editor (slides, vibrato, arpeggio, volume); sample compression for more sound per disk.
+- **Output:** play-in-browser export for itch.io (web Amiga emulator); hard-drive install (WHDLoad slave) and CD32 image; custom boot / loading screens and an intro maker; proper DOS disk so the ADF shows a named disk with an icon on Workbench.
+- **Workflow:** genre templates and asset packs; play the game inside the editor without FS-UAE; 68000 source export for learning.
+- Suggested order: licence check + `pro_on()` first, then BOBs and scrolling (most other Pro features build on them), then the rest.
