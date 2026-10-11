@@ -513,7 +513,7 @@ function ws_backdrop_draw(_x1, _y1, _x2, _y2)
     }
     _y += 94;
     var _was = (proj.solid[bd_sel] != 0);
-    var _gr = ui_toggle("bd_solid", _fx, _y, "Ground colour (actors stand on it)", _was, "Ground colour|Platform players, hoppers and fallers stand on the first ground-coloured pixel in each column, so they walk up and down your hills. Marked with a dot in the palette. The Actors page shows the ground line.");
+    var _gr = ui_toggle("bd_solid", _fx, _y, "Ground colour (stand on it)", _was, "Ground colour|Platform players, hoppers and fallers stand on the first ground-coloured pixel in each column, so they walk up and down your hills. Marked with a dot in the palette. The Actors page shows the ground line.");
     if (_gr != _was)
     {
         undo_mark("bdsolid" + string(current_time));
@@ -544,7 +544,8 @@ function ws_backdrop_draw(_x1, _y1, _x2, _y2)
     }
     _y += 42;
     bd_show_actors = ui_toggle("bd_actors", _fx, _y, "Show actors", bd_show_actors, "Show actors|Draws your actors where they start, so you can paint around them.");
-    bd_show_hud = ui_toggle("bd_hud", _fx + floor(_fw / 2), _y, "Show score", bd_show_hud, "Show score row|Shows where the score and lives text will be drawn over the backdrop.");
+    _y += 32;
+    bd_show_hud = ui_toggle("bd_hud", _fx, _y, "Show score", bd_show_hud, "Show score row|Shows where the score and lives text will be drawn over the backdrop.");
     if (proj.levels_on)
     {
         _y += 32;

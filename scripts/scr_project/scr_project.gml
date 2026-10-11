@@ -22,8 +22,8 @@ function project_defs_init()
                          "Play music", "Stop music"];
     global.WAVE_NAMES = ["Triangle (soft)", "Sawtooth (buzzy)", "Square (classic)", "Noise (crunchy)"];
     global.SFX_PRESET_NAMES = ["Coin", "Laser", "Explosion", "Jump", "Hit", "Power up", "Lose", "Blip"];
-    global.TEMPLATE_NAMES = ["Player touches enemy: lose a life", "Player touches pickup: score + move pickup",
-                             "Score target: you win", "Out of lives: game over", "Every 10 seconds: speed up enemy",
+    global.TEMPLATE_NAMES = ["Player touches enemy: lose a life", "Player gets pickup: score",
+                             "Score target: you win", "Out of lives: game over", "Every 10 s: enemy speeds up",
                              "Fire button: play a sound"];
     global.DEPTH_NAMES = ["2 colours", "4 colours", "8 colours", "16 colours", "32 colours", "64 colours", "128 colours"];
 }

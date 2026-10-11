@@ -540,15 +540,15 @@ function music_toolbar(_cx1, _y1, _x2, _song)
         }
         _bx += 80;
     }
-    if (ui_button("mus_import", _bx, _ty, 124, 32, "Import .mod...", "Import a module|Loads a 4-channel ProTracker .mod made in ProTracker, OpenMPT or MilkyTracker as a new song. It plays as it is; to change it, edit it there and import it again.", BTN_NORMAL))
+    if (ui_button("mus_import", _bx, _ty, 140, 32, "Import .mod...", "Import a module|Loads a 4-channel ProTracker .mod made in ProTracker, OpenMPT or MilkyTracker as a new song. It plays as it is; to change it, edit it there and import it again.", BTN_NORMAL))
     {
         music_import_mod();
         _song = music_cur_song();
     }
-    _bx += 132;
+    _bx += 148;
     if (!is_undefined(_song))
     {
-        if (ui_button("mus_export", _bx, _ty, 108, 32, "Save .mod...", "Save as a module|Writes this song as a standard ProTracker .mod - exactly what goes on the disk - so you can open it in OpenMPT or ProTracker.", BTN_GHOST))
+        if (ui_button("mus_export", _bx, _ty, 124, 32, "Save .mod...", "Save as a module|Writes this song as a standard ProTracker .mod - exactly what goes on the disk - so you can open it in OpenMPT or ProTracker.", BTN_GHOST))
         {
             music_export_mod(_song);
         }

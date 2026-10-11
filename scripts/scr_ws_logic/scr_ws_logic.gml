@@ -565,8 +565,10 @@ function ws_logic_draw(_x1, _y1, _x2, _y2)
     var _px = _x2 - _rw;
     ui_panel(_px, _y1, _x2, _y2, "Quick recipes");
     var _ry = _y1 + 56;
-    ui_text_wrap(_px + 20, _ry, "One click adds ready-made rules. They use your first Player, enemy and Still actor.", global.TH.text_dim, _rw - 40, global.f_small, 1);
-    _ry += 50;
+    var _rintro = "One click adds ready-made rules. They use your first Player, enemy and Still actor.";
+    ui_text_wrap(_px + 20, _ry, _rintro, global.TH.text_dim, _rw - 40, global.f_small, 1);
+    draw_set_font(global.f_small);
+    _ry += max(50, ceil(ui_sh_ext(_rintro, _rw - 40)) + 14);
     var _rhelp = [
         "Enemy hit|Adds 4 rules: when the player touches an enemy, lose a life, go back to the start, flash the screen and flash the player for 3 safe seconds.",
         "Pickup|Adds 3 rules: when the player touches a pickup, add 10 points, move the pickup somewhere random and play the Coin sound.",

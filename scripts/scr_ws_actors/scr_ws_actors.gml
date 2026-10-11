@@ -197,7 +197,7 @@ function ws_actors_draw(_x1, _y1, _x2, _y2)
             if (_alloc.conflict[i]) { _sub += "  -  colours shared!"; }
             if (_alloc.chan[i] < 0) { _sub += "  -  BOB"; }
         }
-        ui_text(_x1 + 60, _ry + 35, _sub, global.TH.text_dim, fa_left, fa_middle, global.f_small, 1);
+        ui_text(_x1 + 60, _ry + 35, ui_text_fit(_sub, global.f_small, _lw - 84), global.TH.text_dim, fa_left, fa_middle, global.f_small, 1);
         if (_hot && ui_pressed)
         {
             sel_actor = i;
