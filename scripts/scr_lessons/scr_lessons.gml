@@ -113,7 +113,7 @@ function lessons_init()
 {
     les_defs = [
         {
-            name : "Basics - Walkabout", short : "Basics", mins : 5,
+            name : "Basics - Walkabout", short : "Basics", mins : 5, pro : false,
             steps : [
                 les_step(WS_HOME, "", "Lesson 1: Basics", "You'll make the smallest possible Amiga game: a hero you walk around a picture you painted. A fresh project has been started for you. Each card tells you what to do and ticks itself off when it's done - or press Skip.", undefined),
                 les_step(WS_HOME, "home_name", "Name your game", "Click the name box and type a name for your game.", function() { return proj.name != "My Amiga Game"; }),
@@ -128,7 +128,7 @@ function lessons_init()
             ]
         },
         {
-            name : "Beginner - Star Catcher", short : "Beginner", mins : 10,
+            name : "Beginner - Star Catcher", short : "Beginner", mins : 10, pro : false,
             steps : [
                 les_step(WS_HOME, "", "Lesson 2: Beginner", "Catch the bouncing star to score points, and reach 100 to win. You'll meet rules - the WHEN / DO sentences that turn pictures into a game. A fresh project has been started for you.", undefined),
                 les_step(WS_BACKDROP, "bd_canvas", "A quick backdrop", "Paint a sky and some ground, like in Basics: pick a colour, fill the picture, then box in the ground with a second colour.", function() { return les_bd_at(0, 0) != 0 && les_bd_at(160, 250) != les_bd_at(160, 20); }),
@@ -146,7 +146,7 @@ function lessons_init()
             ]
         },
         {
-            name : "Intermediate - Hill Hopper", short : "Intermediate", mins : 20,
+            name : "Intermediate - Hill Hopper", short : "Intermediate", mins : 20, pro : false,
             steps : [
                 les_step(WS_HOME, "", "Lesson 3: Intermediate", "A platform game: run and jump over hills, collect gems, dodge hoppers, and get through three levels. A fresh project has been started for you.", undefined),
                 les_step(WS_LEVELS, "lvl_on", "Switch levels on", "Levels give every stage its own hills that the Amiga draws at the start of the level.", function() { return proj.levels_on; }),
@@ -172,7 +172,7 @@ function lessons_init()
             ]
         },
         {
-            name : "Experienced - The full suite", short : "Experienced", mins : 35,
+            name : "Experienced - The full suite", short : "Experienced", mins : 35, pro : false,
             steps : [
                 les_step(WS_HOME, "", "Lesson 4: Experienced", "Everything ADAM can do, for the Amiga 1200: imported art, more colours, timed and level rules, your own samples, songs for each level, and checking memory. A fresh project has been started for you.", undefined),
                 les_step(WS_HOME, "top_machine", "The Amiga 1200", "Click the machine button and choose the Amiga 1200 (AGA, 2MB chip RAM).", function() { return proj.machine == "A1200"; }),
@@ -197,13 +197,60 @@ function lessons_init()
                 les_step(WS_BUILD, "build_run", "Play it on the 1200", "Build and play. Try every level, and listen for the songs changing.", function() { return les_built(); }),
                 les_step(WS_BUILD, "", "You've used it all!", "Machine choice, imported art, colour depth, sprite pairs, every kind of actor, timed and level rules, samples, songs, levels and memory. Over to you - make something great.", undefined)
             ]
+        },
+        {
+            name : "Pro - BOBs: Swarm", short : "Pro BOBs", mins : 15, pro : true,
+            steps : [
+                les_step(WS_HOME, "", "Lesson 5: BOBs (ADAM Pro)", "The Amiga has only 8 hardware sprites. BOBs - blitter objects - are drawn into the picture by the Amiga's blitter chip instead, so a game can have up to 32 actors. You'll make Swarm: dodge a cloud of buzzing bugs for as long as you can. A fresh project has been started for you.", undefined),
+                les_step(WS_BACKDROP, "bd_clear", "Paint the sky", "Pick a dark colour in the palette and fill the backdrop with it - the bugs will show up best on a dark sky.", function() { return les_bd_at(0, 0) != 0; }),
+                les_step(WS_SPRITES, "spr_grid", "Draw yourself", "Draw your hero in sprite 1 - 20 squares or more.", function() { return les_spr_px(0) >= 20; }),
+                les_step(WS_SPRITES, "spr_slot_1", "Draw a bug", "Click sprite 2 and draw a small bug. BOBs use the nearest backdrop colours, so pick bright pens that stand out.", function() { return les_spr_px(1) >= 8; }),
+                les_step(WS_ACTORS, "act_add", "Add yourself", "Add the first actor - it becomes the player.", function() { return array_length(proj.actors) >= 1; }),
+                les_step(WS_ACTORS, "act_add", "Add a bug", "Add a second actor. It picks the next sprite, so it is already your bug.", function() { return array_length(proj.actors) >= 2; }),
+                les_step(WS_ACTORS, "act_role", "Make it buzz", "Set the bug's behaviour to Bouncer.", function() { return array_length(proj.actors) >= 2 && proj.actors[1].role == 1; }),
+                les_step(WS_ACTORS, "act_bob", "Make it a BOB", "Switch on 'Draw as a BOB'. The bug no longer needs one of the 8 hardware sprites - the blitter draws it into the backdrop every frame.", function() { return array_length(proj.actors) >= 2 && proj.actors[1].bob; }),
+                les_step(WS_ACTORS, "act_dup", "A swarm", "With the bug selected, press Duplicate until there are 12 bugs. Twelve flying things at once is more than the sprites could ever do.", function() { return les_bob_count() >= 12; }),
+                les_step(WS_ACTORS, "act_stage", "Spread them out", "Drag some bugs to new places, and set a few to start moving left or up, so the swarm comes from everywhere.", undefined),
+                les_step(WS_LOGIC, "logic_add", "Don't get stung", "Add a rule: WHEN the player touches the player - the same actor twice means 'touches anything' - DO 'Lose a life'. One rule covers every bug.", function() { return les_touch_any(1); }),
+                les_step(WS_LOGIC, "logic_add", "Shake them off", "Add two more rules with the same WHEN: 'Move actor back to its start' (the player) and 'Safe for a while' (the player), so one bug can't take every life.", function() { return les_touch_any(4) && les_touch_any(16); }),
+                les_step(WS_LOGIC, "logic_add", "Score for surviving", "Add: WHEN 'Every few seconds' (1 second), DO 'Add to score'.", function() { return les_rule_has(2, 0); }),
+                les_step(WS_LOGIC, "logic_tpl_3", "Game over", "This recipe ends the game when the lives run out.", function() { return les_rule_has(4, 9); }),
+                les_step(WS_BUILD, "build_run", "Build and play", "Build and play. The Build checklist counts your sprites and BOBs. Each BOB costs blitter time every frame: on the A500 about 20 is plenty, the A1200 copes with more.", function() { return les_built(); }),
+                les_step(WS_BUILD, "", "That's a swarm!", "BOBs give you as many moving things as a real Amiga game. To see them in a finished game, load the Firefly Night example: 12 fireflies are BOBs, the owl and the bats are sprites.", undefined)
+            ]
         }
     ];
+}
+
+/// How many actors are set to BOB
+function les_bob_count()
+{
+    var _n = 0;
+    for (var i = 0; i < array_length(proj.actors); i++)
+    {
+        if (proj.actors[i].bob) { _n += 1; }
+    }
+    return _n;
+}
+
+/// Is there a 'touches anything' rule (same actor twice) with this DO?
+function les_touch_any(_act)
+{
+    for (var i = 0; i < array_length(proj.rules); i++)
+    {
+        var _r = proj.rules[i];
+        if (_r.when == 0 && _r.a == _r.b && _r.act == _act) { return true; }
+    }
+    return false;
 }
 
 /// Starts lesson _i on a fresh project
 function lesson_start(_i)
 {
+    if (les_defs[_i].pro)
+    {
+        if (!pro_gate("The " + les_defs[_i].short + " lesson")) { return; }
+    }
     if (proj_dirty)
     {
         if (!show_question("A lesson starts a new project. You have unsaved changes - start the lesson anyway?")) { return; }
@@ -266,6 +313,7 @@ function lesson_menu_names()
     for (var i = 0; i < array_length(les_defs); i++)
     {
         var _s = string(i + 1) + ". " + les_defs[i].name + "  (" + string(les_defs[i].mins) + " min)";
+        if (les_defs[i].pro && !pro_on()) { _s += "  - Pro"; }
         if (les_done[i]) { _s += "  - done"; }
         array_push(_n, _s);
     }

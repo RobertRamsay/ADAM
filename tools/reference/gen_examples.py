@@ -1,4 +1,5 @@
-# Generates the four example projects (datafiles/examples/*.adam) plus test ADFs and previews in tools/reference/out.
+# Generates the example projects (datafiles/examples/*.adam; Firefly Night is the ADAM Pro / BOB one)
+# plus test ADFs and previews in tools/reference/out.
 # Usage: python gen_examples.py
 import json, math, random, struct, sys, os
 from PIL import Image, ImageDraw
@@ -103,6 +104,8 @@ def auto_groups(p):
             if r['when']==0: return "Collecting gems"
             if r['when']==6: return "Jump sounds"
             return "Game and level flow"
+        if p['name']=="Firefly Night" and r['when']==0:
+            return "Catching fireflies" if names[r['b']]['name'].startswith("Firefly") else "Bats"
         if r['when']==0:
             tgt=names[r['b']]['name'] if r['b']<len(names) else "?"
             return names[r['a']]['name']+" touches "+tgt
@@ -431,10 +434,134 @@ def dodge_ball():
     return make_project("Dodge Ball",pal,im,sprites,actors,rules,[0x300050,0xb02090,0xffa040,118],msg_col=14,
                         win="CHAMPION! - PRESS FIRE",over="KNOCKED OUT - PRESS FIRE",songs=[tune])
 
+# ------------------------------------------------------------------ FIREFLY NIGHT (ADAM Pro: BOBs)
+def firefly_night():
+    # 0 copper sky, 2 HUD, 4-7 meadow greens, 8 trees, 9-10 moon, 11-12 bark, 14 glow, 15 mist
+    pal=[0x000000,0xffffff,0x14183a,0xffb040,0x0a1810,0x16301e,0x2a5232,0x6a9a4a,0x0c0c16,0xfff4c8,0xc8c4a0,0x3a2818,0x806040,0xff5040,0xffee70,0x50608a]
+    im=canvas(); d=ImageDraw.Draw(im); P=im.load()
+    rnd=random.Random(21)
+    for i in range(90):                                                      # stars, a few brighter ones
+        x=rnd.randint(0,319); y=rnd.randint(14,120); P[x,y]=1 if rnd.random()<0.25 else 15
+    mx,my=246,52                                                             # moon: pale core, soft edge, dithered haze
+    for y in range(14,110):
+        for x in range(190,310):
+            r=math.hypot(x-mx,y-my)
+            if r<=15: P[x,y]=9 if math.hypot(x-mx+4,y-my+4)<=12 else dmix(9,10,0.6,x,y)
+            elif r<=17: P[x,y]=10
+            elif r<=34: P[x,y]=dmix(15,0,(r-17)/17,x,y)
+    def far(x): return int(150+math.sin(x/31)*10+math.sin(x/13+1)*4)
+    for x in range(320):                                                     # far hills, moonlit edge, darker down
+        y=far(x)
+        for yy in range(y,256): P[x,yy]=dmix(15,5,0.6,x,yy) if yy-y<2 else ramp([6,5,4],(yy-y-2)/90,x,yy)
+    def tree(x,base,h):                                                      # fir silhouettes, a moonlit right edge
+        for yy in range(base-h,base+1):
+            hw=(yy-(base-h))*7//h+((yy-(base-h))%7)//3
+            for xx in range(x-hw,x+hw+1):
+                if 0<=xx<W: P[xx,yy]=8
+            if 0<=x+hw<W and hw>1: P[x+hw,yy]=dmix(8,15,0.4,x+hw,yy)
+        d.rectangle([x-1,base,x+1,base+5],fill=11)
+    for x,h in [(14,46),(40,34),(286,40),(306,52)]: tree(x,far(x)+6,h)
+    def near(x): return int(206+math.sin(x/37)*7+math.sin(x/11)*2)
+    for x in range(320):                                                     # the meadow, lit from the moon side
+        y=near(x)
+        for yy in range(y,256): P[x,yy]=dmix(7,6,0.5,x,yy) if yy-y<2 else ramp([6,5,4],(yy-y-2)/40,x,yy)
+    for i in range(70):                                                      # grass tufts
+        x=rnd.randint(2,317); y=near(x)+rnd.randint(2,40)
+        if y<255: d.line([(x,y),(x+rnd.choice((-1,1)),y-3)],fill=7)
+    d.rectangle([0,0,319,11],fill=2)
+    px=list(im.getdata()); text(px,"CATCH THE FIREFLIES - MIND THE BATS",20,246,1); im.putdata(px)
+    def grid(fn): return ["".join(".123"[fn(x,y)] for x in range(16)) for y in range(24)]
+    def owl(x,y,flap=False):
+        inb=lambda xx,yy: ((xx-7.5)/6.5)**2+((yy-12.5)/8.5)**2<=1
+        v=0
+        if inb(x,y):
+            v=1
+            if not (inb(x-1,y) and inb(x+1,y) and inb(x,y-1) and inb(x,y+1)): v=2
+            if ((x-7.5)/3.6)**2+((y-15.5)/4.6)**2<=1: v=3                     # pale belly
+        for ex in (5,10):                                                    # big eyes
+            if math.hypot(x-ex,y-9)<=1.9: v=3
+            if (x,y) in ((ex,9),(ex,10)): v=2
+        if (x,y) in ((7,11),(8,11),(7,12),(8,12)): v=2                         # beak
+        if y in (3,4,5) and x in (3,4,12,11) and (y-3)<=(1 if x in (3,12) else 2): v=2   # ear tufts
+        if y in (21,22) and x in (5,6,9,10): v=2                               # feet
+        if flap and 11<=y<=15 and x in (0,1,14,15): v=2 if y in (11,15) else 1   # wings out
+        if not flap and 12<=y<=16 and x in (1,14): v=2                         # wings folded
+        return v
+    def firefly(x,y,big=True):
+        v=0
+        r=math.hypot(x-7.5,y-15.5)
+        if r<=(4.2 if big else 2.4): v=1                                     # the glowing tail
+        if 6<=x<=9 and 9<=y<=13: v=2                                         # body
+        if (x,y) in ((7,8),(8,8),(6,8),(9,8)): v=2                           # head
+        if (x in (4,5) and y in (9,10)) or (x in (10,11) and y in (9,10)): v=3   # wings
+        return v
+    def bat(x,y,up=False):
+        v=0
+        if ((x-7.5)/2.6)**2+((y-12)/3.6)**2<=1: v=1                          # body
+        for side in (-1,1):
+            for k in range(1,8):
+                wx=round(7.5+side*(1.5+k)); top=(9-(k//2) if up else 10+(k//3))
+                bot=top+4-(k%3 if not up else (k%2))
+                if wx==x and top<=y<=bot: v=1 if y<bot else 2
+        if (x,y) in ((6,8),(9,8),(6,7),(9,7)): v=2                           # ears
+        if (x,y) in ((6,11),(9,11)): v=3                                     # eyes
+        return v
+    art.A['ff_owl']=grid(lambda x,y: owl(x,y)); art.A['ff_owl2']=grid(lambda x,y: owl(x,y,True))
+    art.A['ff_fly']=grid(lambda x,y: firefly(x,y)); art.A['ff_fly2']=grid(lambda x,y: firefly(x,y,False))
+    art.A['ff_bat']=grid(lambda x,y: bat(x,y)); art.A['ff_bat2']=grid(lambda x,y: bat(x,y,True))
+    owl_c=[0xa0703a,0x2a1808,0xf0e0b0]; fly_c=[0xffee70,0x3a2818,0xffffff]; bat_c=[0x5a3a7a,0x160c22,0xff4040]
+    sprites=[("Owl","ff_owl",owl_c),("Firefly","ff_fly",fly_c),("Bat","ff_bat",bat_c),
+             ("Owl flap","ff_owl2",owl_c),("Firefly blink","ff_fly2",fly_c),("Bat flap","ff_bat2",bat_c)]
+    actors=[actor("Owl",0,0,2,150,110,3,8,True),
+            actor("Bat 1",2,4,1,16,24,5,6),actor("Bat 2",2,2,2,200,70,5,6,left=True),actor("Bat 3",2,1,1,280,170,5,6,left=True,up=True)]
+    spots=[(30,40),(80,150),(120,30),(170,180),(220,120),(260,40),(40,190),(100,90),(150,60),(200,30),(270,200),(300,100)]
+    for i,(x,y) in enumerate(spots):
+        a=actor("Firefly %d"%(i+1),1,1,1+(i%3==0),x,y,4,6+(i%5)*2,left=i%2==1,up=i%3==1); a['bob']=True
+        actors.append(a)
+    nfly=len(spots); first=4
+    rules=[]
+    for b in range(first,first+nfly):
+        rules+=[R(b=b,act=0,value=10),R(b=b,act=5,target=b),R(b=b,act=2,value=0)]
+    for b in (1,2,3):
+        rules+=[R(b=b,act=1),R(b=b,act=4,target=0),R(b=b,act=2,value=4),R(b=b,act=3),R(b=b,act=16,target=0)]
+    rules+=[R(when=2,n=20,act=11,target=1),R(when=3,n=600,act=10),R(when=4,act=9),
+            R(when=5,act=2,value=5),R(when=5,act=16,target=0),R(when=5,act=18,value=0)]
+    sfx=sfx_list({0:dict(name="Glow",wave=0,pitch=96,sweep=6,len=5,atk=0,dec=4,sus=0,rel=4),
+                  4:dict(name="Swoop",wave=1,pitch=30,sweep=-4,len=10,atk=0,dec=6,sus=2,rel=5),
+                  5:dict(name="Night falls",wave=0,pitch=34,sweep=1,len=30,atk=4,dec=8,sus=8,rel=9)})
+    tune=song("Moonlight",95,[
+        bars("Half time",8,"Rock beat",7,"Tom fill",1),
+        bars("",2,"Root pulse",6,"Walking bass",8),
+        bars("Long minor",4,"Minor to major",4,"Long minor",4,"Minor to major",4),
+        bars("",4,"Long notes",4,"Arp up",2,"Hook one",2,"Arp down",2,"Hook two",2)],loop_bar=2)
+    p=make_project("Firefly Night",pal,im,sprites,actors,rules,[0x02030c,0x101a48,0x34305e,165],hud_col=1,msg_col=14,sfx=sfx,
+                   win="THE JAR IS FULL! - PRESS FIRE",over="THE BATS WIN - PRESS FIRE",songs=[tune])
+    p.update(title_on=True,title1="FIREFLY NIGHT",title2="PRESS FIRE TO START")
+    return p
+
 # ------------------------------------------------------------------ helpers
+def bob_flags(p):
+    # as actors_bob_flags in scr_ws_actors (ADAM Pro): set to BOB, or a sprite actor after the 8th
+    out=[]; spr=0
+    for a in p['actors'][:32]:
+        b=bool(a.get('bob')) or spr>=8
+        if not b: spr+=1
+        out.append(b)
+    return out
+
+def pal_nearest(p,rgb):
+    # as pal_nearest in scr_adf: nearest backdrop colour, never colour 0
+    best=1; bd=-1
+    for c in range(1,1<<p['depth']):
+        v=p['pal'][c]
+        d=(((v>>16)&255)-((rgb>>16)&255))**2*3+(((v>>8)&255)-((rgb>>8)&255))**2*4+((v&255)-(rgb&255))**2*2
+        if bd<0 or d<bd: bd=d; best=c
+    return best
+
 def alloc(p):
-    acts=p['actors']; key=['']*4; used=[0]*4; owner=[-1]*4; chan=[]; conf=[]
-    for i,a in enumerate(acts[:8]):
+    acts=p['actors']; key=['']*4; used=[0]*4; owner=[-1]*4; chan=[]; conf=[]; bob=bob_flags(p)
+    for i,a in enumerate(acts[:32]):
+        if bob[i]: chan.append(-1); conf.append(False); continue
         k=str([q(c) for c in p['sprites'][a['sprite']]['cols']]); pp=-1; cf=False
         for j in range(4):
             if pp<0 and used[j]==1 and key[j]==k: pp=j
@@ -519,9 +646,12 @@ def to_builder(p):
     spr=[dict(px=s['px'],cols=[q(c) for c in s['cols']]) for s in p['sprites']]
     # pair colours = owner's colours: emulate by giving each actor's sprite the owner colours is the same as build_test's rule
     acts=[]
-    for i,a in enumerate(p['actors']):
-        acts.append(dict(x=a['x'],y=a['y'],role=a['role'],speed=a['speed'],visible=int(a['visible']),left=int(a['start_left']),up=int(a['start_up']),
-                         sprite=a['sprite'],chan=chan[i],anim=a['anim_sprite'],rate=a['anim_rate'],amode=int(a['anim_moving']),**{'from':a['from_level'],'fast':a['faster_every']}))
+    for i,a in enumerate(p['actors'][:32]):
+        d=dict(x=a['x'],y=a['y'],role=a['role'],speed=a['speed'],visible=int(a['visible']),left=int(a['start_left']),up=int(a['start_up']),
+               sprite=a['sprite'],chan=max(0,chan[i]),anim=a['anim_sprite'],rate=a['anim_rate'],amode=int(a['anim_moving']),**{'from':a['from_level'],'fast':a['faster_every']})
+        if chan[i]<0:
+            d['bob']=1; d['bobmap']=[pal_nearest(p,c) for c in p['sprites'][a['sprite']]['cols']]
+        acts.append(d)
     return dict(depth=p['depth'],pal=[q(c) for c in p['pal']],pixels=p['pixels'],sprites=spr,actors=acts,rules=p['rules'],
                 sfx=[s for s in p['sfx']],lives=p['lives'],show_score=1,show_lives=1,hud_row=0,hud_col=p['hud_colour'],msg_col=p['msg_colour'],
                 over=p['over_text'],win=p['win_text'],grad=sky_table(p),ground=ground_table(p),game=game_block(p)), conf
@@ -536,9 +666,10 @@ def preview(p,fn):
             if v==0: im.putpixel((x,y),(sr,sg,sb))
             else: c=pal[v]; im.putpixel((x,y),((c>>16)&255,(c>>8)&255,c&255))
     chan,conf,owner=alloc(p)
-    for i,a in enumerate(p['actors']):
-        oc=p['sprites'][p['actors'][owner[chan[i]//2]]['sprite']]['cols']
+    for i,a in enumerate(p['actors'][:32]):
         s=p['sprites'][a['sprite']]
+        if chan[i]<0: oc=[pal[pal_nearest(p,c)] for c in s['cols']]        # BOB: nearest backdrop colours
+        else: oc=p['sprites'][p['actors'][owner[chan[i]//2]]['sprite']]['cols']
         for yy in range(24):
             for xx in range(16):
                 v=s['px'][yy*16+xx]
@@ -547,7 +678,8 @@ def preview(p,fn):
 
 if __name__=='__main__':
     OUT=os.path.join(HERE,'out'); os.makedirs(OUT,exist_ok=True)
-    for fn,make in [('gem_hunter',gem_hunter),('deep_dive',deep_dive),('star_catcher',star_catcher),('dodge_ball',dodge_ball)]:
+    for fn,make in [('gem_hunter',gem_hunter),('deep_dive',deep_dive),('star_catcher',star_catcher),('dodge_ball',dodge_ball),
+                    ('firefly_night',firefly_night)]:
         p=make()
         auto_groups(p)
         json.dump(p,open(os.path.join(REPO,'datafiles','examples','%s.adam'%fn),'w'),separators=(',',':'))

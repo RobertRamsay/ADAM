@@ -275,7 +275,7 @@ les_done_t = -1;            // current_time when this step's task was done, -1 =
 les_step_t = 0;             // current_time when this step began
 les_check_timer = 0;
 les_card_rect = [0, 0, 0, 0];
-les_done = array_create(4, false);  // lessons finished (saved in the settings)
+les_done = array_create(5, false);  // lessons finished (saved in the settings) - one per entry in les_defs
 les_defs = [];
 lessons_init();
 settings_load();
