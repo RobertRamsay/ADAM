@@ -8,7 +8,7 @@ Work down the list in order. Do the release on a branch or a clean checkout of
 
 The version lives in one place: `#macro ADAM_VERSION` in
 `scripts/scr_about/scr_about.gml`. It shows in the window title
-("ADAM 1.0.0 - ...") and on Home > About ADAM & licences.
+("ADAM Lite 1.0.0 - ..." or "ADAM Pro 1.0.0 - ...") and on Home > About ADAM & licences.
 
 GameMaker's exe metadata cannot read a macro, so when the version changes also
 set, in `options/windows/options_windows.yy` (IDE: Game Options > Windows):
@@ -29,26 +29,18 @@ point ADAM at their own FS-UAE. Do **not** commit this to `main` - day-to-day
 development runs with it `true`. Keep it on the release branch or revert it
 after the build.
 
-## 2b. Put the real ADAM Pro licence secret in (release build only)
+## 2b. Lite and Pro: two builds
 
-The repo is public, so `scripts/scr_licence_secret` only holds a placeholder;
-a public build with the placeholder refuses every key. The real secret lives
-outside the repo in `D:\POLYTRICITY\ADAM_private\scr_licence_secret.gml`
-(made once with `tools\licence_secret.ps1 -New` - **back it up**: keys already
-sold are signed with it).
+ADAM Lite (free) and ADAM Pro (paid) are two zips from the same project. The
+switch is `#macro ADAM_PRO` in `scripts/scr_licence/scr_licence.gml`:
 
-    powershell -File tools\licence_secret.ps1 -Install
+    #macro ADAM_PRO 0    // ADAM Lite
+    #macro ADAM_PRO 1    // ADAM Pro
 
-Also check `#macro ADAM_PRO_OVERRIDE -1` in `scripts/scr_licence/scr_licence.gml`.
-After the build (step 4) run `tools\licence_secret.ps1 -Remove`. A local git
-hook refuses any commit while the real secret is in the project.
-
-Licence keys for itch.io ("External keys", one per buyer):
-
-    powershell -File tools\make_licence_keys.ps1 -Count 100 -Out D:\POLYTRICITY\ADAM_private\keys.txt
-
-Keep `keys.txt` private too. `-Dev` makes test keys from the placeholder - they
-only work in dev builds.
+Do steps 3-6 once with `0` (zip `ADAM_1.0.0_LITE.zip`) and once with `1`
+(zip `ADAM_1.0.0_PRO.zip`). The window title and the LITE/PRO chip in the top
+bar show which one you built. Upload Lite to the free itch.io page and Pro to
+the paid one.
 
 ## 3. Check
 
@@ -72,11 +64,11 @@ and `--of` apart from where the log is written):
     & "$rt\bin\igor\windows\x64\Igor.exe" -j=8 --project="D:\POLYTRICITY\ADAM\ADAM.yyp" `
       --user="C:\Users\Robert\AppData\Roaming\GameMakerStudio2-LTS2026\me_1710" `
       --runtimePath="$rt" --temp="$env:TEMP\adam_rel\tmp" --cache="$env:TEMP\adam_rel\cache" `
-      --of="$env:TEMP\adam_rel\out" --tf="ADAM_1.0.0_win.zip" --runtime=VM -- Windows PackageZip
+      --of="$env:TEMP\adam_rel\out" --tf="ADAM_1.0.0_LITE.zip" --runtime=VM -- Windows PackageZip
 
-Zero compile errors. Then check the zip:
+(`_PRO.zip` for the Pro build.) Zero compile errors. Then check the zip:
 
-    powershell -File tools\release_check.ps1 -Zip <path>\ADAM_1.0.0_win.zip
+    powershell -File tools\release_check.ps1 -Zip <path>\ADAM_1.0.0_LITE.zip
 
 ## 5. What goes in the zip
 
@@ -100,7 +92,7 @@ Nothing from `tools/`, no FS-UAE, no Kickstart ROMs, no `.patch` files.
 Use a clean save folder (rename `%LOCALAPPDATA%\ADAM` first) so it behaves like a
 first run.
 
-1. Launch: the machine picker appears; pick **Amiga 500/600**. Window title reads "ADAM 1.0.0 - ...".
+1. Launch: the machine picker appears; pick **Amiga 500/600**. Window title reads "ADAM Lite 1.0.0 - ..." (or Pro).
 2. **Home**: guided tour starts and can be closed; Example games > Gem Hunter loads; New / Open / Save / Save as work; **About ADAM & licences** opens, scrolls to the end of the OFL text, closes with Close and with Esc.
 3. **Backdrop**: paint, fill, text, import a PNG, undo/redo.
 4. **Levels**: change the seed, shape a hill, set title and goal.
@@ -118,7 +110,8 @@ first run.
 
 - **butler** (recommended, keeps patch downloads small):
 
-      butler push ADAM_1.0.0_win.zip <itch-user>/<game>:windows --userversion 1.0.0
+      butler push ADAM_1.0.0_LITE.zip <itch-user>/<lite-game>:windows --userversion 1.0.0
+      butler push ADAM_1.0.0_PRO.zip <itch-user>/<pro-game>:windows --userversion 1.0.0
 
 - or the web: Edit game > Uploads > Upload files, tick **Windows**, and
   delete/hide the old upload.
@@ -131,4 +124,3 @@ and font8x8 (public domain).
 
 - Tag the commit: `git tag v1.0.0` and push the tag.
 - Set `ADAM_DEV_TOOLS` back to `true` on the development branch.
-- `powershell -File tools\licence_secret.ps1 -Remove` if you have not already.

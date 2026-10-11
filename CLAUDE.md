@@ -99,9 +99,8 @@ the layout changed, examples regenerated if needed, and a short "how to verify" 
 
 ### Product: ADAM Lite (free) and ADAM Pro (paid)
 - **Lite** makes and shares a complete small game: backdrop, copper sky, sprites, actors, rules, levels, Sound page (synth + WAV import), Music page (loop library, step editor, .mod import/export), lessons, bootable ADF. Never cripple Lite; Pro adds power and polish.
-- **Pro** = the Phase 4 features below. Planned unlock: one build + licence key (itch.io keys), checked like the `ADAM_DEV_TOOLS` switch - not two separate builds. Optional "Made with ADAM" card in Lite games that Pro removes.
+- **Pro** = the Phase 4 features below. Two builds from one project: `#macro ADAM_PRO` in `scr_licence` (0 = Lite, 1 = Pro); Bob builds `_LITE` and `_PRO` zips himself (docs/RELEASE.md). No licence keys. Optional "Made with ADAM" card in Lite games that Pro removes.
 - Gate a Pro feature in one place: `pro_on()` (or `pro_gate("Feature")` for a button) in `scr_licence`, so the UI shows it locked with a short "Pro" note rather than hiding it.
-- **The repo is public: never commit the real licence secret.** `scr_licence_secret` holds a placeholder; the real one is in `D:\POLYTRICITY\ADAM_private\` and goes in only for release builds (`tools\licence_secret.ps1 -Install` / `-Remove`, see docs/RELEASE.md). Test keys: `tools\make_licence_keys.ps1 -Dev`.
 
 ### Phase 3 — Should-fix features (Lite)
 - Sprite editor animated preview and PNG import; more genre examples.
@@ -112,4 +111,4 @@ the layout changed, examples regenerated if needed, and a short "how to verify" 
 - **Sound and music:** instrument editor (synth envelopes, sample loop points); tracker effects in the step editor (slides, vibrato, arpeggio, volume); sample compression for more sound per disk.
 - **Output:** play-in-browser export for itch.io (web Amiga emulator); hard-drive install (WHDLoad slave) and CD32 image; custom boot / loading screens and an intro maker; proper DOS disk so the ADF shows a named disk with an icon on Workbench.
 - **Workflow:** genre templates and asset packs; play the game inside the editor without FS-UAE; 68000 source export for learning.
-- Suggested order: licence check + `pro_on()` first, then BOBs and scrolling (most other Pro features build on them), then the rest.
+- Suggested order: `pro_on()` (done), then BOBs and scrolling (most other Pro features build on them), then the rest.

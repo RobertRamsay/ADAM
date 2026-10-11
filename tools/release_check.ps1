@@ -22,15 +22,13 @@ if ($adf -match '#macro\s+ADAM_DEV_TOOLS\s+(\w+)') {
     else { Bad "ADAM_DEV_TOOLS is $($Matches[1]) in scr_adf.gml - set it to false for the public build" }
 } else { Bad "ADAM_DEV_TOOLS macro not found in scr_adf.gml" }
 
-# ADAM Pro licence: no testing override, and the real secret installed (tools\licence_secret.ps1 -Install)
+# which edition this build makes (ADAM_PRO in scripts/scr_licence)
 $lic = Get-Content -Raw "$root\scripts\scr_licence\scr_licence.gml"
-if ($lic -match '#macro\s+ADAM_PRO_OVERRIDE\s+(-?\d+)') {
-    if ($Matches[1] -eq "-1") { Ok "ADAM_PRO_OVERRIDE is -1 (keys decide)" }
-    else { Bad "ADAM_PRO_OVERRIDE is $($Matches[1]) in scr_licence.gml - set it to -1" }
-} else { Bad "ADAM_PRO_OVERRIDE macro not found in scr_licence.gml" }
-$sec = Get-Content -Raw "$root\scripts\scr_licence_secret\scr_licence_secret.gml"
-if ($sec -match 'ADAM-DEV-PLACEHOLDER') { Bad "the licence secret is the public placeholder - run tools\licence_secret.ps1 -Install (and -Remove after the build)" }
-else { Ok "real licence secret installed (remember -Remove after the build)" }
+if ($lic -match '#macro\s+ADAM_PRO\s+(\d+)') {
+    if ($Matches[1] -eq "1") { Write-Host "Edition: PRO  (ADAM_PRO 1) - name the zip ..._PRO" -ForegroundColor Yellow }
+    elseif ($Matches[1] -eq "0") { Write-Host "Edition: LITE (ADAM_PRO 0) - name the zip ..._LITE" -ForegroundColor Yellow }
+    else { Bad "ADAM_PRO is $($Matches[1]) in scr_licence.gml - it must be 0 (Lite) or 1 (Pro)" }
+} else { Bad "ADAM_PRO macro not found in scr_licence.gml" }
 
 # Windows options must carry the same version
 $opt = Get-Content -Raw "$root\options\windows\options_windows.yy"

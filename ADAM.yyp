@@ -54,7 +54,6 @@
     {"id":{"name":"scr_lessons","path":"scripts/scr_lessons/scr_lessons.yy",},},
     {"id":{"name":"scr_levels","path":"scripts/scr_levels/scr_levels.yy",},},
     {"id":{"name":"scr_licence","path":"scripts/scr_licence/scr_licence.yy",},},
-    {"id":{"name":"scr_licence_secret","path":"scripts/scr_licence_secret/scr_licence_secret.yy",},},
     {"id":{"name":"scr_machine","path":"scripts/scr_machine/scr_machine.yy",},},
     {"id":{"name":"scr_mod","path":"scripts/scr_mod/scr_mod.yy",},},
     {"id":{"name":"scr_music","path":"scripts/scr_music/scr_music.yy",},},

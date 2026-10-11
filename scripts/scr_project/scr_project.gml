@@ -811,8 +811,6 @@ function settings_load()
     }
     fsuae_light = ini_read_real("emulator", "light", 1) == 1;
     fsuae_pad = clamp(round(ini_read_real("emulator", "pad", 0)), 0, 1);
-    licence_key = ini_read_string("licence", "key", "");
-    pro_unlocked = licence_check(licence_key);
     out_path = ini_read_string("paths", "adf", "");
     proj_path = ini_read_string("paths", "project", "");
     last_machine = ini_read_string("machine", "last", "A1200");
@@ -853,7 +851,6 @@ function settings_save()
     if (fsuae_light) { _light = 1; }
     ini_write_real("emulator", "light", _light);
     ini_write_real("emulator", "pad", fsuae_pad);
-    ini_write_string("licence", "key", licence_key);
     ini_write_string("paths", "adf", out_path);
     ini_write_string("paths", "project", proj_path);
     ini_write_string("machine", "last", last_machine);

@@ -100,13 +100,7 @@ last_machine = "A1200";
 about_active = false;
 about_anim = 0;
 about_text = "";
-about_page = 0;             // 0 = licences, 1 = ADAM Pro (licence key)
-
-// ---------- ADAM Lite / Pro (scr_licence) ----------
-pro_unlocked = false;       // a good licence key is saved on this computer
-licence_key = "";           // that key, ADAM-XXXX-XXXX-XXXX-XXXX
-licence_entry = "";         // what is typed in the key box
-licence_msg = "";           // why the last key was refused
+about_page = 0;             // 0 = licences, 1 = ADAM Pro (which edition)
 
 // ---------- workspaces ----------
 ws = WS_HOME;
@@ -311,9 +305,6 @@ if (ADAM_DEV_TOOLS) { mod_selftest(); }
 
 // lessons: every step check() runs once on a new project and each example (IDE Output window)
 if (ADAM_DEV_TOOLS) { lessons_selftest(); }
-
-// licence keys: a made-up key checks, a changed one fails (IDE Output window)
-if (ADAM_DEV_TOOLS) { licence_selftest(); }
 
 // pick the Amiga before anything else (the Home tutorial follows it)
 machine_pick_open(true);
