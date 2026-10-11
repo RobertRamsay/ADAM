@@ -4,6 +4,7 @@
 #   promo/itch_banner.png            itch.io page banner, 960 x 250
 #   promo/launch_devlog.png          launch / devlog image, 1200 x 675 (from the screenshots in promo/shots)
 #   promo/itch_background.png        itch.io page background, 1920 x 1080 (soft slate, blurred balls)
+#   promo/macos_splash.png           "now on macOS" splash, 1920 x 1080 (ADAM on a laptop)
 #   options/windows/installer/header.bmp, finished.bmp   installer header 150 x 57, welcome/finish panel 164 x 314
 # Usage:  powershell -File tools\make_art.ps1 [-Png icon256.png]   (-Png also saves the 256px icon)
 param(
@@ -541,6 +542,154 @@ public static class AdamArt
         }
     }
 
+    // ---------- "now on macOS" splash 1920 x 1080: ADAM on a laptop ----------
+    const double MHor = 800;
+    const double MBx = 1752, MBy = 168, MBr = 112;
+
+    static double[] MacBack(double u, double v)
+    {
+        double[] c = { 0, 0, 0, 1 };
+        double t = Math.Min(1, v / MHor);
+        double band = Math.Floor(t * 20) / 20;
+        c[0] = (14 + 70 * band) / 255; c[1] = (18 + 16 * band) / 255; c[2] = (48 + 70 * band) / 255;
+        if (v >= MHor)
+        {
+            double dv = v - MHor + 0.5;
+            double fz = (v - MHor) / (1080 - MHor);
+            c[0] = (34 + 26 * fz) / 255; c[1] = (22 + 12 * fz) / 255; c[2] = (56 + 30 * fz) / 255;
+            double gx = (u - 960) * 2.4 / dv, gz = 1300 / dv;
+            double ppx = dv / 2.4, ppz = dv * dv / 1300;
+            double ex = Math.Abs(gx - Math.Round(gx)) * ppx, ez = Math.Abs(gz - Math.Round(gz)) * ppz;
+            double line = 0;
+            if (ex < 1.3) { line = Math.Min(1, ppx / 4); }
+            if (ez < 1.3) { line = Math.Max(line, Math.Min(1, (ppz - 1.5) / 5)); }
+            if (line > 0) { Mix(c, 175 / 255.0, 95 / 255.0, 235 / 255.0, 0.9 * line); }
+            if (v < MHor + 2) { Mix(c, 1, 0.75, 0.95, 0.6); }
+        }
+        double lx = (u - 1320) / 640, ly = (v - 846) / 40;          // the laptop's shadow
+        double le = lx * lx + ly * ly;
+        if (le < 1) { Mix(c, 0, 0, 0, 0.7 * (1 - le)); }
+        double sx = (u - MBx - 40) / 130, sy = (v - 960) / 20;      // the ball's shadow
+        double e = sx * sx + sy * sy;
+        if (e < 1) { Mix(c, 0, 0, 0, 0.6 * (1 - e)); }
+        return c;
+    }
+
+    // the laptop's desktop picture (480 x 270, scaled up): slate with a soft purple glow
+    static double[] MacWall(double u, double v)
+    {
+        double[] c = { 0, 0, 0, 1 };
+        double t = v / 270;
+        c[0] = (58 - 22 * t) / 255; c[1] = (66 - 24 * t) / 255; c[2] = (84 - 26 * t) / 255;
+        double gx = (u - 330) / 260, gy = (v - 200) / 160;
+        Mix(c, 120 / 255.0, 70 / 255.0, 160 / 255.0, Math.Max(0, 0.5 - (gx * gx + gy * gy) * 0.5));
+        return c;
+    }
+
+    static double[] MacBall(double u, double v)
+    {
+        double[] c = { 0, 0, 0, 0 };
+        Ball(c, u, v, MBx, MBy, MBr);
+        return c;
+    }
+
+    public static void WriteMacSplash(string path, string fontDir, string editorShot)
+    {
+        using (var bmp = Render(1920, 1080, 1.0, MacBack, 3))
+        using (var ball = Render(1920, 1080, 1.0, MacBall, 4))
+        using (var wall = Render(480, 270, 1.0, MacWall, 2))
+        using (var g = Graphics.FromImage(bmp))
+        using (var fonts = new PrivateFontCollection())
+        using (var ed = Image.FromFile(editorShot))
+        {
+            fonts.AddFontFile(Path.Combine(fontDir, "Poppins-Bold.ttf"));
+            FontFamily pop = fonts.Families[0];
+            g.SmoothingMode = SmoothingMode.AntiAlias;
+            g.TextRenderingHint = TextRenderingHint.AntiAliasGridFit;
+            g.PixelOffsetMode = PixelOffsetMode.HighQuality;
+            g.InterpolationMode = InterpolationMode.HighQualityBicubic;
+
+            // the lid: aluminium edge, black bezel
+            float lx = 800, ly = 136, lw = 1040, lh = 668;
+            using (var p = RoundRect(lx - 4, ly - 4, lw + 8, lh + 8, 30))
+            { g.FillPath(new LinearGradientBrush(new PointF(0, ly), new PointF(0, ly + lh), Color.FromArgb(200, 204, 212), Color.FromArgb(120, 124, 134)), p); }
+            using (var p = RoundRect(lx, ly, lw, lh, 26))
+            { g.FillPath(new SolidBrush(Color.FromArgb(14, 15, 18)), p); }
+            g.FillEllipse(new SolidBrush(Color.FromArgb(40, 44, 52)), lx + lw / 2 - 4, ly + 10, 8, 8);   // camera
+
+            // the screen: desktop, menu bar, ADAM's window
+            float dx = 822, dy = 162, dw = 996, dh = 620;
+            var clip = g.Clip;
+            g.SetClip(new RectangleF(dx, dy, dw, dh));
+            g.DrawImage(wall, dx - 20, dy - 20, dw + 40, dh + 40);
+            g.FillRectangle(new SolidBrush(Color.FromArgb(150, 20, 22, 28)), dx, dy, dw, 24);
+            var fMenu = new Font(pop, 13, FontStyle.Bold, GraphicsUnit.Pixel);
+            var menuText = new SolidBrush(Color.FromArgb(235, 238, 244));
+            float mx = dx + 18;
+            foreach (string m in new[] { "ADAM", "File", "Edit", "View", "Window", "Help" })
+            {
+                g.DrawString(m, fMenu, menuText, mx, dy + 5, StringFormat.GenericTypographic);
+                mx += g.MeasureString(m, fMenu, 400, StringFormat.GenericTypographic).Width + 22;
+            }
+            string clock = "Sat 10:24";
+            float cw = g.MeasureString(clock, fMenu, 400, StringFormat.GenericTypographic).Width;
+            g.DrawString(clock, fMenu, menuText, dx + dw - cw - 18, dy + 5, StringFormat.GenericTypographic);
+
+            float wx = 846, wy = 204, ww = 948, th = 30, ih = 533;
+            for (int i = 8; i >= 1; i--)
+            {
+                using (var sp = RoundRect(wx - 2 + i, wy + i * 2, ww + 4, th + ih + 4, 12 + i))
+                { g.FillPath(new SolidBrush(Color.FromArgb(16, 0, 0, 0)), sp); }
+            }
+            using (var wp = RoundRect(wx, wy, ww, th + ih, 11))
+            { g.FillPath(new SolidBrush(Color.FromArgb(40, 44, 52)), wp); }
+            using (var tp = RoundRect(wx, wy, ww, th + 12, 11))
+            { g.FillPath(new LinearGradientBrush(new PointF(0, wy), new PointF(0, wy + th), Color.FromArgb(62, 66, 76), Color.FromArgb(48, 52, 60)), tp); }
+            Color[] lights = { Color.FromArgb(255, 95, 87), Color.FromArgb(254, 188, 46), Color.FromArgb(40, 200, 64) };
+            for (int i = 0; i < 3; i++) { g.FillEllipse(new SolidBrush(lights[i]), wx + 14 + i * 20, wy + 9, 12, 12); }
+            var fTitle = new Font(pop, 13, FontStyle.Bold, GraphicsUnit.Pixel);
+            string wt = "ADAM Pro 1.0.0 - Gem Hunter  (A500/600)";
+            float tw = g.MeasureString(wt, fTitle, 900, StringFormat.GenericTypographic).Width;
+            g.DrawString(wt, fTitle, new SolidBrush(Color.FromArgb(205, 210, 220)), wx + (ww - tw) / 2, wy + 8, StringFormat.GenericTypographic);
+            g.DrawImage(ed, wx, wy + th, ww, ih);
+            g.Clip = clip;
+
+            // the base: a thin aluminium wedge with the opening notch
+            using (var bp = new GraphicsPath())
+            {
+                bp.AddPolygon(new[] { new PointF(756, 806), new PointF(1884, 806), new PointF(1912, 826), new PointF(1906, 834), new PointF(734, 834), new PointF(728, 826) });
+                g.FillPath(new LinearGradientBrush(new PointF(0, 806), new PointF(0, 834), Color.FromArgb(222, 226, 232), Color.FromArgb(132, 136, 146)), bp);
+            }
+            g.FillRectangle(new SolidBrush(Color.FromArgb(150, 154, 164)), 734, 832, 1172, 2);
+            using (var np = RoundRect(1250, 800, 140, 14, 7))
+            { g.FillPath(new SolidBrush(Color.FromArgb(160, 164, 174)), np); }
+
+            // title, badge, taglines
+            DrawTitle(g, pop, "ADAM", 156, 92, 118, 16, 22, true);
+            var fBadge = new Font(pop, 40, FontStyle.Bold, GraphicsUnit.Pixel);
+            string badge = "NOW ON macOS";
+            SizeF bs = g.MeasureString(badge, fBadge, 2000, StringFormat.GenericTypographic);
+            using (var bp = RoundRect(94, 330, bs.Width + 56, 72, 36))
+            {
+                g.FillPath(new LinearGradientBrush(new PointF(0, 330), new PointF(0, 402), Color.FromArgb(255, 170, 60), Color.FromArgb(235, 110, 30)), bp);
+            }
+            g.DrawString(badge, fBadge, Brushes.White, 122, 344, StringFormat.GenericTypographic);
+            var orange = new SolidBrush(Color.FromArgb(255, 150, 40));
+            var dim = new SolidBrush(Color.FromArgb(205, 212, 232));
+            var f1 = new Font(pop, 52, FontStyle.Bold, GraphicsUnit.Pixel);
+            var f2 = new Font(pop, 27, FontStyle.Bold, GraphicsUnit.Pixel);
+            g.DrawString("Make Amiga games.", f1, Brushes.White, 94, 444, StringFormat.GenericTypographic);
+            g.DrawString("No code needed.", f1, orange, 94, 508, StringFormat.GenericTypographic);
+            g.DrawString("Apple silicon and Intel Macs", f2, Brushes.White, 96, 612, StringFormat.GenericTypographic);
+            g.DrawString("Bootable disks for the", f2, dim, 96, 658, StringFormat.GenericTypographic);
+            g.DrawString("Amiga 500, 600 and 1200", f2, dim, 96, 696, StringFormat.GenericTypographic);
+
+            g.DrawImage(ball, 0, 0, 1920, 1080);
+            g.Flush();
+            bmp.Save(path, ImageFormat.Png);
+        }
+    }
+
     public static void WriteCover(string path, string fontDir)
     {
         using (var bmp = Render(630, 500, 1.0, CoverBack, 4))
@@ -606,6 +755,8 @@ Write-Host "Wrote $promo\itch_banner.png and itch_background.png"
 $shots = Join-Path $promo "shots"
 [AdamArt]::WriteLaunch((Join-Path $promo "launch_devlog.png"), (Join-Path $root "datafiles\fonts"), (Join-Path $shots "editor_backdrop.png"), (Join-Path $shots "deep_dive_1.png"), (Join-Path $shots "firefly_night_2.png"))
 Write-Host "Wrote $promo\launch_devlog.png"
+[AdamArt]::WriteMacSplash((Join-Path $promo "macos_splash.png"), (Join-Path $root "datafiles\fonts"), (Join-Path $shots "editor_backdrop.png"))
+Write-Host "Wrote $promo\macos_splash.png"
 $inst = Join-Path $root "options\windows\installer"
 [AdamArt]::WriteInstaller((Join-Path $inst "header.bmp"), (Join-Path $inst "finished.bmp"), (Join-Path $root "datafiles\fonts"))
 Write-Host "Wrote $inst\header.bmp and finished.bmp"
