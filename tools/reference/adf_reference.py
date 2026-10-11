@@ -90,7 +90,10 @@ def build(proj, aga):
     off_grad=0
     if proj.get('grad'):
         off_grad=len(blob)
-        for c in proj['grad']: blob+=struct.pack('>H',c)
+        # $RRGGBB per line: $0RGB high nibbles, then on AGA the low nibbles (the engine writes them with LOCT)
+        for c in proj['grad']: blob+=struct.pack('>H',((c>>12)&0xf00)|((c>>8)&0xf0)|((c>>4)&0xf))
+        if aga:
+            for c in proj['grad']: blob+=struct.pack('>H',((c>>8)&0xf00)|((c>>4)&0xf0)|(c&0xf))
     align(8)
     off_ground=0
     if proj.get('ground'):

@@ -433,7 +433,16 @@ function backdrop_sky_panel(_fx, _y, _fw, _y2)
         proj.sky_on = _on;
     }
     _y += 36;
-    var _intro = "Paint the parts you want to see the sky through with colour 0. The copper writes 12-bit colours, so each stop has 16 steps per gun.";
+    var _aga = machine_cur().aga;
+    var _gmax = 15;             // slider range per gun: 0..15 (12-bit) or 0..255 (24-bit)
+    var _gscale = 17;
+    var _intro = "Paint the parts you want to see the sky through with colour 0. The copper writes 12-bit colours, so each gun has 16 steps; lines in between are blended so the steps don't show as bands.";
+    if (_aga)
+    {
+        _gmax = 255;
+        _gscale = 1;
+        _intro = "Paint the parts you want to see the sky through with colour 0. On the A1200 the copper writes 24-bit colours, so each gun has 256 steps - a very smooth sky.";
+    }
     ui_text_wrap(_fx, _y, _intro, global.TH.text_dim, _fw, global.f_small, 1);
     _y += ceil(ui_sh_ext(_intro, _fw)) + 14;
 
@@ -449,25 +458,26 @@ function backdrop_sky_panel(_fx, _y, _fw, _y2)
         if (sky_stop == i) { _st = BTN_ACCENT; }
         if (ui_button("sky_stop_" + string(i), _bx, _y, _bw, 44, "", _names[i] + " colour|Click to edit this colour stop with the sliders below.", _st)) { sky_stop = i; }
         var _c = proj[$ _keys[i]];
-        var _gc = make_colour_rgb(gun12(rgb_r(_c)), gun12(rgb_g(_c)), gun12(rgb_b(_c)));
+        var _gc = amiga_col(_c);
         ui_rrect(_bx + 8, _y + 6, _bx + 26, _y + 24, 4, _gc, _gc, 1);
         ui_text(_bx + 8, _y + 34, _names[i], global.TH.text, fa_left, fa_middle, global.f_small, 1);
     }
     _y += 54;
     var _key = _keys[sky_stop];
     var _cur = proj[$ _key];
-    var _gun = [gun12(rgb_r(_cur)) div 17, gun12(rgb_g(_cur)) div 17, gun12(rgb_b(_cur)) div 17];
+    var _shown = rgb_machine(_cur);
+    var _gun = [rgb_r(_shown) div _gscale, rgb_g(_shown) div _gscale, rgb_b(_shown) div _gscale];
     var _lab = ["R", "G", "B"];
     var _tint = [make_colour_rgb(255, 90, 90), make_colour_rgb(90, 230, 120), make_colour_rgb(100, 150, 255)];
     for (var k = 0; k < 3; k++)
     {
         ui_text(_fx, _y + 13, _lab[k], _tint[k], fa_left, fa_middle, global.f_bold, 1);
-        _gun[k] = ui_slider("sky_rgb_" + _lab[k], _fx + 18, _y, _fw - 58, _gun[k], 0, 15, "Copper colour|Red, green and blue for this stop, 0 to 15 like a real copper list.");
+        _gun[k] = ui_slider("sky_rgb_" + _lab[k], _fx + 18, _y, _fw - 58, _gun[k], 0, _gmax, "Copper colour|Red, green and blue for this stop: 0 to 15 on the A500/600 (12-bit), 0 to 255 on the A1200 (24-bit), as the copper writes them.");
         ui_text(_fx + _fw, _y + 13, string(_gun[k]), global.TH.text, fa_right, fa_middle, global.f_bold, 1);
         _y += 30;
     }
-    var _nc = rgb_make(_gun[0] * 17, _gun[1] * 17, _gun[2] * 17);
-    if (_nc != rgb_make(gun12(rgb_r(_cur)), gun12(rgb_g(_cur)), gun12(rgb_b(_cur))))
+    var _nc = rgb_make(_gun[0] * _gscale, _gun[1] * _gscale, _gun[2] * _gscale);
+    if (_nc != _shown)
     {
         undo_mark("skycol" + _key);
         proj[$ _key] = _nc;

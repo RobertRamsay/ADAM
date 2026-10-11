@@ -326,13 +326,28 @@ def alloc(p):
         chan.append(pp*2+used[pp]); used[pp]+=1; conf.append(cf)
     return chan,conf,owner
 
-def sky_table(p):
+# line pattern for blending one copper colour step (A) into the next (B) - as COPPER_BLEND in scr_gfx
+COPPER_BLEND='AAAABAAABAABABABBABBBABBBB'
+
+def copper_level(v,mx,flat):
+    if flat: return max(0,min(mx,round(v)))
+    lo=math.floor(v); n=len(COPPER_BLEND)
+    i=max(0,min(n-1,math.floor((v-lo)*n)))
+    if COPPER_BLEND[i]=='B': lo+=1
+    return max(0,min(mx,lo))
+
+def sky_table(p,aga=False):
+    # 256 x $RRGGBB as the machine shows them: 12-bit steps (A500/600) or 24-bit (A1200), blended per gun
+    mx,sc=(255,1) if aga else (15,17)
     out=[]; my=max(1,min(254,p['sky_mid_y']))
     for i in range(256):
         a,b,t=p['sky_top'],p['sky_mid'],i/my
         if i>my: a,b,t=p['sky_mid'],p['sky_bot'],(i-my)/(255-my)
-        c=[round((((a>>s)&255)+((((b>>s)&255)-((a>>s)&255))*t))/17) for s in (16,8,0)]
-        out.append((c[0]<<8)|(c[1]<<4)|c[2])
+        c=[]
+        for s in (16,8,0):
+            ca=(a>>s)&255; cb=(b>>s)&255
+            c.append(copper_level((ca+(cb-ca)*t)/sc,mx,ca==cb)*sc)
+        out.append((c[0]<<16)|(c[1]<<8)|c[2])
     return out
 
 def ground_table(p):
@@ -367,7 +382,7 @@ def preview(p,fn):
     pal=[q(c) for c in p['pal']]; g=sky_table(p)
     im=Image.new('RGB',(W,H))
     for y in range(H):
-        sc=g[y]; sr=((sc>>8)&15)*17; sg=((sc>>4)&15)*17; sb=(sc&15)*17
+        sc=g[y]; sr=(sc>>16)&255; sg=(sc>>8)&255; sb=sc&255
         for x in range(W):
             v=p['pixels'][y*W+x]
             if v==0: im.putpixel((x,y),(sr,sg,sb))

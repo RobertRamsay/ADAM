@@ -49,7 +49,7 @@ H_TOVER     equ 52         ; offset: game over text (0 terminated)
 H_TWIN      equ 56         ; offset: win text (0 terminated)
 H_SPRCOL    equ 60         ; offset: 4 sprite pairs x 3 longs $00RRGGBB
 H_DISP      equ 64         ; offset: display bitplanes (depth * 10240 bytes)
-H_GRAD      equ 68         ; offset: 256 copper sky colours ($0RGB words), 0 = none
+H_GRAD      equ 68         ; offset: 256 copper sky colours ($0RGB words), 0 = none; AGA: + 256 words of low nibbles
 H_GROUND    equ 72         ; offset: 320 ground heights (words), 0 = none
 H_WORK      equ 76         ; offset: backdrop + terrain copy (depth * 10240 bytes)
 H_MUSIC     equ 80         ; offset: music table, 0 = no music
@@ -588,7 +588,10 @@ setcol:
             bne.s   .aga
             move.w  d4,0(a6,d2.w)
             bra.s   .done
-.aga        move.w  d0,d3                   ; bank select
+.aga        tst.l   H_GRAD(a4)              ; the copper sky writes BPLCON3 on every
+            beq.s   .bank                   ; line: hold the copper while we use it
+            move.w  #$0080,$96(a6)          ; DMACON: copper off (it keeps its place)
+.bank       move.w  d0,d3                   ; bank select
             lsr.w   #5,d3
             and.w   #7,d3
             ror.w   #3,d3
@@ -609,6 +612,9 @@ setcol:
             move.w  d3,$106(a6)
             move.w  d4,0(a6,d2.w)
             move.w  #$0c00,$106(a6)
+            tst.l   H_GRAD(a4)
+            beq.s   .done
+            move.w  #$8080,$96(a6)          ; copper on again
 .done       movem.l (sp)+,d0-d4
             rts
 
@@ -1684,19 +1690,36 @@ flash_tick:
 ;  copper sky: COLOR00 changes on every display line
 ;  d1.w = -1 : use the gradient table      d1.w = $0RGB : one fixed colour
 ; ============================================================================
+;  On AGA the table has a second half: 256 words of low nibbles. Each line
+;  then writes COLOR00 twice - high nibbles (LOCT clear, which also copies
+;  them to the low nibbles), then the low nibbles with LOCT set - so the sky
+;  gets 24-bit colour. One fixed colour (d1 >= 0) only needs the first write.
 build_grad:
-            movem.l d0-d4/a0-a1,-(sp)
+            movem.l d0-d5/a0-a2,-(sp)
             lea     cop_grad(pc),a0
             move.l  H_GRAD(a4),d0
-            beq.s   .off
-            lea     0(a4,d0.l),a1
-            move.w  #$0180,(a0)+            ; top border = first colour
+            beq     .off
+            lea     0(a4,d0.l),a1           ; high nibbles
+            lea     512(a1),a2              ; low nibbles (AGA)
+            moveq   #0,d5                   ; d5 = 1: write low nibbles too
+            btst    #0,H_FLAGS+1(a4)
+            beq.s   .ocs
+            tst.w   d1
+            bpl.s   .ocs
+            moveq   #1,d5
+.ocs        move.w  #$0180,(a0)+            ; top border = first colour
             move.w  (a1),d2
             tst.w   d1
             bmi.s   .top
             move.w  d1,d2
 .top        move.w  d2,(a0)+
-            moveq   #0,d3                   ; line index
+            tst.w   d5
+            beq.s   .t0
+            move.l  #$01060e00,(a0)+        ; BPLCON3: LOCT
+            move.w  #$0180,(a0)+
+            move.w  (a2),(a0)+
+            move.l  #$01060c00,(a0)+        ; BPLCON3: back to normal
+.t0         moveq   #0,d3                   ; line index
 .line       move.w  d3,d4
             add.w   #$2c,d4
             cmp.w   #$100,d4                ; past line 255: wait for the wrap
@@ -1706,14 +1729,25 @@ build_grad:
             or.w    #$07,d4
             move.w  d4,(a0)+
             move.w  #$fffe,(a0)+
-            move.w  #$0180,(a0)+
+            tst.w   d5
+            beq.s   .hi
+            move.l  #$01060c00,(a0)+        ; BPLCON3: bank 0, high nibbles
+.hi         move.w  #$0180,(a0)+
             bsr.s   .col
             move.w  d2,(a0)+
-            addq.w  #1,d3
+            tst.w   d5
+            beq.s   .nx
+            move.l  #$01060e00,(a0)+        ; BPLCON3: LOCT, low nibbles
+            move.w  #$0180,(a0)+
+            move.w  (a2)+,(a0)+
+.nx         addq.w  #1,d3
             cmp.w   #256,d3
             blt.s   .line
+            tst.w   d5
+            beq.s   .off
+            move.l  #$01060c00,(a0)+        ; leave BPLCON3 as the CPU set it
 .off        move.l  #$fffffffe,(a0)+
-            movem.l (sp)+,d0-d4/a0-a1
+            movem.l (sp)+,d0-d5/a0-a2
             rts
 .col        move.w  (a1)+,d2                ; next table colour, or the fixed one
             tst.w   d1
@@ -2023,7 +2057,7 @@ cop_spr:    dc.w    $0120,0,$0122,0
             dc.w    $0138,0,$013a,0
             dc.w    $013c,0,$013e,0
 cop_grad:   dc.w    $ffff,$fffe             ; sky lines are built here at run time
-            ds.b    256*8+16
+            ds.b    256*20+32               ; AGA: wait + 4 moves per line
 
             cnop    0,4
 V:          ds.b    V_SIZE+128

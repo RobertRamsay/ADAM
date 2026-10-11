@@ -328,13 +328,18 @@ function adam_data_block(_p)
     }
     buf_align(_b, 8);
 
-    // copper sky: one $0RGB colour per display line
+    // copper sky: one $0RGB colour per display line; on AGA a second table of
+    // the low nibbles follows (the engine writes them with LOCT set)
     var _off_grad = 0;
     if (_p.sky_on)
     {
         _off_grad = buffer_tell(_b);
         var _sky = sky_table(_p);
-        for (var g = 0; g < 256; g++) { be16(_b, _sky[g]); }
+        for (var g = 0; g < 256; g++) { be16(_b, copper_hi(_sky[g])); }
+        if (_m.aga)
+        {
+            for (var g2 = 0; g2 < 256; g2++) { be16(_b, copper_lo(_sky[g2])); }
+        }
         buf_align(_b, 8);
     }
 

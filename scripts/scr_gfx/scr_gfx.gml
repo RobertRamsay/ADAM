@@ -134,10 +134,35 @@ function backdrop_gfx_init()
     bd_uniform = shader_get_uniform(sh_palette, "u_pal");
     bd_pal_floats = array_create(PAL_MAX * 3, 0);
     bd_u_sky_on = shader_get_uniform(sh_palette, "u_sky_on");
-    bd_u_sky_top = shader_get_uniform(sh_palette, "u_sky_top");
-    bd_u_sky_mid = shader_get_uniform(sh_palette, "u_sky_mid");
-    bd_u_sky_bot = shader_get_uniform(sh_palette, "u_sky_bot");
-    bd_u_sky_midy = shader_get_uniform(sh_palette, "u_sky_midy");
+    bd_u_sky_tex = shader_get_sampler_index(sh_palette, "u_sky_tex");
+    bd_sky_surf = -1;           // 256 x 1: the copper sky's colour on each line
+    bd_sky_key = "";            // what bd_sky_surf was drawn from
+}
+
+/// The 256 x 1 strip of copper sky colours the shader reads, redrawn only
+/// when the sky, or the machine (12-bit or 24-bit), changes.
+function sky_strip_surface()
+{
+    var _key = string(proj.sky_top) + "," + string(proj.sky_mid) + "," + string(proj.sky_bot) + "," + string(proj.sky_mid_y) + "," + proj.machine;
+    if (!surface_exists(bd_sky_surf))
+    {
+        bd_sky_surf = surface_create(256, 1);
+        bd_sky_key = "";
+    }
+    if (_key != bd_sky_key)
+    {
+        bd_sky_key = _key;
+        var _sky = sky_table(proj);
+        surface_set_target(bd_sky_surf);
+        draw_clear_alpha(c_black, 1);
+        for (var i = 0; i < 256; i++)
+        {
+            var _c = _sky[i];
+            draw_point_colour(i, 0, make_colour_rgb(rgb_r(_c), rgb_g(_c), rgb_b(_c)));
+        }
+        surface_reset_target();
+    }
+    return bd_sky_surf;
 }
 
 /// The backdrop index surface. Painting only changes bd_buf (an exact copy of
@@ -191,16 +216,19 @@ function backdrop_shader_begin()
         bd_pal_floats[i * 3 + 1] = rgb_g(_c) / 255;
         bd_pal_floats[i * 3 + 2] = rgb_b(_c) / 255;
     }
+    var _strip = -1;
+    if (proj.sky_on) { _strip = sky_strip_surface(); }   // before shader_set: it draws to a surface
     gpu_set_texfilter(false);
     shader_set(sh_palette);
     shader_set_uniform_f_array(bd_uniform, bd_pal_floats);
     var _on = 0;
     if (proj.sky_on) { _on = 1; }
     shader_set_uniform_f(bd_u_sky_on, _on);
-    shader_set_uniform_f(bd_u_sky_top, rgb_r(proj.sky_top) / 255, rgb_g(proj.sky_top) / 255, rgb_b(proj.sky_top) / 255);
-    shader_set_uniform_f(bd_u_sky_mid, rgb_r(proj.sky_mid) / 255, rgb_g(proj.sky_mid) / 255, rgb_b(proj.sky_mid) / 255);
-    shader_set_uniform_f(bd_u_sky_bot, rgb_r(proj.sky_bot) / 255, rgb_g(proj.sky_bot) / 255, rgb_b(proj.sky_bot) / 255);
-    shader_set_uniform_f(bd_u_sky_midy, clamp(proj.sky_mid_y, 1, 254));
+    if (_strip != -1)
+    {
+        gpu_set_texfilter_ext(bd_u_sky_tex, false);
+        texture_set_stage(bd_u_sky_tex, surface_get_texture(_strip));
+    }
 }
 
 function backdrop_shader_end()
@@ -512,12 +540,41 @@ function backdrop_import(_path, _dither)
 
 // ---------------------------------------------------------------------------
 // Copper sky: colour 0 changes on every one of the 256 lines (and the border
-// with it). Three colour stops, rounded to 12-bit as the copper writes them.
+// with it). Three colour stops. The A500/600 copper writes 12-bit colours
+// (16 steps per gun); on the A1200 it writes the low nibbles too (LOCT), so
+// each gun has 256 steps. Between two steps each gun is blended over the
+// lines with COPPER_BLEND, so the steps don't show as bands.
 // ---------------------------------------------------------------------------
 
-/// 256 copper colours ($0RGB words) for project _p
+/// Line pattern for blending from one colour step (A) to the next (B): as the
+/// wanted colour moves from A towards B, more of the lines use B.
+#macro COPPER_BLEND "AAAABAAABAABABABBABBBABBBB"
+
+/// One gun on one copper line: _v is the wanted level (0.._max, not whole),
+/// _flat is true when the gun doesn't change over this part of the bar.
+/// Returns a whole level, picking the step below or above by COPPER_BLEND.
+function copper_level(_v, _max, _flat)
+{
+    if (_flat) { return clamp(round(_v), 0, _max); }
+    var _lo = floor(_v);
+    var _n = string_length(COPPER_BLEND);
+    var _i = clamp(floor((_v - _lo) * _n), 0, _n - 1);
+    if (string_char_at(COPPER_BLEND, _i + 1) == "B") { _lo += 1; }
+    return clamp(_lo, 0, _max);
+}
+
+/// 256 copper colours ($RRGGBB, as the machine shows them) for project _p:
+/// 12-bit steps on the A500/600, 24-bit on the A1200, blended per gun.
 function sky_table(_p)
 {
+    var _aga = machine_get(_p.machine).aga;
+    var _max = 15;
+    var _scale = 17;
+    if (_aga)
+    {
+        _max = 255;
+        _scale = 1;
+    }
     var _out = array_create(256, 0);
     var _my = clamp(_p.sky_mid_y, 1, 254);
     for (var i = 0; i < 256; i++)
@@ -531,12 +588,24 @@ function sky_table(_p)
             _b = _p.sky_bot;
             _t = (i - _my) / (255 - _my);
         }
-        var _r = round(lerp(rgb_r(_a), rgb_r(_b), _t) / 17);
-        var _g = round(lerp(rgb_g(_a), rgb_g(_b), _t) / 17);
-        var _bl = round(lerp(rgb_b(_a), rgb_b(_b), _t) / 17);
-        _out[i] = (clamp(_r, 0, 15) << 8) | (clamp(_g, 0, 15) << 4) | clamp(_bl, 0, 15);
+        var _r = copper_level(lerp(rgb_r(_a), rgb_r(_b), _t) / _scale, _max, rgb_r(_a) == rgb_r(_b));
+        var _g = copper_level(lerp(rgb_g(_a), rgb_g(_b), _t) / _scale, _max, rgb_g(_a) == rgb_g(_b));
+        var _bl = copper_level(lerp(rgb_b(_a), rgb_b(_b), _t) / _scale, _max, rgb_b(_a) == rgb_b(_b));
+        _out[i] = rgb_make(_r * _scale, _g * _scale, _bl * _scale);
     }
     return _out;
+}
+
+/// $0RGB copper word: the high nibble of each gun (all the A500/600 has)
+function copper_hi(_c)
+{
+    return ((rgb_r(_c) >> 4) << 8) | ((rgb_g(_c) >> 4) << 4) | (rgb_b(_c) >> 4);
+}
+
+/// $0RGB copper word of the low nibbles - the A1200 writes it with LOCT set
+function copper_lo(_c)
+{
+    return ((rgb_r(_c) & 15) << 8) | ((rgb_g(_c) & 15) << 4) | (rgb_b(_c) & 15);
 }
 
 /// Ready-made skies: [name, top, middle, bottom, middle line]
