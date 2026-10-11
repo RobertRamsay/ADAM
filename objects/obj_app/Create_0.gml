@@ -111,7 +111,7 @@ tut_offer_tab = 0;          // page it offers (-1 = the guided tour)
 tut_offer_anim = 0;
 tut_offer_rect = [0, 0, 0, 0];
 fsuae_path = "";
-kick_path = "";
+kick_paths = array_create(array_length(global.MACHINES), "");  // Kickstart ROM per machine ("" = FS-UAE's AROS)
 fsuae_light = true;
 fsuae_pad = 0;              // FS-UAE joystick: 0 keyboard (cursors + right Ctrl), 1 gamepad
 global.FSUAE_PAD_NAMES = ["Keyboard", "Gamepad"];

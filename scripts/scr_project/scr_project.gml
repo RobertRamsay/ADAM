@@ -804,12 +804,20 @@ function settings_load()
 {
     ini_open("adam_settings.ini");
     fsuae_path = ini_read_string("paths", "fsuae", "");
-    kick_path = ini_read_string("paths", "kickstart", "");
+    var _old_kick = ini_read_string("paths", "kickstart", "");     // before one ROM per machine
+    for (var k = 0; k < array_length(global.MACHINES); k++)
+    {
+        kick_paths[k] = ini_read_string("paths", "kickstart_" + global.MACHINES[k].id, "");
+    }
     fsuae_light = ini_read_real("emulator", "light", 1) == 1;
     fsuae_pad = clamp(round(ini_read_real("emulator", "pad", 0)), 0, 1);
     out_path = ini_read_string("paths", "adf", "");
     proj_path = ini_read_string("paths", "project", "");
     last_machine = ini_read_string("machine", "last", "A1200");
+    if (_old_kick != "" && kick_paths[machine_index(last_machine)] == "")
+    {
+        kick_paths[machine_index(last_machine)] = _old_kick;   // goes to the machine you used last
+    }
     helpers_on = ini_read_real("ui", "helpers", 1) == 1;
     auto_tutorials = ini_read_real("ui", "auto_tutorials", 1) == 1;
     ui_scale_pref = ini_read_real("ui", "scale", 0);
@@ -834,7 +842,11 @@ function settings_save()
 {
     ini_open("adam_settings.ini");
     ini_write_string("paths", "fsuae", fsuae_path);
-    ini_write_string("paths", "kickstart", kick_path);
+    for (var k = 0; k < array_length(global.MACHINES); k++)
+    {
+        ini_write_string("paths", "kickstart_" + global.MACHINES[k].id, kick_paths[k]);
+    }
+    ini_key_delete("paths", "kickstart");
     var _light = 0;
     if (fsuae_light) { _light = 1; }
     ini_write_real("emulator", "light", _light);

@@ -817,6 +817,19 @@ function fsuae_port_1()
     return "keyboard";
 }
 
+/// Kickstart ROM for the machine the project is for ("" = FS-UAE's free AROS ROM).
+/// One per machine: a 1.3 ROM for the A500 would not boot an A1200, and the other way round.
+function kick_path_cur()
+{
+    return kick_paths[machine_index(proj.machine)];
+}
+
+function kick_path_set(_path)
+{
+    kick_paths[machine_index(proj.machine)] = _path;
+    settings_save();
+}
+
 /// Called from the Step event once the old emulator has had time to close
 function launch_fsuae_now(_adf)
 {
@@ -838,9 +851,10 @@ function launch_fsuae_now(_adf)
         _args += " --video_sync=off --texture_filter=nearest";
     }
     _args += " --joystick_port_1=" + fsuae_port_1();
-    if (kick_path != "" && file_exists(kick_path))
+    var _kick = kick_path_cur();
+    if (_kick != "" && file_exists(_kick))
     {
-        _args += " --kickstart_file=\"" + kick_path + "\"";
+        _args += " --kickstart_file=\"" + _kick + "\"";
     }
     execute_shell_simple(_exe, _args, "open", 5, filename_dir(_exe));
 }
@@ -903,9 +917,10 @@ function launch_fsuae_mac(_adf)
         array_push(_lines, "video_sync = off");
         array_push(_lines, "texture_filter = nearest");
     }
-    if (kick_path != "" && file_exists(kick_path))
+    var _kick = kick_path_cur();
+    if (_kick != "" && file_exists(_kick))
     {
-        array_push(_lines, "kickstart_file = " + kick_path);
+        array_push(_lines, "kickstart_file = " + _kick);
     }
     for (var i = 0; i < array_length(_lines); i++)
     {

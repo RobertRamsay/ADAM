@@ -226,19 +226,17 @@ function ws_build_draw(_x1, _y1, _x2, _y2)
         }
     }
     _y += 132;
-    if (build_path_row("build_kick", _fx, _y, _fw, "Kickstart ROM (optional)", kick_path, "(none - FS-UAE uses its free AROS ROM)", "Find", "Kickstart ROM|Optional. ADAM games boot on FS-UAE's built-in AROS ROM, but you can use your own Kickstart for the most authentic test. Right-click clears it."))
+    if (build_path_row("build_kick", _fx, _y, _fw, "Kickstart ROM for the " + _m.short_name + " (optional)", kick_path_cur(), "(none - FS-UAE uses its free AROS ROM)", "Find", "Kickstart ROM|Optional, and only for testing on your PC - players don't need one. ADAM games boot on FS-UAE's built-in AROS ROM, but your own Kickstart is the most authentic test. Each Amiga remembers its own ROM (e.g. 1.3 for the A500, 3.1 for the A1200). Right-click clears it."))
     {
-        var _k = get_open_filename("Kickstart ROM|*.rom;*.bin", "");
+        var _k = get_open_filename("Kickstart ROM|*.rom;*.bin;*.a500;*.a600;*.a1200|All files|*.*", "");
         if (_k != "")
         {
-            kick_path = _k;
-            settings_save();
+            kick_path_set(_k);
         }
     }
     if (ui_hot == "build_kick" && ui_rpressed)
     {
-        kick_path = "";
-        settings_save();
+        kick_path_set("");
     }
     _y += 68;
 
