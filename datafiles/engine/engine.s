@@ -53,7 +53,9 @@ H_GRAD      equ 68         ; offset: 256 copper sky colours ($0RGB words), 0 = n
 H_GROUND    equ 72         ; offset: 320 ground heights (words), 0 = none
 H_WORK      equ 76         ; offset: backdrop + terrain copy (depth * 10240 bytes)
 H_MUSIC     equ 80         ; offset: music table, 0 = no music
-HDR_SIZE    equ 84
+H_DISP2     equ 84         ; offset: second display buffer for BOBs (depth * 10240 + 8), 0 = no BOBs
+H_BACK      equ 88         ; offset: BOB background - backdrop + hills + HUD (depth * 10240 + 8), 0 = no BOBs
+HDR_SIZE    equ 92
 
 ; music table (offsets from data_start like every header long)
 M_NSONGS    equ 0          ; word: number of songs 0..4
@@ -79,7 +81,13 @@ A_ARATE     equ 32         ; frames per animation frame
 A_AMODE     equ 34         ; 0 = always animate, 1 = only while moving
 A_FROM      equ 36         ; first level this actor appears on (1..10)
 A_FAST      equ 38         ; +1 speed every N levels, 0 = never
+A_BOB       equ 40         ; 1 = BOB: A_SPR / A_SPR2 point at BOB images, A_CHAN is unused
 ACT_SIZE    equ 48
+
+; BOB image (ADAM Pro): 16 x 24 pixels - 24 mask words, then depth x 24 words of bitplanes
+BOB_H       equ 24
+BOB_PLANE   equ 48         ; bytes per mask / plane
+BOB_SIZE    equ (BOB_H<<6)|2   ; BLTSIZE: 24 lines of 2 words (the image word + one for the shift)
 
 ; rule record
 R_WHEN      equ 0
@@ -142,7 +150,7 @@ v_gnd       rs.w 1         ; 1 = standing on the ground
 v_squat     rs.w 1         ; hopper squat countdown before a jump
 v_life      rs.w 1         ; frames until a 'shown for a moment' actor hides
 v_safe      rs.w 1         ; frames of flashing immunity left
-v_apad      rs.w 1
+v_frame     rs.w 1         ; BOB animation frame to draw: 0 = A_SPR, 1 = A_SPR2
             rsset   -128+MAX_ACT*ACTV_SIZE
 v_anim      rs.w 1
 v_joyprev   rs.w 1
@@ -168,6 +176,15 @@ v_disp      rs.l 1
 v_digits    rs.b 8
 v_opaque    rs.w 1
 v_latch     rs.w 128
+v_disp2     rs.l 1         ; BOBs: second display buffer, 0 = no BOBs (one display, v_disp)
+v_back      rs.l 1         ; BOBs: backdrop + hills + HUD, copied back where a BOB was
+v_dd2       rs.l 1         ; v_disp2 - v_disp (0 without BOBs): text goes to both displays
+v_ddk       rs.l 1         ; v_back - v_disp  (0 without BOBs): and into the background
+v_draw      rs.l 1         ; BOBs: the display being drawn (not on screen)
+v_bobbuf    rs.w 1         ; 0 = v_draw is v_disp, 1 = v_disp2
+v_drawn     rs.w 1         ; 1 = v_draw is ready to show
+v_bobn      rs.w 2         ; BOBs drawn into each display
+v_bobold    rs.w 2*MAX_ACT ; where they were (byte offset in a plane), to wipe them
 V_SIZE      rs.b 0
 
 ; ============================================================================
@@ -287,16 +304,26 @@ init_display:
             move.l  H_DISP(a4),d0
             add.l   a4,d0
             move.l  d0,v_disp(a5)
-
-            lea     cop_bpl(pc),a0          ; bitplane pointers
-            moveq   #7,d7
-.bpl        swap    d0
-            move.w  d0,2(a0)
-            swap    d0
-            move.w  d0,6(a0)
-            add.l   #PLANE_SIZE,d0
-            addq.l  #8,a0
-            dbf     d7,.bpl
+            move.l  d0,v_draw(a5)
+            moveq   #0,d1                   ; BOBs: second display and background
+            moveq   #0,d2
+            move.l  #0,v_disp2(a5)
+            move.l  #0,v_back(a5)
+            move.l  H_DISP2(a4),d3
+            beq.s   .nobob
+            move.l  H_BACK(a4),d4
+            beq.s   .nobob
+            add.l   a4,d3
+            add.l   a4,d4
+            move.l  d3,v_disp2(a5)
+            move.l  d4,v_back(a5)
+            move.l  d3,d1
+            sub.l   d0,d1
+            move.l  d4,d2
+            sub.l   d0,d2
+.nobob      move.l  d1,v_dd2(a5)
+            move.l  d2,v_ddk(a5)
+            bsr     set_bpl                 ; bitplane pointers
 
             lea     cop_spr(pc),a0          ; sprite pointers: all null first
             lea     null_spr(pc),a1
@@ -314,7 +341,9 @@ init_display:
             subq.w  #1,d6
             move.l  H_ACTORS(a4),d0
             lea     0(a4,d0.l),a2
-.spr        lea     cop_spr(pc),a0
+.spr        tst.w   A_BOB(a2)               ; BOBs use no sprite channel
+            bne.s   .sprnx
+            lea     cop_spr(pc),a0
             move.w  A_CHAN(a2),d1
             and.w   #7,d1
             lsl.w   #3,d1
@@ -325,7 +354,7 @@ init_display:
             move.w  d0,2(a0)
             swap    d0
             move.w  d0,6(a0)
-            lea     ACT_SIZE(a2),a2
+.sprnx      lea     ACT_SIZE(a2),a2
             dbf     d6,.spr
 .sprdone
             move.w  #$2c81,$8e(a6)          ; DIWSTRT
@@ -359,7 +388,22 @@ init_display:
 .cop        lea     copper(pc),a0
             move.l  a0,$80(a6)              ; COP1LC
             move.w  d0,$88(a6)              ; COPJMP1 strobe
-            move.w  #$83a0,$96(a6)          ; DMAEN BPLEN COPEN SPREN
+            move.w  #$83e0,$96(a6)          ; DMAEN BPLEN COPEN BLTEN SPREN
+            move.w  #$8040,$9c(a6)          ; INTREQ: BLIT set = "no blit running" (see bwait)
+            rts
+
+; d0 = bitplane memory -> copper bitplane pointers
+set_bpl:    movem.l d0/d7/a0,-(sp)
+            lea     cop_bpl(pc),a0
+            moveq   #7,d7
+.b          swap    d0
+            move.w  d0,2(a0)
+            swap    d0
+            move.w  d0,6(a0)
+            add.l   #PLANE_SIZE,d0
+            addq.l  #8,a0
+            dbf     d7,.b
+            movem.l (sp)+,d0/d7/a0
             rts
 
 ; ============================================================================
@@ -394,11 +438,30 @@ restore_backdrop:
             bsr     draw_terrain            ; this level's hills into the work copy
             move.l  v_work(a5),a0           ; work copy -> screen
             move.l  v_disp(a5),a1
+            bsr.s   copy_planes
+            tst.l   v_disp2(a5)
+            beq.s   .r
+            move.l  v_work(a5),a0           ; BOBs: -> background and the second display
+            move.l  v_back(a5),a1
+            bsr.s   copy_planes
+            move.l  v_work(a5),a0
+            move.l  v_disp2(a5),a1
+            bsr.s   copy_planes
+            move.l  #0,v_bobn(a5)           ; nothing to wipe in either display
+            move.l  v_disp(a5),d0           ; show the first, draw into the second
+            bsr     set_bpl
+            move.l  v_disp2(a5),v_draw(a5)
+            move.w  #1,v_bobbuf(a5)
+            move.w  #0,v_drawn(a5)
+.r          rts
+
+; a0 -> a1, depth bitplanes
+copy_planes:
             move.w  H_DEPTH(a4),d7
             mulu    #PLANE_SIZE/4,d7
             subq.l  #1,d7
-.cp2        move.l  (a0)+,(a1)+
-            dbf     d7,.cp2
+.cp         move.l  (a0)+,(a1)+
+            dbf     d7,.cp
             rts
 
 ; a0 -> this level's 320 height words (needs a game block with terrain)
@@ -632,6 +695,7 @@ setcol:
 ;  one frame of game
 ; ============================================================================
 frame:
+            bsr     bob_flip                ; BOBs: show last frame's drawing (copper idle here too)
             bsr     flash_tick              ; copper edits first, while the copper is idle
             addq.w  #1,v_anim(a5)
             move.l  #0,v_jumped(a5)
@@ -645,6 +709,7 @@ frame:
 .f1         bsr     move_actors
             move.w  v_joy(a5),v_joyprev(a5)
             bsr     place_sprites
+            bsr     bob_draw
             bsr     run_rules
             rts
 
@@ -1014,7 +1079,15 @@ place_sprites:
 .moving
 .frame      move.w  v_ax(a5,d5.w),v_px(a5,d5.w)
             move.w  v_ay(a5,d5.w),v_py(a5,d5.w)
-            lea     0(a4,d0.l),a0           ; a0 = sprite block to show
+            tst.w   A_BOB(a2)               ; BOBs: just note the frame, bob_draw draws it
+            beq.s   .hw
+            moveq   #0,d1
+            cmp.l   A_SPR(a2),d0
+            beq.s   .bf
+            moveq   #1,d1
+.bf         move.w  d1,v_frame(a5,d5.w)
+            bra     .next
+.hw         lea     0(a4,d0.l),a0           ; a0 = sprite block to show
             move.l  a0,d0                   ; point this channel at it
             lea     cop_spr(pc),a1
             move.w  A_CHAN(a2),d1
@@ -1070,7 +1143,9 @@ hide_sprites:
             move.l  H_ACTORS(a4),d0
             lea     0(a4,d0.l),a2
             subq.w  #1,d6
-.h          move.l  A_SPR(a2),d0
+.h          tst.w   A_BOB(a2)               ; BOBs go with the backdrop
+            bne.s   .h2
+            move.l  A_SPR(a2),d0
             lea     0(a4,d0.l),a0
             move.l  #0,(a0)
             move.l  A_SPR2(a2),d0
@@ -1081,6 +1156,163 @@ hide_sprites:
             lea     ACT_SIZE(a2),a2
             dbf     d6,.h
 .done       rts
+
+; ============================================================================
+;  BOBs (blitter objects, ADAM Pro)
+;  Actors with A_BOB set are drawn into the bitplanes by the blitter instead
+;  of using a hardware sprite, so there can be more than 8 and they use the
+;  backdrop colours. There are two displays: each frame bob_draw wipes the
+;  BOBs out of the one that is not on screen (copying v_back over them) and
+;  draws them at their new places; bob_flip shows it at the start of the
+;  next frame, so nothing is ever drawn into the picture being shown.
+;  Cookie-cut per plane: A = mask, B = image plane, C = D = screen,
+;  D = AB + ~AC. The image is one word wide; the blit is two words wide for
+;  the shift, with A's last word masked off (BLTALWM = 0) and A/B modulo -2.
+; ============================================================================
+;
+;  Waiting for the blitter: DMACONR's busy flag (BBUSY) only rises once a
+;  blit actually starts, and with 7-8 planes on AGA the bitplanes take nearly
+;  every bus slot, so a blit can sit queued for a long time while a fast CPU
+;  already reads "not busy" and overwrites its registers. So every blit is
+;  started with bgo, which clears the BLIT request in INTREQ first, and bwait
+;  waits for that request - it is set only when a blit has finished.
+;  (INTENA leaves BLIT off, so no interrupt happens; init_display sets the
+;  request once so the first bwait does not wait for nothing.)
+bwait:      btst    #6,$1f(a6)              ; INTREQR bit 6: a blit has finished
+            beq.s   bwait
+            rts
+
+; starts the blit set up in the blitter registers: d0.w = BLTSIZE
+bgo:        move.w  #$0040,$9c(a6)          ; INTREQ: clear BLIT
+            move.w  d0,$58(a6)              ; BLTSIZE - go
+            rts
+
+bob_flip:
+            tst.l   v_disp2(a5)
+            beq.s   .r
+            tst.w   v_drawn(a5)
+            beq.s   .r
+            move.w  #0,v_drawn(a5)
+            move.l  v_draw(a5),d0
+            bsr     set_bpl
+            moveq   #0,d1                   ; draw into the other one next
+            move.l  v_disp(a5),d0
+            cmp.l   v_draw(a5),d0
+            bne.s   .a
+            moveq   #1,d1
+            move.l  v_disp2(a5),d0
+.a          move.l  d0,v_draw(a5)
+            move.w  d1,v_bobbuf(a5)
+.r          rts
+
+bob_draw:
+            tst.l   v_disp2(a5)
+            beq     .r
+            movem.l d0-d7/a0-a3,-(sp)
+            lea     v_bobold(a5),a3         ; a3 = this display's list of old places
+            lea     v_bobn(a5),a1           ; a1 = its count
+            tst.w   v_bobbuf(a5)
+            beq.s   .b0
+            lea     MAX_ACT*2(a3),a3
+            addq.l  #2,a1
+.b0
+            ; ---- wipe last time's BOBs: background -> display
+            bsr     bwait
+            move.l  #$09f00000,$40(a6)      ; BLTCON0/1: D = A
+            move.l  #$ffffffff,$44(a6)      ; first / last word masks
+            move.w  #40-4,$64(a6)           ; AMOD
+            move.w  #40-4,$66(a6)           ; DMOD
+            move.w  (a1),d6
+            subq.w  #1,d6
+            bmi.s   .wiped
+            move.l  a3,a0
+.wipe       moveq   #0,d4
+            move.w  (a0)+,d4
+            move.l  v_back(a5),d2
+            add.l   d4,d2
+            move.l  v_draw(a5),d3
+            add.l   d4,d3
+            move.w  H_DEPTH(a4),d7
+            subq.w  #1,d7
+.wpl        bsr     bwait
+            move.l  d2,$50(a6)              ; BLTAPT
+            move.l  d3,$54(a6)              ; BLTDPT
+            move.w  #BOB_SIZE,d0
+            bsr     bgo
+            add.l   #PLANE_SIZE,d2
+            add.l   #PLANE_SIZE,d3
+            dbf     d7,.wpl
+            dbf     d6,.wipe
+.wiped      move.w  #0,(a1)
+
+            ; ---- draw every visible BOB where it is now
+            move.w  H_NACT(a4),d6
+            beq     .done
+            move.l  H_ACTORS(a4),d0
+            lea     0(a4,d0.l),a2
+            moveq   #0,d7
+.act        tst.w   A_BOB(a2)
+            beq     .nxt
+            move.w  d7,d5
+            lsl.w   #ACTV_SHIFT,d5
+            tst.w   v_vis(a5,d5.w)
+            beq     .nxt
+            tst.w   v_safe(a5,d5.w)         ; flashing while immune
+            beq.s   .vis
+            btst    #2,v_anim+1(a5)
+            bne     .nxt
+.vis        move.l  A_SPR(a2),d0
+            tst.w   v_frame(a5,d5.w)
+            beq.s   .f
+            move.l  A_SPR2(a2),d0
+.f          lea     0(a4,d0.l),a0           ; a0 = mask, the planes follow
+            moveq   #0,d0
+            move.w  v_ay(a5,d5.w),d0
+            mulu    #40,d0
+            move.w  v_ax(a5,d5.w),d1
+            lsr.w   #4,d1
+            add.w   d1,d1
+            add.w   d1,d0                   ; byte offset in a plane
+            move.w  (a1),d1                 ; remember it for next time's wipe
+            add.w   d1,d1
+            move.w  d0,0(a3,d1.w)
+            addq.w  #1,(a1)
+            move.l  v_draw(a5),d3
+            add.l   d0,d3                   ; d3 = screen, plane 0
+            move.w  v_ax(a5,d5.w),d0
+            and.w   #15,d0
+            ror.w   #4,d0                   ; shift into bits 15-12
+            bsr     bwait
+            move.w  d0,$42(a6)              ; BLTCON1: B shift
+            or.w    #$0fca,d0
+            move.w  d0,$40(a6)              ; BLTCON0: A shift, use ABCD, D = AB + ~AC
+            move.l  #$ffff0000,$44(a6)      ; keep A's first word, drop the extra one
+            move.w  #-2,$64(a6)             ; AMOD
+            move.w  #-2,$62(a6)             ; BMOD
+            move.w  #40-4,$60(a6)           ; CMOD
+            move.w  #40-4,$66(a6)           ; DMOD
+            move.l  a0,d2
+            add.l   #BOB_PLANE,d2           ; d2 = image, plane 0
+            move.w  H_DEPTH(a4),d1
+            subq.w  #1,d1
+.pl         bsr     bwait
+            move.l  a0,$50(a6)              ; A = mask
+            move.l  d2,$4c(a6)              ; B = image plane
+            move.l  d3,$48(a6)              ; C = screen
+            move.l  d3,$54(a6)              ; D = screen
+            move.w  #BOB_SIZE,d0
+            bsr     bgo
+            add.l   #BOB_PLANE,d2
+            add.l   #PLANE_SIZE,d3
+            dbf     d1,.pl
+.nxt        lea     ACT_SIZE(a2),a2
+            addq.w  #1,d7
+            cmp.w   d6,d7
+            blt     .act
+.done       bsr     bwait
+            move.w  #1,v_drawn(a5)
+            movem.l (sp)+,d0-d7/a0-a3
+.r          rts
 
 ; ============================================================================
 ;  collisions - bounding boxes trimmed to each sprite's drawn pixels
@@ -1601,6 +1833,7 @@ big_char:   movem.l d0-d7/a0-a3,-(sp)
             add.l   d4,a2                   ; top-left byte on screen
             move.w  H_MSGCOL(a4),d3
             moveq   #7,d7                   ; 8 glyph rows
+            move.l  v_dd2(a5),d2            ; BOBs: both displays (0 = same byte)
 .row        move.b  (a1)+,d0                ; double every bit -> 16 bit mask
             moveq   #0,d5
             moveq   #7,d6
@@ -1625,6 +1858,8 @@ big_char:   movem.l d0-d7/a0-a3,-(sp)
             or.b    d5,d0
 .c1         move.b  d0,(a3)
             move.b  d0,40(a3)
+            move.b  d0,0(a3,d2.l)
+            move.b  d0,40(a3,d2.l)
             move.b  1(a3),d0
             ror.w   #8,d6
             and.b   d6,d0
@@ -1634,6 +1869,8 @@ big_char:   movem.l d0-d7/a0-a3,-(sp)
             or.b    d5,d0
 .c2         move.b  d0,1(a3)
             move.b  d0,41(a3)
+            move.b  d0,1(a3,d2.l)
+            move.b  d0,41(a3,d2.l)
             add.l   #PLANE_SIZE,a3
             addq.w  #1,d4
             dbf     d1,.pl
@@ -1930,6 +2167,7 @@ draw_char:
             move.w  H_DEPTH(a4),d6
             subq.w  #1,d6
             moveq   #0,d5                   ; plane number
+            move.l  v_dd2(a5),d4            ; BOBs: the second display too (0 = same byte)
 .plane      move.l  a1,a0
             moveq   #7,d7
 .line       move.b  (a0)+,d0                ; glyph bits
@@ -1945,6 +2183,9 @@ draw_char:
             beq.s   .clr
             or.b    d0,d1
 .clr        move.b  d1,(a2)
+            move.b  d1,0(a2,d4.l)
+            move.l  v_ddk(a5),d2            ; and the BOB background, so wiping a BOB keeps the text
+            move.b  d1,0(a2,d2.l)
             lea     40(a2),a2
             lea     40(a3),a3
             dbf     d7,.line

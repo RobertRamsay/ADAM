@@ -16,7 +16,7 @@ def build(proj, aga):
     blob=bytearray()
     def align(n):
         while len(blob)%n: blob.append(0)
-    blob+= b'\0'*84
+    blob+= b'\0'*92                          # header (HDR_SIZE)
     align(8)
     off_pal=len(blob)
     for i in range(ncol):
@@ -45,9 +45,29 @@ def build(proj, aga):
                 if v&2: w1|=0x8000>>x
             blob.extend(struct.pack('>HH',w0,w1))
         blob.extend(b'\0\0\0\0'); return o
+    def bimg(img,cmap):
+        # BOB image (engine.s BOB_*): 24 mask words, then depth x 24 words of bitplanes;
+        # sprite pixel 1-3 becomes backdrop colour cmap[0-2]
+        align(8); o=len(blob)
+        for y in range(24):
+            m=0
+            for x in range(16):
+                if img[y*16+x]: m|=0x8000>>x
+            blob.extend(struct.pack('>H',m))
+        for p in range(depth):
+            for y in range(24):
+                w=0
+                for x in range(16):
+                    v=img[y*16+x]
+                    if v and (cmap[v-1]>>p)&1: w|=0x8000>>x
+                blob.extend(struct.pack('>H',w))
+        return o
+    # actor dict: bob=1 draws it with the blitter, bobmap = backdrop colours for pixels 1-3
     for a in actors:
-        spr_offs.append(sblock(proj['sprites'][a['sprite']]['px']))
-        if a.get('anim',-1)>=0: spr2_offs.append(sblock(proj['sprites'][a['anim']]['px']))
+        if a.get('bob'): mk=lambda im,a=a: bimg(im,a['bobmap'])
+        else: mk=sblock
+        spr_offs.append(mk(proj['sprites'][a['sprite']]['px']))
+        if a.get('anim',-1)>=0: spr2_offs.append(mk(proj['sprites'][a['anim']]['px']))
         else: spr2_offs.append(0)
     align(8)
     off_act=len(blob)
@@ -58,7 +78,8 @@ def build(proj, aga):
         bx0,bx1=(min(xs),max(xs)) if xs else (0,15)
         by0,by1=(min(ys),max(ys)) if ys else (0,23)
         blob+=struct.pack('>HHHHHHHHHHHL',a['x'],a['y'],a['role'],a['speed'],int(a['visible']),int(a['left']),int(a['up']),bx0,by0,bx1,by1,spr_offs[i])
-        blob+=struct.pack('>HLHHHH',a.get('chan',i),spr2_offs[i],a.get('rate',8),a.get('amode',0),a.get('from',1),a.get('fast',0))+b'\0'*8
+        blob+=struct.pack('>HLHHHHH',a.get('chan',i),spr2_offs[i],a.get('rate',8),a.get('amode',0),a.get('from',1),a.get('fast',0),
+                          1 if a.get('bob') else 0)+b'\0'*6
     align(8)
     off_rules=len(blob)
     for r in rules:
@@ -137,13 +158,18 @@ def build(proj, aga):
     align(8)
     off_disp=len(blob)
     blob+=b'\0'*(depth*10240)
+    off_disp2=off_back=0
+    if any(a.get('bob') for a in actors):       # BOBs: second display + background, 8 spare bytes each
+        blob+=b'\0'*8
+        off_disp2=len(blob); blob+=b'\0'*(depth*10240+8)
+        off_back=len(blob); blob+=b'\0'*(depth*10240+8)
     player=-1
     for i,a in enumerate(actors):
         if a['role'] in (0,6): player=i; break
-    hdr=struct.pack('>4sHHHHHHHHHHHH',b'ADAM',2,1 if aga else 0,depth,len(actors),len(rules),proj['lives'],
+    hdr=struct.pack('>4sHHHHHHHHHHHH',b'ADAM',3,1 if aga else 0,depth,len(actors),len(rules),proj['lives'],
                     int(proj['show_score']),int(proj['show_lives']),proj['hud_row'],proj['hud_col'],proj['msg_col'],player & 0xffff)+struct.pack('>L',off_game)
-    hdr+=struct.pack('>LLLLLLLLLLLLL',off_pal,off_planes,off_act,off_rules,off_sfx,off_over,off_win,off_sprcol,off_disp,off_grad,off_ground,off_work,off_music)
-    blob[0:84]=hdr
+    hdr+=struct.pack('>LLLLLLLLLLLLLLL',off_pal,off_planes,off_act,off_rules,off_sfx,off_over,off_win,off_sprcol,off_disp,off_grad,off_ground,off_work,off_music,off_disp2,off_back)
+    blob[0:92]=hdr
     return bytes(blob)
 
 def render_sfx(s):

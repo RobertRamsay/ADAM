@@ -22,19 +22,54 @@ function sprite_colour_key(_si)
     return string(rgb_machine(_c[0])) + "," + string(rgb_machine(_c[1])) + "," + string(rgb_machine(_c[2]));
 }
 
+#macro ACT_MAX_SPR 8        // the Amiga's hardware sprites
+#macro ACT_MAX_ALL 32       // actors the engine can run (MAX_ACT in engine.s) - the rest are BOBs, ADAM Pro
+
+/// How many actors go on the disk: 8 in ADAM Lite, up to 32 in ADAM Pro
+function actors_on_disk()
+{
+    if (pro_on()) { return min(ACT_MAX_ALL, array_length(proj.actors)); }
+    return min(ACT_MAX_SPR, array_length(proj.actors));
+}
+
+/// For each actor on the disk, true when it is drawn as a BOB (blitter object)
+/// instead of a hardware sprite. In ADAM Pro that is every actor set to BOB,
+/// plus any sprite actor after the 8th. ADAM Lite has no BOBs.
+function actors_bob_flags()
+{
+    var _n = actors_on_disk();
+    var _out = array_create(_n, false);
+    if (!pro_on()) { return _out; }
+    var _spr = 0;
+    for (var i = 0; i < _n; i++)
+    {
+        if (proj.actors[i].bob || _spr >= ACT_MAX_SPR)
+        {
+            _out[i] = true;
+        }
+        else
+        {
+            _spr += 1;
+        }
+    }
+    return _out;
+}
+
 /// The Amiga's 8 sprites are 4 pairs and each pair shares one set of 3 colours.
 /// Puts actors whose colours match on the same pair. Returns
-/// { chan[], conflict[], pair_cols[4] }.
+/// { chan[], conflict[], pair_cols[4] }; chan is -1 for a BOB.
 function actors_alloc_channels()
 {
-    var _na = min(8, array_length(proj.actors));
-    var _chan = array_create(_na, 0);
+    var _na = actors_on_disk();
+    var _bob = actors_bob_flags();
+    var _chan = array_create(_na, -1);
     var _conf = array_create(_na, false);
     var _key = ["", "", "", ""];
     var _used = [0, 0, 0, 0];
     var _owner = [-1, -1, -1, -1];
     for (var i = 0; i < _na; i++)
     {
+        if (_bob[i]) { continue; }
         var _k = sprite_colour_key(proj.actors[i].sprite);
         var _p = -1;
         for (var a = 0; a < 4; a++)
@@ -69,9 +104,7 @@ function actors_alloc_channels()
 /// The colours actor _i will really have on the Amiga
 function actor_shown_cols(_i)
 {
-    var _al = actors_alloc_channels();
-    if (_i >= array_length(_al.chan)) { return proj.sprites[proj.actors[_i].sprite].cols; }
-    return _al.pair_cols[_al.chan[_i] div 2];
+    return actor_cols_from(actors_alloc_channels(), _i);
 }
 
 function ws_actors_draw(_x1, _y1, _x2, _y2)
@@ -81,16 +114,22 @@ function ws_actors_draw(_x1, _y1, _x2, _y2)
     var _na = array_length(proj.actors);
     sel_actor = clamp(sel_actor, 0, max(0, _na - 1));
     var _alloc = actors_alloc_channels();
+    var _amax = ACT_MAX_SPR;
+    if (pro_on()) { _amax = ACT_MAX_ALL; }
 
     // ---------------- cast list ----------------
-    ui_panel(_x1, _y1, _x1 + _lw, _y2, "Cast  (" + string(_na) + " / 8)");
+    ui_panel(_x1, _y1, _x1 + _lw, _y2, "Cast  (" + string(_na) + " / " + string(_amax) + ")");
     var _ly = _y1 + 54;
     var _rowh = 58;
+    var _by = _y2 - 130;
+    var _lcontent = _na * _rowh + 8;
+    var _loff = ui_scroll_begin("act_list", _x1 + 6, _y1 + 50, _x1 + _lw - 6, _by - 8, _lcontent);
     var _role_short = ["Player", "Bouncer", "Patrol L-R", "Patrol U-D", "Chaser", "Still", "Platform player", "Hopper", "Faller"];
     for (var i = 0; i < _na; i++)
     {
         var _ac = proj.actors[i];
-        var _ry = _ly + i * _rowh;
+        var _ry = _ly + i * _rowh - _loff;
+        if (_ry < _y1 - _rowh || _ry > _by) { continue; }
         var _id = "act_slot_" + string(i);
         var _hot = ui_register(_id, _x1 + 10, _ry, _x1 + _lw - 10, _ry + _rowh - 6, _ac.name + "|Click to select this actor and change its settings on the right.");
         var _tgt = 0;
@@ -111,6 +150,7 @@ function ws_actors_draw(_x1, _y1, _x2, _y2)
         if (i < array_length(_alloc.conflict))
         {
             if (_alloc.conflict[i]) { _sub += "  -  colours shared!"; }
+            if (_alloc.chan[i] < 0) { _sub += "  -  BOB"; }
         }
         ui_text(_x1 + 60, _ry + 35, _sub, global.TH.text_dim, fa_left, fa_middle, global.f_small, 1);
         if (_hot && ui_pressed)
@@ -119,13 +159,15 @@ function ws_actors_draw(_x1, _y1, _x2, _y2)
             ui_take_click();
         }
     }
-    var _by = _y2 - 130;
+    ui_scroll_end("act_list", _x1 + 6, _y1 + 50, _x1 + _lw - 6, _by - 8, _lcontent);
     var _bw = _lw - 32;
     var _st = BTN_ACCENT;
-    if (_na >= 8) { _st = BTN_GHOST; }
-    if (ui_button("act_add", _x1 + 16, _by, _bw, 34, "Add actor", "Add actor|Adds a new actor (up to 8 - the Amiga has 8 hardware sprites). New actors start in the middle of the screen.", _st))
+    if (_na >= _amax) { _st = BTN_GHOST; }
+    var _addhelp = "Add actor|Adds a new actor (up to 8 - the Amiga has 8 hardware sprites; more as BOBs in ADAM Pro). New actors start in the middle of the screen.";
+    if (pro_on()) { _addhelp = "Add actor|Adds a new actor, up to 32. The first 8 can be hardware sprites; the rest are BOBs, drawn by the blitter. New actors start in the middle of the screen."; }
+    if (ui_button("act_add", _x1 + 16, _by, _bw, 34, "Add actor", _addhelp, _st))
     {
-        if (_na < 8)
+        if (_na < _amax)
         {
             undo_mark("actadd" + string(current_time));
             var _n = actor_new("Actor " + string(_na + 1));
@@ -136,12 +178,13 @@ function ws_actors_draw(_x1, _y1, _x2, _y2)
         }
         else
         {
-            toast("The Amiga has 8 hardware sprites - that is the limit", 1);
+            if (pro_on()) { toast("ADAM games can have up to " + string(ACT_MAX_ALL) + " actors", 1); }
+            else { toast("The Amiga has 8 hardware sprites - more actors (as BOBs) are part of ADAM Pro", 1); }
         }
     }
     if (ui_button("act_dup", _x1 + 16, _by + 42, _bw, 34, "Duplicate", "Duplicate|Makes a copy of the selected actor, slightly to the side.", BTN_NORMAL))
     {
-        if (_na > 0 && _na < 8)
+        if (_na > 0 && _na < _amax)
         {
             undo_mark("actdup" + string(current_time));
             var _cp = struct_overlay(actor_new(""), json_parse(json_stringify(proj.actors[sel_actor])));
@@ -362,8 +405,35 @@ function ws_actors_draw(_x1, _y1, _x2, _y2)
         _y += 34;
     }
 
+    // sprite or BOB (ADAM Pro)
+    var _boblabel = "Draw as a BOB";
+    if (!pro_on()) { _boblabel = "Draw as a BOB  (Pro)"; }
+    var _bobv = ui_toggle("act_bob", _fx2, _y, _boblabel, _s.bob && pro_on(), "Draw as a BOB|A BOB (blitter object) is drawn into the backdrop by the Amiga's blitter instead of being a hardware sprite. BOBs use the nearest backdrop colours and do not take one of the 8 sprites, so a game can have up to 32 actors. Actors after the 8th sprite become BOBs anyway. Part of ADAM Pro.");
+    if (_bobv != (_s.bob && pro_on()))
+    {
+        if (pro_gate("BOBs")) { set_val(_s, "bob", _bobv, "actbob"); }
+    }
+    _y += 34;
+
     // hardware sprite channel
+    var _hw = false;
+    var _isbob = false;
     if (sel_actor < array_length(_alloc.chan))
+    {
+        if (_alloc.chan[sel_actor] >= 0) { _hw = true; }
+        else { _isbob = true; }
+    }
+    if (_isbob)
+    {
+        ui_heading(_fx2, _y, "Amiga BOB");
+        var _bmsg = "Drawn by the blitter in the nearest backdrop colours (shown on the stage).";
+        if (!_s.bob) { _bmsg = "All 8 hardware sprites are taken, so this actor is drawn as a BOB by the blitter, in the nearest backdrop colours."; }
+        draw_set_font(global.f_small);
+        var _bh = max(48, ceil(ui_sh_ext(_bmsg, _fw2 - 20)) + 14);
+        ui_rrect(_fx2, _y + 18, _fx2 + _fw2, _y + 18 + _bh, 8, global.TH.inset_top, global.TH.inset_bot, 0.8);
+        ui_text_wrap(_fx2 + 10, _y + 24, _bmsg, global.TH.text_dim, _fw2 - 20, global.f_small, 1);
+    }
+    if (_hw)
     {
         var _ch = _alloc.chan[sel_actor];
         ui_heading(_fx2, _y, "Amiga hardware sprite");
@@ -391,5 +461,19 @@ function ws_actors_draw(_x1, _y1, _x2, _y2)
 function actor_cols_from(_alloc, _i)
 {
     if (_i >= array_length(_alloc.chan)) { return proj.sprites[proj.actors[_i].sprite].cols; }
+    if (_alloc.chan[_i] < 0) { return actor_bob_cols(_i); }
     return _alloc.pair_cols[_alloc.chan[_i] div 2];
+}
+
+/// The backdrop colours a BOB actor's 3 sprite colours become (as adam_data_block maps them)
+function actor_bob_cols(_i)
+{
+    var _ncol = 1 << clamp(proj.depth, 1, machine_cur().max_depth);
+    var _sc = proj.sprites[clamp(proj.actors[_i].sprite, 0, SPR_COUNT - 1)].cols;
+    var _out = [];
+    for (var c = 0; c < 3; c++)
+    {
+        array_push(_out, proj.pal[pal_nearest(proj, _sc[c], _ncol)]);
+    }
+    return _out;
 }

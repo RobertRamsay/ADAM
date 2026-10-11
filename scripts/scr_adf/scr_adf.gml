@@ -6,7 +6,7 @@
 /// The data block layout is documented at the top of engine.s.
 
 #macro ADF_SIZE 901120
-#macro ADF_HDR 84
+#macro ADF_HDR 92
 #macro ADF_SONGS_MAX 4
 #macro OS_RESERVE_KB 160
 // Original A500s have only 512KB of chip RAM. Even with a trapdoor slow-RAM card
@@ -145,6 +145,64 @@ function adf_sprite_block(_b, _img)
     return _o;
 }
 
+/// Backdrop colour nearest to _rgb (never colour 0, the sky / background)
+function pal_nearest(_p, _rgb, _ncol)
+{
+    var _best = 1;
+    var _bd = -1;
+    var _r = (_rgb >> 16) & 255;
+    var _g = (_rgb >> 8) & 255;
+    var _bl = _rgb & 255;
+    for (var c = 1; c < _ncol; c++)
+    {
+        var _q = _p.pal[c];
+        var _dr = ((_q >> 16) & 255) - _r;
+        var _dg = ((_q >> 8) & 255) - _g;
+        var _db = (_q & 255) - _bl;
+        var _d = _dr * _dr * 3 + _dg * _dg * 4 + _db * _db * 2;
+        if (_bd < 0 || _d < _bd)
+        {
+            _bd = _d;
+            _best = c;
+        }
+    }
+    return _best;
+}
+
+/// Writes one BOB image (engine.s BOB_*): 24 mask words, then _depth x 24
+/// words of bitplanes. Sprite pixel 1-3 becomes backdrop colour _map[0-2]. Returns its offset.
+function adf_bob_image(_b, _img, _map, _depth)
+{
+    buf_align(_b, 8);
+    var _o = buffer_tell(_b);
+    for (var my = 0; my < SPR_H; my++)
+    {
+        var _m = 0;
+        for (var mx = 0; mx < SPR_W; mx++)
+        {
+            if (_img[my * SPR_W + mx] != 0) { _m = _m | (0x8000 >> mx); }
+        }
+        be16(_b, _m);
+    }
+    for (var pl = 0; pl < _depth; pl++)
+    {
+        for (var py = 0; py < SPR_H; py++)
+        {
+            var _w = 0;
+            for (var px = 0; px < SPR_W; px++)
+            {
+                var _v = _img[py * SPR_W + px];
+                if (_v != 0)
+                {
+                    if (((_map[_v - 1] >> pl) & 1) != 0) { _w = _w | (0x8000 >> px); }
+                }
+            }
+            be16(_b, _w);
+        }
+    }
+    return _o;
+}
+
 /// Builds the game data block. Returns { buf, size, warnings[], sound_bytes, plane_bytes }.
 function adam_data_block(_p)
 {
@@ -153,7 +211,13 @@ function adam_data_block(_p)
     var _depth = clamp(_p.depth, 1, _m.max_depth);
     var _ncol = 1 << _depth;
     var _acts = _p.actors;
-    var _na = min(8, array_length(_acts));
+    var _na = actors_on_disk();
+    var _bob = actors_bob_flags();
+    var _anybob = false;
+    for (var bq = 0; bq < _na; bq++)
+    {
+        if (_bob[bq]) { _anybob = true; }
+    }
     var _rules = [];
     for (var ru = 0; ru < array_length(_p.rules); ru++)
     {
@@ -196,15 +260,31 @@ function adam_data_block(_p)
     }
     buf_align(_b, 8);
 
-    // hardware sprite blocks per actor (and a second one when it animates)
+    // hardware sprite blocks per actor (and a second one when it animates);
+    // BOBs get BOB images in the nearest backdrop colours instead
     var _spr_off = array_create(_na, 0);
     var _spr2_off = array_create(_na, 0);
     for (var a = 0; a < _na; a++)
     {
-        _spr_off[a] = adf_sprite_block(_b, _p.sprites[clamp(_acts[a].sprite, 0, SPR_COUNT - 1)].px);
-        if (_acts[a].anim_sprite >= 0 && _acts[a].anim_sprite < SPR_COUNT)
+        var _si = clamp(_acts[a].sprite, 0, SPR_COUNT - 1);
+        var _ai = _acts[a].anim_sprite;
+        if (_bob[a])
         {
-            _spr2_off[a] = adf_sprite_block(_b, _p.sprites[_acts[a].anim_sprite].px);
+            var _scol = _p.sprites[_si].cols;
+            var _map = [pal_nearest(_p, _scol[0], _ncol), pal_nearest(_p, _scol[1], _ncol), pal_nearest(_p, _scol[2], _ncol)];
+            _spr_off[a] = adf_bob_image(_b, _p.sprites[_si].px, _map, _depth);
+            if (_ai >= 0 && _ai < SPR_COUNT)
+            {
+                _spr2_off[a] = adf_bob_image(_b, _p.sprites[_ai].px, _map, _depth);
+            }
+        }
+        else
+        {
+            _spr_off[a] = adf_sprite_block(_b, _p.sprites[_si].px);
+            if (_ai >= 0 && _ai < SPR_COUNT)
+            {
+                _spr2_off[a] = adf_sprite_block(_b, _p.sprites[_ai].px);
+            }
         }
     }
     buf_align(_b, 8);
@@ -255,7 +335,7 @@ function adam_data_block(_p)
         be16(_b, _bx1);
         be16(_b, _by1);
         be32(_b, _spr_off[a2]);
-        be16(_b, _alloc.chan[a2]);
+        be16(_b, max(0, _alloc.chan[a2]));
         be32(_b, _spr2_off[a2]);
         be16(_b, clamp(_ac.anim_rate, 2, 30));
         var _am = 0;
@@ -263,8 +343,13 @@ function adam_data_block(_p)
         be16(_b, _am);
         be16(_b, clamp(_ac.from_level, 1, LEVEL_MAX));
         be16(_b, clamp(_ac.faster_every, 0, LEVEL_MAX));
-        buf_zeros(_b, 8);
+        var _isbob = 0;
+        if (_bob[a2]) { _isbob = 1; }
+        be16(_b, _isbob);                // A_BOB
+        buf_zeros(_b, 6);
         if (_alloc.conflict[a2]) { array_push(_warn, "Actor '" + _ac.name + "' shares a sprite colour pair with different colours - it will borrow its partner's colours."); }
+        if (_bob[a2] && !_ac.bob) { array_push(_warn, "Actor '" + _ac.name + "' is drawn as a BOB - the Amiga has 8 hardware sprites."); }
+        if (!pro_on() && _ac.bob) { array_push(_warn, "Actor '" + _ac.name + "' is set to BOB - BOBs are part of ADAM Pro, so it is a sprite here."); }
     }
     buf_align(_b, 8);
 
@@ -278,11 +363,11 @@ function adam_data_block(_p)
         if (_ru.act == 2) { _val = clamp(_val, 0, 7); }
         if (_ru.act == 18) { _val = clamp(_val, 0, ADF_SONGS_MAX - 1); }
         be16(_b, clamp(_ru.when, 0, 7));
-        be16(_b, clamp(_ru.a, 0, 7));
-        be16(_b, clamp(_ru.b, 0, 7));
+        be16(_b, clamp(_ru.a, 0, ACT_MAX_ALL - 1));
+        be16(_b, clamp(_ru.b, 0, ACT_MAX_ALL - 1));
         be16(_b, clamp(_ru.n, 1, 65535));
         be16(_b, clamp(_ru.act, 0, 19));
-        be16(_b, clamp(_ru.target, 0, 7));
+        be16(_b, clamp(_ru.target, 0, ACT_MAX_ALL - 1));
         be16(_b, clamp(_val, 0, 65535));
         be16(_b, 0);
     }
@@ -405,6 +490,22 @@ function adam_data_block(_p)
     // the display bitplanes the game draws into
     var _off_disp = buffer_tell(_b);
     buf_zeros(_b, _depth * 10240);
+
+    // BOBs: a second display (double buffering) and the background they are
+    // wiped from. 8 spare bytes after each: a BOB at the bottom right blits
+    // one word past the end of its buffer.
+    var _off_disp2 = 0;
+    var _off_back = 0;
+    var _nbuf = 3;
+    if (_anybob)
+    {
+        buf_zeros(_b, 8);
+        _off_disp2 = buffer_tell(_b);
+        buf_zeros(_b, _depth * 10240 + 8);
+        _off_back = buffer_tell(_b);
+        buf_zeros(_b, _depth * 10240 + 8);
+        _nbuf = 5;
+    }
     var _size = buffer_tell(_b);
 
     // header
@@ -418,7 +519,7 @@ function adam_data_block(_p)
     if (_p.show_score) { _sc = 1; }
     var _lv = 0;
     if (_p.show_lives) { _lv = 1; }
-    poke16(_b, 4, 2);                    // data block version 2: adds the music table
+    poke16(_b, 4, 3);                    // data block version 3: adds BOBs (H_DISP2, H_BACK, A_BOB)
     poke16(_b, 6, _flags);
     poke16(_b, 8, _depth);
     poke16(_b, 10, _na);
@@ -444,6 +545,8 @@ function adam_data_block(_p)
     poke32(_b, 76, _off_work);
     poke32(_b, 28, _off_game);
     poke32(_b, 80, _off_music);
+    poke32(_b, 84, _off_disp2);
+    poke32(_b, 88, _off_back);
 
     for (var rm = 0; rm < _nr; rm++)
     {
@@ -455,7 +558,12 @@ function adam_data_block(_p)
     }
     if (_na == 0) { array_push(_warn, "There are no actors yet - the game will just show your backdrop."); }
     if (_player < 0 && _na > 0) { array_push(_warn, "No actor is set as Player, so the joystick will not move anything."); }
-    return { buf : _b, size : _size, warnings : _warn, sound_bytes : _snd_bytes + _mus.bytes, plane_bytes : _depth * 10240 * 3 };
+    if (array_length(_acts) > _na)
+    {
+        if (pro_on()) { array_push(_warn, "Only the first " + string(ACT_MAX_ALL) + " actors go on the disk."); }
+        else { array_push(_warn, "Only the first " + string(ACT_MAX_SPR) + " actors go on the disk - more actors (as BOBs) are part of ADAM Pro."); }
+    }
+    return { buf : _b, size : _size, warnings : _warn, sound_bytes : _snd_bytes + _mus.bytes, plane_bytes : _depth * 10240 * _nbuf };
 }
 
 /// Writes the music table and the songs (as ProTracker MODs) at the end of _b.

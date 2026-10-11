@@ -78,7 +78,8 @@ function actor_new(_name)
         anim_rate : 8,
         anim_moving : false,
         from_level : 1,
-        faster_every : 0
+        faster_every : 0,
+        bob : false             // ADAM Pro: drawn by the blitter instead of a hardware sprite
     };
 }
 
@@ -229,9 +230,17 @@ function project_from_loaded(_raw)
     var _la = _raw[$ "actors"];
     if (is_array(_la))
     {
-        for (var k = 0; k < min(8, array_length(_la)); k++)
+        // up to 32 (ADAM Pro, with BOBs); ADAM Lite puts the first 8 on the disk
+        for (var k = 0; k < min(ACT_MAX_ALL, array_length(_la)); k++)
         {
-            array_push(_acts, struct_overlay(actor_new("Actor"), _la[k]));
+            var _lact = struct_overlay(actor_new("Actor"), _la[k]);
+            if (!is_bool(_lact.bob))
+            {
+                var _bv = false;
+                if (is_numeric(_lact.bob)) { _bv = (_lact.bob != 0); }
+                _lact.bob = _bv;
+            }
+            array_push(_acts, _lact);
         }
     }
     _p.actors = _acts;

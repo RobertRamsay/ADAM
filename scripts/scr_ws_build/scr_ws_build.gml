@@ -111,8 +111,22 @@ function ws_build_draw(_x1, _y1, _x2, _y2)
     }
     if (_has_player) { array_push(_items, "There is a Player actor for the joystick"); array_push(_kinds, 0); }
     else { array_push(_items, "No Player actor - set one on the Actors page"); array_push(_kinds, 1); }
-    array_push(_items, string(_na) + " of 8 hardware sprites used");
+    var _nspr = 0;
+    var _nbob = 0;
+    for (var c2 = 0; c2 < array_length(_alloc.chan); c2++)
+    {
+        if (_alloc.chan[c2] >= 0) { _nspr += 1; }
+        else { _nbob += 1; }
+    }
+    var _sline = string(_nspr) + " of 8 hardware sprites used";
+    if (_nbob > 0) { _sline += ", plus " + string(_nbob) + " BOB(s)"; }
+    array_push(_items, _sline);
     if (_na > 0) { array_push(_kinds, 0); } else { array_push(_kinds, 1); }
+    if (_na > array_length(_alloc.chan))
+    {
+        array_push(_items, string(_na - array_length(_alloc.chan)) + " actor(s) left off the disk (" + string(array_length(_alloc.chan)) + " is the most)");
+        array_push(_kinds, 1);
+    }
     if (_conf > 0) { array_push(_items, string(_conf) + " actor(s) borrow another actor's sprite colours"); array_push(_kinds, 1); }
     array_push(_items, string(_nr) + " rule(s)");
     if (_nr > 0) { array_push(_kinds, 0); } else { array_push(_kinds, 1); }
