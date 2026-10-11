@@ -818,6 +818,10 @@ function settings_load()
     {
         ws_seen[i] = ini_read_real("seen", "ws" + string(i), 0) == 1;
     }
+    for (var l = 0; l < array_length(les_done); l++)
+    {
+        les_done[l] = ini_read_real("lessons", "done" + string(l), 0) == 1;
+    }
     ini_close();
     last_machine = machine_get(last_machine).id;
 }
@@ -830,7 +834,15 @@ function settings_save()
     var _light = 0;
     if (fsuae_light) { _light = 1; }
     ini_write_real("emulator", "light", _light);
-    ini_write_string("paths", "adf", out_path);
+    // during a lesson out_path is the lesson's own disk - keep your real one
+    if (les_active)
+    {
+        ini_write_string("paths", "adf", les_prev_out);
+    }
+    else
+    {
+        ini_write_string("paths", "adf", out_path);
+    }
     ini_write_string("paths", "project", proj_path);
     ini_write_string("machine", "last", last_machine);
     var _h = 0;
@@ -852,6 +864,12 @@ function settings_save()
         var _s = 0;
         if (ws_seen[i]) { _s = 1; }
         ini_write_real("seen", "ws" + string(i), _s);
+    }
+    for (var l = 0; l < array_length(les_done); l++)
+    {
+        var _d = 0;
+        if (les_done[l]) { _d = 1; }
+        ini_write_real("lessons", "done" + string(l), _d);
     }
     ini_close();
 }

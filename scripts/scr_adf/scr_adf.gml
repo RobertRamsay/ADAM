@@ -584,6 +584,7 @@ function build_adf(_path)
     buffer_delete(_data.buf);
 
     build_ok = true;
+    build_stamp = current_time;
     build_size = _game;
     build_engine_size = _esize;
     build_plane_size = _data.plane_bytes;

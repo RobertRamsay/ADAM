@@ -226,6 +226,7 @@ build_log = [];
 build_listing = [];
 build_warnings = [];
 build_ok = false;
+build_stamp = -1;           // current_time of the last good build (lessons check it)
 build_msg = "";
 build_size = 0;
 build_engine_size = 0;
@@ -241,8 +242,21 @@ fsuae_dl_got = 0;
 fsuae_dl_total = 0;
 fsuae_dl_then_run = "";
 
-// ---------- tutorials + settings ----------
+// ---------- tutorials, lessons + settings ----------
 tut_init();
+les_active = false;         // a lesson (scr_lessons) is running
+les_id = 0;
+les_steps = [];
+les_index = 0;
+les_anim = 0;
+les_done_t = -1;            // current_time when this step's task was done, -1 = not yet
+les_step_t = 0;             // current_time when this step began
+les_check_timer = 0;
+les_card_rect = [0, 0, 0, 0];
+les_done = array_create(4, false);  // lessons finished (saved in the settings)
+les_prev_out = "";          // your .adf path, put back when a lesson ends
+les_defs = [];
+lessons_init();
 settings_load();
 
 // ---------- project ----------
@@ -283,6 +297,9 @@ if (ADAM_DEV_TOOLS) { project_pack_selftest(); }
 // Phase 2 Track C: MOD export/import - dev-only round-trip check (IDE Output window),
 // also leaves game_save_id + "adam_selftest.mod" to open in OpenMPT / ProTracker
 if (ADAM_DEV_TOOLS) { mod_selftest(); }
+
+// lessons: every step check() runs once on a new project and each example (IDE Output window)
+if (ADAM_DEV_TOOLS) { lessons_selftest(); }
 
 // pick the Amiga before anything else (the Home tutorial follows it)
 machine_pick_open(true);

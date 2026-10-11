@@ -50,10 +50,9 @@ function ws_home_draw(_x1, _y1, _x2, _y2)
     ui_text_wrap(_x1 + 28, _y1 + 106, "Paint a backdrop, draw sprites, choose how things move and write the rules as simple WHEN / DO sentences. ADAM builds a bootable Amiga disk for the " + _m.name + ".", global.TH.text_dim, _split - _x1 - 220, global.f_body, 1);
     var _bx = _x1 + 28;
     var _by = _y1 + 176;
-    if (ui_button("home_tour", _bx, _by, 190, 40, "Take the guided tour", "Guided tour|A full walk-through of every page, from painting the backdrop to playing your game. Takes about five minutes.", BTN_ACCENT))
-    {
-        tut_start(-1);
-    }
+    var _learn = ui_menu_button("home_tour", _bx, _by, 190, 40, "Learn ADAM...", lesson_menu_names(), "Learn ADAM|The guided tour shows what every page does. The four lessons each make a whole game from a new project, step by step: Basics, Beginner, Intermediate and Experienced.", BTN_ACCENT);
+    if (_learn == 0) { tut_start(-1); }
+    if (_learn >= 1) { lesson_start(_learn - 1); }
     var _ex = ui_menu_button("home_example", _bx + 200, _by, 190, 40, "Example games...", example_names(), "Example games|Four finished games to play and pull apart: Gem Hunter, Deep Dive, Star Catcher and Dodge Ball. Look around every page to see how they were made, then build them.", BTN_ON);
     if (_ex >= 0) { example_load(_ex); }
     if (ui_button("home_new", _bx + 400, _by, 80, 40, "New", "New project|Starts a blank project for the same machine.", BTN_NORMAL)) { home_new(); }
