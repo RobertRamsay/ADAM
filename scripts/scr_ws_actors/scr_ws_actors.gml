@@ -25,6 +25,22 @@ function sprite_colour_key(_si)
 #macro ACT_MAX_SPR 8        // the Amiga's hardware sprites
 #macro ACT_MAX_ALL 32       // actors the engine can run (MAX_ACT in engine.s) - the rest are BOBs, ADAM Pro
 
+// Blitter time per BOB per bitplane each frame: the cookie-cut (24 lines x 2
+// words, 4 cycles a word) plus the wipe (2 cycles a word) = 288 DMA cycles.
+#macro BOB_CYCLES_PER_PLANE 288
+
+/// How many BOBs machine _m can draw every frame (50 a second) at _depth
+/// bitplanes. A PAL frame has about 70,000 bus cycles; the A500/600 leaves
+/// the blitter about 30,000 after the bitplanes and the game, the A1200
+/// (64-bit bitplane fetch, faster CPU) about 45,000. Tested: 23 BOBs run
+/// smoothly on an A600 at 16 colours and an A1200 at 128.
+function bobs_max(_m, _depth)
+{
+    var _budget = 30000;
+    if (_m.aga) { _budget = 45000; }
+    return floor(_budget / (BOB_CYCLES_PER_PLANE * max(1, _depth)));
+}
+
 /// How many actors go on the disk: 8 in ADAM Lite, up to 32 in ADAM Pro
 function actors_on_disk()
 {

@@ -558,6 +558,16 @@ function adam_data_block(_p)
     }
     if (_na == 0) { array_push(_warn, "There are no actors yet - the game will just show your backdrop."); }
     if (_player < 0 && _na > 0) { array_push(_warn, "No actor is set as Player, so the joystick will not move anything."); }
+    var _nbobs = 0;
+    for (var bc = 0; bc < _na; bc++)
+    {
+        if (_bob[bc]) { _nbobs += 1; }
+    }
+    var _bmax = bobs_max(_m, _depth);
+    if (_nbobs > _bmax)
+    {
+        array_push(_warn, string(_nbobs) + " BOBs is a lot for the " + _m.short_name + " at " + string(_ncol) + " colours - about " + string(_bmax) + " run at full speed; with more the game slows down. Fewer BOBs or fewer colours help.");
+    }
     if (array_length(_acts) > _na)
     {
         if (pro_on()) { array_push(_warn, "Only the first " + string(ACT_MAX_ALL) + " actors go on the disk."); }
