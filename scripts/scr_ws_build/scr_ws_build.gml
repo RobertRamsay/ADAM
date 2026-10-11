@@ -148,7 +148,7 @@ function ws_build_draw(_x1, _y1, _x2, _y2)
     _y += 54;
     var _rst = BTN_ON;
     if (os_type != os_windows && os_type != os_macosx) { _rst = BTN_GHOST; }
-    if (ui_button("build_run", _fx, _y, _fw, 46, "Build and play in FS-UAE", "Build and play|Builds the disk and boots it in FS-UAE as a stock " + _m.name + ". Joystick: FS-UAE maps a gamepad, or the cursor keys and right Ctrl, to port 2.", _rst))
+    if (ui_button("build_run", _fx, _y, _fw, 46, "Build and play in FS-UAE", "Build and play|Builds the disk and boots it in FS-UAE as a stock " + _m.name + ". Joystick: the cursor keys move and right Ctrl fires.", _rst))
     {
         build_ws_build(true);
     }

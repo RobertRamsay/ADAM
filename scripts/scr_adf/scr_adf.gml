@@ -821,7 +821,10 @@ function launch_fsuae_now(_adf)
         + " --floppy_drive_speed=0"
         + " --fullscreen=0"
         + " --window_width=960 --window_height=720"
-        + " --automatic_input_grab=0 --initial_input_grab=0";
+        + " --automatic_input_grab=0 --initial_input_grab=0"
+        // games read the joystick in port 2 (FS-UAE port 1): put the keyboard there -
+        // cursor keys move, right Ctrl fires. Without it the keys do nothing.
+        + " --joystick_port_1=keyboard";
     if (fsuae_light)
     {
         // light mode: no host vsync spin-wait and no smoothing filter - far less CPU/GPU load
@@ -884,7 +887,8 @@ function launch_fsuae_mac(_adf)
         "window_width = 960",
         "window_height = 720",
         "automatic_input_grab = 0",
-        "initial_input_grab = 0"
+        "initial_input_grab = 0",
+        "joystick_port_1 = keyboard"
     ];
     if (fsuae_light)
     {
