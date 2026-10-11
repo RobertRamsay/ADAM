@@ -2,6 +2,7 @@
 #   options/windows/icons/icon.ico   app icon (16-256 px)
 #   promo/itch_cover.png             itch.io cover, 630 x 500
 #   promo/itch_banner.png            itch.io page banner, 960 x 250
+#   promo/launch_devlog.png          launch / devlog image, 1200 x 675 (from the screenshots in promo/shots)
 #   promo/itch_background.png        itch.io page background, 1920 x 1080 (soft slate, blurred balls)
 #   options/windows/installer/header.bmp, finished.bmp   installer header 150 x 57, welcome/finish panel 164 x 314
 # Usage:  powershell -File tools\make_art.ps1 [-Png icon256.png]   (-Png also saves the 256px icon)
@@ -431,6 +432,115 @@ public static class AdamArt
         }
     }
 
+    // ---------- launch / devlog image 1200 x 675 ----------
+    const double LHor = 500;
+    const double LBx = 1118, LBy = 92, LBr = 74;
+
+    static double[] LaunchBack(double u, double v)
+    {
+        double[] c = { 0, 0, 0, 1 };
+        double t = Math.Min(1, v / LHor);
+        double band = Math.Floor(t * 16) / 16;
+        c[0] = (14 + 70 * band) / 255; c[1] = (18 + 16 * band) / 255; c[2] = (48 + 70 * band) / 255;
+        if (v >= LHor)
+        {
+            double dv = v - LHor + 0.5;
+            double fz = (v - LHor) / (675 - LHor);
+            c[0] = (34 + 26 * fz) / 255; c[1] = (22 + 12 * fz) / 255; c[2] = (56 + 30 * fz) / 255;
+            double gx = (u - 600) * 2.2 / dv, gz = 800 / dv;
+            double ppx = dv / 2.2, ppz = dv * dv / 800;
+            double ex = Math.Abs(gx - Math.Round(gx)) * ppx, ez = Math.Abs(gz - Math.Round(gz)) * ppz;
+            double line = 0;
+            if (ex < 1.1) { line = Math.Min(1, ppx / 4); }
+            if (ez < 1.1) { line = Math.Max(line, Math.Min(1, (ppz - 1.5) / 5)); }
+            if (line > 0) { Mix(c, 175 / 255.0, 95 / 255.0, 235 / 255.0, 0.9 * line); }
+            if (v < LHor + 1.5) { Mix(c, 1, 0.75, 0.95, 0.6); }
+        }
+        return c;
+    }
+
+    static double[] LaunchBall(double u, double v)
+    {
+        double[] c = { 0, 0, 0, 0 };
+        Ball(c, u, v, LBx, LBy, LBr);
+        return c;
+    }
+
+    static GraphicsPath RoundRect(float x, float y, float w, float h, float r)
+    {
+        var p = new GraphicsPath();
+        p.AddArc(x, y, 2 * r, 2 * r, 180, 90);
+        p.AddArc(x + w - 2 * r, y, 2 * r, 2 * r, 270, 90);
+        p.AddArc(x + w - 2 * r, y + h - 2 * r, 2 * r, 2 * r, 0, 90);
+        p.AddArc(x, y + h - 2 * r, 2 * r, 2 * r, 90, 90);
+        p.CloseFigure();
+        return p;
+    }
+
+    // a screenshot in a frame with a soft shadow; pixelArt = nearest-neighbour scaling
+    static void Framed(Graphics g, Image img, float x, float y, float w, float h, float border, Color frame, bool pixelArt)
+    {
+        for (int i = 6; i >= 1; i--)
+        {
+            using (var sp = RoundRect(x - border + i * 2, y - border + i * 3, w + 2 * border, h + 2 * border, 10 + i))
+            { g.FillPath(new SolidBrush(Color.FromArgb(18, 0, 0, 0)), sp); }
+        }
+        using (var fp = RoundRect(x - border, y - border, w + 2 * border, h + 2 * border, 10))
+        { g.FillPath(new SolidBrush(frame), fp); }
+        var old = g.InterpolationMode;
+        g.InterpolationMode = pixelArt ? InterpolationMode.NearestNeighbor : InterpolationMode.HighQualityBicubic;
+        g.DrawImage(img, x, y, w, h);
+        g.InterpolationMode = old;
+    }
+
+    public static void WriteLaunch(string path, string fontDir, string editorShot, string game1, string game2)
+    {
+        using (var bmp = Render(1200, 675, 1.0, LaunchBack, 3))
+        using (var ball = Render(1200, 675, 1.0, LaunchBall, 4))
+        using (var g = Graphics.FromImage(bmp))
+        using (var fonts = new PrivateFontCollection())
+        using (var ed = Image.FromFile(editorShot))
+        using (var g1 = Image.FromFile(game1))
+        using (var g2 = Image.FromFile(game2))
+        {
+            fonts.AddFontFile(Path.Combine(fontDir, "Poppins-Bold.ttf"));
+            FontFamily pop = fonts.Families[0];
+            g.SmoothingMode = SmoothingMode.AntiAlias;
+            g.TextRenderingHint = TextRenderingHint.AntiAliasGridFit;
+            g.PixelOffsetMode = PixelOffsetMode.HighQuality;
+
+            // the editor, then two games on top of it
+            Framed(g, ed, 478, 64, 672, 378, 6, Color.FromArgb(28, 32, 40), false);
+            Framed(g, g1, 420, 330, 300, 240, 9, Color.FromArgb(214, 206, 188), true);
+            Framed(g, g2, 880, 380, 270, 216, 9, Color.FromArgb(214, 206, 188), true);
+
+            // title, version badge, tagline
+            DrawTitle(g, pop, "ADAM", 104, 34, 40, 11, 15, true);
+            var fBadge = new Font(pop, 22, FontStyle.Bold, GraphicsUnit.Pixel);
+            string badge = "VERSION 1.0  -  OUT NOW!";
+            SizeF bs = g.MeasureString(badge, fBadge, 2000, StringFormat.GenericTypographic);
+            using (var bp = RoundRect(38, 178, bs.Width + 32, 42, 21))
+            {
+                g.FillPath(new LinearGradientBrush(new PointF(0, 178), new PointF(0, 220), Color.FromArgb(255, 170, 60), Color.FromArgb(235, 110, 30)), bp);
+            }
+            g.DrawString(badge, fBadge, Brushes.White, 54, 187, StringFormat.GenericTypographic);
+            var orange = new SolidBrush(Color.FromArgb(255, 150, 40));
+            var dim = new SolidBrush(Color.FromArgb(205, 212, 232));
+            var f1 = new Font(pop, 34, FontStyle.Bold, GraphicsUnit.Pixel);
+            var f2 = new Font(pop, 18, FontStyle.Bold, GraphicsUnit.Pixel);
+            g.DrawString("Make Amiga games.", f1, Brushes.White, 38, 238, StringFormat.GenericTypographic);
+            g.DrawString("No code needed.", f1, orange, 38, 280, StringFormat.GenericTypographic);
+            g.DrawString("Real bootable disks for the", f2, dim, 40, 616, StringFormat.GenericTypographic);
+            g.DrawString("Amiga 500, 600 and 1200", f2, dim, 40, 640, StringFormat.GenericTypographic);
+            g.DrawString("Free Lite  -  Pro edition", f2, Brushes.White, 40, 340, StringFormat.GenericTypographic);
+            g.DrawString("Windows now  -  macOS soon", f2, dim, 40, 366, StringFormat.GenericTypographic);
+
+            g.DrawImage(ball, 0, 0, 1200, 675);
+            g.Flush();
+            bmp.Save(path, ImageFormat.Png);
+        }
+    }
+
     public static void WriteCover(string path, string fontDir)
     {
         using (var bmp = Render(630, 500, 1.0, CoverBack, 4))
@@ -493,6 +603,9 @@ Write-Host "Wrote $cover"
 [AdamArt]::WriteBanner((Join-Path $promo "itch_banner.png"), (Join-Path $root "datafiles\fonts"))
 [AdamArt]::WriteBackground((Join-Path $promo "itch_background.png"), (Join-Path $root "datafiles\fonts"))
 Write-Host "Wrote $promo\itch_banner.png and itch_background.png"
+$shots = Join-Path $promo "shots"
+[AdamArt]::WriteLaunch((Join-Path $promo "launch_devlog.png"), (Join-Path $root "datafiles\fonts"), (Join-Path $shots "editor_backdrop.png"), (Join-Path $shots "deep_dive_1.png"), (Join-Path $shots "firefly_night_2.png"))
+Write-Host "Wrote $promo\launch_devlog.png"
 $inst = Join-Path $root "options\windows\installer"
 [AdamArt]::WriteInstaller((Join-Path $inst "header.bmp"), (Join-Path $inst "finished.bmp"), (Join-Path $root "datafiles\fonts"))
 Write-Host "Wrote $inst\header.bmp and finished.bmp"
