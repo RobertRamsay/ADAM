@@ -32,9 +32,11 @@ function home_new()
     proj = project_new();
     proj.machine = _machine;
     proj_path = "";
+    out_path = "";            // asked on the first build, so another game's disk is never overwritten
     proj_dirty = false;
     undo_clear_all();
     project_after_change();
+    settings_save();
     toast("New project ready", 0);
 }
 

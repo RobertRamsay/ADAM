@@ -561,6 +561,9 @@ function project_load_from(_path)
     var _old_machine = proj.machine;
     proj = project_from_loaded(_raw);
     proj_path = _path;
+    // the disk follows the project: MyGame.adam builds MyGame.adf next to it
+    out_path = filename_change_ext(_path, ".adf");
+    settings_save();
     proj_dirty = false;
     project_after_change();
     undo_clear_all();
@@ -834,15 +837,7 @@ function settings_save()
     var _light = 0;
     if (fsuae_light) { _light = 1; }
     ini_write_real("emulator", "light", _light);
-    // during a lesson out_path is the lesson's own disk - keep your real one
-    if (les_active)
-    {
-        ini_write_string("paths", "adf", les_prev_out);
-    }
-    else
-    {
-        ini_write_string("paths", "adf", out_path);
-    }
+    ini_write_string("paths", "adf", out_path);
     ini_write_string("paths", "project", proj_path);
     ini_write_string("machine", "last", last_machine);
     var _h = 0;

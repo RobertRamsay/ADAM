@@ -46,9 +46,11 @@ function example_load(_i)
     }
     proj.machine = _machine;
     proj_path = "";
+    out_path = "";            // asked on the first build, so another game's disk is never overwritten
     proj_dirty = false;
     undo_clear_all();
     project_after_change();
+    settings_save();
     toast(_e.name + " loaded - try Build to play it!", 0);
 }
 

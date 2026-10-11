@@ -217,8 +217,7 @@ function lesson_start(_i)
     project_after_change();
     tut_active = false;
     tut_offer_on = false;
-    // lessons build to their own disk so they never overwrite your game's .adf
-    if (!les_active) { les_prev_out = out_path; }
+    // the lesson game gets its own disk (the disk path follows the project)
     out_path = game_save_id + "Lesson_" + les_defs[_i].short + ".adf";
     les_active = true;
     les_id = _i;
@@ -253,11 +252,10 @@ function lesson_finish()
     toast("Lesson complete: " + les_defs[les_id].short, 0);
 }
 
-/// Ends the lesson; the project stays, your own disk path comes back
+/// Ends the lesson; the project (and its disk path) stays
 function lesson_stop()
 {
     les_active = false;
-    out_path = les_prev_out;
     settings_save();
 }
 

@@ -254,7 +254,6 @@ les_step_t = 0;             // current_time when this step began
 les_check_timer = 0;
 les_card_rect = [0, 0, 0, 0];
 les_done = array_create(4, false);  // lessons finished (saved in the settings)
-les_prev_out = "";          // your .adf path, put back when a lesson ends
 les_defs = [];
 lessons_init();
 settings_load();
