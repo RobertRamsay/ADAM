@@ -27,19 +27,22 @@ function ws_set(_i)
     }
 }
 
-/// Logo capsule: boing ball + "ADAM" + Amiga rainbow check. Returns its width.
-function draw_logo(_x, _y)
+/// Logo capsule: boing ball + "ADAM" + Amiga rainbow check (just the ball
+/// when _compact, for narrow windows). Returns its width.
+function draw_logo(_x, _y, _compact)
 {
     var _h = 34;
     var _r = _h * 0.5;
     draw_set_font(global.f_title);
     var _tw = ui_sw("ADAM");
     var _w = 10 + 26 + 10 + _tw + 14 + 22;
+    if (_compact) { _w = 42; }
     ui_rrect(_x, _y + 2, _x + _w, _y + _h + 2, _r, c_black, c_black, 0.3);
     ui_rrect(_x, _y, _x + _w, _y + _h, _r, make_colour_rgb(68, 79, 96), make_colour_rgb(38, 45, 57), 1);
     ui_rrect(_x + 2, _y + 1, _x + _w - 2, _y + _h * 0.45, _r - 1, c_white, c_white, 0.06);
     ui_rrect_line(_x, _y, _x + _w, _y + _h, _r, global.TH.panel_edge, 0.8, 1);
     draw_boing(_x + 8, _y + 4, 26, 1);
+    if (_compact) { return _w; }
     ui_text(_x + 44, _y + _h * 0.5, "ADAM", c_white, fa_left, fa_middle, global.f_title, 1);
     // the four Amiga "checkmark" stripes
     var _stripes = [make_colour_rgb(230, 60, 50), make_colour_rgb(250, 160, 40), make_colour_rgb(90, 190, 90), make_colour_rgb(60, 130, 230)];
@@ -65,7 +68,35 @@ function draw_topbar(_gw)
     draw_set_alpha(0.25);
     draw_line_colour(0, 61, _gw, 61, c_black, c_black);
     draw_set_alpha(1);
-    var _logo_w = draw_logo(14, 13);
+
+    // widths of the right-hand buttons, sized from their labels so they are never cut short
+    var _tabs = ws_tabs();
+    var _nt = array_length(_tabs);
+    var _tutlab = "Tutorial (F1)";
+    var _playlab = "Build & play (F5)";
+    draw_set_font(global.f_bold);
+    var _tutw = max(104, ceil(ui_sw(_tutlab)) + 24);
+    var _playw = ceil(ui_sw(_playlab)) + 28;
+    var _helpw = 102;
+    draw_set_font(global.f_title);
+    var _logo_full = 10 + 26 + 10 + ui_sw("ADAM") + 14 + 22;
+    // narrow window: if the page tabs would get squeezed, use the compact bar -
+    // just the ball for the logo, shorter labels and no Helpers button (it is on Home too)
+    var _full_avail = _gw - (14 + _logo_full + 10 + 54 + 8 + 150 + 18) - (14 + _tutw + 6 + _helpw + 6 + 64 + 6 + 64 + 12 + _playw + 12);
+    var _compact = (_full_avail < 84 * _nt);
+    var _mw = 150;
+    if (_compact)
+    {
+        _tutlab = "Tutorial";
+        _playlab = "Play (F5)";
+        draw_set_font(global.f_bold);
+        _tutw = ceil(ui_sw(_tutlab)) + 24;
+        _playw = ceil(ui_sw(_playlab)) + 24;
+        _helpw = 0;
+        _mw = 136;
+    }
+
+    var _logo_w = draw_logo(14, 13, _compact);
 
     // edition chip: LITE or PRO (ADAM_PRO in scr_licence) - opens the ADAM Pro tab
     var _ex = 14 + _logo_w + 10;
@@ -87,7 +118,6 @@ function draw_topbar(_gw)
     // machine badge
     var _m = machine_cur();
     var _mx = _ex + _ew + 8;
-    var _mw = 150;
     var _mst = BTN_NORMAL;
     if (_m.aga) { _mst = BTN_ON; }
     if (ui_button("top_machine", _mx, 14, _mw, 32, _m.short_name, "Target machine|" + _m.name + ": " + _m.chipset + ", " + _m.cpu + ", " + _m.ram_label + ". Click to change the machine this game is made for.", _mst))
@@ -95,12 +125,13 @@ function draw_topbar(_gw)
         machine_pick_open(false);
     }
 
-    var _tabs = ws_tabs();
-    var _nt = array_length(_tabs);
+    // page tabs share what is left
+    var _right = 14 + _tutw + 6 + 64 + 6 + 64 + 12 + _playw + 12;
+    if (_helpw > 0) { _right += _helpw + 6; }
     var _tw = 96;
     var _tx = _mx + _mw + 18;
-    var _avail = _gw - _tx - 380;
-    if (_avail < _tw * _nt) { _tw = max(64, floor(_avail / _nt)); }
+    var _avail = _gw - _tx - _right;
+    if (_avail < _tw * _nt) { _tw = max(56, floor(_avail / _nt)); }
     ui_rrect(_tx - 6, 11, _tx + _tw * _nt + 6, 49, 19, global.TH.inset_top, global.TH.inset_bot, 0.8);
     for (var i = 0; i < _nt; i++)
     {
@@ -111,27 +142,27 @@ function draw_topbar(_gw)
         }
     }
 
-    // sized from the label so "Tutorial (F1)" is never cut short
-    draw_set_font(global.f_bold);
-    var _tutw = max(104, ceil(ui_sw("Tutorial (F1)")) + 24);
     var _rx = _gw - 14;
     _rx -= _tutw;
-    if (ui_button("top_tutorial", _rx, 14, _tutw, 32, "Tutorial (F1)", "Tutorial|Shows a step-by-step guide for the page you are on. Every page has its own tutorial.", BTN_ACCENT))
+    if (ui_button("top_tutorial", _rx, 14, _tutw, 32, _tutlab, "Tutorial|Shows a step-by-step guide for the page you are on. Every page has its own tutorial. Shortcut: F1.", BTN_ACCENT))
     {
         tut_start(ws);
     }
-    _rx -= 108;
-    var _hlab = "Helpers off";
-    var _hsty = BTN_NORMAL;
-    if (helpers_on)
+    if (_helpw > 0)
     {
-        _hlab = "Helpers on";
-        _hsty = BTN_ON;
-    }
-    if (ui_button("top_helpers", _rx, 14, 102, 32, _hlab, "Hover helpers|When on, resting the mouse on any control draws guide lines and a help bubble explaining it.", _hsty))
-    {
-        helpers_on = !helpers_on;
-        settings_save();
+        _rx -= _helpw + 6;
+        var _hlab = "Helpers off";
+        var _hsty = BTN_NORMAL;
+        if (helpers_on)
+        {
+            _hlab = "Helpers on";
+            _hsty = BTN_ON;
+        }
+        if (ui_button("top_helpers", _rx, 14, _helpw, 32, _hlab, "Hover helpers|When on, resting the mouse on any control draws guide lines and a help bubble explaining it.", _hsty))
+        {
+            helpers_on = !helpers_on;
+            settings_save();
+        }
     }
     var _pg = ws_name(ws);
     _rx -= 70;
@@ -153,6 +184,11 @@ function draw_topbar(_gw)
         draw_circle_colour(_rx + 60, 18, 7, global.TH.accent, global.TH.accent_dark, false);
         ui_text(_rx + 60, 18, string(min(99, undo_count())), c_white, fa_center, fa_middle, global.f_small, 1);
     }
+    _rx -= _playw + 12;
+    if (ui_button("top_play", _rx, 14, _playw, 32, _playlab, "Build and play|Builds your game's .ADF disk and boots it in FS-UAE straight away, from any page - the same as Build and play on the Build page. Shortcut: F5.", BTN_ACCENT))
+    {
+        build_ws_build(true);
+    }
 }
 
 function shortcuts_step()
@@ -165,6 +201,7 @@ function shortcuts_step()
     if (_ctrl && keyboard_check_pressed(ord("Y"))) { redo_do(); }
     if (_ctrl && keyboard_check_pressed(ord("S"))) { home_save(false); }
     if (_ctrl && keyboard_check_pressed(ord("B"))) { build_ws_build(false); }
+    if (keyboard_check_pressed(vk_f5)) { build_ws_build(true); }
     if (_ctrl && (keyboard_check_pressed(187) || keyboard_check_pressed(vk_add))) { ui_scale_step(1); }
     if (_ctrl && (keyboard_check_pressed(189) || keyboard_check_pressed(vk_subtract))) { ui_scale_step(-1); }
     if (_ctrl && keyboard_check_pressed(ord("0"))) { ui_scale_pref = 0; settings_save(); toast("Interface size: auto", 0); }

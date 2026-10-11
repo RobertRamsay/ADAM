@@ -16,7 +16,7 @@ function tut_init()
         tut_step(WS_HOME, "home_name", "Name your game", "Give your game a name. It is also used for the file names when you save and build."),
         tut_step(WS_HOME, "home_lives", "Lives and score", "Choose how many lives the player gets and where the score and lives are shown. A rule on the Logic page takes lives away."),
         tut_step(WS_HOME, "home_over", "Messages", "These messages appear when the game ends. The player presses fire to play again."),
-        tut_step(WS_HOME, "top_helpers", "Hover helpers", "Rest your mouse on anything and a helper line points to a bubble that explains it. Switch them off here once you know your way around."),
+        tut_step(WS_HOME, "home_helpers", "Hover helpers", "Rest your mouse on anything and a helper line points to a bubble that explains it. Switch them off here (or with Helpers at the top) once you know your way around."),
         tut_step(WS_HOME, "top_undo", "Undo and Redo", "Made a mistake? Undo (Ctrl+Z) takes it back and Redo (Ctrl+Y) puts it back again. Every page keeps its own history, so undoing on one page never touches the others."),
         // ---------- BACKDROP ----------
         tut_step(WS_BACKDROP, "bd_canvas", "The backdrop", "This is your game's background: 320 x 256 pixels, the classic PAL Amiga low-res screen. Actors move on top of it. Left-click paints, right-click paints colour 0."),
