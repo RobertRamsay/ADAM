@@ -30,6 +30,53 @@ def sfx_list(over=None):
         out.append(d)
     return out
 
+# ---- songs for the Music page: loops copied from ADAM's built-in library (global.MUS_LIB, lib = its index)
+MUS_ROOT=18; MIN=0x37; MAJ=0x47
+def ldrums(name,lib,pat):
+    notes=[MUS_ROOT if c in "KSHOTC" else 0 for c in pat]; insts=["KSHOTC".index(c) if c in "KSHOTC" else 0 for c in pat]
+    return dict(name=name,cat=0,lib=lib,inst=0,notes=notes,insts=insts,arps=[0]*16)
+def ltone(name,lib,cat,inst,notes,arps=None):
+    return dict(name=name,cat=cat,lib=lib,inst=inst,notes=list(notes),insts=[inst]*16,arps=list(arps or [0]*16))
+LIB={
+    "Four on the floor":ldrums("Four on the floor",0,"K.H.K.H.K.H.K.H."),
+    "Rock beat":ldrums("Rock beat",1,"K.H.S.H.K.KHS.H."),
+    "Breakbeat":ldrums("Breakbeat",2,"K.H.S..KK.H.S.HC"),
+    "Half time":ldrums("Half time",3,"K...H...S...H..."),
+    "Disco claps":ldrums("Disco claps",4,"K.H.C.H.K.H.C.HO"),
+    "Tom fill":ldrums("Tom fill",6,"T.T.TT.TS.S.SSSC"),
+    "Root pulse":ltone("Root pulse",7,1,6,[13,0,0,0]*4),
+    "Octave bounce":ltone("Octave bounce",8,1,7,[13,0,25,0]*4),
+    "Walking bass":ltone("Walking bass",9,1,6,[13,0,0,0,16,0,0,0,18,0,0,0,20,0,18,0]),
+    "Offbeat bass":ltone("Offbeat bass",10,1,6,[0,0,13,0]*4),
+    "Acid line":ltone("Acid line",11,1,7,[13,13,25,13,0,13,23,13,13,0,25,0,16,13,18,13]),
+    "Minor to major":ltone("Minor to major",14,2,9,[13]+[0]*7+[21]+[0]*7,[MIN]+[0]*7+[MAJ]+[0]*7),
+    "Offbeat skank":ltone("Offbeat skank",15,2,8,[0,0,13,0]*4,[0,0,MIN,0]*4),
+    "Rising chords":ltone("Rising chords",16,2,9,[13,0,0,0,16,0,0,0,18,0,0,0,20,0,0,0],[MIN,0,0,0,MAJ,0,0,0,MIN,0,0,0,MIN,0,0,0]),
+    "Long minor":ltone("Long minor",17,2,9,[13]+[0]*15,[MIN]+[0]*15),
+    "Arp up":ltone("Arp up",18,3,12,[13,16,20,25]*4),
+    "Arp down":ltone("Arp down",19,3,12,[25,20,16,13]*4),
+    "Hook one":ltone("Hook one",20,3,10,[13,0,0,16,0,0,20,0,18,0,16,0,15,0,13,0]),
+    "Hook two":ltone("Hook two",21,3,11,[25,0,23,0,20,0,0,0,18,0,20,0,23,0,0,0]),
+    "Long notes":ltone("Long notes",22,3,10,[20]+[0]*7+[18]+[0]*7),
+    "Trill":ltone("Trill",23,3,12,[25,27,25,27,25,27,25,27,23,25,23,25,23,25,23,25]),
+}
+def song(name,bpm,lanes,loop_bar=0):
+    # lanes: 4 lists of loop names per bar ('' = empty bar)
+    loops=[]; out=[]
+    for lane in lanes:
+        row=[-1]*128
+        for b,n in enumerate(lane):
+            if not n: continue
+            if n not in [l['name'] for l in loops]: loops.append(LIB[n])
+            row[b]=[l['name'] for l in loops].index(n)
+        out.append(row)
+    return dict(name=name,kind=0,bpm=bpm,speed=6,swing=0,loop_bar=loop_bar,arr=dict(bars=max(len(l) for l in lanes),lanes=out,loops=loops))
+def bars(*parts):
+    # bars("A",4,"B",2) -> ["A","A","A","A","B","B"]
+    out=[]
+    for i in range(0,len(parts),2): out+=[parts[i]]*parts[i+1]
+    return out
+
 FONT=[]
 import re
 FONT=[int(v,16) for v in re.findall(r'\$([0-9a-f]{2})',open(os.path.join(ENGINE_DIR,'font.inc')).read())]
@@ -70,7 +117,7 @@ def auto_groups(p):
     for r in p['rules']: r['group']=order.index(key(r))
     p['rules']=sorted(p['rules'],key=lambda r:r['group'])
 
-def make_project(name,pal16,img,sprites,actors,rules,sky,hud_col=1,msg_col=14,lives=3,over="GAME OVER - PRESS FIRE",win="YOU WIN! - PRESS FIRE",sfx=None):
+def make_project(name,pal16,img,sprites,actors,rules,sky,hud_col=1,msg_col=14,lives=3,over="GAME OVER - PRESS FIRE",win="YOU WIN! - PRESS FIRE",sfx=None,songs=None):
     pal=palette_default(); pal[:16]=pal16
     spr=[]
     for i in range(32):
@@ -79,9 +126,22 @@ def make_project(name,pal16,img,sprites,actors,rules,sky,hud_col=1,msg_col=14,li
         else: spr.append(dict(name="Sprite %d"%(i+1),px=[0]*384,cols=[0xffdd33,0xdd3322,0xffffff]))
     return dict(version=1,name=name,machine="A500_600",depth=4,pal=pal,pixels=list(img.getdata()),sprites=spr,actors=actors,rules=rules,
                 sfx=sfx or sfx_list(),lives=lives,show_score=True,show_lives=True,hud_row=0,hud_colour=hud_col,msg_colour=msg_col,
-                over_text=over,win_text=win,solid=[0]*128,levels_on=False,levels=[],terrain_cols=[10,9,11,12],goal_on=False,goal=20,goal_label='GEMS',title_on=False,title1=name.upper(),title2='PRESS FIRE TO START',lev_text='LEVEL',sky_on=True,sky_top=sky[0],sky_mid=sky[1],sky_bot=sky[2],sky_mid_y=sky[3])
+                over_text=over,win_text=win,solid=[0]*128,levels_on=False,levels=[],terrain_cols=[10,9,11,12],goal_on=False,goal=20,goal_label='GEMS',title_on=False,title1=name.upper(),title2='PRESS FIRE TO START',lev_text='LEVEL',sky_on=True,sky_top=sky[0],sky_mid=sky[1],sky_bot=sky[2],sky_mid_y=sky[3],
+                songs=songs or [],level_song=[-1]*10)
 
 def canvas(): return Image.new('P',(W,H),0)
+
+# ordered (Bayer 8 x 8) dithering - the same matrix as global.BAYER8 in ADAM
+BAYER8=[0,32,8,40,2,34,10,42, 48,16,56,24,50,18,58,26, 12,44,4,36,14,46,6,38, 60,28,52,20,62,30,54,22,
+        3,35,11,43,1,33,9,41, 51,19,59,27,49,17,57,25, 15,47,7,39,13,45,5,37, 63,31,55,23,61,29,53,21]
+def bayer(x,y): return BAYER8[(y&7)*8+(x&7)]
+def dmix(a,b,t,x,y):
+    # colour a at t=0 to colour b at t=1, dithered
+    return b if (bayer(x,y)+0.5)/64<t else a
+def ramp(cols,t,x,y):
+    # dithered gradient through a list of palette colours, t 0..1
+    t=max(0.0,min(1.0,t)); pos=t*(len(cols)-1); k=min(int(pos),len(cols)-2)
+    return dmix(cols[k],cols[k+1],pos-k,x,y)
 
 def terrain(seed, hilly, base):
     st=[seed & 0x7fffffff]
@@ -103,19 +163,35 @@ def terrain(seed, hilly, base):
 # ------------------------------------------------------------------ GEM HUNTER
 def gem_hunter():
     pal=[0x000000,0xffffff,0x1c4f9c,0xffb040,0x4a3a78,0x8a7ab8,0xe0e0ff,0xfff0b0,0x1e5a2a,0x3f9a2e,0x8adc4a,0x6a4426,0xb07a45,0xdd3322,0xffdd33,0x2e6e3a]
-    im=canvas(); d=ImageDraw.Draw(im)
-    d.ellipse([196,60,260,124],fill=3); d.ellipse([208,72,248,112],fill=7)   # sun
-    for x in range(320):                                                     # far mountains
-        y=int(130-abs(((x+40)%110)-55)*1.1-10*math.sin(x/17))
-        d.line([(x,y),(x,255)],fill=4)
-        if y<94: d.line([(x,y),(x,min(94,y+6))],fill=6)
-    for x in range(320):                                                     # distant green hills
-        y=int(150+math.sin(x/23)*8+math.sin(x/9)*3)
-        d.line([(x,y),(x,255)],fill=15)
+    im=canvas(); d=ImageDraw.Draw(im); P=im.load()
+    # sun: pale core, orange rim, then a dithered glow fading into the copper sky (colour 0)
+    sx,sy=228,92
+    for y in range(40,150):
+        for x in range(170,290):
+            r=math.hypot(x-sx,y-sy)
+            if r<=20: P[x,y]=7
+            elif r<=27: P[x,y]=dmix(7,3,(r-20)/7,x,y)
+            elif r<=44: P[x,y]=dmix(3,0,(r-27)/17,x,y)
+    def ridge(x): return int(130-abs(((x+40)%110)-55)*1.1-10*math.sin(x/17))
+    for x in range(320):                                                     # far mountains, lit from the sun
+        y=ridge(x); lit=(x+40)%110<55                                        # faces sloping down to the right face the sun
+        for yy in range(y,256):
+            dep=(yy-y)/45
+            if lit: c=ramp([5,4],dep,x,yy)
+            else: c=4 if yy-y>2 else dmix(5,4,0.75,x,yy)                    # shadow side, a glint on the ridge
+            if y<96 and yy-y<7: c=dmix(6,c,(yy-y)/7,x,yy)                    # snow caps, melting into the rock
+            P[x,yy]=c
+    def hill(x): return int(150+math.sin(x/23)*8+math.sin(x/9)*3)
+    for x in range(320):                                                     # distant green hills, darker further down
+        y=hill(x)
+        for yy in range(y,256): P[x,yy]=dmix(10,15,0.5,x,yy) if yy-y<2 else ramp([15,8],(yy-y-2)/38,x,yy)
     rnd=random.Random(3)
-    for t in range(12):                                                      # far trees
-        x=rnd.randint(8,310); base=int(150+math.sin(x/23)*8+math.sin(x/9)*3)+3
+    for t in range(12):                                                      # far trees, a lit edge on the sun side
+        x=rnd.randint(8,310); base=hill(x)+3
         d.polygon([(x,base-12),(x-4,base),(x+4,base)],fill=8)
+        for yy in range(base-11,base+1):
+            hw=(yy-(base-12))*4//12
+            if hw>0: P[x+hw,yy]=dmix(8,15,0.5,x+hw,yy)
     d.rectangle([0,0,319,11],fill=2)
     hero_cols=[0xffd23a,0x3a2410,0xffffff]; hop_cols=[0xff5060,0x601020,0xffffff]; cloud_cols=[0xffffff,0xa8b8d0,0xd8e4f4]
     def grid(fn): return ["".join(".123"[fn(x,y)] for x in range(16)) for y in range(24)]
@@ -160,8 +236,14 @@ def gem_hunter():
                   4:dict(name="Pop",wave=3,pitch=90,sweep=-12,len=3,atk=0,dec=3,sus=0,rel=3),
                   5:dict(name="Get ready",wave=2,pitch=40,sweep=3,len=20,atk=2,dec=6,sus=8,rel=6),
                   6:dict(name="Ouch",wave=0,pitch=46,sweep=-1,len=26,atk=1,dec=8,sus=9,rel=7)})
+    tune=song("Hilltop",125,[
+        bars("Half time",2,"Rock beat",5,"Tom fill",1,"Rock beat",7,"Tom fill",1),
+        bars("Root pulse",4,"Walking bass",4,"Root pulse",4,"Walking bass",4),
+        bars("Long minor",2,"Minor to major",2,"Long minor",2,"Minor to major",2,"Long minor",2,"Minor to major",2,"Long minor",2,"Minor to major",2),
+        bars("",4,"Hook one",1,"Hook two",1,"Hook one",1,"Hook two",1,"",4,"Hook one",1,"Hook two",1,"Hook one",1,"Hook two",1)],loop_bar=2)
     p=make_project("Gem Hunter",pal,im,sprites,actors,rules,[0x101848,0x5a6ac8,0xffa850,150],hud_col=1,msg_col=14,sfx=sfx,
-                   win="CONGRATULATIONS! ALL 10 LEVELS DONE")
+                   win="CONGRATULATIONS! ALL 10 LEVELS DONE",songs=[tune])
+    p['level_song']=[0]*10
     levels=[]
     for i in range(10):
         seed=1000+i*37; hilly=60+i*8
@@ -173,28 +255,34 @@ def gem_hunter():
 # ------------------------------------------------------------------ DEEP DIVE
 def deep_dive():
     pal=[0x000000,0xffffff,0x204060,0xff9040,0x2a3a50,0x506070,0xc0f0ff,0x80e0ff,0x1a5a3a,0x2f8f4a,0x6acc6a,0x8a7040,0xd8c070,0xe04060,0xffe060,0xa0a8b0]
-    im=canvas(); d=ImageDraw.Draw(im)
-    # surface ripples
+    im=canvas(); d=ImageDraw.Draw(im); P=im.load()
+    # surface ripples, with a dithered shimmer under them
     for x in range(320):
         y=14+round(math.sin(x/9)*2)
         d.line([(x,12),(x,y)],fill=6)
-    # light rays
+        for yy in range(y+1,y+7): P[x,yy]=dmix(7,0,(yy-y)/7,x,yy)
+    # light rays: slanted beams that fade out with depth (pattern dither over the copper water)
     for k in range(5):
         x0=30+k*70
-        for y in range(16,170,3):
-            w=2+y//40
-            if (y//3)%2==0: d.line([(x0+y//6,y),(x0+y//6+w,y)],fill=7)
-    # sand dunes
+        for y in range(16,180):
+            w=3+y//30; xs=x0+y//6
+            for x in range(xs,min(320,xs+w)):
+                edge=min(x-xs+1,xs+w-x)/2.5                                  # soft sides
+                if (bayer(x,y)+0.5)/64<min(1,edge)*0.5*(1-(y-16)/164): P[x,y]=7
+    # sand dunes: a lit crest blending down into darker sand
     for x in range(320):
         y=212+round(math.sin(x/29)*8+math.sin(x/11)*3)
-        d.line([(x,y),(x,255)],fill=11)
-        d.line([(x,y),(x,y+3)],fill=12)
+        for yy in range(y,256): P[x,yy]=ramp([12,11],(yy-y)/9,x,yy)
     for i in range(160):
         rnd=random.Random(i)
         x=rnd.randint(0,319); y=rnd.randint(222,254); im.putpixel((x,y),12)
-    # rocks
+    # rocks, lit from above
     for (x,y,r) in [(40,214,18),(270,210,22),(150,222,12)]:
-        d.ellipse([x-r,y-r//1.4,x+r,y+r//1.4],fill=4); d.ellipse([x-r+4,y-r//1.4+2,x+r-6,y],fill=5)
+        ry=r/1.4
+        for yy in range(int(y-ry),int(y+ry)+1):
+            for xx in range(x-r,x+r+1):
+                u=(xx-x)/r; v=(yy-y)/ry
+                if u*u+v*v<=1 and 0<=xx<W: P[xx,yy]=ramp([15,5,4],(u+v)*0.45+0.5,xx,yy)
     # seaweed
     for k,x0 in enumerate([18,70,95,190,230,300]):
         top=150+(k*13)%40
@@ -223,40 +311,58 @@ def deep_dive():
            R(b=3,act=1),R(b=3,act=4,target=0),R(b=3,act=2,value=2),R(b=3,act=3),
            R(b=4,act=0,value=25),R(b=4,act=5,target=4),R(b=4,act=2,value=0),
            R(b=5,act=0,value=25),R(b=5,act=5,target=5),R(b=5,act=2,value=0),
-           R(when=1,act=2,value=7),R(when=2,n=15,act=11,target=3),R(when=3,n=300,act=10),R(when=4,act=9),R(when=5,act=2,value=5)]
+           R(when=1,act=2,value=7),R(when=2,n=15,act=11,target=3),R(when=3,n=300,act=10),R(when=4,act=9),R(when=5,act=2,value=5),
+           R(when=5,act=18,value=0)]
     sfx=sfx_list({7:dict(name="Bubble",wave=0,pitch=70,sweep=5,len=6,atk=0,dec=4,sus=0,rel=3)})
+    tune=song("Undertow",100,[
+        bars("Half time",16),
+        bars("",2,"Offbeat bass",14),
+        bars("Long minor",4,"Minor to major",4,"Long minor",4,"Minor to major",4),
+        bars("",4,"Long notes",4,"Hook two",2,"Long notes",2,"Hook two",2,"Long notes",2)])
     return make_project("Deep Dive",pal,im,sprites,actors,rules,[0x70d8f0,0x1868a8,0x021028,95],sfx=sfx,msg_col=14,
-                        win="YOU FOUND THEM ALL!",over="OUT OF AIR - PRESS FIRE")
+                        win="YOU FOUND THEM ALL!",over="OUT OF AIR - PRESS FIRE",songs=[tune])
 
 # ------------------------------------------------------------------ STAR CATCHER
 def star_catcher():
     pal=[0x000000,0xffffff,0x182848,0xff8030,0x403850,0x8070a0,0xc0c8ff,0x90a0ff,0x2a1840,0x6a3a8a,0xb070e0,0x6a4030,0xc08050,0xe05040,0xffe070,0x9098a8]
-    im=canvas(); d=ImageDraw.Draw(im)
+    im=canvas(); d=ImageDraw.Draw(im); P=im.load()
     rnd=random.Random(11)
+    # nebula: soft dithered clouds over the copper sky, brightest in the middle
+    for y in range(14,220):
+        for x in range(0,230):
+            u=(x-90)/100; v=(y-112)/42
+            t=1-math.sqrt(u*u+v*v)
+            t+=0.18*math.sin(x/9+y/13)*math.sin(y/7-x/23)                    # wisps
+            if t>0: P[x,y]=ramp([0,8,9,10],t*1.25,x,y)
     for i in range(220):
         x=rnd.randint(0,319); y=rnd.randint(14,255); c=rnd.choice([1,15,15,6,14])
         im.putpixel((x,y),c)
         if rnd.random()<0.08:
             for dx,dy in((1,0),(-1,0),(0,1),(0,-1)):
                 if 0<=x+dx<W and 0<=y+dy<H: im.putpixel((x+dx,y+dy),15)
-    # nebula wisps
-    for i in range(900):
-        a=rnd.random()*6.28; r=rnd.random()**0.5*60
-        x=int(90+math.cos(a)*r*1.6); y=int(110+math.sin(a)*r*0.6)
-        if 0<=x<W and 0<=y<H and rnd.random()<0.5: im.putpixel((x,y),8 if r>35 else 9)
-    # planet with shading and rings
+    # planet: banded, lit from the top left, dithered into shadow
     cx,cy,r=250,215,70
-    d.ellipse([cx-r,cy-r,cx+r,cy+r],fill=11)
-    for y in range(cy-r,cy+r):
-        for x in range(cx-r,cx+r):
-            if (x-cx)**2+(y-cy)**2<=r*r and 0<=y<H:
-                band=((y-cy)//9)%3
-                c=[12,3,11][band]
-                if (x-cx+20)**2+(y-cy+20)**2>r*r*1.1: c=4 if c!=3 else 13
-                im.putpixel((x,y),c)
-    d.arc([cx-110,cy-22,cx+110,cy+22],200,340,fill=7,width=2)
-    # moon
-    d.ellipse([30,30,62,62],fill=15); d.ellipse([40,26,72,58],fill=0); d.ellipse([34,44,40,50],fill=4)
+    L=(-0.55,-0.6,0.58); ln=math.sqrt(sum(c*c for c in L)); L=[c/ln for c in L]
+    for y in range(cy-r,min(H,cy+r)):
+        for x in range(cx-r,min(W,cx+r)):
+            u=(x-cx)/r; v=(y-cy)/r
+            if u*u+v*v>1: continue
+            w=math.sqrt(max(0.0,1-u*u-v*v))
+            lum=u*L[0]+v*L[1]+w*L[2]
+            band=[12,3,11][int((v*r+r)//9)%3]
+            P[x,y]=ramp([band,4,2],(0.55-lum)/0.75,x,y)
+    for a in range(200,341):                                                 # rings, dithered as they go behind
+        for th in (0,1):
+            t=math.radians(a); x=int(cx+math.cos(t)*110); y=int(cy+math.sin(t)*(22-th))
+            if 0<=x<W and 0<=y<H: P[x,y]=dmix(7,15,abs(a-270)/70,x,y)
+    # moon with a dithered terminator
+    for y in range(26,66):
+        for x in range(26,70):
+            if (x-46)**2+(y-46)**2<=16*16:
+                k=math.hypot(x-56,y-42)/16                                   # distance from the dark disc
+                if k>1: P[x,y]=15
+                elif k>0.7: P[x,y]=dmix(0,15,(k-0.7)/0.3,x,y)
+    d.ellipse([34,44,40,50],fill=4)
     d.rectangle([0,0,319,11],fill=2)
     ship=[0xe8e8f0,0x3050a0,0xff9020]; rock=[0x9a7a5a,0x4a3a2a,0xc0a080]; ufo=[0x60e060,0x206030,0xb0ffb0]; star=[0xffe040,0xc08000,0xffffff]
     sprites=[("Rocket","ship",ship),("Asteroid","rock",rock),("UFO","ufo",ufo),("Star","star",star),
@@ -267,27 +373,35 @@ def star_catcher():
            R(b=2,act=1),R(b=2,act=4,target=0),R(b=2,act=2,value=2),R(b=2,act=3),
            R(b=3,act=1),R(b=3,act=4,target=0),R(b=3,act=4,target=3),R(b=3,act=2,value=6),
            R(b=4,act=0,value=10),R(b=4,act=5,target=4),R(b=4,act=2,value=0),
-           R(when=1,act=2,value=1),R(when=2,n=20,act=11,target=3),R(when=3,n=250,act=10),R(when=4,act=9),R(when=5,act=2,value=5)]
+           R(when=1,act=2,value=1),R(when=2,n=20,act=11,target=3),R(when=3,n=250,act=10),R(when=4,act=9),R(when=5,act=2,value=5),
+           R(when=5,act=18,value=0)]
+    tune=song("Orbit",130,[
+        bars("Four on the floor",7,"Tom fill",1,"Four on the floor",7,"Tom fill",1),
+        bars("Octave bounce",16),
+        bars("Rising chords",16),
+        bars("",4,"Arp up",2,"Arp down",2,"Arp up",2,"Arp down",2,"Arp up",2,"Arp down",2)])
     return make_project("Star Catcher",pal,im,sprites,actors,rules,[0x000000,0x1a0838,0x0a1840,140],msg_col=14,
-                        win="GALAXY SAVED! - PRESS FIRE",over="SHIP LOST - PRESS FIRE")
+                        win="GALAXY SAVED! - PRESS FIRE",over="SHIP LOST - PRESS FIRE",songs=[tune])
 
 # ------------------------------------------------------------------ DODGE BALL
 def dodge_ball():
     pal=[0x000000,0xffffff,0x200040,0xff9020,0x180828,0x301850,0xff40c0,0x40e0ff,0x101830,0x2a2a60,0x6060c0,0x402060,0x8040a0,0xff3040,0xfff060,0x9090b0]
-    im=canvas(); d=ImageDraw.Draw(im)
-    # skyline
+    im=canvas(); d=ImageDraw.Draw(im); P=im.load()
+    # skyline, glowing from the street below
     rnd=random.Random(5)
     x=0
     while x<320:
         w=rnd.randint(14,30); h=rnd.randint(20,70)
-        d.rectangle([x,128-h,x+w-2,128],fill=5)
+        for yy in range(128-h,129):
+            for xx in range(x,min(320,x+w-1)): P[xx,yy]=ramp([4,5,11],(yy-(128-h))/max(1,h),xx,yy)
         for wy in range(128-h+4,126,6):
             for wx in range(x+3,x+w-4,5):
                 if rnd.random()<0.35: d.rectangle([wx,wy,wx+1,wy+2],fill=14)
         x+=w
-    # floor + perspective grid
-    d.rectangle([0,128,319,255],fill=4)
-    for i in range(-10,21):
+    # floor: neon glow at the horizon fading into the dark, then the perspective grid
+    for yy in range(128,256):
+        for xx in range(320): P[xx,yy]=ramp([11,5,4],(yy-128)/70,xx,yy)
+    for i in range(-20,21):
         d.line([(160,118),(160+i*40,256)],fill=12)
     yy=130; k=2
     while yy<256:
@@ -307,9 +421,15 @@ def dodge_ball():
         rules+=[R(b=b,act=1),R(b=b,act=4,target=0),R(b=b,act=2,value=2),R(b=b,act=3)]
     rules+=[R(b=5,act=0,value=50),R(b=5,act=5,target=5),R(b=5,act=2,value=5),
             R(when=2,n=1,act=0,value=1),R(when=2,n=8,act=11,target=1),R(when=2,n=12,act=11,target=3),
-            R(when=2,n=16,act=11,target=2),R(when=3,n=300,act=10),R(when=4,act=9),R(when=5,act=2,value=5)]
+            R(when=2,n=16,act=11,target=2),R(when=3,n=300,act=10),R(when=4,act=9),R(when=5,act=2,value=5),
+            R(when=5,act=18,value=0)]
+    tune=song("Neon",140,[
+        bars("Breakbeat",3,"Disco claps",1,"Breakbeat",3,"Disco claps",1,"Breakbeat",3,"Disco claps",1,"Breakbeat",3,"Tom fill",1),
+        bars("Acid line",16),
+        bars("Offbeat skank",16),
+        bars("",8,"Trill",2,"Hook two",2,"Trill",2,"Hook two",2)])
     return make_project("Dodge Ball",pal,im,sprites,actors,rules,[0x300050,0xb02090,0xffa040,118],msg_col=14,
-                        win="CHAMPION! - PRESS FIRE",over="KNOCKED OUT - PRESS FIRE")
+                        win="CHAMPION! - PRESS FIRE",over="KNOCKED OUT - PRESS FIRE",songs=[tune])
 
 # ------------------------------------------------------------------ helpers
 def alloc(p):
