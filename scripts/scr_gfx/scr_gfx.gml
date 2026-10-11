@@ -194,6 +194,12 @@ function backdrop_surface()
     return bd_surf;
 }
 
+/// Ordered (Bayer 8 x 8) dither threshold for a pixel, 0-63
+function bayer8(_px, _py)
+{
+    return global.BAYER8[(_py & 7) * 8 + (_px & 7)];
+}
+
 /// Writes one backdrop pixel into the project and the picture buffer
 function backdrop_plot(_x, _y, _v)
 {
@@ -490,14 +496,18 @@ function backdrop_import(_path, _dither)
     // nearest palette entry for every 12-bit colour
     var _lut = array_create(4096, -1);
     var _pal_n = min(_count, array_length(_cols));
+    // pattern dither: nudge every pixel by its Bayer threshold, about half the gap between palette colours
+    var _spread = 0.5 * 255 / power(max(2, _pal_n), 1 / 3);
     for (var _iy = 0; _iy < BD_H; _iy++)
     {
         for (var _ix = 0; _ix < BD_W; _ix++)
         {
             var _i2 = _iy * BD_W + _ix;
-            var _cr = clamp(_rr[_i2], 0, 255);
-            var _cg = clamp(_gg[_i2], 0, 255);
-            var _cb = clamp(_bb[_i2], 0, 255);
+            var _nudge = 0;
+            if (_dither == 2) { _nudge = ((bayer8(_ix, _iy) + 0.5) / 64 - 0.5) * _spread; }
+            var _cr = clamp(_rr[_i2] + _nudge, 0, 255);
+            var _cg = clamp(_gg[_i2] + _nudge, 0, 255);
+            var _cb = clamp(_bb[_i2] + _nudge, 0, 255);
             var _key = ((round(_cr) >> 4) << 8) | ((round(_cg) >> 4) << 4) | (round(_cb) >> 4);
             if (_lut[_key] < 0)
             {
@@ -513,7 +523,7 @@ function backdrop_import(_path, _dither)
             }
             var _idx = _lut[_key];
             proj.pixels[_i2] = _idx;
-            if (_dither)
+            if (_dither == 1)
             {
                 // Floyd-Steinberg error diffusion
                 var _pc = proj.pal[_idx];

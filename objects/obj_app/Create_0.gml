@@ -140,8 +140,24 @@ bd_text_y = 0;
 bd_text_start_x = 0;
 bd_show_actors = true;
 bd_show_hud = true;
-bd_dither = true;
+bd_dither = 1;              // picture import: 0 none, 1 smooth (Floyd-Steinberg), 2 pattern (Bayer)
+bd_pattern = 0;             // ADAM Pro: index into BD_PATTERN_LEVELS (0 = solid)
+bd_grad_to = 0;             // ADAM Pro: gradient tool's end colour
+bd_grad_range = false;      // ADAM Pro: gradient goes through the palette colours in between
 bd_panel = 0;
+// 8 x 8 Bayer matrix for ordered dithering (values 0-63)
+global.BAYER8 = [
+     0, 32,  8, 40,  2, 34, 10, 42,
+    48, 16, 56, 24, 50, 18, 58, 26,
+    12, 44,  4, 36, 14, 46,  6, 38,
+    60, 28, 52, 20, 62, 30, 54, 22,
+     3, 35, 11, 43,  1, 33,  9, 41,
+    51, 19, 59, 27, 49, 17, 57, 25,
+    15, 47,  7, 39, 13, 45,  5, 37,
+    63, 31, 55, 23, 61, 29, 53, 21
+];
+global.BD_PATTERN_LEVELS = [64, 48, 32, 16, 8];
+global.BD_PATTERN_NAMES = ["Solid", "75%", "50%", "25%", "12%"];
 bd_show_hills = true;
 terr_surf = -1;
 terr_key = "";

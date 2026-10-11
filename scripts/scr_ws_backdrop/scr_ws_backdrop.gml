@@ -1,17 +1,31 @@
 /// ADAM - Backdrop workspace (paint the 320 x 256 playfield)
 
-/// Fills a rectangle of backdrop pixels (clipped)
-function backdrop_fill_rect(_x1, _y1, _x2, _y2, _v)
+/// ADAM Pro dither pattern: a pixel is painted when its Bayer threshold is
+/// below this (64 = solid, every pixel). ADAM Lite always paints solid.
+function bd_pat_level()
+{
+    if (!pro_on()) { return 64; }
+    return global.BD_PATTERN_LEVELS[clamp(bd_pattern, 0, array_length(global.BD_PATTERN_LEVELS) - 1)];
+}
+
+/// Fills a rectangle of backdrop pixels (clipped). _solid ignores the dither pattern.
+function backdrop_fill_rect(_x1, _y1, _x2, _y2, _v, _solid = false)
 {
     var _ax = clamp(min(_x1, _x2), 0, BD_W - 1);
     var _bx = clamp(max(_x1, _x2), 0, BD_W - 1);
     var _ay = clamp(min(_y1, _y2), 0, BD_H - 1);
     var _by = clamp(max(_y1, _y2), 0, BD_H - 1);
+    var _lev = 64;
+    if (!_solid) { _lev = bd_pat_level(); }
     for (var py = _ay; py <= _by; py++)
     {
         var _row = py * BD_W;
         for (var px = _ax; px <= _bx; px++)
         {
+            if (_lev < 64)
+            {
+                if (bayer8(px, py) >= _lev) { continue; }
+            }
             proj.pixels[_row + px] = _v;
             buffer_poke(bd_buf, (_row + px) * 4, buffer_u32, 0xff000000 | _v);
         }
@@ -45,26 +59,91 @@ function backdrop_line(_x1, _y1, _x2, _y2, _v)
     }
 }
 
-/// Scanline flood fill
+/// Scanline flood fill (with the dither pattern in ADAM Pro)
 function backdrop_flood(_x, _y, _v)
 {
     var _target = proj.pixels[_y * BD_W + _x];
     if (_target == _v) { return; }
+    var _lev = bd_pat_level();
+    var _area = backdrop_region(_x, _y);
+    for (var i = 0; i < array_length(_area); i++)
+    {
+        var _i = _area[i];
+        if (_lev < 64)
+        {
+            if (bayer8(_i mod BD_W, _i div BD_W) >= _lev) { continue; }
+        }
+        proj.pixels[_i] = _v;
+    }
+    bd_dirty = true;
+    proj_dirty = true;
+}
+
+/// Pixel indices of the area of one colour joined to (_x, _y) (scanline flood)
+function backdrop_region(_x, _y)
+{
+    var _target = proj.pixels[_y * BD_W + _x];
+    var _seen = array_create(BD_W * BD_H, false);
+    var _out = [];
     var _stack = [_x, _y];
     while (array_length(_stack) > 0)
     {
         var _sy = array_pop(_stack);
         var _sx = array_pop(_stack);
+        if (_seen[_sy * BD_W + _sx]) { continue; }
         var _l = _sx;
-        while (_l > 0 && proj.pixels[_sy * BD_W + _l - 1] == _target) { _l -= 1; }
+        while (_l > 0 && proj.pixels[_sy * BD_W + _l - 1] == _target && !_seen[_sy * BD_W + _l - 1]) { _l -= 1; }
         var _r = _sx;
-        while (_r < BD_W - 1 && proj.pixels[_sy * BD_W + _r + 1] == _target) { _r += 1; }
+        while (_r < BD_W - 1 && proj.pixels[_sy * BD_W + _r + 1] == _target && !_seen[_sy * BD_W + _r + 1]) { _r += 1; }
         for (var px = _l; px <= _r; px++)
         {
-            proj.pixels[_sy * BD_W + px] = _v;
-            if (_sy > 0 && proj.pixels[(_sy - 1) * BD_W + px] == _target) { array_push(_stack, px, _sy - 1); }
-            if (_sy < BD_H - 1 && proj.pixels[(_sy + 1) * BD_W + px] == _target) { array_push(_stack, px, _sy + 1); }
+            _seen[_sy * BD_W + px] = true;
+            array_push(_out, _sy * BD_W + px);
+            if (_sy > 0)
+            {
+                var _u = (_sy - 1) * BD_W + px;
+                if (!_seen[_u] && proj.pixels[_u] == _target) { array_push(_stack, px, _sy - 1); }
+            }
+            if (_sy < BD_H - 1)
+            {
+                var _d = (_sy + 1) * BD_W + px;
+                if (!_seen[_d] && proj.pixels[_d] == _target) { array_push(_stack, px, _sy + 1); }
+            }
         }
+    }
+    return _out;
+}
+
+/// ADAM Pro gradient fill: the area of one colour under (_x1, _y1) shades from colour
+/// _from at the start of the drag to colour _to at its end, with a Bayer dither between
+/// the steps. With _range it steps through the palette colours in between, as Deluxe
+/// Paint ranges do; otherwise it dithers straight from one colour to the other.
+function backdrop_gradient(_x1, _y1, _x2, _y2, _from, _to, _range)
+{
+    var _cols = [_from, _to];
+    if (_range && abs(_to - _from) > 1)
+    {
+        _cols = [];
+        var _st = sign(_to - _from);
+        for (var c = _from; c != _to + _st; c += _st) { array_push(_cols, c); }
+    }
+    var _m = array_length(_cols) - 1;
+    var _dx = _x2 - _x1;
+    var _dy = _y2 - _y1;
+    var _len2 = max(1, _dx * _dx + _dy * _dy);
+    var _area = backdrop_region(_x1, _y1);
+    for (var i = 0; i < array_length(_area); i++)
+    {
+        var _i = _area[i];
+        var _px = _i mod BD_W;
+        var _py = _i div BD_W;
+        var _t = clamp(((_px - _x1) * _dx + (_py - _y1) * _dy) / _len2, 0, 1);
+        var _pos = _t * _m;
+        var _k = min(floor(_pos), _m - 1);
+        var _f = _pos - _k;
+        var _v = _cols[_k];
+        if ((bayer8(_px, _py) + 0.5) / 64 < _f) { _v = _cols[_k + 1]; }
+        proj.pixels[_i] = _v;
     }
     bd_dirty = true;
     proj_dirty = true;
@@ -189,7 +268,7 @@ function ws_backdrop_draw(_x1, _y1, _x2, _y2)
         var _bs = 1;
         if (bd_tool == 0 || bd_tool == 1) { _bs = bd_brush; }
         var _bh = _bs div 2;
-        if (bd_tool == 3 || bd_tool == 5) { _bh = 0; _bs = 1; }
+        if (bd_tool == 3 || bd_tool == 5 || bd_tool == 6) { _bh = 0; _bs = 1; }
         draw_rectangle_colour(_ox + (_mpx - _bh - bd_pan_x) * _scale, _oy + (_mpy - _bh - bd_pan_y) * _scale,
                               _ox + (_mpx - _bh + _bs - bd_pan_x) * _scale - 1, _oy + (_mpy - _bh + _bs - bd_pan_y) * _scale - 1, c_white, c_white, c_white, c_white, true);
         var _alt = keyboard_check(vk_alt);
@@ -217,6 +296,7 @@ function ws_backdrop_draw(_x1, _y1, _x2, _y2)
                         break;
                     case 1:
                     case 2:
+                    case 6:
                         bd_drawing = true;
                         bd_line_x = _mpx;
                         bd_line_y = _mpy;
@@ -264,10 +344,25 @@ function ws_backdrop_draw(_x1, _y1, _x2, _y2)
             }
             ui_text(_bx + 14, _by + 14, string(abs(_cx - bd_line_x) + 1) + " x " + string(abs(_cy - bd_line_y) + 1), global.TH.warn, fa_left, fa_top, global.f_small, 1);
         }
+        if (bd_tool == 6 && _held)
+        {
+            // gradient direction: from colour (start) to colour (end)
+            var _gx1 = _ox + (bd_line_x - bd_pan_x + 0.5) * _scale;
+            var _gy1 = _oy + (bd_line_y - bd_pan_y + 0.5) * _scale;
+            var _gx2 = _ox + (_cx - bd_pan_x + 0.5) * _scale;
+            var _gy2 = _oy + (_cy - bd_pan_y + 0.5) * _scale;
+            draw_line_width_colour(_gx1, _gy1, _gx2, _gy2, 3, c_black, c_black);
+            draw_line_width_colour(_gx1, _gy1, _gx2, _gy2, 1, c_white, c_white);
+            draw_circle_colour(_gx1, _gy1, 7, pal_col(bd_paint_v), pal_col(bd_paint_v), false);
+            draw_circle_colour(_gx2, _gy2, 7, pal_col(bd_grad_to), pal_col(bd_grad_to), false);
+            draw_circle_colour(_gx1, _gy1, 7, c_white, c_white, true);
+            draw_circle_colour(_gx2, _gy2, 7, c_white, c_white, true);
+        }
         if (!_held)
         {
             if (bd_tool == 1) { backdrop_line(bd_line_x, bd_line_y, _cx, _cy, bd_paint_v); }
             if (bd_tool == 2) { backdrop_fill_rect(bd_line_x, bd_line_y, _cx, _cy, bd_paint_v); }
+            if (bd_tool == 6) { backdrop_gradient(bd_line_x, bd_line_y, _cx, _cy, bd_paint_v, bd_grad_to, bd_grad_range); }
             bd_drawing = false;
         }
     }
@@ -341,17 +436,51 @@ function ws_backdrop_draw(_x1, _y1, _x2, _y2)
         if (bd_tool == k) { _st = BTN_ACCENT; }
         if (ui_button("bd_tool_" + string(k), _fx + (k mod 3) * (_tw + 5), _y + (k div 3) * 38, _tw, 32, _names[k], _thelp[k], _st)) { bd_tool = k; }
     }
-    _y += 82;
-    ui_heading(_fx, _y, "Brush size");
-    var _sizes = [1, 2, 3, 5, 8];
-    var _sw = floor((_fw - 16) / 5);
-    for (var b2 = 0; b2 < 5; b2++)
+    // ADAM Pro: gradient fill, dithered with a Bayer pattern
+    var _gst = BTN_GHOST;
+    if (bd_tool == 6) { _gst = BTN_ACCENT; }
+    var _glabel = "Gradient";
+    if (!pro_on()) { _glabel = "Gradient  (Pro)"; }
+    if (ui_button("bd_tool_6", _fx, _y + 76, _fw, 32, _glabel, "Gradient|Drag across an area of one colour: it shades from the selected colour where you start to the 'To' colour where you let go, blended with an Amiga-style dither pattern. Great for skies, sunsets and metal. Part of ADAM Pro.", _gst))
     {
-        var _sst = BTN_GHOST;
-        if (bd_brush == _sizes[b2]) { _sst = BTN_ON; }
-        if (ui_button("bd_size_" + string(b2), _fx + b2 * (_sw + 4), _y + 18, _sw, 28, string(_sizes[b2]), "Brush size|How many pixels wide the brush and line tools paint.", _sst)) { bd_brush = _sizes[b2]; }
+        if (pro_gate("The gradient tool")) { bd_tool = 6; }
     }
-    _y += 60;
+    _y += 120;
+    if (bd_tool == 6)
+    {
+        ui_heading(_fx, _y, "Gradient to");
+        bd_grad_to = ui_colour_drop("bd_grad_to", _fx, _y + 18, floor(_fw / 2) - 6, 28, clamp(bd_grad_to, 0, pal_count() - 1), "Gradient to|The colour the gradient ends with. It starts with the selected colour.");
+        bd_grad_range = ui_toggle("bd_grad_range", _fx + floor(_fw / 2) + 6, _y + 20, "Colours between", bd_grad_range, "Colours in between|On: the gradient steps through every palette colour between the two, like a Deluxe Paint range - put your shades next to each other in the palette. Off: it dithers straight from one colour to the other.");
+        _y += 60;
+    }
+    else
+    {
+        ui_heading(_fx, _y, "Brush size");
+        var _sizes = [1, 2, 3, 5, 8];
+        var _sw = floor((_fw - 16) / 5);
+        for (var b2 = 0; b2 < 5; b2++)
+        {
+            var _sst = BTN_GHOST;
+            if (bd_brush == _sizes[b2]) { _sst = BTN_ON; }
+            if (ui_button("bd_size_" + string(b2), _fx + b2 * (_sw + 4), _y + 18, _sw, 28, string(_sizes[b2]), "Brush size|How many pixels wide the brush and line tools paint.", _sst)) { bd_brush = _sizes[b2]; }
+        }
+        _y += 56;
+        // ADAM Pro: paint with a Bayer dither pattern (brush, line, box and fill)
+        var _phead = "Pattern";
+        if (!pro_on()) { _phead = "Pattern  (Pro)"; }
+        ui_heading(_fx, _y, _phead);
+        var _np = array_length(global.BD_PATTERN_NAMES);
+        for (var pt = 0; pt < _np; pt++)
+        {
+            var _pst = BTN_GHOST;
+            if (pro_on() && bd_pattern == pt) { _pst = BTN_ON; }
+            if (ui_button("bd_pat_" + string(pt), _fx + pt * (_sw + 4), _y + 18, _sw, 28, global.BD_PATTERN_NAMES[pt], "Dither pattern|Brush, Line, Box and Fill paint only some pixels in an even Amiga-style pattern, so the colour underneath shows through: 50% is a checkerboard. Paint a pattern over another colour for in-between shades. Part of ADAM Pro.", _pst))
+            {
+                if (pro_gate("Dither patterns")) { bd_pattern = pt; }
+            }
+        }
+        _y += 56;
+    }
 
     ui_heading(_fx, _y, "Colours");
     var _m = machine_cur();
@@ -406,12 +535,12 @@ function ws_backdrop_draw(_x1, _y1, _x2, _y2)
             else { toast("Could not load that picture", 2); }
         }
     }
-    bd_dither = ui_toggle("bd_dither", _fx + _fw - 110, _y + 4, "Dither", bd_dither, "Dither|Mixes nearby colours in a fine pattern so smooth shading survives with few colours.");
+    bd_dither = ui_dropdown("bd_dither", _fx + _fw - 110, _y, 110, 32, ["No dither", "Smooth", "Pattern"], clamp(bd_dither, 0, 2), "Dither|How an imported picture mixes its colours so smooth shading survives with few colours. Smooth spreads the error around (Floyd-Steinberg). Pattern uses an even Bayer grid, the classic Amiga look - it also stays steady when the picture is changed slightly.");
     _y += 42;
     if (ui_button("bd_clear", _fx, _y, _fw, 30, "Fill whole backdrop with colour " + string(bd_sel), "Clear|Paints the whole backdrop in the selected colour. You can Undo this.", BTN_DANGER))
     {
         undo_mark("bdclear" + string(current_time));
-        backdrop_fill_rect(0, 0, BD_W - 1, BD_H - 1, bd_sel);
+        backdrop_fill_rect(0, 0, BD_W - 1, BD_H - 1, bd_sel, true);
     }
     _y += 42;
     bd_show_actors = ui_toggle("bd_actors", _fx, _y, "Show actors", bd_show_actors, "Show actors|Draws your actors where they start, so you can paint around them.");
