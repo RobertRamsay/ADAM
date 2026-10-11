@@ -1,6 +1,7 @@
 # Draws ADAM's artwork from the title's boing ball and four Amiga stripes:
 #   options/windows/icons/icon.ico   app icon (16-256 px)
 #   promo/itch_cover.png             itch.io cover, 630 x 500
+#   options/windows/installer/header.bmp, finished.bmp   installer header 150 x 57, welcome/finish panel 164 x 314
 # Usage:  powershell -File tools\make_art.ps1 [-Png icon256.png]   (-Png also saves the 256px icon)
 param(
     [string]$Png = ""
@@ -187,6 +188,130 @@ public static class AdamArt
         }
     }
 
+    // ---------- installer (NSIS): welcome / finish panel 164 x 314 ----------
+    const double WHor = 238;
+    const double WBx = 82, WBy = 168, WBr = 50;
+
+    static double[] PanelBack(double u, double v)
+    {
+        double[] c = { 0, 0, 0, 1 };
+        double t = Math.Min(1, v / WHor);
+        double band = Math.Floor(t * 12) / 12;
+        c[0] = (14 + 70 * band) / 255; c[1] = (18 + 16 * band) / 255; c[2] = (48 + 70 * band) / 255;
+        if (v >= WHor)
+        {
+            double dv = v - WHor + 0.5;
+            double fz = (v - WHor) / (314 - WHor);
+            c[0] = (34 + 26 * fz) / 255; c[1] = (22 + 12 * fz) / 255; c[2] = (56 + 30 * fz) / 255;
+            double gx = (u - 82) * 1.6 / dv, gz = 380 / dv;
+            double ppx = dv / 1.6, ppz = dv * dv / 380;
+            double ex = Math.Abs(gx - Math.Round(gx)) * ppx, ez = Math.Abs(gz - Math.Round(gz)) * ppz;
+            double line = 0;
+            if (ex < 0.9) { line = Math.Min(1, ppx / 4); }
+            if (ez < 0.9) { line = Math.Max(line, Math.Min(1, (ppz - 1.5) / 5)); }
+            if (line > 0) { Mix(c, 175 / 255.0, 95 / 255.0, 235 / 255.0, 0.9 * line); }
+            if (v < WHor + 1.2) { Mix(c, 1, 0.75, 0.95, 0.6); }
+        }
+        double sx = (u - WBx - 12) / 52, sy = (v - 262) / 9;
+        double e = sx * sx + sy * sy;
+        if (e < 1) { Mix(c, 0, 0, 0, 0.6 * (1 - e)); }
+        return c;
+    }
+
+    static double[] PanelBall(double u, double v)
+    {
+        double[] c = { 0, 0, 0, 0 };
+        Ball(c, u, v, WBx, WBy, WBr);
+        return c;
+    }
+
+    // ---------- installer header 150 x 57: the title badge ----------
+    static double[] HeaderBack(double u, double v)
+    {
+        double[] c = { 1, 1, 1, 1 };
+        double m = 4, rad = 24.5;
+        double qx = Math.Max(Math.Abs(u - 75) - (75 - m - rad), 0);
+        double qy = Math.Max(Math.Abs(v - 28.5) - (28.5 - m - rad), 0);
+        if (Math.Sqrt(qx * qx + qy * qy) > rad) { return c; }
+        double t = (v - m) / (57 - 2 * m);
+        c[0] = (68 + (38 - 68) * t) / 255; c[1] = (79 + (45 - 79) * t) / 255; c[2] = (96 + (57 - 96) * t) / 255;
+        if (v < 26) { Mix(c, 1, 1, 1, 0.06); }
+        Ball(c, u, v, 28, 28.5, 18);
+        return c;
+    }
+
+    static void DrawTitle(Graphics g, FontFamily pop, string text, float size, float x, float y, float stripeW, float stripeGap, bool shadow)
+    {
+        var title = new GraphicsPath();
+        title.AddString(text, pop, (int)FontStyle.Bold, size, new PointF(x, y), StringFormat.GenericTypographic);
+        if (shadow)
+        {
+            using (var sh = (GraphicsPath)title.Clone())
+            {
+                var mtx = new Matrix(); mtx.Translate(size * 0.04f, size * 0.06f); sh.Transform(mtx);
+                g.FillPath(new SolidBrush(Color.FromArgb(120, 0, 0, 0)), sh);
+            }
+        }
+        RectangleF tb = title.GetBounds();
+        g.FillPath(new LinearGradientBrush(new PointF(0, tb.Top), new PointF(0, tb.Bottom + 1), Color.White, Color.FromArgb(205, 212, 232)), title);
+        int[][] sc = { new[] {230, 60, 50}, new[] {250, 160, 40}, new[] {90, 190, 90}, new[] {60, 130, 230} };
+        float sx = tb.Right + stripeGap, sb = tb.Bottom, st = tb.Top + 1, lean = (sb - st) * 0.42f;
+        for (int i = 0; i < 4; i++)
+        {
+            float o = sx + i * stripeW * 1.36f;
+            g.FillPolygon(new SolidBrush(Color.FromArgb(sc[i][0], sc[i][1], sc[i][2])),
+                new[] { new PointF(o, sb), new PointF(o + stripeW, sb), new PointF(o + stripeW + lean, st), new PointF(o + lean, st) });
+        }
+    }
+
+    static void SaveBmp24(Bitmap src, string path)
+    {
+        using (var b24 = new Bitmap(src.Width, src.Height, PixelFormat.Format24bppRgb))
+        using (var g = Graphics.FromImage(b24))
+        {
+            g.Clear(Color.White);
+            g.DrawImage(src, 0, 0, src.Width, src.Height);
+            b24.Save(path, ImageFormat.Bmp);
+        }
+    }
+
+    public static void WriteInstaller(string headerPath, string finishedPath, string fontDir)
+    {
+        using (var fonts = new PrivateFontCollection())
+        {
+            fonts.AddFontFile(Path.Combine(fontDir, "Poppins-Bold.ttf"));
+            FontFamily pop = fonts.Families[0];
+
+            using (var bmp = Render(150, 57, 1.0, HeaderBack, 4))
+            using (var g = Graphics.FromImage(bmp))
+            {
+                g.SmoothingMode = SmoothingMode.AntiAlias;
+                g.TextRenderingHint = TextRenderingHint.AntiAliasGridFit;
+                g.PixelOffsetMode = PixelOffsetMode.HighQuality;
+                DrawTitle(g, pop, "ADAM", 21, 52, 17, 3.0f, 4, false);
+                g.Flush();
+                SaveBmp24(bmp, headerPath);
+            }
+
+            using (var bmp = Render(164, 314, 1.0, PanelBack, 4))
+            using (var ball = Render(164, 314, 1.0, PanelBall, 4))
+            using (var g = Graphics.FromImage(bmp))
+            {
+                g.SmoothingMode = SmoothingMode.AntiAlias;
+                g.TextRenderingHint = TextRenderingHint.AntiAliasGridFit;
+                g.PixelOffsetMode = PixelOffsetMode.HighQuality;
+                DrawTitle(g, pop, "ADAM", 33, 14, 24, 4.6f, 6, true);
+                var orange = new SolidBrush(Color.FromArgb(255, 150, 40));
+                var f1 = new Font(pop, 13, FontStyle.Bold, GraphicsUnit.Pixel);
+                g.DrawString("Make Amiga games.", f1, Brushes.White, 16, 80, StringFormat.GenericTypographic);
+                g.DrawString("No code needed.", f1, orange, 16, 98, StringFormat.GenericTypographic);
+                g.DrawImage(ball, 0, 0, 164, 314);
+                g.Flush();
+                SaveBmp24(bmp, finishedPath);
+            }
+        }
+    }
+
     public static void WriteCover(string path, string fontDir)
     {
         using (var bmp = Render(630, 500, 1.0, CoverBack, 4))
@@ -246,3 +371,6 @@ if (-not (Test-Path $promo)) { New-Item -ItemType Directory $promo | Out-Null }
 $cover = Join-Path $promo "itch_cover.png"
 [AdamArt]::WriteCover($cover, (Join-Path $root "datafiles\fonts"))
 Write-Host "Wrote $cover"
+$inst = Join-Path $root "options\windows\installer"
+[AdamArt]::WriteInstaller((Join-Path $inst "header.bmp"), (Join-Path $inst "finished.bmp"), (Join-Path $root "datafiles\fonts"))
+Write-Host "Wrote $inst\header.bmp and finished.bmp"
