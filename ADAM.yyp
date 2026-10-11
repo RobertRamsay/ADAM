@@ -46,6 +46,7 @@
   "name":"ADAM",
   "resources":[
     {"id":{"name":"execute_shell_simple_ext","path":"extensions/execute_shell_simple_ext/execute_shell_simple_ext.yy",},},
+    {"id":{"name":"libxprocess","path":"extensions/libxprocess/libxprocess.yy",},},
     {"id":{"name":"obj_app","path":"objects/obj_app/obj_app.yy",},},
     {"id":{"name":"rm_studio","path":"rooms/rm_studio/rm_studio.yy",},},
     {"id":{"name":"scr_about","path":"scripts/scr_about/scr_about.yy",},},

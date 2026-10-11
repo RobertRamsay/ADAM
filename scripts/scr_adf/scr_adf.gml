@@ -928,12 +928,13 @@ function dev_shots_end()
 // Set ADAM_DEV_TOOLS to false for public (itch.io) builds: users then locate
 // their own FS-UAE and nothing is downloaded or bundled.
 //
-// macOS: GameMaker cannot start a program with arguments there (the
-// execute_shell_simple extension is a Windows DLL), so ADAM writes the
-// settings to a .fs-uae config file and asks Finder to open it - FS-UAE.app
-// is the app that opens .fs-uae files. The "test copy" on a Mac is the
-// official FS-UAE disk image (.dmg), opened in Finder for the user to drag
-// into Applications. Windows-only calls must stay behind os_type checks.
+// macOS (the mac branch): FS-UAE is started with the libxprocess extension
+// (Samuel Venable, MIT - extensions/libxprocess, Mac target only), the same
+// way as on Windows: close any old copy (killall), then "open -n -a FS-UAE.app
+// --args ..." with the same settings. execute_shell_simple is a Windows DLL,
+// so Windows-only calls must stay behind os_type checks. The "test copy" on a
+// Mac is the official FS-UAE disk image (.dmg), opened in Finder for the user
+// to drag into Applications.
 // ---------------------------------------------------------------------------
 #macro ADAM_DEV_TOOLS true
 #macro FSUAE_ZIP_URL "https://github.com/FrodeSolheim/fs-uae/releases/download/v3.1.66/FS-UAE_3.1.66_Windows_x86-64.zip"
@@ -1117,11 +1118,15 @@ function launch_fsuae(_adf)
         toast("Find fs-uae.exe on the Build page first", 1);
         return false;
     }
+    // close an old FS-UAE first; the new one starts from Step once it has gone
     if (os_type == os_macosx)
     {
-        return launch_fsuae_mac(_adf);
+        ProcessExecute("killall fs-uae");
     }
-    execute_shell_simple("taskkill.exe", "/F /IM fs-uae.exe", "open", 0);
+    else
+    {
+        execute_shell_simple("taskkill.exe", "/F /IM fs-uae.exe", "open", 0);
+    }
     launch_pending = _adf;
     launch_timer = 20;
     toast("Launching FS-UAE...", 0);
@@ -1154,9 +1159,29 @@ function kick_path_set(_path)
 /// Called from the Step event once the old emulator has had time to close
 function launch_fsuae_now(_adf)
 {
-    if (os_type != os_windows) { return; }
+    if (os_type != os_windows && os_type != os_macosx) { return; }
     var _exe = fsuae_exe();
     if (_exe == "") { return; }
+    var _args = fsuae_args(_adf);
+    if (os_type == os_macosx)
+    {
+        // an .app bundle is opened with its arguments; a bare fs-uae binary is run directly
+        var _cmd = "\"" + _exe + "\" " + _args;
+        if (string_lower(string_copy(_exe, string_length(_exe) - 3, 4)) == ".app")
+        {
+            _cmd = "open -n -a \"" + _exe + "\" --args " + _args;
+        }
+        var _pid = ProcessExecuteAsync(_cmd);
+        FreeExecutedProcessStandardInput(_pid);
+        FreeExecutedProcessStandardOutput(_pid);
+        return;
+    }
+    execute_shell_simple(_exe, _args, "open", 5, filename_dir(_exe));
+}
+
+/// FS-UAE command-line settings for booting _adf on the project's machine
+function fsuae_args(_adf)
+{
     var _m = machine_cur();
     var _args = "--amiga_model=" + _m.fsuae_model
         + " --chip_memory=" + string(_m.chip_kb)
@@ -1172,12 +1197,17 @@ function launch_fsuae_now(_adf)
         _args += " --video_sync=off --texture_filter=nearest";
     }
     _args += " --joystick_port_1=" + fsuae_port_1();
+    if (os_type == os_macosx)
+    {
+        // many Mac keyboards have no right Ctrl: Space fires too
+        _args += " --keyboard_key_space=action_joy_1_fire_button";
+    }
     var _kick = kick_path_cur();
     if (_kick != "" && file_exists(_kick))
     {
         _args += " --kickstart_file=\"" + _kick + "\"";
     }
-    execute_shell_simple(_exe, _args, "open", 5, filename_dir(_exe));
+    return _args;
 }
 
 /// "file://" URL for a local path, with spaces and other bytes %-escaped
@@ -1204,57 +1234,6 @@ function fsuae_file_url(_path)
         }
     }
     return _out;
-}
-
-/// macOS: write the same settings as launch_fsuae_now into a .fs-uae config
-/// file and let Finder open it with FS-UAE (no way to pass arguments from GML).
-function launch_fsuae_mac(_adf)
-{
-    var _m = machine_cur();
-    var _cfg = game_save_id + "adam_play.fs-uae";
-    var _f = file_text_open_write(_cfg);
-    if (_f < 0)
-    {
-        toast("Could not write the FS-UAE settings file", 2);
-        return false;
-    }
-    var _lines = [
-        "[fs-uae]",
-        "amiga_model = " + _m.fsuae_model,
-        "chip_memory = " + string(_m.chip_kb),
-        "slow_memory = 0",
-        "fast_memory = 0",
-        "floppy_drive_0 = " + _adf,
-        "floppy_drive_speed = 0",
-        "fullscreen = 0",
-        "window_width = 960",
-        "window_height = 720",
-        "automatic_input_grab = 0",
-        "initial_input_grab = 0",
-        "joystick_port_1 = " + fsuae_port_1()
-    ];
-    if (fsuae_light)
-    {
-        array_push(_lines, "video_sync = off");
-        array_push(_lines, "texture_filter = nearest");
-    }
-    var _kick = kick_path_cur();
-    if (_kick != "" && file_exists(_kick))
-    {
-        array_push(_lines, "kickstart_file = " + _kick);
-    }
-    for (var i = 0; i < array_length(_lines); i++)
-    {
-        file_text_write_string(_f, _lines[i]);
-        file_text_writeln(_f);
-    }
-    file_text_close(_f);
-    // macOS does not let ADAM close an old FS-UAE window, so the user quits it first
-    url_open(fsuae_file_url(_cfg));
-    build_log_add("Opened " + _cfg + " - FS-UAE boots it. Quit any FS-UAE that is already running first (Cmd+Q).", 0);
-    build_log_add("If it opens in another app, right-click the file in Finder > Open With > FS-UAE (Always Open With).", 0);
-    toast("Opening FS-UAE...", 0);
-    return true;
 }
 
 /// Lines for the "show the engine" view: the engine source, then a data summary

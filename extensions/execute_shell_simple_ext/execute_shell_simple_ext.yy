@@ -16,7 +16,7 @@
   "exportToGame":true,
   "extensionVersion":"1.0.0",
   "files":[
-    {"$GMExtensionFile":"v1","%Name":"","constants":[],"copyToTargets":9223372036854775807,"filename":"execute_shell_simple_ext.dll","final":"","functions":[
+    {"$GMExtensionFile":"v1","%Name":"","constants":[],"copyToTargets":64,"filename":"execute_shell_simple_ext.dll","final":"","functions":[
         {"$GMExtensionFunction":"","%Name":"execute_shell_simple_raw_1","argCount":4,"args":[1,1,1,1,],"documentation":"","externalName":"execute_shell_simple_raw_1","help":"","hidden":true,"kind":11,"name":"execute_shell_simple_raw_1","resourceType":"GMExtensionFunction","resourceVersion":"2.0","returnType":2,},
         {"$GMExtensionFunction":"","%Name":"execute_shell_simple_raw_2","argCount":1,"args":[2,],"documentation":"","externalName":"execute_shell_simple_raw_2","help":"","hidden":true,"kind":11,"name":"execute_shell_simple_raw_2","resourceType":"GMExtensionFunction","resourceVersion":"2.0","returnType":2,},
       ],"init":"","kind":1,"name":"","origname":"extensions\\execute_shell_simple_ext.dll","ProxyFiles":[

@@ -1,5 +1,6 @@
 # Draws ADAM's artwork from the title's boing ball and four Amiga stripes:
 #   options/windows/icons/icon.ico   app icon (16-256 px)
+#   options/mac/icons/1024.png       macOS app icon
 #   promo/itch_cover.png             itch.io cover, 630 x 500
 #   promo/itch_banner.png            itch.io page banner, 960 x 250
 #   promo/itch_background.png        itch.io page background, 1920 x 1080 (soft slate, blurred balls)
@@ -157,6 +158,12 @@ public static class AdamArt
             }
         }
         return bmp;
+    }
+
+    // the icon as one PNG (the macOS app icon is 1024 x 1024)
+    public static void WriteIconPng(string path, int size)
+    {
+        using (var bmp = Render(size, size, 256.0 / size, IconSample, 2)) { bmp.Save(path, ImageFormat.Png); }
     }
 
     // .ico with a PNG image per size (Windows Vista and later)
@@ -485,6 +492,10 @@ $out = ""
 if ($Png -ne "") { $out = [IO.Path]::GetFullPath($Png) }
 [AdamArt]::WriteIco($ico, @(16, 20, 24, 32, 40, 48, 64, 128, 256), $out)
 Write-Host "Wrote $ico"
+$macIcon = Join-Path $root "options\mac\icons"
+if (-not (Test-Path $macIcon)) { New-Item -ItemType Directory $macIcon | Out-Null }
+[AdamArt]::WriteIconPng((Join-Path $macIcon "1024.png"), 1024)
+Write-Host "Wrote $macIcon\1024.png"
 $promo = Join-Path $root "promo"
 if (-not (Test-Path $promo)) { New-Item -ItemType Directory $promo | Out-Null }
 $cover = Join-Path $promo "itch_cover.png"
