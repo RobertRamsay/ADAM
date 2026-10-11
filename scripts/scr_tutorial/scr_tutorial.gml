@@ -17,6 +17,8 @@ function tut_init()
         tut_step(WS_HOME, "home_lives", "Lives and score", "Choose how many lives the player gets and where the score and lives are shown. A rule on the Logic page takes lives away."),
         tut_step(WS_HOME, "home_over", "Messages", "These messages appear when the game ends. The player presses fire to play again."),
         tut_step(WS_HOME, "home_helpers", "Hover helpers", "Rest your mouse on anything and a helper line points to a bubble that explains it. Switch them off here (or with Helpers at the top) once you know your way around."),
+        tut_step(WS_HOME, "top_learn", "Learn ADAM", "Up here any time: the tutorial for the page you are on (or press F1), this tour, and lessons that build a whole game with you step by step."),
+        tut_step(WS_HOME, "top_play", "Build and play", "When you want to try your game, click Build & play (or press F5) on any page. ADAM makes the Amiga disk and starts it in FS-UAE."),
         tut_step(WS_HOME, "top_undo", "Undo and Redo", "Made a mistake? Undo (Ctrl+Z) takes it back and Redo (Ctrl+Y) puts it back again. Every page keeps its own history, so undoing on one page never touches the others."),
         // ---------- BACKDROP ----------
         tut_step(WS_BACKDROP, "bd_canvas", "The backdrop", "This is your game's background: 320 x 256 pixels, the classic PAL Amiga low-res screen. Actors move on top of it. Left-click paints, right-click paints colour 0."),
@@ -301,7 +303,7 @@ function tut_offer_draw(_gw, _gh)
         tut_offer_on = false;
         tut_start(tut_offer_tab);
     }
-    if (ui_button("tut_offer_no", _cx + _cw - 32 - _yw - _nw, _by, _nw, 32, "Not now", "Not now|Hides this. The Tutorial (F1) button still starts it.", BTN_GHOST))
+    if (ui_button("tut_offer_no", _cx + _cw - 32 - _yw - _nw, _by, _nw, 32, "Not now", "Not now|Hides this. F1, or Learn ADAM at the top right, still starts it.", BTN_GHOST))
     {
         tut_offer_on = false;
     }

@@ -307,6 +307,15 @@ function lesson_stop()
 }
 
 /// Names for the Learn menu, with the guided tour first
+/// The Learn ADAM menu (top bar): this page's tutorial, then lesson_menu_names()
+function learn_menu_names()
+{
+    var _n = ["Tutorial for this page: " + ws_name(ws) + "  (F1)"];
+    var _l = lesson_menu_names();
+    for (var i = 0; i < array_length(_l); i++) { array_push(_n, _l[i]); }
+    return _n;
+}
+
 function lesson_menu_names()
 {
     var _n = ["Guided tour - what every page does (5 min)"];
@@ -427,7 +436,7 @@ function lesson_draw(_gw, _gh)
         }
     }
     var _qw = ceil(ui_sw("Stop lesson")) + 28;
-    if (ui_button("les_quit", _cx + 24, _by, _qw, 32, "Stop lesson", "Stop the lesson|Your project stays as it is. Start the lesson again from Learn ADAM on the Home page.", BTN_GHOST))
+    if (ui_button("les_quit", _cx + 24, _by, _qw, 32, "Stop lesson", "Stop the lesson|Your project stays as it is. Start the lesson again from Learn ADAM at the top right.", BTN_GHOST))
     {
         lesson_stop();
     }

@@ -52,15 +52,12 @@ function ws_home_draw(_x1, _y1, _x2, _y2)
     ui_text_wrap(_x1 + 28, _y1 + 106, "Paint a backdrop, draw sprites, choose how things move and write the rules as simple WHEN / DO sentences. ADAM builds a bootable Amiga disk for the " + _m.name + ".", global.TH.text_dim, _split - _x1 - 220, global.f_body, 1);
     var _bx = _x1 + 28;
     var _by = _y1 + 176;
-    var _learn = ui_menu_button("home_tour", _bx, _by, 190, 40, "Learn ADAM...", lesson_menu_names(), "Learn ADAM|The guided tour shows what every page does. The lessons each make a whole game from a new project, step by step: Basics, Beginner, Intermediate and Experienced, then BOBs for ADAM Pro.", BTN_ACCENT);
-    if (_learn == 0) { tut_start(-1); }
-    if (_learn >= 1) { lesson_start(_learn - 1); }
-    var _ex = ui_menu_button("home_example", _bx + 200, _by, 190, 40, "Example games...", example_names(), "Example games|Finished games to play and pull apart: Gem Hunter, Deep Dive, Star Catcher and Dodge Ball, plus Firefly Night for ADAM Pro, with a swarm of BOBs. Look around every page to see how they were made, then build them.", BTN_ON);
+    var _ex = ui_menu_button("home_example", _bx, _by, 190, 40, "Example games...", example_names(), "Example games|Finished games to play and pull apart: Gem Hunter, Deep Dive, Star Catcher and Dodge Ball, plus Firefly Night for ADAM Pro, with a swarm of BOBs. Look around every page to see how they were made, then build them.", BTN_ON);
     if (_ex >= 0) { example_load(_ex); }
-    if (ui_button("home_new", _bx + 400, _by, 80, 40, "New", "New project|Starts a blank project for the same machine.", BTN_NORMAL)) { home_new(); }
-    if (ui_button("home_open", _bx + 488, _by, 80, 40, "Open", "Open project|Opens a .adam project file you saved earlier.", BTN_NORMAL)) { home_open(); }
-    if (ui_button("home_save", _bx + 576, _by, 80, 40, "Save", "Save project|Saves your project (Ctrl+S). The first time it asks where to put it.", BTN_NORMAL)) { home_save(false); }
-    if (ui_button("home_saveas", _bx + 664, _by, 96, 40, "Save as", "Save as|Saves a copy of your project under a new name.", BTN_GHOST)) { home_save(true); }
+    if (ui_button("home_new", _bx + 200, _by, 80, 40, "New", "New project|Starts a blank project for the same machine.", BTN_NORMAL)) { home_new(); }
+    if (ui_button("home_open", _bx + 288, _by, 80, 40, "Open", "Open project|Opens a .adam project file you saved earlier.", BTN_NORMAL)) { home_open(); }
+    if (ui_button("home_save", _bx + 376, _by, 80, 40, "Save", "Save project|Saves your project (Ctrl+S). The first time it asks where to put it.", BTN_NORMAL)) { home_save(false); }
+    if (ui_button("home_saveas", _bx + 464, _by, 96, 40, "Save as", "Save as|Saves a copy of your project under a new name.", BTN_GHOST)) { home_save(true); }
 
     // ---------- workflow cards ----------
     var _cy = _y1 + 270;
