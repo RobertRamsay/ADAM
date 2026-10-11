@@ -542,29 +542,128 @@ function backdrop_import(_path, _dither)
 // Copper sky: colour 0 changes on every one of the 256 lines (and the border
 // with it). Three colour stops. The A500/600 copper writes 12-bit colours
 // (16 steps per gun); on the A1200 it writes the low nibbles too (LOCT), so
-// each gun has 256 steps. Between two steps each gun is blended over the
-// lines with COPPER_BLEND, so the steps don't show as bands.
+// each gun has 256 steps. Neighbouring colour bands are blended over the
+// lines with COPPER_BLEND, so the steps don't show as hard edges.
 // ---------------------------------------------------------------------------
 
-/// Line pattern for blending from one colour step (A) to the next (B): as the
-/// wanted colour moves from A towards B, more of the lines use B.
+/// Line pattern for blending one whole colour (A) into the next (B). Only two
+/// colours ever mix: blends run from the middle of one colour band to the
+/// middle of the next, and neighbouring blends share the solid lines at the
+/// ends (the pattern's last BBBB are the next blend's first AAAA), so for
+/// three colours it reads AAAABAAABAABABABBABBBABBBBCBBBCBBCBCBCCBCCCBCCCC.
 #macro COPPER_BLEND "AAAABAAABAABABABBABBBABBBB"
+#macro COPPER_BLEND_SOLID 4
 
-/// One gun on one copper line: _v is the wanted level (0.._max, not whole),
-/// _flat is true when the gun doesn't change over this part of the bar.
-/// Returns a whole level, picking the step below or above by COPPER_BLEND.
-function copper_level(_v, _max, _flat)
+/// Share of B in COPPER_BLEND between positions _p0 and _p1 (each letter is 1
+/// wide; past the end counts as B). A blend shorter than the pattern covers
+/// several letters per line - picking single letters would alias - so each
+/// line takes the share of B over its stretch of the pattern instead.
+function copper_blend_share(_p0, _p1)
 {
-    if (_flat) { return clamp(round(_v), 0, _max); }
-    var _lo = floor(_v);
-    var _n = string_length(COPPER_BLEND);
-    var _i = clamp(floor((_v - _lo) * _n), 0, _n - 1);
-    if (string_char_at(COPPER_BLEND, _i + 1) == "B") { _lo += 1; }
-    return clamp(_lo, 0, _max);
+    var _len = string_length(COPPER_BLEND);
+    var _sum = 0;
+    var _p = _p0;
+    while (_p < _p1 - 0.000001)
+    {
+        var _c = floor(_p);
+        var _e = min(_c + 1, _p1);
+        if (_c >= _len)
+        {
+            _sum += _e - _p;
+        }
+        else
+        {
+            if (_c >= 0 && string_char_at(COPPER_BLEND, _c + 1) == "B") { _sum += _e - _p; }
+        }
+        _p = _e;
+    }
+    return _sum / (_p1 - _p0);
+}
+
+/// Any copper bar: _q holds one colour per line, already rounded to the
+/// machine's steps (so it is made of bands). Returns the lines with each
+/// pair of neighbouring bands blended by COPPER_BLEND.
+function copper_blend_lines(_q)
+{
+    var _len = array_length(_q);
+    var _out = array_create(_len, 0);
+    if (_len == 0) { return _out; }
+    var _bcol = [];
+    var _bmid = [];
+    var _blen = [];
+    var _start = 0;
+    for (var i = 1; i <= _len; i++)
+    {
+        if (i == _len || _q[i] != _q[_start])
+        {
+            array_push(_bcol, _q[_start]);
+            array_push(_bmid, (_start + i - 1) / 2);
+            array_push(_blen, i - _start);
+            _start = i;
+        }
+    }
+    // A sliver band (one gun stepping a line before the others) would swallow
+    // the blend between the two big colours round it: leave it out, so its
+    // lines become part of that blend. Shortest first; never the end bands.
+    var _gone = true;
+    while (_gone)
+    {
+        _gone = false;
+        var _pick = -1;
+        for (var k = 1; k < array_length(_blen) - 1; k++)
+        {
+            if (_blen[k] * 4 < _blen[k - 1] + _blen[k + 1])
+            {
+                if (_pick < 0 || _blen[k] < _blen[_pick]) { _pick = k; }
+            }
+        }
+        if (_pick >= 0)
+        {
+            array_delete(_bcol, _pick, 1);
+            array_delete(_bmid, _pick, 1);
+            array_delete(_blen, _pick, 1);
+            _gone = true;
+        }
+    }
+    var _nb = array_length(_bcol);
+    var _n = string_length(COPPER_BLEND) - COPPER_BLEND_SOLID;
+    var _b = 0;
+    var _span = -1;
+    var _carry = 0;                     // B owed so far in this blend (spreads it over the lines)
+    for (var j = 0; j < _len; j++)
+    {
+        while (_b + 1 < _nb && j >= _bmid[_b + 1]) { _b += 1; }
+        if (j < _bmid[_b] || _b + 1 >= _nb)
+        {
+            _out[j] = _bcol[_b];        // above the first middle, or below the last: solid
+        }
+        else
+        {
+            if (_span != _b)
+            {
+                _span = _b;
+                _carry = 0;
+            }
+            // this line covers [_f, _f + 1/L) of the blend, i.e. that stretch of the pattern
+            var _l = _bmid[_b + 1] - _bmid[_b];
+            var _f = (j - _bmid[_b]) / _l;
+            _carry += copper_blend_share(COPPER_BLEND_SOLID + _f * _n, COPPER_BLEND_SOLID + (_f + 1 / _l) * _n);
+            if (_carry >= 0.5)
+            {
+                _out[j] = _bcol[_b + 1];
+                _carry -= 1;
+            }
+            else
+            {
+                _out[j] = _bcol[_b];
+            }
+        }
+    }
+    return _out;
 }
 
 /// 256 copper colours ($RRGGBB, as the machine shows them) for project _p:
-/// 12-bit steps on the A500/600, 24-bit on the A1200, blended per gun.
+/// 12-bit steps on the A500/600, 24-bit on the A1200, bands blended.
 function sky_table(_p)
 {
     var _aga = machine_get(_p.machine).aga;
@@ -575,7 +674,7 @@ function sky_table(_p)
         _max = 255;
         _scale = 1;
     }
-    var _out = array_create(256, 0);
+    var _q = array_create(256, 0);
     var _my = clamp(_p.sky_mid_y, 1, 254);
     for (var i = 0; i < 256; i++)
     {
@@ -588,12 +687,12 @@ function sky_table(_p)
             _b = _p.sky_bot;
             _t = (i - _my) / (255 - _my);
         }
-        var _r = copper_level(lerp(rgb_r(_a), rgb_r(_b), _t) / _scale, _max, rgb_r(_a) == rgb_r(_b));
-        var _g = copper_level(lerp(rgb_g(_a), rgb_g(_b), _t) / _scale, _max, rgb_g(_a) == rgb_g(_b));
-        var _bl = copper_level(lerp(rgb_b(_a), rgb_b(_b), _t) / _scale, _max, rgb_b(_a) == rgb_b(_b));
-        _out[i] = rgb_make(_r * _scale, _g * _scale, _bl * _scale);
+        var _r = clamp(round(lerp(rgb_r(_a), rgb_r(_b), _t) / _scale), 0, _max);
+        var _g = clamp(round(lerp(rgb_g(_a), rgb_g(_b), _t) / _scale), 0, _max);
+        var _bl = clamp(round(lerp(rgb_b(_a), rgb_b(_b), _t) / _scale), 0, _max);
+        _q[i] = rgb_make(_r * _scale, _g * _scale, _bl * _scale);
     }
-    return _out;
+    return copper_blend_lines(_q);
 }
 
 /// $0RGB copper word: the high nibble of each gun (all the A500/600 has)

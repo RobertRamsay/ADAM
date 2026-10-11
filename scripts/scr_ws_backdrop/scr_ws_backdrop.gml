@@ -436,7 +436,7 @@ function backdrop_sky_panel(_fx, _y, _fw, _y2)
     var _aga = machine_cur().aga;
     var _gmax = 15;             // slider range per gun: 0..15 (12-bit) or 0..255 (24-bit)
     var _gscale = 17;
-    var _intro = "Paint the parts you want to see the sky through with colour 0. The copper writes 12-bit colours, so each gun has 16 steps; lines in between are blended so the steps don't show as bands.";
+    var _intro = "Paint the parts you want to see the sky through with colour 0. The copper writes 12-bit colours, so each gun has 16 steps; neighbouring colours are blended over a few lines so the steps don't show as hard edges.";
     if (_aga)
     {
         _gmax = 255;

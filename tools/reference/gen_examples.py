@@ -326,29 +326,57 @@ def alloc(p):
         chan.append(pp*2+used[pp]); used[pp]+=1; conf.append(cf)
     return chan,conf,owner
 
-# line pattern for blending one copper colour step (A) into the next (B) - as COPPER_BLEND in scr_gfx
+# whole-colour line blending for copper bars - as COPPER_BLEND / copper_blend_lines in scr_gfx
 COPPER_BLEND='AAAABAAABAABABABBABBBABBBB'
+COPPER_BLEND_SOLID=4
 
-def copper_level(v,mx,flat):
-    if flat: return max(0,min(mx,round(v)))
-    lo=math.floor(v); n=len(COPPER_BLEND)
-    i=max(0,min(n-1,math.floor((v-lo)*n)))
-    if COPPER_BLEND[i]=='B': lo+=1
-    return max(0,min(mx,lo))
+def copper_blend_share(p0,p1):
+    # share of B in COPPER_BLEND over [p0,p1) - letters are 1 wide, past the end counts as B
+    s=0.0; p=p0
+    while p<p1-1e-6:
+        c=math.floor(p); e=min(c+1,p1)
+        if c>=len(COPPER_BLEND) or (c>=0 and COPPER_BLEND[c]=='B'): s+=e-p
+        p=e
+    return s/(p1-p0)
+
+def copper_blend_lines(q):
+    # q: one rounded colour per line (bands); blend neighbouring bands between their middle lines
+    cols=[]; mids=[]; lens=[]; start=0
+    for i in range(1,len(q)+1):
+        if i==len(q) or q[i]!=q[start]:
+            cols.append(q[start]); mids.append((start+i-1)/2); lens.append(i-start); start=i
+    # leave out sliver bands (much shorter than their neighbours), shortest first, never the end bands
+    while True:
+        pick=-1
+        for k in range(1,len(lens)-1):
+            if lens[k]*4<lens[k-1]+lens[k+1] and (pick<0 or lens[k]<lens[pick]): pick=k
+        if pick<0: break
+        del cols[pick]; del mids[pick]; del lens[pick]
+    n=len(COPPER_BLEND)-COPPER_BLEND_SOLID
+    out=[]; b=0; span=-1; carry=0.0
+    for j in range(len(q)):
+        while b+1<len(cols) and j>=mids[b+1]: b+=1
+        if j<mids[b] or b+1>=len(cols): out.append(cols[b]); continue
+        if span!=b: span=b; carry=0.0
+        l=mids[b+1]-mids[b]; f=(j-mids[b])/l
+        carry+=copper_blend_share(COPPER_BLEND_SOLID+f*n,COPPER_BLEND_SOLID+(f+1/l)*n)
+        if carry>=0.5: out.append(cols[b+1]); carry-=1
+        else: out.append(cols[b])
+    return out
 
 def sky_table(p,aga=False):
-    # 256 x $RRGGBB as the machine shows them: 12-bit steps (A500/600) or 24-bit (A1200), blended per gun
+    # 256 x $RRGGBB as the machine shows them: 12-bit steps (A500/600) or 24-bit (A1200), bands blended
     mx,sc=(255,1) if aga else (15,17)
-    out=[]; my=max(1,min(254,p['sky_mid_y']))
+    q=[]; my=max(1,min(254,p['sky_mid_y']))
     for i in range(256):
         a,b,t=p['sky_top'],p['sky_mid'],i/my
         if i>my: a,b,t=p['sky_mid'],p['sky_bot'],(i-my)/(255-my)
         c=[]
         for s in (16,8,0):
             ca=(a>>s)&255; cb=(b>>s)&255
-            c.append(copper_level((ca+(cb-ca)*t)/sc,mx,ca==cb)*sc)
-        out.append((c[0]<<16)|(c[1]<<8)|c[2])
-    return out
+            c.append(max(0,min(mx,round((ca+(cb-ca)*t)/sc)))*sc)
+        q.append((c[0]<<16)|(c[1]<<8)|c[2])
+    return copper_blend_lines(q)
 
 def ground_table(p):
     if not any(p.get('solid',[])): return None
