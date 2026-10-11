@@ -10,6 +10,43 @@ function spr_set_px(_s, _x, _y, _v)
     _s.px[_y * SPR_W + _x] = _v;
 }
 
+/// Paints a line of cells from (_ax, _ay) to (_bx, _by) so fast strokes stay joined up.
+/// Returns true if any pixel changed.
+function spr_paint_line(_s, _ax, _ay, _bx, _by, _v)
+{
+    var _changed = false;
+    var _dx = abs(_bx - _ax);
+    var _dy = -abs(_by - _ay);
+    var _sx = 1;
+    if (_ax > _bx) { _sx = -1; }
+    var _sy = 1;
+    if (_ay > _by) { _sy = -1; }
+    var _err = _dx + _dy;
+    var _cx = _ax;
+    var _cy = _ay;
+    while (true)
+    {
+        if (spr_get_px(_s, _cx, _cy) != _v)
+        {
+            spr_set_px(_s, _cx, _cy, _v);
+            _changed = true;
+        }
+        if (_cx == _bx && _cy == _by) { break; }
+        var _e2 = 2 * _err;
+        if (_e2 >= _dy)
+        {
+            _err += _dy;
+            _cx += _sx;
+        }
+        if (_e2 <= _dx)
+        {
+            _err += _dx;
+            _cy += _sy;
+        }
+    }
+    return _changed;
+}
+
 function spr_transform(_s, _kind)
 {
     var _old = array_create(SPR_W * SPR_H, 0);
@@ -139,22 +176,23 @@ function ws_sprites_draw(_x1, _y1, _x2, _y2)
         {
             undo_mark("sprdraw" + string(current_time));
             spr_drawing = true;
+            spr_last_x = _hx;
+            spr_last_y = _hy;
             ui_take_click();
         }
         if (spr_drawing)
         {
-            if (ui_held && spr_get_px(_s, _hx, _hy) != spr_pen)
+            // join up from the last cell, so a fast stroke doesn't leave gaps
+            var _paint_v = -1;
+            if (ui_held) { _paint_v = spr_pen; }
+            if (ui_rheld) { _paint_v = 0; }
+            if (_paint_v >= 0 && spr_paint_line(_s, spr_last_x, spr_last_y, _hx, _hy, _paint_v))
             {
-                spr_set_px(_s, _hx, _hy, spr_pen);
                 spr_dirty[spr_sel] = true;
                 proj_dirty = true;
             }
-            if (ui_rheld && spr_get_px(_s, _hx, _hy) != 0)
-            {
-                spr_set_px(_s, _hx, _hy, 0);
-                spr_dirty[spr_sel] = true;
-                proj_dirty = true;
-            }
+            spr_last_x = _hx;
+            spr_last_y = _hy;
         }
     }
     if (!ui_held && !ui_rheld) { spr_drawing = false; }
