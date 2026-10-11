@@ -223,6 +223,38 @@ function music_open_editor(_li, _lane, _bar)
 }
 
 /// Paints the brush (or _src) into a bar of the timeline
+/// Timeline cells [lane, bar] on a line from (_l0, _b0) to (_l1, _b1), both ends included
+function music_stroke_cells(_l0, _b0, _l1, _b1)
+{
+    var _out = [];
+    var _dx = abs(_b1 - _b0);
+    var _dy = -abs(_l1 - _l0);
+    var _sx = 1;
+    if (_b0 > _b1) { _sx = -1; }
+    var _sy = 1;
+    if (_l0 > _l1) { _sy = -1; }
+    var _err = _dx + _dy;
+    var _cb = _b0;
+    var _cl = _l0;
+    while (true)
+    {
+        array_push(_out, [_cl, _cb]);
+        if (_cb == _b1 && _cl == _l1) { break; }
+        var _e2 = 2 * _err;
+        if (_e2 >= _dy)
+        {
+            _err += _dy;
+            _cb += _sx;
+        }
+        if (_e2 <= _dx)
+        {
+            _err += _dx;
+            _cl += _sy;
+        }
+    }
+    return _out;
+}
+
 function music_paint_cell(_song, _src, _lane, _bar, _tag)
 {
     var _li = -1;
@@ -838,6 +870,7 @@ function music_timeline(_tx1, _ty1, _tx2, _song, _lane_h)
                 {
                     mus_painting = true;
                     mus_paint_tag = "muspaint" + string(current_time);
+                    mus_stroke_cell = [_hl, _hb];
                     music_paint_cell(_song, mus_brush, _hl, _hb, mus_paint_tag);
                 }
                 else { toast("Pick a loop on the left first, then paint it here", 1); }
@@ -845,21 +878,39 @@ function music_timeline(_tx1, _ty1, _tx2, _song, _lane_h)
         }
         else
         {
-            if (mus_painting && ui_held && _cur < 0 && mus_brush[0] >= 0)
+            if (mus_painting && ui_held && mus_brush[0] >= 0)
             {
-                music_paint_cell(_song, mus_brush, _hl, _hb, mus_paint_tag);
+                // fill every empty cell between the last one and this one, so a fast drag doesn't skip bars
+                var _cells = music_stroke_cells(mus_stroke_cell[0], mus_stroke_cell[1], _hl, _hb);
+                for (var c = 0; c < array_length(_cells); c++)
+                {
+                    if (_song.arr.lanes[_cells[c][0]][_cells[c][1]] < 0)
+                    {
+                        music_paint_cell(_song, mus_brush, _cells[c][0], _cells[c][1], mus_paint_tag);
+                    }
+                }
+                mus_stroke_cell = [_hl, _hb];
             }
         }
         if (ui_rpressed)
         {
             mus_erasing = true;
             mus_paint_tag = "museras" + string(current_time);
+            mus_stroke_cell = [_hl, _hb];
         }
-        if (mus_erasing && ui_rheld && _song.arr.lanes[_hl][_hb] >= 0)
+        if (mus_erasing && ui_rheld)
         {
-            undo_mark(mus_paint_tag);
-            _song.arr.lanes[_hl][_hb] = -1;
-            music_touch();
+            var _ecells = music_stroke_cells(mus_stroke_cell[0], mus_stroke_cell[1], _hl, _hb);
+            for (var c = 0; c < array_length(_ecells); c++)
+            {
+                if (_song.arr.lanes[_ecells[c][0]][_ecells[c][1]] >= 0)
+                {
+                    undo_mark(mus_paint_tag);
+                    _song.arr.lanes[_ecells[c][0]][_ecells[c][1]] = -1;
+                    music_touch();
+                }
+            }
+            mus_stroke_cell = [_hl, _hb];
         }
     }
     if (!ui_held) { mus_painting = false; }

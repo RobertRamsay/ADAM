@@ -194,6 +194,7 @@ mus_click_cell = [-1, -1];
 mus_painting = false;
 mus_erasing = false;
 mus_paint_tag = "";
+mus_stroke_cell = [0, 0];    // [lane, bar] last painted / rubbed out (strokes are joined up)
 mus_drag_arm = false;
 mus_drag = false;
 mus_drag_src = [-1, -1];
