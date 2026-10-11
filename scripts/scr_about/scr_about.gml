@@ -151,11 +151,14 @@ function about_pro_page(_tx1, _ty1, _tx2, _ty2, _a)
     _y += 20;
     var _bw = 140;
     var _typing = ui_focus == "lic_key";
-    licence_entry = ui_textfield("lic_key", _x, _y, _w - _bw - 12, 40, licence_entry, 32, "Licence key|Type or paste the key from your ADAM Pro purchase on itch.io, like ADAM-ABCD-EFGH-JKLM-NPQR. Dashes and spaces don't matter.");
+    licence_entry = ui_textfield("lic_key", _x, _y, _w - _bw - 12, 40, licence_entry, 200, "Licence key|Paste the key from your ADAM Pro purchase on itch.io, like ADAM-ABCD-EFGH-JKLM-NPQR. Dashes, spaces and any text round it don't matter.");
     var _go = ui_button("lic_unlock", _x + _w - _bw, _y, _bw, 40, "Unlock", "Unlock|Checks the key and turns on ADAM Pro.", BTN_ACCENT);
     if (_typing && keyboard_check_pressed(vk_enter)) { _go = true; }
     if (_go) { licence_enter(licence_entry); }
-    _y += 52;
+    _y += 50;
+    var _hint = "Bought ADAM Pro on itch.io? Open your purchase (or download) page, press 'Claim key', then copy the ADAM-... key into the box above.";
+    ui_text_wrap(_x, _y, _hint, global.TH.text_dim, _w, global.f_small, _a);
+    _y += ceil(ui_sh_ext(_hint, _w)) + 10;
     if (licence_msg != "")
     {
         ui_text_wrap(_x, _y, licence_msg, global.TH.warn, _w, global.f_small, _a);

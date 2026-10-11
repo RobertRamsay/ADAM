@@ -56,19 +56,55 @@ function licence_sign(_serial)
     return _out;
 }
 
-/// True if _s is a real ADAM Pro key (any spacing / dashes / case)
-function licence_check(_s)
+/// True if _k (16 characters, no dashes) is a real ADAM Pro key
+function licence_good16(_k)
 {
-    // a public build still holding the placeholder secret takes no keys at
-    // all - anyone could make keys for it (see scr_licence_secret)
-    if (!ADAM_DEV_TOOLS && LICENCE_SECRET == LICENCE_DEV_SECRET) { return false; }
-    var _k = licence_normalise(_s);
     if (string_length(_k) != 16) { return false; }
     for (var i = 1; i <= 16; i++)
     {
         if (string_pos(string_char_at(_k, i), LICENCE_ALPHABET) == 0) { return false; }
     }
     return licence_sign(string_copy(_k, 1, 8)) == string_copy(_k, 9, 8);
+}
+
+/// Finds a good key anywhere in pasted text - "ADAM-XXXX-...", the 16
+/// characters alone, or a whole line copied off the itch.io page ("Your
+/// key: ADAM-..."). Returns the 16 characters, or "" if there isn't one.
+function licence_find(_s)
+{
+    // a public build still holding the placeholder secret takes no keys at
+    // all - anyone could make keys for it (see scr_licence_secret)
+    if (!ADAM_DEV_TOOLS && LICENCE_SECRET == LICENCE_DEV_SECRET) { return ""; }
+    var _up = string_upper(_s);
+    var _t = "";                        // letters and digits only
+    for (var i = 1; i <= string_length(_up); i++)
+    {
+        var _o = ord(string_char_at(_up, i));
+        if ((_o >= 65 && _o <= 90) || (_o >= 48 && _o <= 57)) { _t += chr(_o); }
+    }
+    if (licence_good16(_t)) { return _t; }
+    for (var p = 1; p <= string_length(_t) - 19; p++)
+    {
+        if (string_copy(_t, p, 4) == "ADAM")
+        {
+            var _k = string_copy(_t, p + 4, 16);
+            if (licence_good16(_k)) { return _k; }
+        }
+    }
+    return "";
+}
+
+/// True if _s holds a real ADAM Pro key (any spacing / dashes / case / text round it)
+function licence_check(_s)
+{
+    return licence_find(_s) != "";
+}
+
+/// True if _s looks like an itch.io download link rather than an ADAM Pro key
+function licence_is_itch_link(_s)
+{
+    var _l = string_lower(_s);
+    return string_pos("itch.io", _l) > 0 && string_pos("/download", _l) > 0;
 }
 
 /// ADAM-XXXX-XXXX-XXXX-XXXX
@@ -82,12 +118,20 @@ function licence_format(_s)
 /// Tries to unlock Pro with _s; saves the key when it is good
 function licence_enter(_s)
 {
-    if (!licence_check(_s))
+    var _k = licence_find(_s);
+    if (_k == "")
     {
-        licence_msg = "That key doesn't look right - check it against the one from itch.io.";
+        if (licence_is_itch_link(_s))
+        {
+            licence_msg = "That's your itch.io download link, not the key. Open that page and press 'Claim key' - then paste the ADAM-... key here.";
+        }
+        else
+        {
+            licence_msg = "That key doesn't look right - check it against the one from itch.io.";
+        }
         return false;
     }
-    licence_key = licence_format(_s);
+    licence_key = licence_format(_k);
     pro_unlocked = true;
     licence_msg = "";
     settings_save();
@@ -115,6 +159,9 @@ function licence_selftest()
     var _bad = string_copy(_key, 1, string_length(_key) - 1) + "Z";
     if (string_char_at(_key, string_length(_key)) == "Z") { _bad = string_copy(_key, 1, string_length(_key) - 1) + "Y"; }
     _ok = _ok && !licence_check(_bad) && !licence_check("ADAM-1234") && !licence_check("");
+    // pasted with text round it, as copied off the itch.io purchase page
+    _ok = _ok && licence_check("Your key: " + _key + " (Other)") && licence_check("Other key " + string_lower(_key) + ".");
+    _ok = _ok && licence_is_itch_link("https://someone.itch.io/adam-pro/download/AbC123xyz") && !licence_is_itch_link(_key);
     if (_ok) { show_debug_message("ADAM licence self-test: PASS (" + _key + ")"); }
     else { show_debug_message("ADAM licence self-test: FAIL"); }
 }
