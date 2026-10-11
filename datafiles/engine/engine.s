@@ -119,25 +119,34 @@ SAFE_TIME   equ 150        ; 3 seconds of flashing immunity
 MOMENT      equ 25         ; 'show for a moment' = half a second
 
 ; ---------------- engine variables (offsets from V) ----------------
-            rsset   -128            ; a5 = V+128 so per-actor tables fit d8(a5,Dn)
-v_ax        rs.w 8
-v_ay        rs.w 8
-v_spd       rs.w 8
-v_vis       rs.w 8
-v_dx        rs.w 8
-v_dy        rs.w 8
-v_px        rs.w 8
-v_py        rs.w 8
-v_vy        rs.w 8         ; vertical speed in 1/16 pixels per frame
-v_ysub      rs.w 8
-v_tmr       rs.w 8
-v_gnd       rs.w 8         ; 1 = standing on the ground
-v_squat     rs.w 8         ; hopper squat countdown before a jump
-v_life      rs.w 8         ; frames until a 'shown for a moment' actor hides
-v_safe      rs.w 8         ; frames of flashing immunity left
+; Per-actor state is one ACTV_SIZE record per actor, starting at V. a5 =
+; V+128, so a field is v_xx(a5,Dn) with Dn = actor * ACTV_SIZE (actor << ACTV_SHIFT):
+; the field offsets (-128..-97) fit the signed 8-bit displacement and the
+; index register carries the actor. Scalars follow the MAX_ACT records.
+MAX_ACT     equ 32
+ACTV_SIZE   equ 32
+ACTV_SHIFT  equ 5
+            rsset   -128
+v_ax        rs.w 1
+v_ay        rs.w 1
+v_spd       rs.w 1
+v_vis       rs.w 1
+v_dx        rs.w 1
+v_dy        rs.w 1
+v_px        rs.w 1
+v_py        rs.w 1
+v_vy        rs.w 1         ; vertical speed in 1/16 pixels per frame
+v_ysub      rs.w 1
+v_tmr       rs.w 1
+v_gnd       rs.w 1         ; 1 = standing on the ground
+v_squat     rs.w 1         ; hopper squat countdown before a jump
+v_life      rs.w 1         ; frames until a 'shown for a moment' actor hides
+v_safe      rs.w 1         ; frames of flashing immunity left
+v_apad      rs.w 1
+            rsset   -128+MAX_ACT*ACTV_SIZE
 v_anim      rs.w 1
 v_joyprev   rs.w 1
-v_jumped    rs.w 1         ; bit per actor that jumped this frame
+v_jumped    rs.l 1         ; bit per actor that jumped this frame
 v_level     rs.w 1         ; 1..10
 v_goal      rs.w 1
 v_work      rs.l 1
@@ -502,7 +511,7 @@ init_actors:
             lea     0(a4,d0.l),a2
             moveq   #0,d7
 .a          move.w  d7,d5
-            add.w   d5,d5
+            lsl.w   #ACTV_SHIFT,d5
             move.w  A_X(a2),v_ax(a5,d5.w)
             move.w  A_Y(a2),v_ay(a5,d5.w)
             move.w  A_SPD(a2),d0            ; faster on later levels
@@ -624,7 +633,7 @@ setcol:
 frame:
             bsr     flash_tick              ; copper edits first, while the copper is idle
             addq.w  #1,v_anim(a5)
-            move.w  #0,v_jumped(a5)
+            move.l  #0,v_jumped(a5)
             bsr     read_joy
             move.w  #0,v_sectick(a5)
             addq.w  #1,v_fcount(a5)
@@ -672,7 +681,7 @@ move_actors:
             lea     0(a4,d0.l),a2
             moveq   #0,d7
 .loop       move.w  d7,d5
-            add.w   d5,d5
+            lsl.w   #ACTV_SHIFT,d5
             tst.w   v_safe(a5,d5.w)         ; immunity counts down
             beq.s   .nosafe
             subq.w  #1,v_safe(a5,d5.w)
@@ -776,7 +785,7 @@ move_actors:
             moveq   #0,d4
 .ct         cmp.w   d7,d4
             beq     .next
-            add.w   d4,d4
+            lsl.w   #ACTV_SHIFT,d4
             move.w  v_spd(a5,d5.w),d3
             subq.w  #1,d3
             bmi     .next
@@ -882,9 +891,9 @@ move_actors:
 
 ; d7 = actor index -> sets its bit in v_jumped (d5 = actor offset)
 jumped:     move.w  #0,v_gnd(a5,d5.w)
-            move.w  v_jumped(a5),d0
+            move.l  v_jumped(a5),d0
             bset    d7,d0
-            move.w  d0,v_jumped(a5)
+            move.l  d0,v_jumped(a5)
             rts
 
 ; ground top under the middle of actor d5 -> d2 (256 when there is no ground)
@@ -973,7 +982,7 @@ place_sprites:
             lea     0(a4,d0.l),a2
             moveq   #0,d7
 .loop       move.w  d7,d5
-            add.w   d5,d5
+            lsl.w   #ACTV_SHIFT,d5
             move.l  A_SPR(a2),d0            ; pick the animation frame
             move.l  A_SPR2(a2),d1
             beq.s   .frame
@@ -1094,9 +1103,9 @@ touch_pair:
             mulu    #ACT_SIZE,d4
             add.w   d4,a1                   ; record b
             move.w  d0,d4
-            add.w   d4,d4
+            lsl.w   #ACTV_SHIFT,d4
             move.w  d1,d5
-            add.w   d5,d5
+            lsl.w   #ACTV_SHIFT,d5
             tst.w   v_vis(a5,d4.w)
             beq     .no
             tst.w   v_vis(a5,d5.w)
@@ -1184,7 +1193,7 @@ run_rules:
             beq.s   .jump
             bra     .next
 
-.jump       move.w  v_jumped(a5),d0         ; actor a jumped this frame
+.jump       move.l  v_jumped(a5),d0         ; actor a jumped this frame
             move.w  R_A(a3),d1
             btst    d1,d0
             beq     .next
@@ -1273,7 +1282,7 @@ fire_action:
 do_action:
             move.w  R_TGT(a3),d5            ; target actor -> d5 = offset
             move.w  d5,d4
-            add.w   d5,d5
+            lsl.w   #ACTV_SHIFT,d5
             move.w  R_ACT(a3),d0
             cmp.w   #19,d0
             bhi     act_none
@@ -1347,7 +1356,7 @@ act_moveto: cmp.w   H_NACT(a4),d4
             move.w  R_VAL(a3),d0
             cmp.w   H_NACT(a4),d0
             bhs     act_none
-            add.w   d0,d0
+            lsl.w   #ACTV_SHIFT,d0
             move.w  v_ax(a5,d0.w),v_ax(a5,d5.w)
             move.w  v_ay(a5,d0.w),d1
             addq.w  #8,d1

@@ -54,8 +54,8 @@ Project data (`proj`) is plain JSON-able structs/arrays; `.adam` files are `json
 (`vasm -pic`). ADAM never generates code: it appends a **data block** right
 after `engine.bin`; `boot.s` (bootblock) AllocMem's chip RAM, reads engine+data
 with trackdisk (showing a copper loading bar) and jumps in. Registers held:
-`a4` = data block, `a5` = V+128 (variables; per-actor tables must stay within
-the signed 8-bit displacement), `a6` = $dff000.
+`a4` = data block, `a5` = V+128 (variables; per-actor state is a 32-byte record per actor,
+`v_xx(a5,Dn)` with Dn = actor << ACTV_SHIFT, up to MAX_ACT = 32 actors), `a6` = $dff000.
 
 **Data block header** (offsets from data start; longs are offsets from data start, 0 = absent):
 `0 'ADAM' | 4 version | 6 flags (bit0 AGA) | 8 depth | 10 nact | 12 nrule | 14 lives | 16 show score | 18 show lives | 20 hud row | 22 hud colour | 24 msg colour | 26 player actor (-1) | 28 game block | 32 palette | 36 planes (original) | 40 actors | 44 rules | 48 sfx table | 52 game-over text | 56 win text | 60 sprite pair colours | 64 display planes | 68 copper sky (256 x $0RGB; AGA: + 256 words of low nibbles, written with LOCT) | 72 painted ground (320 words) | 76 work planes (backdrop + hills) | 80 music table` — header is 84 bytes, version 2. Music table (`M_*`, see docs/MUSIC_CONTRACT.md): nsongs word, 10 level-song bytes ($FF none), then { offset, length } of each ProTracker MOD.
