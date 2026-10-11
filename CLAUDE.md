@@ -113,4 +113,4 @@ the layout changed, examples regenerated if needed, and a short "how to verify" 
 - **Output:** play-in-browser export for itch.io (web Amiga emulator); hard-drive install (WHDLoad slave) and CD32 image; custom boot / loading screens and an intro maker; proper DOS disk so the ADF shows a named disk with an icon on Workbench.
 - **Workflow:** genre templates and asset packs; play the game inside the editor without FS-UAE; 68000 source export for learning.
 - Each Pro feature ships with a Pro example game and a Pro lesson (`pro : true` in `global.EXAMPLES` / `les_defs`; Lite shows them with a Pro label).
-- Suggested order: `pro_on()` (done), BOBs (done, 16 x 24; bigger sizes in steps of 16 up to 64 x 64 next), then scrolling (most other Pro features build on them), then the rest.
+- Suggested order: `pro_on()` (done), BOBs (done, 16 x 16 up to 64 x 64 - size picker on the Sprites page), then scrolling (most other Pro features build on them), then the rest.

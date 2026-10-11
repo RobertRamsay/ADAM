@@ -1,13 +1,29 @@
-/// ADAM - Sprites workspace (16 x 24 hardware sprites, 3 colours)
+/// ADAM - Sprites workspace (16 x 24 hardware sprites, 3 colours; ADAM Pro: up to 64 x 64, drawn as BOBs)
 
 function spr_get_px(_s, _x, _y)
 {
-    return _s.px[_y * SPR_W + _x];
+    return _s.px[_y * _s.w + _x];
 }
 
 function spr_set_px(_s, _x, _y, _v)
 {
-    _s.px[_y * SPR_W + _x] = _v;
+    _s.px[_y * _s.w + _x] = _v;
+}
+
+/// Changes sprite _s to _w x _h pixels, keeping the top-left of the picture
+function spr_resize(_s, _w, _h)
+{
+    var _np = array_create(_w * _h, 0);
+    for (var py = 0; py < min(_h, _s.h); py++)
+    {
+        for (var px = 0; px < min(_w, _s.w); px++)
+        {
+            _np[py * _w + px] = _s.px[py * _s.w + px];
+        }
+    }
+    _s.w = _w;
+    _s.h = _h;
+    _s.px = _np;
 }
 
 /// Paints a line of cells from (_ax, _ay) to (_bx, _by) so fast strokes stay joined up.
@@ -49,11 +65,13 @@ function spr_paint_line(_s, _ax, _ay, _bx, _by, _v)
 
 function spr_transform(_s, _kind)
 {
-    var _old = array_create(SPR_W * SPR_H, 0);
-    array_copy(_old, 0, _s.px, 0, SPR_W * SPR_H);
-    for (var py = 0; py < SPR_H; py++)
+    var _sw = _s.w;
+    var _sh = _s.h;
+    var _old = array_create(_sw * _sh, 0);
+    array_copy(_old, 0, _s.px, 0, _sw * _sh);
+    for (var py = 0; py < _sh; py++)
     {
-        for (var px = 0; px < SPR_W; px++)
+        for (var px = 0; px < _sw; px++)
         {
             var _sx = px;
             var _sy = py;
@@ -61,17 +79,17 @@ function spr_transform(_s, _kind)
             var _ok = true;
             switch (_kind)
             {
-                case "fliph": _sx = SPR_W - 1 - px; break;
-                case "flipv": _sy = SPR_H - 1 - py; break;
+                case "fliph": _sx = _sw - 1 - px; break;
+                case "flipv": _sy = _sh - 1 - py; break;
                 case "left":  _sx = px + 1; break;
                 case "right": _sx = px - 1; break;
                 case "up":    _sy = py + 1; break;
                 case "down":  _sy = py - 1; break;
                 case "clear": _ok = false; break;
             }
-            if (_sx < 0 || _sx >= SPR_W || _sy < 0 || _sy >= SPR_H) { _ok = false; }
-            if (_ok) { _v = _old[_sy * SPR_W + _sx]; }
-            _s.px[py * SPR_W + px] = _v;
+            if (_sx < 0 || _sx >= _sw || _sy < 0 || _sy >= _sh) { _ok = false; }
+            if (_ok) { _v = _old[_sy * _sw + _sx]; }
+            _s.px[py * _sw + px] = _v;
         }
     }
 }
@@ -107,8 +125,9 @@ function ws_sprites_draw(_x1, _y1, _x2, _y2)
         }
         var _th = _rowh - 14;
         ui_rrect(_x1 + 16, _ry + 4, _x1 + 16 + _th, _ry + 4 + _th, 6, pal_col(0), pal_col(0), 1);
-        var _sc = (_th - 4) / SPR_H;
-        draw_sprite_amiga(i, _x1 + 16 + (_th - SPR_W * _sc) / 2, _ry + 6, _sc, 1);
+        var _ts = proj.sprites[i];
+        var _sc = (_th - 4) / max(_ts.w, _ts.h);
+        draw_sprite_amiga(i, _x1 + 16 + (_th - _ts.w * _sc) / 2, _ry + 4 + (_th - _ts.h * _sc) / 2, _sc, 1);
         ui_text(_x1 + 26 + _th, _ry + (_rowh - 6) * 0.5 - 8, ui_text_fit(proj.sprites[i].name, global.f_bold, _lw - 60 - _th), global.TH.text, fa_left, fa_middle, global.f_bold, 1);
         var _users = 0;
         for (var u = 0; u < array_length(proj.actors); u++)
@@ -131,18 +150,18 @@ function ws_sprites_draw(_x1, _y1, _x2, _y2)
     var _cx1 = _x1 + _lw + 12;
     var _cx2 = _x2 - _rw - 12;
     ui_panel(_cx1, _y1, _cx2, _y2, "");
-    var _ps = floor(min((_cx2 - _cx1 - 40) / SPR_W, (_y2 - _y1 - 70) / SPR_H));
-    _ps = max(6, _ps);
-    var _gw = SPR_W * _ps;
-    var _gh = SPR_H * _ps;
+    var _ps = floor(min((_cx2 - _cx1 - 40) / _s.w, (_y2 - _y1 - 70) / _s.h));
+    _ps = max(4, _ps);
+    var _gw = _s.w * _ps;
+    var _gh = _s.h * _ps;
     var _gx = floor((_cx1 + _cx2 - _gw) / 2);
     var _gy = floor(_y1 + 20 + ((_y2 - _y1 - 40) - _gh) / 2);
     ui_rrect(_gx - 8, _gy - 8, _gx + _gw + 8, _gy + _gh + 8, 10, c_black, c_black, 0.35);
     draw_set_colour(pal_col(0));
     draw_rectangle(_gx, _gy, _gx + _gw - 1, _gy + _gh - 1, false);
-    for (var py = 0; py < SPR_H; py++)
+    for (var py = 0; py < _s.h; py++)
     {
-        for (var px = 0; px < SPR_W; px++)
+        for (var px = 0; px < _s.w; px++)
         {
             var _v = spr_get_px(_s, px, py);
             if (_v != 0)
@@ -153,18 +172,18 @@ function ws_sprites_draw(_x1, _y1, _x2, _y2)
         }
     }
     draw_set_alpha(0.14);
-    for (var gx = 0; gx <= SPR_W; gx++) { draw_line_colour(_gx + gx * _ps, _gy, _gx + gx * _ps, _gy + _gh, c_white, c_white); }
-    for (var gy = 0; gy <= SPR_H; gy++) { draw_line_colour(_gx, _gy + gy * _ps, _gx + _gw, _gy + gy * _ps, c_white, c_white); }
+    for (var gx = 0; gx <= _s.w; gx++) { draw_line_colour(_gx + gx * _ps, _gy, _gx + gx * _ps, _gy + _gh, c_white, c_white); }
+    for (var gy = 0; gy <= _s.h; gy++) { draw_line_colour(_gx, _gy + gy * _ps, _gx + _gw, _gy + gy * _ps, c_white, c_white); }
     draw_set_alpha(0.35);
-    draw_line_colour(_gx + 8 * _ps, _gy, _gx + 8 * _ps, _gy + _gh, global.TH.accent, global.TH.accent);
-    for (var hy = 8; hy < SPR_H; hy += 8) { draw_line_colour(_gx, _gy + hy * _ps, _gx + _gw, _gy + hy * _ps, global.TH.accent, global.TH.accent); }
+    for (var hx = 8; hx < _s.w; hx += 8) { draw_line_colour(_gx + hx * _ps, _gy, _gx + hx * _ps, _gy + _gh, global.TH.accent, global.TH.accent); }
+    for (var hy = 8; hy < _s.h; hy += 8) { draw_line_colour(_gx, _gy + hy * _ps, _gx + _gw, _gy + hy * _ps, global.TH.accent, global.TH.accent); }
     draw_set_alpha(1);
 
-    var _hot2 = ui_register("spr_grid", _gx, _gy, _gx + _gw - 1, _gy + _gh - 1, "Sprite canvas|Left-click draws with the selected pen, right-click rubs out. Amiga hardware sprites are 16 pixels wide with 3 colours plus see-through.");
+    var _hot2 = ui_register("spr_grid", _gx, _gy, _gx + _gw - 1, _gy + _gh - 1, "Sprite canvas|Left-click draws with the selected pen, right-click rubs out. Amiga hardware sprites are 16 pixels wide with 3 colours plus see-through; bigger sprites (ADAM Pro) are drawn as BOBs.");
     if (_hot2)
     {
-        var _hx = clamp(floor((ui_mx - _gx) / _ps), 0, SPR_W - 1);
-        var _hy = clamp(floor((ui_my - _gy) / _ps), 0, SPR_H - 1);
+        var _hx = clamp(floor((ui_mx - _gx) / _ps), 0, _s.w - 1);
+        var _hy = clamp(floor((ui_my - _gy) / _ps), 0, _s.h - 1);
         draw_set_alpha(0.3);
         draw_set_colour(global.TH.accent);
         draw_rectangle(_gx + _hx * _ps, _gy, _gx + _hx * _ps + _ps - 1, _gy + _gh - 1, true);
@@ -205,6 +224,38 @@ function ws_sprites_draw(_x1, _y1, _x2, _y2)
     var _y = _y1 + 56;
     ui_heading(_fx, _y, "Name");
     set_val(_s, "name", ui_textfield("spr_name", _fx, _y + 18, _fw, 32, _s.name, 20, "Sprite name|A friendly name so you can find this sprite when choosing actors."), "sprname");
+    _y += 62;
+
+    // size: 16 x 24 is a hardware sprite; ADAM Pro goes up to 64 x 64 (a BOB)
+    var _szh = "Size";
+    if (!pro_on()) { _szh = "Size  (Pro)"; }
+    else if (spr_is_big(_s)) { _szh = "Size  - drawn as a BOB"; }
+    ui_heading(_fx, _y, _szh);
+    var _szw = floor((_fw - 12) / 2);
+    var _wvals = [16, 32, 48, 64];
+    var _hvals = [16, 24, 32, 48, 64];
+    var _wcur = 0;
+    for (var wi = 0; wi < 4; wi++)
+    {
+        if (_wvals[wi] == _s.w) { _wcur = wi; }
+    }
+    var _hcur = 1;
+    for (var hi = 0; hi < 5; hi++)
+    {
+        if (_hvals[hi] == _s.h) { _hcur = hi; }
+    }
+    var _wnew = ui_dropdown("spr_w", _fx, _y + 18, _szw, 32, ["16 wide", "32 wide", "48 wide", "64 wide"], _wcur, "Sprite width|A hardware sprite is 16 x 24 pixels. In ADAM Pro a sprite can be 16, 32, 48 or 64 pixels wide; one bigger than 16 x 24 is drawn as a BOB with the nearest backdrop colours. Making it smaller cuts off the right-hand side.");
+    var _hnew = ui_dropdown("spr_h", _fx + _szw + 12, _y + 18, _szw, 32, ["16 high", "24 high", "32 high", "48 high", "64 high"], _hcur, "Sprite height|A hardware sprite is 16 x 24 pixels. In ADAM Pro a sprite can be 16, 24, 32, 48 or 64 pixels high; one bigger than 16 x 24 is drawn as a BOB. Making it smaller cuts off the bottom.");
+    if (_wnew != _wcur || _hnew != _hcur)
+    {
+        if (pro_gate("Bigger sprites"))
+        {
+            undo_mark("sprsize" + string(current_time));
+            spr_resize(_s, _wvals[_wnew], _hvals[_hnew]);
+            spr_dirty[spr_sel] = true;
+            proj_dirty = true;
+        }
+    }
     _y += 62;
     ui_heading(_fx, _y, "Pen");
     var _pw3 = floor((_fw - 16) / 3);
@@ -268,6 +319,12 @@ function ws_sprites_draw(_x1, _y1, _x2, _y2)
                         var _keep = _s.name;
                         var _ns = struct_overlay(sprite_new(_keep), json_parse(spr_clip));
                         _ns.name = _keep;
+                        if (!spr_size_ok(_ns.w, _ns.h) || !is_array(_ns.px) || array_length(_ns.px) != _ns.w * _ns.h)
+                        {
+                            _ns.w = SPR_W;
+                            _ns.h = SPR_H;
+                            _ns.px = array_create(SPR_W * SPR_H, 0);
+                        }
                         proj.sprites[spr_sel] = _ns;
                         spr_dirty[spr_sel] = true;
                     }
@@ -286,10 +343,16 @@ function ws_sprites_draw(_x1, _y1, _x2, _y2)
     if (_y + 90 < _y2)
     {
         ui_heading(_fx, _y, "Actual size (on colour 0)");
-        ui_inset(_fx, _y + 18, _fx + _fw, min(_y2 - 14, _y + 18 + SPR_H * 3 + 16), 8);
-        ui_rrect(_fx + 6, _y + 24, _fx + _fw - 6, min(_y2 - 20, _y + 12 + SPR_H * 3 + 16), 6, pal_col(0), pal_col(0), 1);
-        draw_sprite_amiga(spr_sel, _fx + 14, _y + 28, 1, 1);
-        draw_sprite_amiga(spr_sel, _fx + 44, _y + 28, 2, 1);
-        if (_fw > 140) { draw_sprite_amiga(spr_sel, _fx + 92, _y + 28, 3, 1); }
+        // 1x, 2x and 3x, as many as fit across and down
+        var _box_b = min(_y2 - 14, _y + 18 + max(SPR_H, _s.h) * 3 + 16);
+        ui_inset(_fx, _y + 18, _fx + _fw, _box_b, 8);
+        ui_rrect(_fx + 6, _y + 24, _fx + _fw - 6, _box_b - 6, 6, pal_col(0), pal_col(0), 1);
+        var _ax = _fx + 14;
+        for (var sc = 1; sc <= 3; sc++)
+        {
+            if (_ax + _s.w * sc > _fx + _fw - 10 || _y + 28 + _s.h * sc > _box_b - 8) { break; }
+            draw_sprite_amiga(spr_sel, _ax, _y + 28, sc, 1);
+            _ax += _s.w * sc + 14;
+        }
     }
 }

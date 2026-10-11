@@ -104,8 +104,8 @@ first run.
 10. **Boot as A600**: Build and play - the loading bar shows, the game runs, joystick in port 2 moves the player, score/lives show, game over and fire to restart work.
 11. Change machine to **Amiga 1200** (top bar), build and play again - boots as A1200 (AGA); a 128-colour backdrop shows correctly.
 12. Load each example game and build it for both machines.
-13. **Lite build**: the top bar says LITE; Example games shows "Firefly Night (Pro)" and loading it says only 8 actors go on the disk; Learn ADAM > 5 shows the Pro message; the BOB toggle, Gradient tool and Pattern brushes show the Pro message.
-14. **Pro build**: the top bar says PRO; Firefly Night builds with its 12 BOBs and plays on the A600; Lesson 5 starts.
+13. **Lite build**: the top bar says LITE; Example games shows "Firefly Night (Pro)" and loading it says only 8 actors go on the disk; Learn ADAM > 5 shows the Pro message; the BOB toggle, Gradient tool, Pattern brushes and the sprite Size dropdowns show the Pro message.
+14. **Pro build**: the top bar says PRO; Firefly Night builds with its 12 BOBs and plays on the A600; Lesson 5 starts; a sprite set to 64 x 64 on the Sprites page plays as a big BOB.
 15. Quit and relaunch: the last session is restored, window size/place remembered.
 
 ## 7. Publish on itch.io

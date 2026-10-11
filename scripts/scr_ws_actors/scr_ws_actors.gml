@@ -41,6 +41,15 @@ function bobs_max(_m, _depth)
     return floor(_budget / (BOB_CYCLES_PER_PLANE * max(1, _depth)));
 }
 
+/// [width, height] actor _ac takes up on screen: its sprite's size when it is
+/// a BOB (ADAM Pro), otherwise a 16 x 24 hardware sprite
+function actor_dims(_ac)
+{
+    var _s = proj.sprites[clamp(_ac.sprite, 0, SPR_COUNT - 1)];
+    if (pro_on() && (_ac.bob || spr_is_big(_s))) { return [_s.w, _s.h]; }
+    return [SPR_W, SPR_H];
+}
+
 /// Blitter time of this project's BOBs, counted in 16 x 24 BOBs (a 32 x 32
 /// one counts as 2, a 64 x 64 one as about 6.7): each costs height x (width
 /// in words + 1) words x 6 cycles per plane
@@ -178,7 +187,9 @@ function ws_actors_draw(_x1, _y1, _x2, _y2)
             ui_rrect(_x1 + 10, _ry, _x1 + _lw - 10, _ry + _rowh - 6, 10, global.TH.btn_hot_top, global.TH.btn_hot_bot, 0.25 + _a * 0.75);
         }
         ui_rrect(_x1 + 16, _ry + 5, _x1 + 50, _ry + _rowh - 11, 6, pal_col(0), pal_col(0), 1);
-        draw_sprite_amiga_cols(_ac.sprite, _x1 + 25, _ry + 7, 1.5 * 16 / 24, actor_cols_from(_alloc, i), 1);
+        var _ts = proj.sprites[clamp(_ac.sprite, 0, SPR_COUNT - 1)];
+        var _tsc = min(1, SPR_H / max(_ts.w, _ts.h));
+        draw_sprite_amiga_cols(_ac.sprite, _x1 + 33 - _ts.w * _tsc / 2, _ry + 7 + (SPR_H - _ts.h * _tsc) / 2, _tsc, actor_cols_from(_alloc, i), 1);
         ui_text(_x1 + 60, _ry + 16, ui_text_fit(_ac.name, global.f_bold, _lw - 84), global.TH.text, fa_left, fa_middle, global.f_bold, 1);
         var _sub = _role_short[clamp(_ac.role, 0, 8)];
         if (i < array_length(_alloc.conflict))
@@ -223,7 +234,7 @@ function ws_actors_draw(_x1, _y1, _x2, _y2)
             undo_mark("actdup" + string(current_time));
             var _cp = struct_overlay(actor_new(""), json_parse(json_stringify(proj.actors[sel_actor])));
             _cp.name = _cp.name + " 2";
-            _cp.x = min(ACT_XMAX, _cp.x + 30);
+            _cp.x = min(BD_W - actor_dims(_cp)[0], _cp.x + 30);
             array_push(proj.actors, _cp);
             sel_actor = _na;
         }
@@ -280,7 +291,8 @@ function ws_actors_draw(_x1, _y1, _x2, _y2)
         {
             var _hx = _fx + proj.actors[h].x * _scale;
             var _hy = _fy + proj.actors[h].y * _scale;
-            if (point_in_rectangle(ui_mx, ui_my, _hx, _hy, _hx + SPR_W * _scale, _hy + SPR_H * _scale))
+            var _hd = actor_dims(proj.actors[h]);
+            if (point_in_rectangle(ui_mx, ui_my, _hx, _hy, _hx + _hd[0] * _scale, _hy + _hd[1] * _scale))
             {
                 _hover = h;
                 break;
@@ -300,8 +312,9 @@ function ws_actors_draw(_x1, _y1, _x2, _y2)
     if (act_drag && _na > 0)
     {
         var _ad = proj.actors[sel_actor];
-        _ad.x = clamp(round((ui_mx - act_drag_dx - _fx) / _scale), 0, ACT_XMAX);
-        _ad.y = clamp(round((ui_my - act_drag_dy - _fy) / _scale), 0, ACT_YMAX);
+        var _dd = actor_dims(_ad);
+        _ad.x = clamp(round((ui_mx - act_drag_dx - _fx) / _scale), 0, BD_W - _dd[0]);
+        _ad.y = clamp(round((ui_my - act_drag_dy - _fy) / _scale), 0, BD_H - _dd[1]);
         proj_dirty = true;
     }
     // draw back to front: lower channels are in front on the Amiga
@@ -321,16 +334,17 @@ function ws_actors_draw(_x1, _y1, _x2, _y2)
         var _ac3 = proj.actors[d2];
         var _ex = _fx + _ac3.x * _scale;
         var _ey = _fy + _ac3.y * _scale;
+        var _ed = actor_dims(_ac3);
         if (d2 == sel_actor)
         {
-            ui_rrect_line(_ex - 4, _ey - 4, _ex + SPR_W * _scale + 4, _ey + SPR_H * _scale + 4, 6, global.TH.accent, 1, 2);
+            ui_rrect_line(_ex - 4, _ey - 4, _ex + _ed[0] * _scale + 4, _ey + _ed[1] * _scale + 4, 6, global.TH.accent, 1, 2);
             ui_text(_ex, _ey - 8, _ac3.name, c_white, fa_left, fa_bottom, global.f_small, 1);
         }
         else
         {
             if (d2 == _hover)
             {
-                ui_rrect_line(_ex - 3, _ey - 3, _ex + SPR_W * _scale + 3, _ey + SPR_H * _scale + 3, 6, c_white, 0.7, 1);
+                ui_rrect_line(_ex - 3, _ey - 3, _ex + _ed[0] * _scale + 3, _ey + _ed[1] * _scale + 3, 6, c_white, 0.7, 1);
                 ui_help_title = _ac3.name;
                 ui_help_body = "Drag to move where this actor starts.";
             }
@@ -339,8 +353,9 @@ function ws_actors_draw(_x1, _y1, _x2, _y2)
     if (act_drag && _na > 0)
     {
         var _ag = proj.actors[sel_actor];
-        var _gx = _fx + (_ag.x + 8) * _scale;
-        var _gy = _fy + (_ag.y + 12) * _scale;
+        var _agd = actor_dims(_ag);
+        var _gx = _fx + (_ag.x + _agd[0] div 2) * _scale;
+        var _gy = _fy + (_ag.y + _agd[1] div 2) * _scale;
         ui_dotted_line(_fx, _gy, _fx + _fw, _gy, global.TH.warn, 0.7, 5);
         ui_dotted_line(_gx, _fy, _gx, _fy + _fh, global.TH.warn, 0.7, 5);
         var _txt = "X " + string(_ag.x) + "   Y " + string(_ag.y);
@@ -406,10 +421,11 @@ function ws_actors_draw(_x1, _y1, _x2, _y2)
         _y += 32;
     }
     _y += 6;
+    var _sd = actor_dims(_s);
     ui_heading(_fx2, _y, "Start X");
-    set_val(_s, "x", ui_stepper("act_x", _fx2, _y + 18, _half, _s.x, 0, ACT_XMAX, "Start X|Horizontal start position in pixels (0 = left edge, 304 = right edge). Hold Shift for steps of 10."), "actx");
+    set_val(_s, "x", ui_stepper("act_x", _fx2, _y + 18, _half, _s.x, 0, BD_W - _sd[0], "Start X|Horizontal start position in pixels (0 = left edge, " + string(BD_W - _sd[0]) + " = right edge). Hold Shift for steps of 10."), "actx");
     ui_heading(_fx2 + _half + 12, _y, "Start Y");
-    set_val(_s, "y", ui_stepper("act_y", _fx2 + _half + 12, _y + 18, _half, _s.y, 0, ACT_YMAX, "Start Y|Vertical start position (0 = top, 232 = bottom). Hold Shift for steps of 10."), "acty");
+    set_val(_s, "y", ui_stepper("act_y", _fx2 + _half + 12, _y + 18, _half, _s.y, 0, BD_H - _sd[1], "Start Y|Vertical start position (0 = top, " + string(BD_H - _sd[1]) + " = bottom). Hold Shift for steps of 10."), "acty");
     _y += 66;
 
     // levels
@@ -461,7 +477,11 @@ function ws_actors_draw(_x1, _y1, _x2, _y2)
     {
         ui_heading(_fx2, _y, "Amiga BOB");
         var _bmsg = "Drawn by the blitter in the nearest backdrop colours (shown on the stage).";
-        if (!_s.bob) { _bmsg = "All 8 hardware sprites are taken, so this actor is drawn as a BOB by the blitter, in the nearest backdrop colours."; }
+        if (!_s.bob)
+        {
+            if (spr_is_big(proj.sprites[clamp(_s.sprite, 0, SPR_COUNT - 1)])) { _bmsg = "Its sprite is bigger than a hardware sprite (16 x 24), so this actor is drawn as a BOB by the blitter, in the nearest backdrop colours."; }
+            else { _bmsg = "All 8 hardware sprites are taken, so this actor is drawn as a BOB by the blitter, in the nearest backdrop colours."; }
+        }
         draw_set_font(global.f_small);
         var _bh = max(48, ceil(ui_sh_ext(_bmsg, _fw2 - 20)) + 14);
         ui_rrect(_fx2, _y + 18, _fx2 + _fw2, _y + 18 + _bh, 8, global.TH.inset_top, global.TH.inset_bot, 0.8);
