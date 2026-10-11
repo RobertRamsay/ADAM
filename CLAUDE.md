@@ -100,7 +100,8 @@ the layout changed, examples regenerated if needed, and a short "how to verify" 
 ### Product: ADAM Lite (free) and ADAM Pro (paid)
 - **Lite** makes and shares a complete small game: backdrop, copper sky, sprites, actors, rules, levels, Sound page (synth + WAV import), Music page (loop library, step editor, .mod import/export), lessons, bootable ADF. Never cripple Lite; Pro adds power and polish.
 - **Pro** = the Phase 4 features below. Planned unlock: one build + licence key (itch.io keys), checked like the `ADAM_DEV_TOOLS` switch - not two separate builds. Optional "Made with ADAM" card in Lite games that Pro removes.
-- Gate a Pro feature in one place (a `pro_on()` check) so the UI shows it locked with a short "Pro" note rather than hiding it.
+- Gate a Pro feature in one place: `pro_on()` (or `pro_gate("Feature")` for a button) in `scr_licence`, so the UI shows it locked with a short "Pro" note rather than hiding it.
+- **The repo is public: never commit the real licence secret.** `scr_licence_secret` holds a placeholder; the real one is in `D:\POLYTRICITY\ADAM_private\` and goes in only for release builds (`tools\licence_secret.ps1 -Install` / `-Remove`, see docs/RELEASE.md). Test keys: `tools\make_licence_keys.ps1 -Dev`.
 
 ### Phase 3 — Should-fix features (Lite)
 - Sprite editor animated preview and PNG import; more genre examples.

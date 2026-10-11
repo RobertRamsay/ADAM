@@ -67,9 +67,26 @@ function draw_topbar(_gw)
     draw_set_alpha(1);
     var _logo_w = draw_logo(14, 13);
 
+    // edition chip: LITE or PRO - opens the ADAM Pro tab (licence key)
+    var _ex = 14 + _logo_w + 10;
+    var _ew = 54;
+    var _elab = "LITE";
+    var _est = BTN_GHOST;
+    var _ehelp = "ADAM Lite|This is the free edition. Click to enter an ADAM Pro licence key.";
+    if (pro_on())
+    {
+        _elab = "PRO";
+        _est = BTN_ON;
+        _ehelp = "ADAM Pro|Pro features are unlocked. Click to see your licence key.";
+    }
+    if (ui_button("top_edition", _ex, 14, _ew, 32, _elab, _ehelp, _est))
+    {
+        about_open_pro();
+    }
+
     // machine badge
     var _m = machine_cur();
-    var _mx = 14 + _logo_w + 12;
+    var _mx = _ex + _ew + 8;
     var _mw = 150;
     var _mst = BTN_NORMAL;
     if (_m.aga) { _mst = BTN_ON; }

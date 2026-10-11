@@ -357,6 +357,12 @@ function ui_textfield(_id, _x, _y, _w, _h, _value, _maxlen, _help)
     }
     if (ui_focus == _id)
     {
+        // Ctrl+V pastes (one line - a licence key copied from a web page, say)
+        if (keyboard_check(vk_control) && keyboard_check_pressed(ord("V")) && clipboard_has_text())
+        {
+            var _clip = string_replace_all(string_replace_all(clipboard_get_text(), "\r", ""), "\n", " ");
+            keyboard_string = string_replace_all(keyboard_string, chr(22), "") + string_trim(_clip);
+        }
         if (string_length(keyboard_string) > _maxlen)
         {
             keyboard_string = string_copy(keyboard_string, 1, _maxlen);

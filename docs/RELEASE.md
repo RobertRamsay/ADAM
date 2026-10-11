@@ -29,6 +29,27 @@ point ADAM at their own FS-UAE. Do **not** commit this to `main` - day-to-day
 development runs with it `true`. Keep it on the release branch or revert it
 after the build.
 
+## 2b. Put the real ADAM Pro licence secret in (release build only)
+
+The repo is public, so `scripts/scr_licence_secret` only holds a placeholder;
+a public build with the placeholder refuses every key. The real secret lives
+outside the repo in `D:\POLYTRICITY\ADAM_private\scr_licence_secret.gml`
+(made once with `tools\licence_secret.ps1 -New` - **back it up**: keys already
+sold are signed with it).
+
+    powershell -File tools\licence_secret.ps1 -Install
+
+Also check `#macro ADAM_PRO_OVERRIDE -1` in `scripts/scr_licence/scr_licence.gml`.
+After the build (step 4) run `tools\licence_secret.ps1 -Remove`. A local git
+hook refuses any commit while the real secret is in the project.
+
+Licence keys for itch.io ("External keys", one per buyer):
+
+    powershell -File tools\make_licence_keys.ps1 -Count 100 -Out D:\POLYTRICITY\ADAM_private\keys.txt
+
+Keep `keys.txt` private too. `-Dev` makes test keys from the placeholder - they
+only work in dev builds.
+
 ## 3. Check
 
     powershell -File tools\release_check.ps1
@@ -110,3 +131,4 @@ and font8x8 (public domain).
 
 - Tag the commit: `git tag v1.0.0` and push the tag.
 - Set `ADAM_DEV_TOOLS` back to `true` on the development branch.
+- `powershell -File tools\licence_secret.ps1 -Remove` if you have not already.
