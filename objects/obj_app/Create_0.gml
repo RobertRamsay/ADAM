@@ -306,5 +306,8 @@ if (ADAM_DEV_TOOLS) { mod_selftest(); }
 // lessons: every step check() runs once on a new project and each example (IDE Output window)
 if (ADAM_DEV_TOOLS) { lessons_selftest(); }
 
+// dev: -adam_build in.adam out.adf builds a disk without the UI, then quits
+if (ADAM_DEV_TOOLS) { dev_cli_build(); }
+
 // pick the Amiga before anything else (the Home tutorial follows it)
 machine_pick_open(true);

@@ -603,6 +603,43 @@ function build_adf(_path)
     return true;
 }
 
+/// Dev tool (ADAM_DEV_TOOLS): build a disk without the UI, then quit.
+///     Runner.exe -game data.win -adam_build in.adam out.adf
+/// The session's own project is put back before quitting, so the autosave
+/// and settings are unchanged. The result goes to the debug output and out.adf.log.
+function dev_cli_build()
+{
+    var _n = parameter_count();
+    for (var i = 0; i < _n - 2; i++)
+    {
+        if (parameter_string(i) != "-adam_build") { continue; }
+        var _in = parameter_string(i + 1);
+        var _out = parameter_string(i + 2);
+        var _keep = proj;
+        var _ok = false;
+        try
+        {
+            proj = project_from_loaded(json_parse(file_read_text(_in)));
+            _ok = build_adf(_out);
+        }
+        catch (_e)
+        {
+            build_msg = "could not read " + _in;
+        }
+        var _log = "ADAM cli build: " + string(_ok) + " - " + build_msg + "\n";
+        for (var w = 0; w < array_length(build_warnings); w++)
+        {
+            _log += "warning: " + build_warnings[w] + "\n";
+        }
+        show_debug_message(_log);
+        file_write_text(_out + ".log", _log);
+        proj = _keep;
+        game_end();
+        return true;
+    }
+    return false;
+}
+
 // ---------------------------------------------------------------------------
 // FS-UAE.  Order of preference:
 //   1. the fs-uae.exe the user chose with Find (always allowed)
