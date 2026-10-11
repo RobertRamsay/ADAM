@@ -6,7 +6,7 @@
 /// Every Pro feature asks pro_on() (or pro_gate() for a button press).
 
 #macro ADAM_PRO 0               // 0 = build ADAM Lite, 1 = build ADAM Pro
-#macro ADAM_PRO_URL ""          // the ADAM Pro page on itch.io ("" hides the 'Get ADAM Pro' button)
+#macro ADAM_PRO_URL "https://polytricity.itch.io/adam-amiga-developmental-machine"          // the ADAM Pro page on itch.io ("" hides the 'Get ADAM Pro' button)
 
 /// True when Pro features may be used
 function pro_on()
