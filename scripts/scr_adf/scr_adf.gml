@@ -936,6 +936,7 @@ function dev_shots_end()
 // into Applications. Windows-only calls must stay behind os_type checks.
 // ---------------------------------------------------------------------------
 #macro ADAM_DEV_TOOLS true
+#macro FSUAE_HOME_URL "https://fs-uae.net"
 #macro FSUAE_ZIP_URL "https://github.com/FrodeSolheim/fs-uae/releases/download/v3.1.66/FS-UAE_3.1.66_Windows_x86-64.zip"
 // Intel build: runs on every Mac (through Rosetta on Apple silicon)
 #macro FSUAE_DMG_URL "https://github.com/FrodeSolheim/fs-uae/releases/download/v3.1.66/FS-UAE_3.1.66_macOS_x86-64.dmg"
@@ -1109,12 +1110,10 @@ function launch_fsuae(_adf)
             fsuae_download(_adf);
             return false;
         }
-        if (os_type == os_macosx)
-        {
-            toast("Install FS-UAE in Applications, or Find it on the Build page", 1);
-            return false;
-        }
-        toast("Find fs-uae.exe on the Build page first", 1);
+        // no emulator yet: show the Build page, where Get FS-UAE and Find are
+        ws_set(WS_BUILD);
+        build_log_add("FS-UAE was not found. It is the free Amiga emulator that plays your games: click Get FS-UAE (fs-uae.net), install it, then press Build & play again. If it is installed somewhere unusual, click Find.", 1);
+        toast("FS-UAE not found - click Get FS-UAE", 1);
         return false;
     }
     if (os_type == os_macosx)
