@@ -107,9 +107,10 @@ the layout changed, examples regenerated if needed, and a short "how to verify" 
 - Sprite editor animated preview and PNG import; more genre examples.
 
 ### Phase 4 — ADAM Pro
-- **Graphics:** dither gradients and drawing with dither patterns; BOBs (blitter objects) beyond the 8 hardware sprites; scrolling playfields (horizontal / vertical) with a tile level editor; parallax / dual playfield; colour cycling, raster bars and per-level copper effects (build on `copper_blend_lines`); IFF/ILBM import and export (Deluxe Paint / PPaint); attached sprites (15 colours), more animation frames, flipping.
+- **Graphics:** dither gradients and drawing with dither patterns (done: Gradient tool and Pattern brushes, Bayer 8 x 8); BOBs (blitter objects) beyond the 8 hardware sprites (done, with the Firefly Night example and Lesson 5); scrolling playfields (horizontal / vertical) with a tile level editor; parallax / dual playfield; colour cycling, raster bars and per-level copper effects (build on `copper_blend_lines`); IFF/ILBM import and export (Deluxe Paint / PPaint); attached sprites (15 colours), more animation frames, flipping.
 - **Gameplay:** bullets / "fire shoots" for player and enemies; variables and counters in rules; rooms / multiple screens per level; two players; pause and second fire button / CD32 pad; high-score table saved to disk.
 - **Sound and music:** instrument editor (synth envelopes, sample loop points); tracker effects in the step editor (slides, vibrato, arpeggio, volume); sample compression for more sound per disk.
 - **Output:** play-in-browser export for itch.io (web Amiga emulator); hard-drive install (WHDLoad slave) and CD32 image; custom boot / loading screens and an intro maker; proper DOS disk so the ADF shows a named disk with an icon on Workbench.
 - **Workflow:** genre templates and asset packs; play the game inside the editor without FS-UAE; 68000 source export for learning.
+- Each Pro feature ships with a Pro example game and a Pro lesson (`pro : true` in `global.EXAMPLES` / `les_defs`; Lite shows them with a Pro label).
 - Suggested order: `pro_on()` (done), BOBs (done, 16 x 24; bigger sizes in steps of 16 up to 64 x 64 next), then scrolling (most other Pro features build on them), then the rest.

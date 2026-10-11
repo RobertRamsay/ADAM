@@ -54,12 +54,13 @@ Project data (`proj`) is plain JSON-able structs/arrays; `.adam` files are `json
 (`vasm -pic`). ADAM never generates code: it appends a **data block** right
 after `engine.bin`; `boot.s` (bootblock) AllocMem's chip RAM, reads engine+data
 with trackdisk (showing a copper loading bar) and jumps in. Registers held:
-`a4` = data block, `a5` = V+128 (variables; per-actor tables must stay within
-the signed 8-bit displacement), `a6` = $dff000.
+`a4` = data block, `a5` = V+128 (variables; per-actor state is a 32-byte record per actor,
+`v_xx(a5,Dn)` with Dn = actor << ACTV_SHIFT, up to MAX_ACT = 32 actors), `a6` = $dff000.
 
 **Data block header** (offsets from data start; longs are offsets from data start, 0 = absent):
-`0 'ADAM' | 4 version | 6 flags (bit0 AGA) | 8 depth | 10 nact | 12 nrule | 14 lives | 16 show score | 18 show lives | 20 hud row | 22 hud colour | 24 msg colour | 26 player actor (-1) | 28 game block | 32 palette | 36 planes (original) | 40 actors | 44 rules | 48 sfx table | 52 game-over text | 56 win text | 60 sprite pair colours | 64 display planes | 68 copper sky (256 x $0RGB) | 72 painted ground (320 words) | 76 work planes (backdrop + hills) | 80 music table` — header is 84 bytes, version 2. Music table (`M_*`, see docs/MUSIC_CONTRACT.md): nsongs word, 10 level-song bytes ($FF none), then { offset, length } of each ProTracker MOD.
+`0 'ADAM' | 4 version | 6 flags (bit0 AGA) | 8 depth | 10 nact | 12 nrule | 14 lives | 16 show score | 18 show lives | 20 hud row | 22 hud colour | 24 msg colour | 26 player actor (-1) | 28 game block | 32 palette | 36 planes (original) | 40 actors | 44 rules | 48 sfx table | 52 game-over text | 56 win text | 60 sprite pair colours | 64 display planes | 68 copper sky (256 x $0RGB; AGA: + 256 words of low nibbles, written with LOCT) | 72 painted ground (320 words) | 76 work planes (backdrop + hills) | 80 music table | 84 second display (BOBs) | 88 BOB background` — header is 92 bytes, version 3. Music table (`M_*`, see docs/MUSIC_CONTRACT.md): nsongs word, 10 level-song bytes ($FF none), then { offset, length } of each ProTracker MOD.
 
+- BOBs (ADAM Pro): actors with `A_BOB` set are drawn by the blitter into a double-buffered display (`bob_draw` / `bob_flip`), wiped from the background buffer each frame; their images are 16 x 24, a mask then depth planes, in the nearest backdrop colours. Lite puts 8 actors on the disk, Pro up to 32 (actors after the 8th sprite become BOBs).
 - Actor record = 48 bytes (`A_*` equates), rule record = 16 bytes (`R_*`), sfx entry = 8 bytes (offset, length in words, Paula period), game block = `G_*` (levels, terrain colours, goal, title text, 320 heights per level).
 - **Any layout change must be made in three places: `engine.s`, `scr_adf.gml`, `tools/reference/adf_reference.py`.**
 - Roles: 0 player, 1 bouncer, 2 patrol L-R, 3 patrol U-D, 4 chaser, 5 still, 6 platform player, 7 hopper, 8 faller.
@@ -97,5 +98,19 @@ the layout changed, examples regenerated if needed, and a short "how to verify" 
 - **Track B (editor):** Music page — 4 lanes (Paula channels) x bars timeline; left loop library (Drums / Bass / Chords / Lead / FX) with preview; drag or paint 1-bar loops onto lanes; double-click opens a 16-step grid / piano roll; instruments from built-in chip synth presets (rendered like the Sound page) and the user's WAV samples; BPM, swing, loop point; whole-song preview by mixing in GML.
 - **Track C (export/import):** write the arrangement as a standard 4-channel ProTracker MOD (so the engine plays it with ptplayer); import `.mod` files made in ProTracker / OpenMPT.
 
-### Phase 3 — Should-fix features
-- BOBs (blitter objects) for more than 8 moving things; bullets / "fire shoots"; second fire button and pause; sprite editor animated preview and PNG import; proper DOS disk so the ADF shows a named disk on Workbench; more genre examples once bullets/BOBs exist.
+### Product: ADAM Lite (free) and ADAM Pro (paid)
+- **Lite** makes and shares a complete small game: backdrop, copper sky, sprites, actors, rules, levels, Sound page (synth + WAV import), Music page (loop library, step editor, .mod import/export), lessons, bootable ADF. Never cripple Lite; Pro adds power and polish.
+- **Pro** = the Phase 4 features below. Two builds from one project: `#macro ADAM_PRO` in `scr_licence` (0 = Lite, 1 = Pro); Bob builds `_LITE` and `_PRO` zips himself (docs/RELEASE.md). No licence keys. Optional "Made with ADAM" card in Lite games that Pro removes.
+- Gate a Pro feature in one place: `pro_on()` (or `pro_gate("Feature")` for a button) in `scr_licence`, so the UI shows it locked with a short "Pro" note rather than hiding it.
+
+### Phase 3 — Should-fix features (Lite)
+- Sprite editor animated preview and PNG import; more genre examples.
+
+### Phase 4 — ADAM Pro
+- **Graphics:** dither gradients and drawing with dither patterns (done: Gradient tool and Pattern brushes, Bayer 8 x 8); BOBs (blitter objects) beyond the 8 hardware sprites (done, with the Firefly Night example and Lesson 5); scrolling playfields (horizontal / vertical) with a tile level editor; parallax / dual playfield; colour cycling, raster bars and per-level copper effects (build on `copper_blend_lines`); IFF/ILBM import and export (Deluxe Paint / PPaint); attached sprites (15 colours), more animation frames, flipping.
+- **Gameplay:** bullets / "fire shoots" for player and enemies; variables and counters in rules; rooms / multiple screens per level; two players; pause and second fire button / CD32 pad; high-score table saved to disk.
+- **Sound and music:** instrument editor (synth envelopes, sample loop points); tracker effects in the step editor (slides, vibrato, arpeggio, volume); sample compression for more sound per disk.
+- **Output:** play-in-browser export for itch.io (web Amiga emulator); hard-drive install (WHDLoad slave) and CD32 image; custom boot / loading screens and an intro maker; proper DOS disk so the ADF shows a named disk with an icon on Workbench.
+- **Workflow:** genre templates and asset packs; play the game inside the editor without FS-UAE; 68000 source export for learning.
+- Each Pro feature ships with a Pro example game and a Pro lesson (`pro : true` in `global.EXAMPLES` / `les_defs`; Lite shows them with a Pro label).
+- Suggested order: `pro_on()` (done), BOBs (done, 16 x 24; bigger sizes in steps of 16 up to 64 x 64 next), then scrolling (most other Pro features build on them), then the rest.

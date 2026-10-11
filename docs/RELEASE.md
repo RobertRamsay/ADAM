@@ -83,7 +83,7 @@ GameMaker copies every Included File next to `ADAM.exe`. The zip must contain:
 | `fonts/OFL.txt`, `fonts/Poppins-OFL.txt` | **required** by the SIL OFL: the copyright notice and licence must travel with the fonts |
 | `engine/engine.bin`, `engine/boot.bin` | the Amiga engine and bootblock |
 | `engine/engine.s`, `engine/boot.s`, `engine/font.inc` | engine source (included today; drop them from Included Files if they should not ship) |
-| `examples/*.adam` | the four example games |
+| `examples/*.adam` | the example games (four Lite, plus Firefly Night for Pro - both builds ship all five) |
 
 Nothing from `tools/`, no FS-UAE, no Kickstart ROMs, no `.patch` files.
 
@@ -104,7 +104,9 @@ first run.
 10. **Boot as A600**: Build and play - the loading bar shows, the game runs, joystick in port 2 moves the player, score/lives show, game over and fire to restart work.
 11. Change machine to **Amiga 1200** (top bar), build and play again - boots as A1200 (AGA); a 128-colour backdrop shows correctly.
 12. Load each example game and build it for both machines.
-13. Quit and relaunch: the last session is restored, window size/place remembered.
+13. **Lite build**: the top bar says LITE; Example games shows "Firefly Night (Pro)" and loading it says only 8 actors go on the disk; Learn ADAM > 5 shows the Pro message; the BOB toggle, Gradient tool and Pattern brushes show the Pro message.
+14. **Pro build**: the top bar says PRO; Firefly Night builds with its 12 BOBs and plays on the A600; Lesson 5 starts.
+15. Quit and relaunch: the last session is restored, window size/place remembered.
 
 ## 7. Publish on itch.io
 
