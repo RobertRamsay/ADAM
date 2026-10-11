@@ -350,7 +350,8 @@ init_display:
             beq.s   .ocs
             or.w    #$0001,d1               ; ECSENA for BPLCON3 on AGA
             move.w  d1,$100(a6)
-            move.w  #$0000,$1fc(a6)         ; FMODE   - OCS compatible fetch
+            move.w  #$0003,$1fc(a6)         ; FMODE   - 64-bit bitplane fetch, sprites stay 16 wide
+            move.w  #$00b8,$94(a6)          ; DDFSTOP - 5 fetches of 64 pixels
             move.w  #$0c00,$106(a6)         ; BPLCON3
             move.w  #$00ff,$10c(a6)         ; BPLCON4 - sprite colours 240-255
             bra.s   .cop
