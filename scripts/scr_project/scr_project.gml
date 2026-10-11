@@ -553,6 +553,13 @@ function project_pack_selftest()
         {
             if (!array_equals(_p.sprites[k].px, _q.sprites[k].px)) { _ok = false; show_debug_message("ADAM pack self-test: sprite " + string(k) + " differs"); }
         }
+        // a big (ADAM Pro) sprite keeps its size and pixels through save and load
+        var _bs = _p.sprites[SPR_COUNT - 1];
+        spr_resize(_bs, 48, 32);
+        for (var bq = 0; bq < 48 * 32; bq++) { _bs.px[bq] = (bq * 7) mod 4; }
+        var _bq = project_from_loaded(json_parse(project_to_json(_p)));
+        var _bb = _bq.sprites[SPR_COUNT - 1];
+        if (_bb.w != 48 || _bb.h != 32 || !array_equals(_bs.px, _bb.px)) { _ok = false; show_debug_message("ADAM pack self-test: 48 x 32 sprite differs after save and load"); }
         if (array_length(_p.levels) != array_length(_q.levels)) { _ok = false; show_debug_message("ADAM pack self-test: level count differs"); }
         else
         {
