@@ -420,8 +420,8 @@ def dodge_ball():
     actors=[actor("Player",0,0,3,150,180,4,8,True),actor("Red 1",1,1,2,30,30,5,8),actor("Red 2",1,1,2,270,40,5,8,left=True),
             actor("Yellow 1",2,1,1,60,200,6,8,up=True),actor("Yellow 2",2,1,1,240,190,6,8,left=True,up=True),actor("Bonus",3,5,1,160,100,7,10)]
     rules=[]
-    for b in (1,2,3,4):
-        rules+=[R(b=b,act=1),R(b=b,act=4,target=0),R(b=b,act=2,value=2),R(b=b,act=3)]
+    for b in (1,2,3,4):                                                      # a hit: a life, back home, and a moment's safety
+        rules+=[R(b=b,act=1),R(b=b,act=4,target=0),R(b=b,act=2,value=2),R(b=b,act=3),R(b=b,act=16,target=0)]
     rules+=[R(b=5,act=0,value=50),R(b=5,act=5,target=5),R(b=5,act=2,value=5),
             R(when=2,n=1,act=0,value=1),R(when=2,n=8,act=11,target=1),R(when=2,n=12,act=11,target=3),
             R(when=2,n=16,act=11,target=2),R(when=3,n=300,act=10),R(when=4,act=9),R(when=5,act=2,value=5),
