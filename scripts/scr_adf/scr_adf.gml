@@ -1190,6 +1190,15 @@ function launch_fsuae_now(_adf)
     {
         _args += " --kickstart_file=\"" + _kick + "\"";
     }
+    if (_exe == fsuae_bundled_exe())
+    {
+        // the FS-UAE that comes with ADAM keeps its log and settings in ADAM's own
+        // folder, not Documents\FS-UAE: anti-virus "protected folders" (AVG, Windows
+        // Controlled folder access) block a program they have not seen writing there
+        var _base = game_save_id + "fs-uae-data";
+        if (!directory_exists(_base)) { directory_create(_base); }
+        _args += " --base_dir=\"" + _base + "\"";
+    }
     execute_shell_simple(_exe, _args, "open", 5, filename_dir(_exe));
 }
 
