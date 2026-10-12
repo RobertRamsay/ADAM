@@ -171,7 +171,8 @@ function draw_topbar(_gw)
     var _learn = ui_menu_button("top_learn", _rx, 14, _tutw, 32, _tutlab, learn_menu_names(), "Learn ADAM|This page's tutorial (also F1), the guided tour of every page, and lessons that each make a whole game step by step: Basics, Beginner, Intermediate and Experienced, then BOBs for ADAM Pro.", BTN_ACCENT);
     if (_learn == 0) { tut_start(ws); }
     if (_learn == 1) { tut_start(-1); }
-    if (_learn >= 2) { lesson_start(_learn - 2); }
+    if (_learn >= 2 && _learn < 2 + array_length(les_defs)) { lesson_start(_learn - 2); }
+    if (_learn == 2 + array_length(les_defs)) { whatsnew_open(true); }
     if (_helpw > 0)
     {
         _rx -= _helpw + 6;
@@ -221,6 +222,7 @@ function shortcuts_step()
     if (machine_pick_active) { return; }
     if (about_active) { return; }
     if (confirm_active) { return; }
+    if (whatsnew_active) { return; }
     var _ctrl = keyboard_check(vk_control);
     if (_ctrl && keyboard_check_pressed(ord("Z"))) { undo_do(); }
     if (_ctrl && keyboard_check_pressed(ord("Y"))) { redo_do(); }

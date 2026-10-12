@@ -115,6 +115,7 @@ function machine_pick_choose(_i)
             settings_save();
             tut_offer(-1);
         }
+        whatsnew_after_launch(settings_first_run);
     }
     else
     {

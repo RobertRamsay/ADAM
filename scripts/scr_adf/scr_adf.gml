@@ -932,15 +932,18 @@ function dev_shots_end()
 // (Samuel Venable, MIT - extensions/libxprocess, Mac target only), the same
 // way as on Windows: close any old copy (killall), then "open -n -a FS-UAE.app
 // --args ..." with the same settings. execute_shell_simple is a Windows DLL,
-// so Windows-only calls must stay behind os_type checks. The "test copy" on a
-// Mac is the official FS-UAE disk image (.dmg), opened in Finder for the user
-// to drag into Applications.
+// so Windows-only calls must stay behind os_type checks.
+// ADAM's own FS-UAE on a Mac is not inside ADAM.app (notarising would mean
+// re-signing it): on first use ADAM downloads the official FS-UAE release for
+// this Mac's chip (Apple silicon or Intel, signed by its author) into the save
+// folder and unpacks it with tar. In release builds too.
 // ---------------------------------------------------------------------------
 #macro ADAM_DEV_TOOLS true
 #macro FSUAE_HOME_URL "https://fs-uae.net"
+#macro FSUAE_BUNDLED_VERSION "FS-UAE 3.2.35"   // the copy tools/release_build.ps1 puts next to ADAM.exe, and the one a Mac downloads
 #macro FSUAE_ZIP_URL "https://github.com/FrodeSolheim/fs-uae/releases/download/v3.1.66/FS-UAE_3.1.66_Windows_x86-64.zip"
-// Intel build: runs on every Mac (through Rosetta on Apple silicon)
-#macro FSUAE_DMG_URL "https://github.com/FrodeSolheim/fs-uae/releases/download/v3.1.66/FS-UAE_3.1.66_macOS_x86-64.dmg"
+// + "ARM64" or "x86-64" + ".tar.xz"
+#macro FSUAE_MAC_URL "https://github.com/FrodeSolheim/fs-uae/releases/download/v3.2.35/FS-UAE_3.2.35_macOS_"
 
 function fsuae_test_dir()
 {
@@ -993,10 +996,58 @@ function fsuae_find_installed()
     return "";
 }
 
-/// The fs-uae.exe (FS-UAE.app on a Mac) ADAM will run, or "" when there is none
+/// Where a Mac keeps ADAM's own FS-UAE (downloaded on first use)
+function fsuae_mac_dir()
+{
+    return game_save_id + "fs-uae-mac/";
+}
+
+/// Runs a shell command on a Mac and waits for it
+function fsuae_mac_run(_cmd)
+{
+    var _pid = ProcessExecute(_cmd);
+    FreeExecutedProcessStandardInput(_pid);
+    FreeExecutedProcessStandardOutput(_pid);
+}
+
+/// "ARM64" on Apple silicon (also when ADAM itself runs through Rosetta), else "x86-64"
+function fsuae_mac_arch()
+{
+    var _pid = ProcessExecute("/usr/sbin/sysctl -n hw.optional.arm64");
+    var _out = string_trim(ExecutedProcessReadFromStandardOutput(_pid));
+    FreeExecutedProcessStandardInput(_pid);
+    FreeExecutedProcessStandardOutput(_pid);
+    if (_out == "1") { return "ARM64"; }
+    return "x86-64";
+}
+
+/// The FS-UAE that comes with ADAM, or "": on Windows release builds an FS-UAE
+/// folder next to ADAM.exe (added by tools/release_build.ps1); on a Mac the
+/// FS-UAE.app ADAM downloaded into its save folder (fsuae_download)
+function fsuae_bundled_exe()
+{
+    if (os_type == os_macosx)
+    {
+        var _arches = ["ARM64", "x86-64"];
+        for (var a = 0; a < array_length(_arches); a++)
+        {
+            var _app = fsuae_mac_dir() + "FS-UAE/macOS/" + _arches[a] + "/FS-UAE.app";
+            if (directory_exists(_app)) { return _app; }
+        }
+        return "";
+    }
+    if (os_type != os_windows) { return ""; }
+    var _p = program_directory + "FS-UAE/Windows/x86-64/fs-uae.exe";
+    if (file_exists(_p)) { return _p; }
+    return "";
+}
+
+/// The fs-uae.exe (FS-UAE.app on a Mac) ADAM will run, or "" when there is none:
+/// one you picked with Find, else the one that comes with ADAM, else an installed one
 function fsuae_exe()
 {
     if (fsuae_path_ok(fsuae_path)) { return fsuae_path; }
+    if (fsuae_bundled_exe() != "") { return fsuae_bundled_exe(); }
     if (ADAM_DEV_TOOLS && file_exists(fsuae_test_exe())) { return fsuae_test_exe(); }
     return fsuae_find_installed();
 }
@@ -1005,31 +1056,36 @@ function fsuae_exe()
 function fsuae_source_label()
 {
     if (fsuae_path_ok(fsuae_path)) { return fsuae_path; }
+    if (fsuae_bundled_exe() != "") { return "The FS-UAE that comes with ADAM (" + FSUAE_BUNDLED_VERSION + ")"; }
     if (ADAM_DEV_TOOLS && file_exists(fsuae_test_exe())) { return "ADAM's test copy (FS-UAE 3.1.66)"; }
     var _inst = fsuae_find_installed();
     if (_inst != "") { return _inst + "  (found)"; }
     return "";
 }
 
-/// Downloads the official FS-UAE Windows release for testing.
+/// Mac: downloads the official FS-UAE release for this Mac's chip (any build).
+/// Windows: the developer test copy (ADAM_DEV_TOOLS only).
 /// _then_run = an ADF to boot when it is ready, or "".
 function fsuae_download(_then_run)
 {
-    if (!ADAM_DEV_TOOLS) { return; }
     if (fsuae_dl_id >= 0) { return; }
     if (os_type == os_macosx)
     {
-        // a .dmg cannot be unpacked from GML: fetch it, then Finder opens it (see fsuae_download_async)
-        fsuae_dl_zip = game_save_id + "FS-UAE_3.1.66_macOS.dmg";
+        // unpacked with tar when it arrives (fsuae_download_async)
+        var _arch = fsuae_mac_arch();
+        fsuae_dl_zip = game_save_id + "fs-uae-mac.tar.xz";
         if (file_exists(fsuae_dl_zip)) { file_delete(fsuae_dl_zip); }
         fsuae_dl_got = 0;
         fsuae_dl_total = 0;
-        fsuae_dl_then_run = "";
-        fsuae_dl_id = http_get_file(FSUAE_DMG_URL, fsuae_dl_zip);
-        build_log_add("Downloading FS-UAE 3.1.66 for macOS (about 7 MB)...", 0);
-        toast("Downloading FS-UAE for testing...", 0);
+        fsuae_dl_then_run = _then_run;
+        fsuae_dl_id = http_get_file(FSUAE_MAC_URL + _arch + ".tar.xz", fsuae_dl_zip);
+        var _chip = "Apple silicon";
+        if (_arch != "ARM64") { _chip = "Intel"; }
+        build_log_add("Downloading " + FSUAE_BUNDLED_VERSION + " for " + _chip + " Macs (about 6 MB) - the free Amiga emulator that plays your games...", 0);
+        toast("Downloading FS-UAE...", 0);
         return;
     }
+    if (!ADAM_DEV_TOOLS) { return; }
     if (os_type != os_windows)
     {
         toast("The FS-UAE test copy is for Windows and macOS - use Find on other systems", 1);
@@ -1063,14 +1119,23 @@ function fsuae_download_async()
     {
         if (_status == 0 && async_load[? "http_status"] == 200 && file_exists(fsuae_dl_zip))
         {
-            url_open(fsuae_file_url(fsuae_dl_zip));
-            build_log_add("FS-UAE disk image opened in Finder: drag FS-UAE into Applications, then press Build and play", 0);
-            build_log_add("(If nothing opened, double-click " + fsuae_dl_zip + ")", 0);
-            toast("Drag FS-UAE into Applications", 0);
+            var _dir = fsuae_mac_dir();
+            if (!directory_exists(_dir)) { directory_create(_dir); }
+            fsuae_mac_run("/usr/bin/tar -xJf \"" + fsuae_dl_zip + "\" -C \"" + _dir + "\"");
+            // a download ADAM makes is not quarantined, but clear the flag in case
+            fsuae_mac_run("/usr/bin/xattr -dr com.apple.quarantine \"" + _dir + "\"");
+            file_delete(fsuae_dl_zip);
+            _ok = (fsuae_bundled_exe() != "");
+        }
+        if (_ok)
+        {
+            build_log_add(FSUAE_BUNDLED_VERSION + " is ready (free software, GPL - from github.com/FrodeSolheim/fs-uae)", 0);
+            toast("FS-UAE is ready", 0);
+            if (fsuae_dl_then_run != "") { launch_fsuae(fsuae_dl_then_run); }
         }
         else
         {
-            build_log_add("Could not download FS-UAE - check the internet connection, or get it from fs-uae.net", 2);
+            build_log_add("Could not download FS-UAE - check the internet connection and press Build & play again, or get it from fs-uae.net", 2);
             toast("FS-UAE download failed", 2);
         }
         fsuae_dl_then_run = "";
@@ -1106,8 +1171,10 @@ function launch_fsuae(_adf)
     }
     if (fsuae_exe() == "")
     {
-        if (ADAM_DEV_TOOLS)
+        // a Mac fetches ADAM's own FS-UAE, then boots the disk (developer builds on Windows too)
+        if (ADAM_DEV_TOOLS || os_type == os_macosx)
         {
+            ws_set(WS_BUILD);
             fsuae_download(_adf);
             return false;
         }
@@ -1205,6 +1272,16 @@ function fsuae_args(_adf)
     if (_kick != "" && file_exists(_kick))
     {
         _args += " --kickstart_file=\"" + _kick + "\"";
+    }
+    var _own = fsuae_bundled_exe();
+    if (_own != "" && fsuae_exe() == _own)
+    {
+        // the FS-UAE that comes with ADAM keeps its log and settings in ADAM's own
+        // folder, not Documents/FS-UAE: anti-virus "protected folders" (AVG, Windows
+        // Controlled folder access) block a program they have not seen writing there
+        var _base = game_save_id + "fs-uae-data";
+        if (!directory_exists(_base)) { directory_create(_base); }
+        _args += " --base_dir=\"" + _base + "\"";
     }
     return _args;
 }

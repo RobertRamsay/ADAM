@@ -264,7 +264,7 @@ function tut_offer(_tab)
 /// usable; only clicks on the card itself are taken (see ui_frame_begin).
 function tut_offer_draw(_gw, _gh)
 {
-    if (!tut_offer_on || tut_active || les_active || machine_pick_active || about_active)
+    if (!tut_offer_on || tut_active || les_active || machine_pick_active || about_active || whatsnew_active)
     {
         tut_offer_rect = [0, 0, 0, 0];
         return;

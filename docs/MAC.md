@@ -14,6 +14,14 @@ features reach the Mac with one merge.
   (`killall fs-uae`), then `open -n -a FS-UAE.app --args ...` boots the disk
   with the same settings. A bare `fs-uae` binary picked with Find is run
   directly.
+- ADAM's own FS-UAE: with no FS-UAE picked with Find, the first **Build & play**
+  (or **Get FS-UAE** on the Build page) downloads the official FS-UAE 3.2.35
+  release for this Mac's chip (`sysctl hw.optional.arm64`: Apple silicon or
+  Intel, about 6 MB, signed by its author) into the save folder
+  (`fs-uae-mac/`), unpacks it with `tar` and boots the disk. It is not put
+  inside ADAM.app, so nothing needs re-signing for notarisation. It keeps its
+  log and settings in the save folder (`--base_dir`), not Documents.
+  Order: Find, then ADAM's own, then /Applications/FS-UAE.app.
 - Space fires as well as right Ctrl (`--keyboard_key_space=action_joy_1_fire_button`),
   because many Mac keyboards have no right Ctrl.
 - `execute_shell_simple_ext.dll` is copied to Windows only; its GML wrapper
@@ -36,7 +44,10 @@ features reach the Mac with one merge.
 
 ## Test checklist
 
-1. FS-UAE 3.1.66 (fs-uae.net) in Applications; ADAM's Build page shows it as found.
+1. With no FS-UAE picked: Build page says "not yet"; press **F5** on Gem Hunter -
+   the Build page shows the download, then "FS-UAE 3.2.35 is ready" and the game
+   boots. The row now reads "The FS-UAE that comes with ADAM". (An FS-UAE in
+   Applications is used only if ADAM has none of its own and none was picked.)
 2. Load Gem Hunter, press **F5**: FS-UAE opens and the game boots.
 3. Press F5 again: the old FS-UAE window closes and a new one boots.
 4. Keyboard joystick: cursor keys move, **Space** and right Ctrl (if the

@@ -283,6 +283,11 @@ les_card_rect = [0, 0, 0, 0];
 les_done = array_create(5, false);  // lessons finished (saved in the settings) - one per entry in les_defs
 les_defs = [];
 lessons_init();
+whatsnew_active = false;    // "What's new" panel (scr_whatsnew)
+whatsnew_manual = false;    // opened from the Learn ADAM menu (just Close)
+whatsnew_anim = 0;
+whatsnew_seen = "";         // version whose notes were dismissed with "Don't show again"
+settings_first_run = false; // no settings file yet: a brand-new user
 settings_load();
 
 // ---------- project ----------

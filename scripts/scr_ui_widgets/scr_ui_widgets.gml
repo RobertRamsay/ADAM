@@ -47,6 +47,10 @@ function ui_frame_begin()
     {
         ui_input_ok = false;
     }
+    if (whatsnew_active)
+    {
+        ui_input_ok = false;
+    }
     if (tut_active)
     {
         ui_input_ok = false;

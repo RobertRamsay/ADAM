@@ -183,9 +183,9 @@ function ws_build_draw(_x1, _y1, _x2, _y2)
     ui_heading(_fx, _y, "FS-UAE emulator");
     var _btn_w = 88;
     var _row_w = _fw - _btn_w - 8;
-    // release builds: "Get FS-UAE" opens fs-uae.net (dev builds have "Get test copy" there)
+    // "Get FS-UAE": opens fs-uae.net (Windows release) or downloads it (Mac); Windows dev builds have "Get test copy" there
     var _get_w = 108;
-    if (ADAM_DEV_TOOLS) { _row_w -= _btn_w + 8; }
+    if (ADAM_DEV_TOOLS && os_type != os_macosx) { _row_w -= _btn_w + 8; }
     else { _row_w -= _get_w + 8; }
     ui_inset(_fx, _y + 18, _fx + _row_w, _y + 50, 8);
     if (fsuae_dl_id >= 0)
@@ -202,13 +202,13 @@ function ws_build_draw(_x1, _y1, _x2, _y2)
         if (_src == "")
         {
             _src = "(not found - Get FS-UAE and install it, or Find it)";
-            if (os_type == os_macosx) { _src = "(not found - Get FS-UAE, put it in Applications)"; }
             if (ADAM_DEV_TOOLS) { _src = "(not found - Get test copy, or Find your own)"; }
+            if (os_type == os_macosx) { _src = "(not yet - Get FS-UAE or Build & play downloads it, about 6 MB)"; }
             _scol = global.TH.warn;
         }
         ui_text(_fx + 10, _y + 34, ui_text_fit(_src, global.f_small, _row_w - 20), _scol, fa_left, fa_middle, global.f_small, 1);
     }
-    if (ui_button("build_fsuae", _fx + _fw - _btn_w, _y + 18, _btn_w, 32, "Find", "Find FS-UAE|Point ADAM at your own fs-uae.exe (free from fs-uae.net). Your choice always wins over ADAM's test copy. Right-click clears it.", BTN_NORMAL))
+    if (ui_button("build_fsuae", _fx + _fw - _btn_w, _y + 18, _btn_w, 32, "Find", "Find FS-UAE|Point ADAM at your own fs-uae.exe (free from fs-uae.net). Your choice always wins over the FS-UAE that comes with ADAM. Right-click clears it.", BTN_NORMAL))
     {
         var _filter = "FS-UAE|fs-uae.exe;fs-uae";
         if (os_type == os_macosx) { _filter = "FS-UAE|*.app;fs-uae"; }
@@ -223,7 +223,8 @@ function ws_build_draw(_x1, _y1, _x2, _y2)
     {
         fsuae_path = "";
         settings_save();
-        toast("Using ADAM's test copy or an installed FS-UAE", 0);
+        if (fsuae_bundled_exe() != "") { toast("Using the FS-UAE that comes with ADAM", 0); }
+        else { toast("Using ADAM's test copy or an installed FS-UAE", 0); }
     }
     var _lt = ui_toggle("build_light", _fx, _y + 56, "Light emulator mode", fsuae_light, "Light emulator mode|Runs FS-UAE without syncing to your monitor and without smoothing. Much lighter on your PC; turn it off for the smoothest scrolling.");
     if (_lt != fsuae_light)
@@ -239,7 +240,19 @@ function ws_build_draw(_x1, _y1, _x2, _y2)
         fsuae_pad = _pd;
         settings_save();
     }
-    if (!ADAM_DEV_TOOLS)
+    if (os_type == os_macosx)
+    {
+        // a Mac downloads ADAM's own FS-UAE (any build)
+        var _mst = BTN_GHOST;
+        if (fsuae_exe() == "") { _mst = BTN_ACCENT; }
+        var _mlab = "Get FS-UAE";
+        if (fsuae_bundled_exe() != "") { _mlab = "Re-download"; }
+        if (ui_button("build_fsuae_mac", _fx + _fw - _btn_w - 8 - _get_w, _y + 18, _get_w, 32, _mlab, "Get FS-UAE|Downloads " + FSUAE_BUNDLED_VERSION + ", the free Amiga emulator that plays your games, from its official release (the right one for your Mac, about 6 MB) into ADAM's own folder. Build & play does this by itself the first time. An FS-UAE you picked with Find is used instead.", _mst))
+        {
+            fsuae_download("");
+        }
+    }
+    else if (!ADAM_DEV_TOOLS)
     {
         var _gst = BTN_GHOST;
         if (fsuae_exe() == "") { _gst = BTN_ACCENT; }
@@ -248,11 +261,11 @@ function ws_build_draw(_x1, _y1, _x2, _y2)
             url_open(FSUAE_HOME_URL);
         }
     }
-    if (ADAM_DEV_TOOLS)
+    if (ADAM_DEV_TOOLS && os_type != os_macosx)
     {
         var _glab = "Get test copy";
         if (file_exists(fsuae_test_exe())) { _glab = "Re-download"; }
-        if (ui_button("build_fsuae_get", _fx + _fw - _btn_w * 2 - 8, _y + 18, _btn_w, 32, _glab, "FS-UAE test copy|Developer convenience: downloads the official FS-UAE 3.1.66 for Windows into ADAM's save folder, so Build and play works straight away (on a Mac it opens the FS-UAE disk image to drag into Applications). 'Build and play' fetches it by itself when no FS-UAE is found.", BTN_GHOST))
+        if (ui_button("build_fsuae_get", _fx + _fw - _btn_w * 2 - 8, _y + 18, _btn_w, 32, _glab, "FS-UAE test copy|Developer convenience: downloads the official FS-UAE 3.1.66 for Windows into ADAM's save folder, so Build and play works straight away. 'Build and play' fetches it by itself when no FS-UAE is found.", BTN_GHOST))
         {
             fsuae_download("");
         }

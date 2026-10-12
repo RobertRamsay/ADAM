@@ -850,6 +850,8 @@ function backdrop_set_depth(_depth)
 function settings_load()
 {
     ini_open("adam_settings.ini");
+    settings_first_run = !ini_key_exists("machine", "last");
+    whatsnew_seen = ini_read_string("ui", "whatsnew_seen", "");
     fsuae_path = ini_read_string("paths", "fsuae", "");
     var _old_kick = ini_read_string("paths", "kickstart", "");     // before one ROM per machine
     for (var k = 0; k < array_length(global.MACHINES); k++)
@@ -911,6 +913,7 @@ function settings_save()
     var _fs = 0;
     if (start_fullscreen) { _fs = 1; }
     ini_write_real("ui", "fullscreen", _fs);
+    ini_write_string("ui", "whatsnew_seen", whatsnew_seen);
     ini_write_real("window", "x", wsave_x);
     ini_write_real("window", "y", wsave_y);
     ini_write_real("window", "w", wsave_w);
