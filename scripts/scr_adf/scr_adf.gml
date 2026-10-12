@@ -6,7 +6,7 @@
 /// The data block layout is documented at the top of engine.s.
 
 #macro ADF_SIZE 901120
-#macro ADF_HDR 92
+#macro ADF_HDR 96
 #macro ADF_SONGS_MAX 4
 #macro OS_RESERVE_KB 160
 // Original A500s have only 512KB of chip RAM. Even with a trapdoor slow-RAM card
@@ -247,6 +247,13 @@ function adam_data_block(_p, _measure = false)
     var _warn = [];
     var _m = machine_get(_p.machine);
     var _depth = clamp(_p.depth, 1, _m.max_depth);
+    var _ww = BD_W;                       // where actors can be: the screen, or the tile map
+    var _wh = BD_H;
+    if (_p.tiles_on)
+    {
+        _ww = _p.map_w * TILE_PX;
+        _wh = _p.map_h * TILE_PX;
+    }
     var _ncol = 1 << _depth;
     var _acts = _p.actors;
     var _na = actors_on_disk();
@@ -447,8 +454,8 @@ function adam_data_block(_p, _measure = false)
         if (_ac.start_left) { _left = 1; }
         var _up = 0;
         if (_ac.start_up) { _up = 1; }
-        be16(_b, clamp(_ac.x, 0, BD_W - _aw));
-        be16(_b, clamp(_ac.y, 0, BD_H - _ah));
+        be16(_b, clamp(_ac.x, 0, _ww - _aw));     // tile world: anywhere on the map
+        be16(_b, clamp(_ac.y, 0, _wh - _ah));
         be16(_b, clamp(_ac.role, 0, 8));
         be16(_b, clamp(_ac.speed, 1, 8));
         be16(_b, _vis);
@@ -474,8 +481,8 @@ function adam_data_block(_p, _measure = false)
         var _isbob = 0;
         if (_bob[a2]) { _isbob = 1; }
         be16(_b, _isbob);                // A_BOB
-        be16(_b, BD_W - _aw);            // A_XMAX
-        be16(_b, BD_H - _ah);            // A_YMAX
+        be16(_b, _ww - _aw);             // A_XMAX
+        be16(_b, _wh - _ah);             // A_YMAX
         be16(_b, _bsize);                // A_BSIZE
         be32(_b, _anim_off[a2]);         // A_ANIM
         if (_alloc.conflict[a2]) { array_push(_warn, "Actor '" + _ac.name + "' shares a sprite colour pair with different colours - it will borrow its partner's colours."); }
@@ -613,6 +620,65 @@ function adam_data_block(_p, _measure = false)
         buf_align(_b, 8);
     }
 
+    // tile world (engine.s T_*): the tile set, its pictures and the map; the
+    // map as played and the scrolling picture go in cleared memory after the data
+    var _off_tiles = 0;
+    var _tile_fix = 0;
+    if (_p.tiles_on)
+    {
+        buf_align(_b, 8);
+        _off_tiles = buffer_tell(_b);
+        var _nt = array_length(_p.tiles);
+        be16(_b, _p.map_w);
+        be16(_b, _p.map_h);
+        be16(_b, _nt);
+        var _tf = 0;
+        if (_p.tile_dig) { _tf = 1; }
+        be16(_b, _tf);
+        _tile_fix = buffer_tell(_b);
+        buf_zeros(_b, 20);              // T_IMG T_MAP T_WMAP T_BUF T_BUFPL, filled in below
+        for (var ti = 0; ti < _nt; ti++)
+        {
+            var _td = _p.tiles[ti];
+            var _fl = 0;
+            if (_td.solid) { _fl = _fl | 1; }
+            if (_td.dig) { _fl = _fl | 2; }
+            if (_td.goal) { _fl = _fl | 4; }
+            be16(_b, _fl);
+            be16(_b, clamp(_td.hard, 1, 250));
+            be16(_b, clamp(_td.points, 0, 999));
+            var _snd = 0xff;
+            if (_td.sound >= 0) { _snd = _td.sound & 7; }
+            buffer_write(_b, buffer_u8, _snd);
+            buffer_write(_b, buffer_u8, clamp(_td.becomes, 0, _nt - 1));
+        }
+        for (var tn = 0; tn < _nt; tn++) { buf_fixed_text(_b, _p.tiles[tn].name, 5); buffer_seek(_b, buffer_seek_relative, -1); }
+        buf_align(_b, 8);
+        var _off_timg = buffer_tell(_b);
+        for (var tp = 0; tp < _nt; tp++)
+        {
+            var _tpx = _p.tiles[tp].px;
+            for (var pl2 = 0; pl2 < _depth; pl2++)
+            {
+                for (var ty = 0; ty < TILE_PX; ty++)
+                {
+                    var _tw = 0;
+                    for (var tx = 0; tx < TILE_PX; tx++)
+                    {
+                        if (((_tpx[ty * TILE_PX + tx] >> pl2) & 1) != 0) { _tw = _tw | (0x8000 >> tx); }
+                    }
+                    be16(_b, _tw);
+                }
+            }
+        }
+        buf_align(_b, 8);
+        var _off_tmap = buffer_tell(_b);
+        for (var mc = 0; mc < _p.map_w * _p.map_h; mc++) { buffer_write(_b, buffer_u8, clamp(_p.map[mc], 0, _nt - 1)); }
+        buf_align(_b, 8);
+        poke32(_b, _tile_fix, _off_timg);
+        poke32(_b, _tile_fix + 4, _off_tmap);
+    }
+
     // music: the songs as ProTracker MODs, played by ptplayer in the engine
     var _mus = adf_music_table(_b, _p, _warn);
     var _off_music = _mus.off;
@@ -643,6 +709,21 @@ function adam_data_block(_p, _measure = false)
     }
     var _size = buffer_tell(_b);
 
+    // tile world: cleared memory after the data (not on the disk): the map as
+    // played, then the scrolling picture (engine.s: 44 bytes a line)
+    var _bss = 0;
+    if (_p.tiles_on)
+    {
+        var _base = (_size + 7) & ~7;
+        var _bufpl = ((_p.map_h * 16 + 16) * 44 + (_p.map_w + 2) * 2 + 64 + 7) & ~7;
+        var _off_wmap = _base;
+        var _off_tbuf = _off_wmap + ((_p.map_w * _p.map_h + 7) & ~7);
+        _bss = _off_tbuf + _depth * _bufpl - _size;
+        poke32(_b, _tile_fix + 8, _off_wmap);
+        poke32(_b, _tile_fix + 12, _off_tbuf);
+        poke32(_b, _tile_fix + 16, _bufpl);
+    }
+
     // header
     buffer_poke(_b, 0, buffer_u8, ord("A"));
     buffer_poke(_b, 1, buffer_u8, ord("D"));
@@ -654,7 +735,7 @@ function adam_data_block(_p, _measure = false)
     if (_p.show_score) { _sc = 1; }
     var _lv = 0;
     if (_p.show_lives) { _lv = 1; }
-    poke16(_b, 4, 5);                    // data block version 5: animation tables (A_ANIM); 4: BOBs (H_DISP2, H_BACK, A_BOB) of any size (A_XMAX, A_YMAX, A_BSIZE)
+    poke16(_b, 4, 6);                    // data block version 6: tile world (H_TILES); 5: animation tables (A_ANIM); 4: BOBs (H_DISP2, H_BACK, A_BOB) of any size (A_XMAX, A_YMAX, A_BSIZE)
     poke16(_b, 6, _flags);
     poke16(_b, 8, _depth);
     poke16(_b, 10, _na);
@@ -682,6 +763,7 @@ function adam_data_block(_p, _measure = false)
     poke32(_b, 80, _off_music);
     poke32(_b, 84, _off_disp2);
     poke32(_b, 88, _off_back);
+    poke32(_b, 92, _off_tiles);
 
     for (var rm = 0; rm < _nr; rm++)
     {
@@ -708,7 +790,8 @@ function adam_data_block(_p, _measure = false)
         if (pro_on()) { array_push(_warn, "Only the first " + string(ACT_MAX_ALL) + " actors go on the disk."); }
         else { array_push(_warn, "Only the first " + string(ACT_MAX_SPR) + " actors go on the disk - more actors (as BOBs) are part of ADAM Pro."); }
     }
-    return { buf : _b, size : _size, warnings : _warn, sound_bytes : _snd_bytes + _mus.bytes, plane_bytes : _depth * 10240 * _nbuf };
+    if (_p.tiles_on && array_length(_acts) > ACT_MAX_SPR) { array_push(_warn, "A tile world has up to " + string(ACT_MAX_SPR) + " actors (hardware sprites) - only the first " + string(ACT_MAX_SPR) + " go on the disk."); }
+    return { buf : _b, size : _size, warnings : _warn, sound_bytes : _snd_bytes + _mus.bytes, plane_bytes : _depth * 10240 * _nbuf, bss : _bss };
 }
 
 /// Writes the music table and the songs (as ProTracker MODs) at the end of _b.
@@ -805,7 +888,7 @@ function mem_measure()
     try
     {
         var _data = adam_data_block(proj, true);
-        mem_size = mem_engine_size + _data.size;
+        mem_size = mem_engine_size + _data.size + _data.bss;
         mem_plane_size = _data.plane_bytes;
         mem_sound_size = _data.sound_bytes;
         buffer_delete(_data.buf);
@@ -891,6 +974,8 @@ function build_adf(_path)
     var _data = adam_data_block(proj);
     var _game = _esize + _data.size;
     var _load = ceil(_game / 512) * 512;
+    var _need = _game + _data.bss;      // chip RAM: tile worlds use cleared memory after the data
+    var _bss_alloc = max(0, _need - _load);
     build_warnings = _data.warnings;
     if (_load > ADF_SIZE - 1024)
     {
@@ -903,20 +988,21 @@ function build_adf(_path)
     }
     var _m = machine_cur();
     var _chip_free = (_m.chip_kb - OS_RESERVE_KB) * 1024;
-    if (_game > _chip_free)
+    if (_need > _chip_free)
     {
         buffer_delete(_eng);
         buffer_delete(_boot);
         buffer_delete(_data.buf);
         build_ok = false;
-        build_msg = "Build failed - the game needs " + string(_game div 1024) + " KB of chip RAM; the " + _m.name + " has about " + string(_chip_free div 1024) + " KB free. Use fewer colours or shorter sounds.";
+        build_msg = "Build failed - the game needs " + string(_need div 1024) + " KB of chip RAM; the " + _m.name + " has about " + string(_chip_free div 1024) + " KB free. Use fewer colours, a smaller tile map or shorter sounds.";
         return false;
     }
 
     var _adf = buffer_create(ADF_SIZE, buffer_fixed, 1);
     buffer_fill(_adf, 0, buffer_u8, 0, ADF_SIZE);
     buffer_copy(_boot, 0, _bsize, _adf, 0);
-    poke32(_adf, _bsize - 4, _load);
+    poke32(_adf, _bsize - 8, _load);          // boot.s loadsize
+    poke32(_adf, _bsize - 4, _bss_alloc);     // boot.s bsssize
     // bootblock checksum: add-with-carry over 256 longwords, then invert
     var _sum = 0;
     for (var i = 0; i < 256; i++)
@@ -936,13 +1022,13 @@ function build_adf(_path)
 
     build_ok = true;
     build_stamp = current_time;
-    build_size = _game;
+    build_size = _need;
     build_engine_size = _esize;
     build_plane_size = _data.plane_bytes;
     build_sound_size = _data.sound_bytes;
     build_chip_free = _chip_free;
-    build_msg = "Built " + filename_name(_path) + " for the " + _m.name + " - " + string(ceil(_game / 1024)) + " KB of chip RAM";
-    if (!_m.aga && _game > (A500_512K_CHIP_KB - OS_RESERVE_KB) * 1024)
+    build_msg = "Built " + filename_name(_path) + " for the " + _m.name + " - " + string(ceil(_need / 1024)) + " KB of chip RAM";
+    if (!_m.aga && _need > (A500_512K_CHIP_KB - OS_RESERVE_KB) * 1024)
     {
         array_push(build_warnings, "Too big for an A500 with only 512KB of chip RAM (about " + string(A500_512K_CHIP_KB - OS_RESERVE_KB) + " KB free) - it will show a red screen there. Fine on 1MB machines.");
     }

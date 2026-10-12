@@ -137,7 +137,7 @@ music_preview_step();
 shortcuts_step();
 
 var _edition = "Lite";
-if (pro_on()) { _edition = "Pro"; }
+if (pro_edition()) { _edition = "Pro"; }
 var _cap = "ADAM " + _edition + " " + ADAM_VERSION + " - " + proj.name + "  (" + machine_cur().name + ")";
 if (proj_dirty) { _cap += " *"; }
 if (_cap != caption_last)

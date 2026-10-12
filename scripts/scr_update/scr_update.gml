@@ -59,7 +59,7 @@ function update_async()
     if (!is_string(_ver)) { return; }
     if (!version_newer(_ver, ADAM_VERSION)) { return; }
     var _url = _data[$ "lite_url"];
-    if (pro_on()) { _url = _data[$ "pro_url"]; }
+    if (pro_edition()) { _url = _data[$ "pro_url"]; }
     if (!is_string(_url) || _url == "") { _url = ADAM_PRO_URL; }
     var _notes = _data[$ "notes"];
     if (!is_string(_notes)) { _notes = ""; }

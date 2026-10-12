@@ -186,6 +186,33 @@ spr_dirty = array_create(SPR_COUNT, true);
 // actors
 sel_actor = 0;
 
+// Tiles page
+tile_page = 0;              // 0 = Map, 1 = Tile set
+tile_sel = 1;               // tile picked
+tile_pen = 1;               // colour the tile editor draws with
+tile_tool = 0;              // map: 0 paint, 1 box, 2 pick
+tile_zoom = 2;
+tile_camx = 0;              // map pixel at the top left of the map view
+tile_camy = 0;
+tile_drawing = false;       // a stroke on the tile editor
+tile_painting = false;      // a stroke on the map
+tile_paint_v = 0;
+tile_box_c = 0;             // where a box started
+tile_box_r = 0;
+tile_pan = false;           // moving the map view
+tile_pan_mx = 0;
+tile_pan_my = 0;
+tile_pan_cx = 0;
+tile_pan_cy = 0;
+tile_drag_actor = -1;       // actor being dragged on the map
+tile_drag_dx = 0;
+tile_drag_dy = 0;
+tile_atlas_surf = -1;       // index pictures of the tiles side by side
+tile_atlas_buf = -1;
+tile_atlas_dirty = true;
+tile_map_surf = -1;         // the whole map, drawn from the atlas
+tile_map_dirty = true;
+
 // Animate page
 anim_sel = 0;               // 0 Idle, 1 Walk, 2 Jump, 3 Fall
 anim_slot = 0;              // selected frame; the one after the last adds a frame
@@ -203,6 +230,8 @@ anim_click_id = "";         // double-click: the control clicked last, and when
 anim_click_time = 0;
 anim_click_added = false;   // that click added a frame (a double-click takes it back)
 act_drag = false;
+act_camx = 0;                // tile world: the screen of the map the Actors stage shows
+act_camy = 0;
 act_drag_dx = 0;
 act_drag_dy = 0;
 logic_resort = false;

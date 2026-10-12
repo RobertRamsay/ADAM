@@ -55,7 +55,34 @@ H_WORK      equ 76         ; offset: backdrop + terrain copy (depth * 10240 byte
 H_MUSIC     equ 80         ; offset: music table, 0 = no music
 H_DISP2     equ 84         ; offset: second display buffer for BOBs (depth * 10240 + 8), 0 = no BOBs
 H_BACK      equ 88         ; offset: BOB background - backdrop + hills + HUD (depth * 10240 + 8), 0 = no BOBs
-HDR_SIZE    equ 92
+H_TILES     equ 92         ; offset: tile world, 0 = none (version 6)
+HDR_SIZE    equ 96
+
+; tile world (version 6): a map of 16 x 16 tiles that scrolls both ways
+; behind the actors, with a HUD strip at the top of the screen
+T_W         equ 0          ; map width in tiles (22..128)
+T_H         equ 2          ; map height in tiles (18..64)
+T_NT        equ 4          ; tile types 1..32 (tile 0 is empty air: colour 0, the sky shows)
+T_FLAGS     equ 6          ; bit 0 = the player digs (fire + direction) and places tiles (fire)
+T_IMG       equ 8          ; long offset: tile pictures, NT x depth planes x 16 words
+T_MAP       equ 12         ; long offset: the map as designed, W x H bytes
+T_WMAP      equ 16         ; long offset: the map as played (memory cleared at load, after the data)
+T_BUF       equ 20         ; long offset: the scrolling picture, depth planes (cleared memory)
+T_BUFPL     equ 24         ; long: bytes per plane of the scrolling picture
+T_PROPS     equ 28         ; NT x 8 bytes (TP_*), then NT x 4 bytes of names for the HUD
+TP_FLAGS    equ 0          ; bit 0 solid, bit 1 can be dug, bit 2 counts towards the level goal
+TP_HARD     equ 2          ; frames of digging it takes
+TP_POINTS   equ 4          ; score for digging it
+TP_SOUND    equ 6          ; byte: sound 0..7, $ff = none
+TP_BECOMES  equ 7          ; byte: the tile left behind when it is dug
+TILE_LINE   equ 44         ; bytes per line of the scrolling picture (22 tiles)
+HUD_LINES   equ 8          ; the HUD strip above a tile world
+;  The scrolling picture is 22 x 18 tiles round the camera. Tile (c, r) is at
+;  buf + r * 16 * 44 + (c + 1) * 2: moving right one tile only moves the
+;  bitplane pointers on by 2 bytes, and the new column on the right lands on
+;  the memory the column that just left on the left used (one line down), so
+;  scrolling across the whole map needs only W x 2 bytes more. Moving down
+;  works the same way with whole lines. Each step draws one new column or row.
 
 ; music table (offsets from data_start like every header long)
 M_NSONGS    equ 0          ; word: number of songs 0..4
@@ -174,6 +201,8 @@ v_aset      rs.w 1         ; animation playing: 0 Idle, 1 Walk, 2 Jump, 3 Fall, 
 v_astart    rs.w 1         ; v_anim when it started
 v_face      rs.w 1         ; 1 = facing left
 v_dir       rs.w 1         ; 8 directions: last direction moved, 0 N .. 7 NW
+v_ox        rs.w 1         ; where it was at the start of this frame (tile walls)
+v_oy        rs.w 1
             rsset   -128+MAX_ACT*ACTV_SIZE
 v_anim      rs.w 1
 v_joyprev   rs.w 1
@@ -208,6 +237,25 @@ v_bobbuf    rs.w 1         ; 0 = v_draw is v_disp, 1 = v_disp2
 v_drawn     rs.w 1         ; 1 = v_draw is ready to show
 v_bobn      rs.w 2         ; BOBs drawn into each display
 v_bobold    rs.w 4*MAX_ACT ; where they were (byte offset in a plane, BLTSIZE), to wipe them
+v_tiles     rs.l 1         ; tile world block, 0 = none
+v_wmap      rs.l 1         ; the map as played
+v_tbuf      rs.l 1         ; scrolling picture, plane 0
+v_tbufpl    rs.l 1         ; bytes per plane of it
+v_timg      rs.l 1         ; tile pictures
+v_tbytes    rs.w 1         ; bytes per tile picture (depth x 32)
+v_tw        rs.w 1
+v_th        rs.w 1
+v_camx      rs.w 1         ; camera: map pixel at the top left of the screen
+v_camy      rs.w 1
+v_tx0       rs.w 1         ; tiles drawn in the scrolling picture: 22 x 18 from here
+v_ty0       rs.w 1
+v_tmode     rs.w 1         ; 1 while the tile world is on screen
+v_csplit    rs.l 1         ; copper moves at the HUD split (bitplane pointers, modulos, scroll)
+v_hudrow    rs.w 1         ; text row of the HUD
+v_sel       rs.w 1         ; tile the player places (the last one dug)
+v_digt      rs.w 1         ; frames spent digging v_digc
+v_digc      rs.w 1         ; map cell being dug, -1 = none
+v_inv       rs.w 32        ; tiles the player carries
 V_SIZE      rs.b 0
 
 ; ============================================================================
@@ -234,9 +282,11 @@ get_vbr:    dc.l    $4e7a0801               ; movec vbr,d0
 ; Supervisor mode from here on. The OS is never returned to, so the
 ; exception frame Supervisor() left on the system stack is simply dropped.
 in_super:   move.w  #$2700,sr               ; mask all CPU interrupts while taking over
-            lea     stack_top(pc),a7
+            lea     V(pc),a7                ; (stack_top is too far for one PC-relative lea)
+            add.l   #stack_top-V,a7
             lea     V+128(pc),a5
-            lea     data_start(pc),a4
+            lea     V(pc),a4
+            add.l   #data_start-V,a4
             lea     $dff000,a6
             move.w  #$7fff,$9a(a6)          ; INTENA  - all interrupts off
             move.w  #$7fff,$9c(a6)          ; INTREQ  - clear pending
@@ -252,13 +302,15 @@ in_super:   move.w  #$2700,sr               ; mask all CPU interrupts while taki
             bsr     init_display
 
 game_restart:
-            lea     stack_top(pc),a7
+            lea     V(pc),a7                ; (stack_top is too far for one PC-relative lea)
+            add.l   #stack_top-V,a7
             bsr     music_stop              ; silence: music and effects
             move.w  #1,v_level(a5)
             bsr     init_palette
             bsr     clear_state
             move.l  #0,v_score(a5)
             move.w  H_LIVES(a4),v_lives(a5)
+            bsr     tiles_off
             bsr     hide_sprites
             bsr     restore_backdrop
             move.l  v_game(a5),d0           ; title screen
@@ -280,7 +332,9 @@ game_restart:
 
 ; next level: show which one is coming, then play it
 level_next: addq.w  #1,v_level(a5)
-level_card: lea     stack_top(pc),a7
+level_card: lea     V(pc),a7                ; (stack_top is too far for one PC-relative lea)
+            add.l   #stack_top-V,a7
+            bsr     tiles_off
             bsr     hide_sprites
             bsr     restore_backdrop
             move.l  v_game(a5),d0
@@ -301,6 +355,7 @@ level_start:
             bsr     init_actors
             bsr     clear_latches
             move.w  #0,v_goal(a5)
+            bsr     tiles_start
             bsr     draw_hud
             bsr     place_sprites
             bsr     level_music             ; this level's song, before its rules
@@ -324,6 +379,29 @@ init_display:
             move.l  d1,d0
             add.l   a4,d0
 .nog        move.l  d0,v_game(a5)
+            move.l  #0,v_tiles(a5)          ; tile world
+            move.w  #0,v_tmode(a5)
+            move.w  H_HUDROW(a4),v_hudrow(a5)
+            move.l  H_TILES(a4),d1
+            beq.s   .notile
+            lea     0(a4,d1.l),a0
+            move.l  a0,v_tiles(a5)
+            move.w  T_W(a0),v_tw(a5)
+            move.w  T_H(a0),v_th(a5)
+            move.l  T_IMG(a0),d1
+            add.l   a4,d1
+            move.l  d1,v_timg(a5)
+            move.l  T_WMAP(a0),d1
+            add.l   a4,d1
+            move.l  d1,v_wmap(a5)
+            move.l  T_BUF(a0),d1
+            add.l   a4,d1
+            move.l  d1,v_tbuf(a5)
+            move.l  T_BUFPL(a0),v_tbufpl(a5)
+            move.w  H_DEPTH(a4),d1
+            lsl.w   #5,d1
+            move.w  d1,v_tbytes(a5)
+.notile
             move.l  H_DISP(a4),d0
             add.l   a4,d0
             move.l  d0,v_disp(a5)
@@ -632,6 +710,8 @@ init_actors:
             move.w  #0,v_safe(a5,d5.w)
             move.l  A_SPR(a2),v_fofs(a5,d5.w)
             move.w  #-1,v_aset(a5,d5.w)
+            move.w  A_X(a2),v_ox(a5,d5.w)
+            move.w  A_Y(a2),v_oy(a5,d5.w)
             move.w  A_LEFT(a2),v_face(a5,d5.w)
             move.w  #2,v_dir(a5,d5.w)       ; facing east, or west when it starts moving left
             tst.w   A_LEFT(a2)
@@ -740,6 +820,9 @@ frame:
             move.w  #1,v_sectick(a5)
 .f1         bsr     move_actors
             move.w  v_joy(a5),v_joyprev(a5)
+            bsr     cam_follow              ; tile world: camera, new tiles, scroll
+            bsr     cam_window
+            bsr     cop_scroll
             bsr     place_sprites
             bsr     bob_draw
             bsr     run_rules
@@ -780,6 +863,8 @@ move_actors:
             moveq   #0,d7
 .loop       move.w  d7,d5
             lsl.w   #ACTV_SHIFT,d5
+            move.w  v_ax(a5,d5.w),v_ox(a5,d5.w)
+            move.w  v_ay(a5,d5.w),v_oy(a5,d5.w)
             tst.w   v_safe(a5,d5.w)         ; immunity counts down
             beq.s   .nosafe
             subq.w  #1,v_safe(a5,d5.w)
@@ -804,12 +889,16 @@ move_actors:
             cmp.w   #3,d0
             beq     .vert
             cmp.w   #2,d0
-            beq.s   .horiz
+            beq     .horiz
             cmp.w   #1,d0
-            beq.s   .horiz
+            beq     .horiz
             bra     .next
 
-.player     move.w  v_spd(a5,d5.w),d1
+.player     tst.w   v_tmode(a5)             ; tile world: fire digs / places instead of moving
+            beq.s   .pmv
+            bsr     tile_dig
+            bne     .next
+.pmv        move.w  v_spd(a5,d5.w),d1
             move.w  v_joy(a5),d2
             btst    #0,d2
             beq.s   .pu
@@ -903,7 +992,11 @@ move_actors:
 .cyi        addq.w  #1,v_ay(a5,d5.w)
 .cn         dbf     d3,.cl
 
-.platform  move.w  v_spd(a5,d5.w),d1      ; walk left / right
+.platform  tst.w   v_tmode(a5)             ; tile world: fire digs / places instead of walking
+            beq.s   .plmv
+            bsr     tile_dig
+            bne     .pphys
+.plmv       move.w  v_spd(a5,d5.w),d1      ; walk left / right
             move.w  v_joy(a5),d2
             btst    #2,d2
             beq.s   .wl
@@ -925,7 +1018,14 @@ move_actors:
             move.w  v_joyprev(a5),d0
             not.w   d0
             and.w   d2,d0
-            and.w   #17,d0
+            moveq   #17,d3                  ; up or fire jumps (only up when fire digs)
+            tst.w   v_tmode(a5)
+            beq.s   .jk
+            move.l  v_tiles(a5),a0
+            btst    #0,T_FLAGS+1(a0)
+            beq.s   .jk
+            moveq   #1,d3
+.jk         and.w   d3,d0
             beq.s   .pphys
             move.w  #-JUMP_V,v_vy(a5,d5.w)
             bsr     jumped
@@ -981,7 +1081,13 @@ move_actors:
 .faller     bsr     physics
             bra     .next
 
-.next       lea     ACT_SIZE(a2),a2
+.next       tst.w   v_tmode(a5)             ; tile world: walls stop it (gravity roles did it in physics)
+            beq.s   .adv
+            cmp.w   #6,A_ROLE(a2)
+            bge.s   .adv
+            bsr     tile_hres
+            bsr     tile_vres
+.adv        lea     ACT_SIZE(a2),a2
             addq.w  #1,d7
             cmp.w   d6,d7
             blt     .loop
@@ -1023,7 +1129,9 @@ ground_y:   move.l  v_game(a5),d2           ; level hills win over painted groun
             rts
 
 ; gravity and ground contact for actor d5 (record a2)
-physics:    move.w  v_vy(a5,d5.w),d0
+physics:    tst.w   v_tmode(a5)
+            bne     tile_phys
+            move.w  v_vy(a5,d5.w),d0
             cmp.w   #7,A_ROLE(a2)           ; hoppers float down more slowly
             beq.s   .light
             addq.w  #GRAVITY,d0
@@ -1259,8 +1367,20 @@ place_sprites:
 .hid        move.l  #0,(a0)
             bra     .next
 .show       move.w  v_ay(a5,d5.w),d0
-            add.w   #$2c,d0                 ; VSTART
             move.w  v_ax(a5,d5.w),d1
+            tst.w   v_tmode(a5)             ; tile world: where it is on the screen
+            beq.s   .scr
+            sub.w   v_camy(a5),d0
+            sub.w   v_camx(a5),d1
+            cmp.w   #-24,d0
+            ble     .hid
+            cmp.w   #256,d0
+            bge     .hid
+            cmp.w   #-16,d1
+            ble     .hid
+            cmp.w   #320,d1
+            bge     .hid
+.scr        add.w   #$2c,d0                 ; VSTART
             add.w   #128,d1                 ; HSTART
             move.w  d0,d2
             add.w   #SPR_H,d2               ; VSTOP
@@ -1288,6 +1408,651 @@ place_sprites:
             cmp.w   d6,d7
             blt     .loop
 .done       rts
+
+; ============================================================================
+;  tile world (version 6)
+; ============================================================================
+; level start: a fresh copy of the map, nothing carried, then on screen
+tiles_start:
+            tst.l   v_tiles(a5)
+            beq     .r
+            move.l  v_tiles(a5),a0
+            move.l  T_MAP(a0),d0
+            lea     0(a4,d0.l),a0           ; designed map -> map as played
+            move.l  v_wmap(a5),a1
+            move.w  v_tw(a5),d0
+            mulu    v_th(a5),d0
+            subq.l  #1,d0
+.cp         move.b  (a0)+,(a1)+
+            subq.l  #1,d0
+            bpl.s   .cp
+            lea     v_inv(a5),a0
+            moveq   #31,d0
+.ci         move.w  #0,(a0)+
+            dbf     d0,.ci
+            move.w  #0,v_sel(a5)
+            move.w  #0,v_digt(a5)
+            move.w  #-1,v_digc(a5)
+            bsr     tiles_on
+.r          rts
+
+; the tile world on screen: the HUD strip shows the top lines of the normal
+; display, then the copper switches to the scrolling picture
+tiles_on:   tst.l   v_tiles(a5)
+            beq     .r
+            move.w  #1,v_tmode(a5)
+            move.w  #0,v_hudrow(a5)
+            move.w  #$0030,$92(a6)          ; DDFSTRT one word early: room for the fine scroll
+            move.w  #$00d0,$94(a6)          ; DDFSTOP: 21 words a line
+            btst    #0,H_FLAGS+1(a4)
+            beq.s   .ocs
+            move.w  #$0000,$1fc(a6)         ; AGA: FMODE 16-bit fetch while scrolling
+.ocs        lea     cop_mods(pc),a0
+            move.w  #-2,2(a0)               ; HUD lines: 21 words fetched, 20 shown
+            move.w  #-2,6(a0)
+            move.w  #0,10(a0)
+            move.l  v_disp(a5),d0
+            subq.l  #2,d0
+            bsr     set_bpl
+            move.w  v_gradfix(a5),d1
+            bsr     build_grad
+            move.w  #-100,v_tx0(a5)         ; draw the whole picture
+            bsr     cam_follow
+            bsr     cam_window
+            bsr     cop_scroll
+.r          rts
+
+; back to the normal display (title, level cards, messages)
+tiles_off:  tst.w   v_tmode(a5)
+            beq     .r
+            move.w  #0,v_tmode(a5)
+            move.w  H_HUDROW(a4),v_hudrow(a5)
+            move.w  #$0038,$92(a6)
+            move.w  #$00d0,$94(a6)
+            btst    #0,H_FLAGS+1(a4)
+            beq.s   .ocs
+            move.w  #$0003,$1fc(a6)
+            move.w  #$00b8,$94(a6)
+.ocs        lea     cop_mods(pc),a0
+            move.w  #0,2(a0)
+            move.w  #0,6(a0)
+            move.w  #0,10(a0)
+            move.l  v_disp(a5),d0
+            bsr     set_bpl
+            move.w  v_gradfix(a5),d1
+            bsr     build_grad
+.r          rts
+
+; camera on the player, kept inside the map
+cam_follow: tst.w   v_tmode(a5)
+            beq     .r
+            movem.l d0-d3,-(sp)
+            moveq   #0,d0
+            moveq   #0,d1
+            move.w  H_PLAYER(a4),d2
+            bmi.s   .cl
+            lsl.w   #ACTV_SHIFT,d2
+            move.w  v_ax(a5,d2.w),d0
+            sub.w   #160-8,d0
+            move.w  v_ay(a5,d2.w),d1
+            sub.w   #136-12,d1
+.cl         tst.w   d0
+            bge.s   .x1
+            moveq   #0,d0
+.x1         move.w  v_tw(a5),d3
+            lsl.w   #4,d3
+            sub.w   #320,d3
+            cmp.w   d3,d0
+            ble.s   .x2
+            move.w  d3,d0
+.x2         tst.w   d1
+            bge.s   .y1
+            moveq   #0,d1
+.y1         move.w  v_th(a5),d3
+            lsl.w   #4,d3
+            sub.w   #256,d3
+            cmp.w   d3,d1
+            ble.s   .y2
+            move.w  d3,d1
+.y2         move.w  d0,v_camx(a5)
+            move.w  d1,v_camy(a5)
+            movem.l (sp)+,d0-d3
+.r          rts
+
+; keeps the 22 x 18 tiles round the camera drawn: one new column / row per
+; tile moved, or everything after a jump (level start, an actor sent home)
+cam_window: tst.w   v_tmode(a5)
+            beq     .r
+            movem.l d0-d4,-(sp)
+            move.w  v_camx(a5),d2           ; d2 / d3 = wanted top-left tile
+            lsr.w   #4,d2
+            move.w  v_tw(a5),d0
+            sub.w   #22,d0
+            cmp.w   d0,d2
+            ble.s   .a
+            move.w  d0,d2
+.a          move.w  v_camy(a5),d3
+            lsr.w   #4,d3
+            move.w  v_th(a5),d0
+            sub.w   #18,d0
+            cmp.w   d0,d3
+            ble.s   .b
+            move.w  d0,d3
+.b          move.w  d2,d4
+            sub.w   v_tx0(a5),d4
+            bpl.s   .c
+            neg.w   d4
+.c          cmp.w   #1,d4
+            bgt.s   .all
+            move.w  d3,d4
+            sub.w   v_ty0(a5),d4
+            bpl.s   .d
+            neg.w   d4
+.d          cmp.w   #1,d4
+            bgt.s   .all
+            cmp.w   v_tx0(a5),d2            ; one column
+            beq.s   .rows
+            bgt.s   .right
+            subq.w  #1,v_tx0(a5)            ; moved left: the new column is the first
+            move.w  v_tx0(a5),d0
+            bsr     draw_col
+            bra.s   .rows
+.right      addq.w  #1,v_tx0(a5)            ; moved right: the new column is the last
+            move.w  v_tx0(a5),d0
+            add.w   #21,d0
+            bsr     draw_col
+.rows       cmp.w   v_ty0(a5),d3            ; one row
+            beq.s   .out
+            bgt.s   .down
+            subq.w  #1,v_ty0(a5)
+            move.w  v_ty0(a5),d1
+            bsr     draw_row
+            bra.s   .out
+.down       addq.w  #1,v_ty0(a5)
+            move.w  v_ty0(a5),d1
+            add.w   #17,d1
+            bsr     draw_row
+            bra.s   .out
+.all        move.w  d2,v_tx0(a5)            ; everything
+            move.w  d3,v_ty0(a5)
+            move.w  d3,d1
+            moveq   #17,d4
+.al         bsr     draw_row
+            addq.w  #1,d1
+            dbf     d4,.al
+.out        movem.l (sp)+,d0-d4
+.r          rts
+
+; d0 = map column: its 18 tiles in the picture
+draw_col:   movem.l d1/d4,-(sp)
+            move.w  v_ty0(a5),d1
+            moveq   #17,d4
+.c          bsr     draw_cell
+            addq.w  #1,d1
+            dbf     d4,.c
+            movem.l (sp)+,d1/d4
+            rts
+
+; d1 = map row: its 22 tiles in the picture
+draw_row:   movem.l d0/d4,-(sp)
+            move.w  v_tx0(a5),d0
+            moveq   #21,d4
+.c          bsr     draw_cell
+            addq.w  #1,d0
+            dbf     d4,.c
+            movem.l (sp)+,d0/d4
+            rts
+
+; d0 = column, d1 = row: draws that map tile into the scrolling picture
+draw_cell:  movem.l d0-d4/a0-a2,-(sp)
+            move.w  d1,d2
+            mulu    v_tw(a5),d2
+            add.w   d0,d2                   ; map cell
+            move.l  v_wmap(a5),a0
+            moveq   #0,d3
+            move.b  0(a0,d2.l),d3           ; tile
+            mulu    v_tbytes(a5),d3
+            move.l  v_timg(a5),a0
+            add.l   d3,a0                   ; its picture
+            move.w  d1,d3
+            mulu    #16*TILE_LINE,d3
+            move.w  d0,d4
+            addq.w  #1,d4
+            add.w   d4,d4
+            ext.l   d4
+            add.l   d4,d3
+            move.l  v_tbuf(a5),a1
+            add.l   d3,a1                   ; plane 0, top line
+            move.w  H_DEPTH(a4),d4
+            subq.w  #1,d4
+.pl         move.l  a1,a2
+            moveq   #15,d3
+.ln         move.w  (a0)+,(a2)
+            lea     TILE_LINE(a2),a2
+            dbf     d3,.ln
+            add.l   v_tbufpl(a5),a1
+            dbf     d4,.pl
+            movem.l (sp)+,d0-d4/a0-a2
+            rts
+
+; d0 = column, d1 = row: redraws that tile if it is in the picture
+redraw_cell:
+            move.w  d0,-(sp)
+            sub.w   v_tx0(a5),d0
+            cmp.w   #21,d0
+            move.w  (sp)+,d0
+            bhi.s   .r
+            move.w  d1,-(sp)
+            sub.w   v_ty0(a5),d1
+            cmp.w   #17,d1
+            move.w  (sp)+,d1
+            bhi.s   .r
+            bsr     draw_cell
+.r          rts
+
+; the copper moves at the HUD split: bitplane pointers and fine scroll for
+; the camera (the picture starts HUD_LINES lines down the screen)
+cop_scroll: tst.w   v_tmode(a5)
+            beq     .r
+            movem.l d0-d4/a0,-(sp)
+            move.w  v_camx(a5),d0
+            move.w  d0,d1
+            and.w   #15,d1
+            moveq   #16,d2                  ; delay 16 - (x & 15), 0 when x is a tile edge
+            sub.w   d1,d2
+            and.w   #15,d2
+            add.w   #15,d0                  ; first word fetched: (x + 15) / 16 - 1, +1 for the slack
+            lsr.w   #4,d0
+            add.w   d0,d0
+            moveq   #0,d3
+            move.w  v_camy(a5),d3
+            add.w   #HUD_LINES,d3
+            mulu    #TILE_LINE,d3
+            ext.l   d0
+            add.l   d0,d3
+            add.l   v_tbuf(a5),d3
+            move.l  v_csplit(a5),a0
+            move.w  H_DEPTH(a4),d4
+            subq.w  #1,d4
+.p          swap    d3
+            move.w  d3,2(a0)
+            swap    d3
+            move.w  d3,6(a0)
+            addq.l  #8,a0
+            add.l   v_tbufpl(a5),d3
+            dbf     d4,.p
+            move.w  d2,d1                   ; BPLCON1: both playfields
+            lsl.w   #4,d1
+            or.w    d2,d1
+            move.w  d1,10(a0)
+            movem.l (sp)+,d0-d4/a0
+.r          rts
+
+; d0 = x, d1 = y (map pixels): Z clear when that point is in a solid tile
+; (or off the map: the map's edges are walls)
+solid_px:   movem.l d0-d2/a0,-(sp)
+            tst.w   d0
+            bmi.s   .yes
+            tst.w   d1
+            bmi.s   .yes
+            asr.w   #4,d0
+            cmp.w   v_tw(a5),d0
+            bge.s   .yes
+            asr.w   #4,d1
+            cmp.w   v_th(a5),d1
+            bge.s   .yes
+            mulu    v_tw(a5),d1
+            add.w   d0,d1
+            move.l  v_wmap(a5),a0
+            moveq   #0,d2
+            move.b  0(a0,d1.l),d2
+            lsl.w   #3,d2
+            move.l  v_tiles(a5),a0
+            btst    #0,T_PROPS+1(a0,d2.w)
+            bne.s   .yes
+            moveq   #0,d2
+            bra.s   .out
+.yes        moveq   #1,d2
+.out        tst.w   d2
+            movem.l (sp)+,d0-d2/a0
+            rts
+
+; d0 = x, d1 = y for actor a2: Z clear when its box (A_BX0..A_BY1) would be
+; in a solid tile - checked at its corners and the middle of its sides
+box_solid:  movem.l d0-d4,-(sp)
+            move.w  d0,d2
+            add.w   A_BX0(a2),d2            ; left
+            move.w  d0,d3
+            add.w   A_BX1(a2),d3            ; right
+            move.w  d1,d4
+            add.w   A_BY0(a2),d4            ; top
+            add.w   A_BY1(a2),d1            ; bottom
+            move.w  d2,d0
+            exg     d1,d4
+            bsr     solid_px                ; top left
+            bne.s   .hit
+            move.w  d3,d0
+            bsr     solid_px                ; top right
+            bne.s   .hit
+            exg     d1,d4
+            bsr     solid_px                ; bottom right
+            bne.s   .hit
+            move.w  d2,d0
+            bsr     solid_px                ; bottom left
+            bne.s   .hit
+            add.w   d4,d1                   ; middle of the sides
+            asr.w   #1,d1
+            bsr     solid_px
+            bne.s   .hit
+            move.w  d3,d0
+            bsr     solid_px
+            bne.s   .hit
+            moveq   #0,d0
+            bra.s   .out
+.hit        moveq   #1,d0
+.out        tst.w   d0
+            movem.l (sp)+,d0-d4
+            rts
+
+; actor d5 / a2 moved sideways into a wall: back where it was (turning
+; round); a platform player steps up onto a block one tile high
+tile_hres:  movem.l d0-d1,-(sp)
+            move.w  v_ax(a5,d5.w),d0
+            cmp.w   v_ox(a5,d5.w),d0
+            beq.s   .r
+            move.w  v_ay(a5,d5.w),d1
+            bsr     box_solid
+            beq.s   .r
+            cmp.w   #6,A_ROLE(a2)
+            bne.s   .back
+            tst.w   v_gnd(a5,d5.w)
+            beq.s   .back
+            sub.w   #16,d1
+            bsr     box_solid
+            bne.s   .back
+            move.w  d1,v_ay(a5,d5.w)        ; step up
+            bra.s   .r
+.back       move.w  v_ox(a5,d5.w),d0        ; stuck in a wall already: let it move
+            move.w  v_ay(a5,d5.w),d1
+            bsr     box_solid
+            bne.s   .r
+            move.w  v_ox(a5,d5.w),v_ax(a5,d5.w)
+            eor.w   #1,v_dx(a5,d5.w)
+.r          movem.l (sp)+,d0-d1
+            rts
+
+; the same up and down (actors without gravity)
+tile_vres:  movem.l d0-d1,-(sp)
+            move.w  v_ay(a5,d5.w),d1
+            cmp.w   v_oy(a5,d5.w),d1
+            beq.s   .r
+            move.w  v_ax(a5,d5.w),d0
+            bsr     box_solid
+            beq.s   .r
+            move.w  v_oy(a5,d5.w),d1
+            bsr     box_solid
+            bne.s   .r
+            move.w  v_oy(a5,d5.w),v_ay(a5,d5.w)
+            eor.w   #1,v_dy(a5,d5.w)
+.r          movem.l (sp)+,d0-d1
+            rts
+
+; gravity in a tile world: falls pixel by pixel until it lands on a solid
+; tile, bumps its head on one going up
+tile_phys:  bsr     tile_hres
+            move.w  v_vy(a5,d5.w),d0
+            cmp.w   #7,A_ROLE(a2)           ; hoppers float down more slowly
+            beq.s   .light
+            addq.w  #GRAVITY,d0
+            bra.s   .g
+.light      addq.w  #HOP_GRAVITY,d0
+.g          cmp.w   #MAX_FALL,d0
+            ble.s   .v
+            move.w  #MAX_FALL,d0
+.v          move.w  d0,v_vy(a5,d5.w)
+            add.w   v_ysub(a5,d5.w),d0
+            move.w  d0,d3
+            asr.w   #4,d3                   ; d3 = pixels this frame
+            and.w   #15,d0
+            move.w  d0,v_ysub(a5,d5.w)
+            tst.w   d3
+            beq.s   .still
+            bmi.s   .up
+            subq.w  #1,d3
+.dl         move.w  v_ax(a5,d5.w),d0
+            move.w  v_ay(a5,d5.w),d1
+            addq.w  #1,d1
+            bsr     box_solid
+            bne.s   .land
+            addq.w  #1,v_ay(a5,d5.w)
+            dbf     d3,.dl
+            move.w  #0,v_gnd(a5,d5.w)
+            rts
+.land       move.w  #0,v_vy(a5,d5.w)
+            move.w  #0,v_ysub(a5,d5.w)
+            move.w  #1,v_gnd(a5,d5.w)
+            rts
+.up         neg.w   d3
+            subq.w  #1,d3
+.ul         move.w  v_ax(a5,d5.w),d0
+            move.w  v_ay(a5,d5.w),d1
+            subq.w  #1,d1
+            bsr     box_solid
+            bne.s   .bump
+            subq.w  #1,v_ay(a5,d5.w)
+            dbf     d3,.ul
+            move.w  #0,v_gnd(a5,d5.w)
+            rts
+.bump       move.w  #0,v_vy(a5,d5.w)
+            move.w  #0,v_ysub(a5,d5.w)
+            rts
+.still      move.w  v_ax(a5,d5.w),d0
+            move.w  v_ay(a5,d5.w),d1
+            addq.w  #1,d1
+            bsr     box_solid
+            beq.s   .air
+            move.w  #1,v_gnd(a5,d5.w)
+            tst.w   v_vy(a5,d5.w)
+            ble.s   .r
+            move.w  #0,v_vy(a5,d5.w)
+            move.w  #0,v_ysub(a5,d5.w)
+.r          rts
+.air        move.w  #0,v_gnd(a5,d5.w)
+            rts
+
+; the player (d7, d5 / a2) in a tile world where it digs: fire + a direction
+; digs the tile that way (it takes TP_HARD frames), fire alone places the
+; tile it carries in front of it. Z clear while fire is held (no walking).
+tile_dig:   move.l  v_tiles(a5),a0
+            btst    #0,T_FLAGS+1(a0)
+            beq     .no
+            cmp.w   H_PLAYER(a4),d7
+            bne     .no
+            move.w  v_joy(a5),d2
+            btst    #4,d2
+            beq     .off
+            movem.l d0-d4/a0-a1,-(sp)
+            and.w   #15,d2
+            beq     .place
+            btst    #3,d2
+            bne.s   .right
+            btst    #2,d2
+            bne.s   .left
+            move.w  v_ay(a5,d5.w),d1        ; up or down: above the head / under the feet -
+            btst    #1,d2                   ; the middle, then each edge (it can stand on two tiles)
+            bne.s   .down
+            add.w   A_BY0(a2),d1
+            subq.w  #4,d1
+            bra.s   .vdig
+.down       add.w   A_BY1(a2),d1
+            addq.w  #4,d1
+.vdig       bsr     .midx
+            bsr     dig_px
+            bne     .held
+            move.w  v_ax(a5,d5.w),d0
+            add.w   A_BX0(a2),d0
+            bsr     dig_px
+            bne     .held
+            move.w  v_ax(a5,d5.w),d0
+            add.w   A_BX1(a2),d0
+            bsr     dig_px
+            bra     .held
+.right      move.w  v_ax(a5,d5.w),d0        ; beside it: the body first, then the feet
+            add.w   A_BX1(a2),d0
+            addq.w  #4,d0
+            bra.s   .side
+.left       move.w  v_ax(a5,d5.w),d0
+            add.w   A_BX0(a2),d0
+            subq.w  #4,d0
+.side       bsr     .midy
+            bsr     dig_px
+            bne.s   .held
+            move.w  v_ay(a5,d5.w),d1
+            add.w   A_BY1(a2),d1
+            subq.w  #2,d1
+            bsr     dig_px
+            bra.s   .held
+.place      move.w  v_joyprev(a5),d3        ; fire just pressed: put a tile down
+            btst    #4,d3
+            bne.s   .held
+            move.w  v_sel(a5),d3
+            beq.s   .held
+            add.w   d3,d3
+            lea     v_inv(a5),a1
+            tst.w   0(a1,d3.w)
+            beq.s   .held
+            move.w  v_ax(a5,d5.w),d0        ; in front of it, at its feet
+            tst.w   v_face(a5,d5.w)
+            bne.s   .pl
+            add.w   A_BX1(a2),d0
+            addq.w  #4,d0
+            bra.s   .pf
+.pl         add.w   A_BX0(a2),d0
+            subq.w  #4,d0
+.pf         move.w  v_ay(a5,d5.w),d1
+            add.w   A_BY1(a2),d1
+            subq.w  #2,d1
+            bsr     place_px
+.held       movem.l (sp)+,d0-d4/a0-a1
+            moveq   #1,d0                   ; Z clear: fire is held
+            rts
+.off        move.w  #-1,v_digc(a5)          ; fire let go: start again next time
+.no         moveq   #0,d0
+            rts
+.midx       move.w  v_ax(a5,d5.w),d0
+            move.w  A_BX0(a2),d3
+            add.w   A_BX1(a2),d3
+            asr.w   #1,d3
+            add.w   d3,d0
+            rts
+.midy       move.w  v_ay(a5,d5.w),d1
+            move.w  A_BY0(a2),d3
+            add.w   A_BY1(a2),d3
+            asr.w   #1,d3
+            add.w   d3,d1
+            rts
+
+; d0 / d1 = map pixel -> d0 = column, d1 = row, d2 = cell; Z set when off the map
+px_cell:    tst.w   d0
+            bmi.s   .off
+            tst.w   d1
+            bmi.s   .off
+            asr.w   #4,d0
+            cmp.w   v_tw(a5),d0
+            bge.s   .off
+            asr.w   #4,d1
+            cmp.w   v_th(a5),d1
+            bge.s   .off
+            moveq   #0,d2
+            move.w  d1,d2
+            mulu    v_tw(a5),d2
+            add.w   d0,d2
+            moveq   #1,d3                   ; Z clear
+            rts
+.off        moveq   #0,d3
+            rts
+
+; digs at map pixel d0 / d1: Z clear when there was something to dig there
+dig_px:     movem.l d0-d4/a0-a1,-(sp)
+            bsr     px_cell
+            beq     .none
+            move.l  v_wmap(a5),a0
+            moveq   #0,d3
+            move.b  0(a0,d2.l),d3           ; d3 = tile
+            move.w  d3,d4
+            lsl.w   #3,d4
+            move.l  v_tiles(a5),a1
+            lea     T_PROPS(a1,d4.w),a1     ; a1 = its properties
+            btst    #1,TP_FLAGS+1(a1)
+            beq     .none
+            cmp.w   v_digc(a5),d2           ; a new tile: start digging it
+            beq.s   .same
+            move.w  d2,v_digc(a5)
+            move.w  #0,v_digt(a5)
+.same       addq.w  #1,v_digt(a5)
+            move.w  v_digt(a5),d4
+            cmp.w   TP_HARD(a1),d4
+            blt     .busy
+            move.b  TP_BECOMES(a1),0(a0,d2.l)   ; dug out
+            move.w  #0,v_digt(a5)
+            move.w  #-1,v_digc(a5)
+            bsr     redraw_cell
+            move.w  d3,v_sel(a5)            ; carried
+            move.w  d3,d4
+            add.w   d4,d4
+            lea     v_inv(a5),a0
+            cmp.w   #99,0(a0,d4.w)
+            bge.s   .full
+            addq.w  #1,0(a0,d4.w)
+.full       moveq   #0,d0
+            move.w  TP_POINTS(a1),d0        ; score
+            beq.s   .nosc
+            add.l   v_score(a5),d0
+            cmp.l   #SCORE_MAX,d0
+            bls.s   .sc
+            move.l  #SCORE_MAX,d0
+.sc         move.l  d0,v_score(a5)
+.nosc       moveq   #0,d0
+            move.b  TP_SOUND(a1),d0
+            cmp.b   #$ff,d0
+            beq.s   .nosnd
+            bsr     play_sfx
+.nosnd      bsr     draw_hud
+            btst    #2,TP_FLAGS+1(a1)       ; counts towards the level goal
+            beq.s   .busy
+            movem.l (sp)+,d0-d4/a0-a1
+            movem.l d0-d7/a0-a3,-(sp)
+            bsr     act_goal                ; (may move on to the next level)
+            movem.l (sp)+,d0-d7/a0-a3
+            moveq   #1,d0
+            rts
+.busy       movem.l (sp)+,d0-d4/a0-a1
+            moveq   #1,d0
+            rts
+.none       movem.l (sp)+,d0-d4/a0-a1
+            moveq   #0,d0
+            rts
+
+; puts the tile carried at map pixel d0 / d1 if that place is not solid
+place_px:   movem.l d0-d4/a0-a1,-(sp)
+            bsr     px_cell
+            beq.s   .r
+            move.l  v_wmap(a5),a0
+            moveq   #0,d3
+            move.b  0(a0,d2.l),d3
+            lsl.w   #3,d3
+            move.l  v_tiles(a5),a1
+            btst    #0,T_PROPS+1(a1,d3.w)
+            bne.s   .r
+            move.w  v_sel(a5),d3
+            move.b  d3,0(a0,d2.l)
+            add.w   d3,d3
+            lea     v_inv(a5),a0
+            subq.w  #1,0(a0,d3.w)
+            bsr     redraw_cell
+            bsr     draw_hud
+.r          movem.l (sp)+,d0-d4/a0-a1
+            rts
 
 ; 8 directions from (3 x vertical + horizontal): up-left, up, up-right,
 ; left, (still), right, down-left, down, down-right
@@ -1900,6 +2665,7 @@ act_win:    move.l  H_TWIN(a4),d0
 
 ; a0 = message.  Shows it, waits for fire, then restarts the game.
 end_screen:
+            bsr     tiles_off
             bsr     music_stop              ; music and effects off
             move.l  a0,-(sp)
             bsr     hide_sprites
@@ -2144,7 +2910,7 @@ build_grad:
             movem.l d0-d5/a0-a2,-(sp)
             lea     cop_grad(pc),a0
             move.l  H_GRAD(a4),d0
-            beq     .off
+            beq     .nosky
             lea     0(a4,d0.l),a1           ; high nibbles
             lea     512(a1),a2              ; low nibbles (AGA)
             moveq   #0,d5                   ; d5 = 1: write low nibbles too
@@ -2175,7 +2941,12 @@ build_grad:
             or.w    #$07,d4
             move.w  d4,(a0)+
             move.w  #$fffe,(a0)+
-            tst.w   d5
+            tst.w   v_tmode(a5)             ; tile world: the scrolling picture starts here
+            beq.s   .nosp
+            cmp.w   #HUD_LINES,d3
+            bne.s   .nosp
+            bsr     .split
+.nosp       tst.w   d5
             beq.s   .hi
             move.l  #$01060c00,(a0)+        ; BPLCON3: bank 0, high nibbles
 .hi         move.w  #$0180,(a0)+
@@ -2194,6 +2965,27 @@ build_grad:
             move.l  #$01060c00,(a0)+        ; leave BPLCON3 as the CPU set it
 .off        move.l  #$fffffffe,(a0)+
             movem.l (sp)+,d0-d5/a0-a2
+            rts
+.nosky      tst.w   v_tmode(a5)             ; no sky: just the tile world split
+            beq.s   .off
+            move.l  #((($2c+HUD_LINES)<<8)|$07)<<16|$fffe,(a0)+
+            bsr     .split
+            bra.s   .off
+; bitplane pointers (filled in by cop_scroll), modulos and fine scroll
+.split      move.l  a0,v_csplit(a5)
+            move.w  H_DEPTH(a4),d4
+            subq.w  #1,d4
+            move.w  #$00e0,d2
+.sp         move.w  d2,(a0)+
+            move.w  #0,(a0)+
+            addq.w  #2,d2
+            move.w  d2,(a0)+
+            move.w  #0,(a0)+
+            addq.w  #2,d2
+            dbf     d4,.sp
+            move.l  #$01080000|(TILE_LINE-42),(a0)+
+            move.l  #$010a0000|(TILE_LINE-42),(a0)+
+            move.l  #$01020000,(a0)+
             rts
 .col        move.w  (a1)+,d2                ; next table colour, or the fixed one
             tst.w   d1
@@ -2413,7 +3205,7 @@ two_digits: movem.l d0/d4,-(sp)
 
 draw_hud:
             movem.l d0-d3/a0-a1,-(sp)
-            move.w  H_HUDROW(a4),d2
+            move.w  v_hudrow(a5),d2
             move.w  H_HUDCOL(a4),d3
             tst.w   H_SHOWSC(a4)
             beq.s   .nosc
@@ -2440,7 +3232,10 @@ draw_hud:
             beq.s   .nogoal
             lea     G_LABEL(a1),a0
             moveq   #15,d1
-            bsr     draw_text
+            bsr     hud_digging
+            beq.s   .gl
+            moveq   #13,d1                  ; digging: room for the tile carried
+.gl         bsr     draw_text
 .lab        tst.b   (a0)+                   ; column after the label
             beq.s   .labd
             addq.w  #1,d1
@@ -2453,17 +3248,58 @@ draw_hud:
             addq.w  #1,d1
             move.w  G_GOAL(a1),d0
             bsr     two_digits
-.nogoal     tst.w   H_SHOWLV(a4)
+.nogoal     bsr     hud_digging             ; digging: the tile the player places, and how many
+            beq.s   .notile
+            move.w  v_sel(a5),d0
+            move.l  v_tiles(a5),a0
+            move.w  T_NT(a0),d1
+            lsl.w   #3,d1
+            lea     T_PROPS(a0,d1.w),a0     ; names
+            add.w   d0,d0
+            add.w   d0,d0
+            add.w   d0,a0
+            moveq   #24,d1
+            moveq   #3,d0
+.tn         move.l  d0,-(sp)
+            move.b  (a0)+,d0
+            bne.s   .tc
+            moveq   #' ',d0
+.tc         bsr     draw_char
+            addq.w  #1,d1
+            move.l  (sp)+,d0
+            dbf     d0,.tn
+            moveq   #' ',d0
+            bsr     draw_char
+            addq.w  #1,d1
+            move.w  v_sel(a5),d0
+            add.w   d0,d0
+            lea     v_inv(a5),a0
+            move.w  0(a0,d0.w),d0
+            bsr     two_digits
+.notile     tst.w   H_SHOWLV(a4)
             beq.s   .nolv
             lea     str_lives(pc),a0
             moveq   #31,d1
-            bsr     draw_text
+            bsr     hud_digging
+            beq.s   .lv
+            moveq   #32,d1
+.lv         bsr     draw_text
             moveq   #'0',d0
             add.w   v_lives(a5),d0
-            moveq   #37,d1
+            addq.w  #6,d1
             bsr     draw_char
 .nolv       movem.l (sp)+,d0-d3/a0-a1
             rts
+
+; Z clear when the HUD shows the tile carried (tile world where the player digs)
+hud_digging:
+            tst.w   v_tmode(a5)
+            beq.s   .r
+            move.l  a0,-(sp)
+            move.l  v_tiles(a5),a0
+            btst    #0,T_FLAGS+1(a0)
+            move.l  (sp)+,a0
+.r          rts
 
 str_score:  dc.b    "SCORE ",0
 str_lives:  dc.b    "LIVES ",0
@@ -2506,8 +3342,9 @@ cop_spr:    dc.w    $0120,0,$0122,0
             dc.w    $0134,0,$0136,0
             dc.w    $0138,0,$013a,0
             dc.w    $013c,0,$013e,0
+cop_mods:   dc.w    $0108,0,$010a,0,$0102,0 ; modulos and fine scroll from the top (tile world: HUD strip)
 cop_grad:   dc.w    $ffff,$fffe             ; sky lines are built here at run time
-            ds.b    256*20+32               ; AGA: wait + 4 moves per line
+            ds.b    256*20+32+128           ; AGA: wait + 4 moves per line; + the tile world split
 
             cnop    0,4
 V:          ds.b    V_SIZE+128

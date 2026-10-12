@@ -329,7 +329,7 @@ function lesson_menu_names()
     for (var i = 0; i < array_length(les_defs); i++)
     {
         var _s = string(i + 1) + ". " + les_defs[i].name + "  (" + string(les_defs[i].mins) + " min)";
-        if (les_defs[i].pro && !pro_on()) { _s += "  - Pro"; }
+        if (les_defs[i].pro && !pro_edition()) { _s += "  - Pro"; }
         if (les_done[i]) { _s += "  - done"; }
         array_push(_n, _s);
     }

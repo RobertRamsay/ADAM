@@ -10,7 +10,8 @@
 #macro WS_LEVELS 7
 #macro WS_MUSIC 8
 #macro WS_ANIMATE 9
-#macro WS_COUNT 10
+#macro WS_TILES 10
+#macro WS_COUNT 11
 
 function ws_set(_i)
 {
@@ -127,12 +128,12 @@ function draw_topbar(_gw)
     var _ew = 54;
     var _elab = "LITE";
     var _est = BTN_GHOST;
-    var _ehelp = "ADAM Lite|This is the free edition. Click to see what ADAM Pro adds.";
-    if (pro_on())
+    var _ehelp = "ADAM Lite|This is the free edition, with every feature. Click to see the extra games and lessons ADAM Pro adds.";
+    if (pro_edition())
     {
         _elab = "PRO";
         _est = BTN_ON;
-        _ehelp = "ADAM Pro|The full edition, with every Pro feature on.";
+        _ehelp = "ADAM Pro|Every feature, plus the extra example games and lessons.";
     }
     if (ui_button("top_edition", _ex, 14, _ew, 32, _elab, _ehelp, _est))
     {
@@ -268,12 +269,12 @@ function ui_scale_step(_d)
 
 function ws_tabs()
 {
-    return [WS_HOME, WS_BACKDROP, WS_LEVELS, WS_SPRITES, WS_ACTORS, WS_ANIMATE, WS_LOGIC, WS_SOUND, WS_MUSIC, WS_BUILD];
+    return [WS_HOME, WS_BACKDROP, WS_TILES, WS_LEVELS, WS_SPRITES, WS_ACTORS, WS_ANIMATE, WS_LOGIC, WS_SOUND, WS_MUSIC, WS_BUILD];
 }
 
 function ws_name(_w)
 {
-    var _n = ["Home", "Backdrop", "Sprites", "Actors", "Logic", "Sound", "Build", "Levels", "Music", "Animate"];
+    var _n = ["Home", "Backdrop", "Sprites", "Actors", "Logic", "Sound", "Build", "Levels", "Music", "Animate", "Tiles"];
     return _n[_w];
 }
 
@@ -289,7 +290,8 @@ function ws_help(_w)
         "Build|Turn your game into a bootable Amiga disk (.ADF) and play it in FS-UAE or on a real Amiga.",
         "Levels|Up to 10 levels, each with its own hills grown from a seed and shaped by hand. Also the level goal counter and the title screen.",
         "Music|Make up to 4 songs from ready-made loops on Paula's 4 channels, edit their notes, and choose the music for each level.",
-        "Animate|Give each actor Idle, Walk, Jump and Fall animations of up to 8 frames from the sprite bank. The Amiga picks the right one as the actor moves."
+        "Animate|Give each actor Idle, Walk, Jump and Fall animations of up to 8 frames from the sprite bank. The Amiga picks the right one as the actor moves.",
+        "Tiles|Draw a tile set (up to 32 tiles) and paint a tile world of up to 128 x 64 tiles that scrolls both ways - with digging and placing tiles, Terraria style."
     ];
     return _h[_w];
 }

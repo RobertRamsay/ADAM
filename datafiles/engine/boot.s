@@ -3,7 +3,7 @@
 ;  showing a loading bar while the disk is read. If there is not enough chip
 ;  RAM for the game it shows a solid red screen and stops.
 ;  Entered by the Kickstart strap: a1 = trackdisk IOStdReq, a6 = ExecBase.
-;  ADAM patches 'loadsize' and the checksum when it writes the ADF.
+;  ADAM patches 'loadsize', 'bsssize' and the checksum when it writes the ADF.
 ;  Assemble:  vasmm68k_mot -Fbin -pic -m68000 -no-opt -o boot.bin boot.s
 ; ============================================================================
 CHUNK       equ 11264               ; one cylinder (2 tracks x 11 sectors)
@@ -22,6 +22,7 @@ NULL_SPR    equ 500                 ; offset of an empty sprite in the copper bl
 boot:
             move.l  a1,a2                   ; keep the IO request
             move.l  loadsize(pc),d0
+            add.l   bsssize(pc),d0          ; + cleared memory after the data (tile world)
             move.l  #$10002,d1              ; MEMF_CHIP | MEMF_CLEAR
             jsr     -198(a6)                ; AllocMem - the game buffer
             tst.l   d0
@@ -141,4 +142,5 @@ build_copper:
             rts
 
             cnop    0,4
-loadsize:   dc.l    0
+loadsize:   dc.l    0                       ; bytes of engine + data to read
+bsssize:    dc.l    0                       ; more chip RAM after them, cleared (version 6: tile world)

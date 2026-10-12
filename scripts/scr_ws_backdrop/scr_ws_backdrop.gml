@@ -443,7 +443,7 @@ function ws_backdrop_draw(_x1, _y1, _x2, _y2)
     if (!pro_on()) { _glabel = "Gradient  (Pro)"; }
     if (ui_button("bd_tool_6", _fx, _y + 76, _fw, 32, _glabel, "Gradient|Drag across an area of one colour: it shades from the selected colour where you start to the 'To' colour where you let go, blended with an Amiga-style dither pattern. Great for skies, sunsets and metal. Part of ADAM Pro.", _gst))
     {
-        if (pro_gate("The gradient tool")) { bd_tool = 6; }
+        if (feature_gate("The gradient tool")) { bd_tool = 6; }
     }
     _y += 120;
     if (bd_tool == 6)
@@ -476,7 +476,7 @@ function ws_backdrop_draw(_x1, _y1, _x2, _y2)
             if (pro_on() && bd_pattern == pt) { _pst = BTN_ON; }
             if (ui_button("bd_pat_" + string(pt), _fx + pt * (_sw + 4), _y + 18, _sw, 28, global.BD_PATTERN_NAMES[pt], "Dither pattern|Brush, Line, Box and Fill paint only some pixels in an even Amiga-style pattern, so the colour underneath shows through: 50% is a checkerboard. Paint a pattern over another colour for in-between shades. Part of ADAM Pro.", _pst))
             {
-                if (pro_gate("Dither patterns")) { bd_pattern = pt; }
+                if (feature_gate("Dither patterns")) { bd_pattern = pt; }
             }
         }
         _y += 56;

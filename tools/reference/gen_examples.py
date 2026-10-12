@@ -752,9 +752,12 @@ def to_builder(p):
         if chan[i]<0:
             d['bob']=1; d['bobmap']=[pal_nearest(p,c) for c in p['sprites'][a['sprite']]['cols']]
         acts.append(d)
-    return dict(depth=p['depth'],pal=[q(c) for c in p['pal']],pixels=p['pixels'],sprites=spr,actors=acts,rules=p['rules'],
+    bp=dict(depth=p['depth'],pal=[q(c) for c in p['pal']],pixels=p['pixels'],sprites=spr,actors=acts,rules=p['rules'],
                 sfx=[s for s in p['sfx']],lives=p['lives'],show_score=1,show_lives=1,hud_row=0,hud_col=p['hud_colour'],msg_col=p['msg_colour'],
-                over=p['over_text'],win=p['win_text'],grad=sky_table(p),ground=ground_table(p),game=game_block(p)), conf
+                over=p['over_text'],win=p['win_text'],grad=sky_table(p),ground=ground_table(p),game=game_block(p))
+    if p.get('tiles_on'):
+        bp['tiles']=dict(w=p['map_w'],h=p['map_h'],dig=p['tile_dig'],tiles=p['tiles'],map=p['map'])
+    return bp, conf
 
 def preview(p,fn):
     pal=[q(c) for c in p['pal']]; g=sky_table(p)
@@ -773,18 +776,21 @@ def preview(p,fn):
         for yy in range(24):
             for xx in range(16):
                 v=s['px'][yy*16+xx]
-                if v: c=q(oc[v-1]); im.putpixel((a['x']+xx,a['y']+yy),((c>>16)&255,(c>>8)&255,c&255))
+                if v and 0<=a['x']+xx<W and 0<=a['y']+yy<H: c=q(oc[v-1]); im.putpixel((a['x']+xx,a['y']+yy),((c>>16)&255,(c>>8)&255,c&255))
     im.resize((640,512),Image.NEAREST).save(fn)
 
 if __name__=='__main__':
     OUT=os.path.join(HERE,'out'); os.makedirs(OUT,exist_ok=True)
+    import ex_dig_deep
     for fn,make in [('gem_hunter',gem_hunter),('deep_dive',deep_dive),('star_catcher',star_catcher),('dodge_ball',dodge_ball),
-                    ('firefly_night',firefly_night)]:
+                    ('firefly_night',firefly_night),('dig_deep',ex_dig_deep.dig_deep)]:
         p=make()
         auto_groups(p)
         json.dump(p,open(os.path.join(REPO,'datafiles','examples','%s.adam'%fn),'w'),separators=(',',':'))
         bp,conf=to_builder(p)
         # build_test's pair colour rule takes the first actor on the pair
-        open(os.path.join(OUT,'%s.adf'%fn),'wb').write(adf(ENGINE+build(bp,False)))
+        data=build(bp,False)
+        open(os.path.join(OUT,'%s.adf'%fn),'wb').write(adf(ENGINE+data,bp.get('_need',0)))
         preview(p,os.path.join(OUT,'%s.png'%fn))
+        if p.get('tiles_on'): ex_dig_deep.map_png(p,os.path.join(OUT,'%s_map.png'%fn))
         print(fn,'conflicts' if any(conf) else 'ok', len(json.dumps(p)))

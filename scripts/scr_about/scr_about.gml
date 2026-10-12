@@ -118,18 +118,18 @@ function about_pro_page(_tx1, _ty1, _tx2, _ty2, _a)
     var _x = _tx1 + 24;
     var _w = _tx2 - _tx1 - 48;
     var _y = _ty1 + 24;
-    if (pro_on())
+    if (pro_edition())
     {
         ui_text(_x, _y, "This is ADAM Pro", global.TH.accent2, fa_left, fa_top, global.f_title, _a);
         _y += 44;
-        var _thanks = "Thank you for supporting ADAM! All the Pro features are on.";
+        var _thanks = "Thank you for supporting ADAM! The extra Pro example games and lessons are all yours.";
         ui_text_wrap(_x, _y, _thanks, global.TH.text, _w, global.f_body, _a);
         return;
     }
 
     ui_text(_x, _y, "This is ADAM Lite", c_white, fa_left, fa_top, global.f_title, _a);
     _y += 44;
-    var _intro = "ADAM Lite is free and makes complete games - backdrops, copper skies, sprites, rules, levels, sounds and music, on a real bootable disk. ADAM Pro adds more: dither drawing and gradients, BOBs (more moving things), scrolling, shooting, tracker effects, play-in-browser export and more. Pro features show a Pro label in ADAM Lite.";
+    var _intro = "ADAM Lite is free and has every feature: backdrops, copper skies, sprites and animations, BOBs, tile worlds, rules, levels, sounds and music, on a real bootable disk. ADAM Pro adds extra example games and lessons to learn from and remix - they show an ADAM Pro label here.";
     ui_text_wrap(_x, _y, _intro, global.TH.text, _w, global.f_body, _a);
     _y += ceil(ui_sh_ext(_intro, _w)) + 24;
     var _how = "ADAM Pro is a separate download on itch.io. Your projects open in either one.";

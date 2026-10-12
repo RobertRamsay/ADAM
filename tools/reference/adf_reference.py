@@ -16,7 +16,7 @@ def build(proj, aga):
     blob=bytearray()
     def align(n):
         while len(blob)%n: blob.append(0)
-    blob+= b'\0'*92                          # header (HDR_SIZE)
+    blob+= b'\0'*96                          # header (HDR_SIZE)
     align(8)
     off_pal=len(blob)
     for i in range(ncol):
@@ -125,12 +125,13 @@ def build(proj, aga):
         bx0,bx1=(min(xs),max(xs)) if xs else (0,bw-1)
         by0,by1=(min(ys),max(ys)) if ys else (0,bh-1)
         bsize=(bh<<6)|(bw//16+1) if a.get('bob') else 0
-        blob+=struct.pack('>HHHHHHHHHHHL',min(a['x'],320-bw),min(a['y'],256-bh),a['role'],a['speed'],int(a['visible']),int(a['left']),int(a['up']),bx0,by0,bx1,by1,spr_offs[i])
+        ww,wh=(proj['tiles']['w']*16,proj['tiles']['h']*16) if proj.get('tiles') else (320,256)
+        blob+=struct.pack('>HHHHHHHHHHHL',min(a['x'],ww-bw),min(a['y'],wh-bh),a['role'],a['speed'],int(a['visible']),int(a['left']),int(a['up']),bx0,by0,bx1,by1,spr_offs[i])
         aflags=0                                       # A_AMODE bit 0: 8 directions, bit 1: Fire
         if plans[i] and dirs_on(a) and len(plans[i])>=12: aflags|=1
         if plans[i] and len(plans[i])>12: aflags|=2
         blob+=struct.pack('>HLHHHHHHHH',a.get('chan',i),spr2_offs[i],a.get('rate',8),aflags,a.get('from',1),a.get('fast',0),
-                          1 if a.get('bob') else 0,320-bw,256-bh,bsize)
+                          1 if a.get('bob') else 0,ww-bw,wh-bh,bsize)
         blob+=struct.pack('>L',anim_offs[i])
     align(8)
     off_rules=len(blob)
@@ -184,6 +185,38 @@ def build(proj, aga):
         for lv in g['levels']:
             for h in lv: blob.extend(struct.pack('>H',h))
     align(8)
+    # tile world (engine.s T_*): proj['tiles'] = dict(w, h, dig, tiles=[dict(name, px (256 colour
+    # indexes), solid, dig, hard, points, goal, sound (-1 none), becomes)], map=[w*h tile numbers])
+    off_tiles=0; tile_fix=None
+    t=proj.get('tiles')
+    if t:
+        align(8)
+        off_tiles=len(blob)
+        nt=len(t['tiles'])
+        blob.extend(struct.pack('>HHHH',t['w'],t['h'],nt,1 if t.get('dig') else 0))
+        tile_fix=len(blob)
+        blob.extend(b'\0'*20)                  # T_IMG T_MAP T_WMAP T_BUF T_BUFPL, filled in below
+        for td in t['tiles']:
+            fl=(1 if td.get('solid') else 0)|(2 if td.get('dig') else 0)|(4 if td.get('goal') else 0)
+            snd=td.get('sound',-1); snd=0xff if snd<0 else snd&7
+            blob.extend(struct.pack('>HHHBB',fl,max(1,td.get('hard',10)),td.get('points',0),snd,td.get('becomes',0)&0xff))
+        for td in t['tiles']:
+            nm=td['name'].upper().encode('ascii','replace')[:4]
+            blob.extend(nm+b'\0'*(4-len(nm)))
+        align(8)
+        off_img=len(blob)
+        for td in t['tiles']:
+            for p in range(depth):
+                for y in range(16):
+                    w=0
+                    for x in range(16):
+                        if (td['px'][y*16+x]>>p)&1: w|=0x8000>>x
+                    blob.extend(struct.pack('>H',w))
+        align(8)
+        off_map=len(blob)
+        blob.extend(bytes(t['map']))
+        align(8)
+        struct.pack_into('>LL',blob,tile_fix,off_img,off_map)
     # music table (engine.s M_*): proj['songs'] = list of MOD files as bytes (up to 4),
     # proj['level_song'] = song index per level (10 entries, -1 = none)
     off_music=0
@@ -215,13 +248,24 @@ def build(proj, aga):
         blob+=b'\0'*8
         off_disp2=len(blob); blob+=b'\0'*(depth*10240+8)
         off_back=len(blob); blob+=b'\0'*(depth*10240+8)
+    # tile world: the map as played and the scrolling picture go in cleared memory after the data
+    bss=0
+    if t:
+        size_now=(len(blob)+7)//8*8
+        bufpl=((t['h']*16+16)*44+(t['w']+2)*2+64+7)//8*8
+        off_wmap=size_now
+        off_buf=off_wmap+(t['w']*t['h']+7)//8*8
+        bss=off_buf+depth*bufpl-size_now
+        struct.pack_into('>LLL',blob,tile_fix+8,off_wmap,off_buf,bufpl)
+    proj['_need']=((len(blob)+7)//8*8)+bss if t else 0     # bytes needed from the data start
     player=-1
     for i,a in enumerate(actors):
         if a['role'] in (0,6): player=i; break
-    hdr=struct.pack('>4sHHHHHHHHHHHH',b'ADAM',5,1 if aga else 0,depth,len(actors),len(rules),proj['lives'],
+    hdr=struct.pack('>4sHHHHHHHHHHHH',b'ADAM',6,1 if aga else 0,depth,len(actors),len(rules),proj['lives'],
                     int(proj['show_score']),int(proj['show_lives']),proj['hud_row'],proj['hud_col'],proj['msg_col'],player & 0xffff)+struct.pack('>L',off_game)
     hdr+=struct.pack('>LLLLLLLLLLLLLLL',off_pal,off_planes,off_act,off_rules,off_sfx,off_over,off_win,off_sprcol,off_disp,off_grad,off_ground,off_work,off_music,off_disp2,off_back)
-    blob[0:92]=hdr
+    hdr+=struct.pack('>L',off_tiles)
+    blob[0:96]=hdr
     return bytes(blob)
 
 # ---- animations (data block version 5); scr_project.gml anim_plan() does the same
@@ -338,10 +382,12 @@ def render_sfx(s):
         out.append(int(round(max(-1,min(1,v*env*0.9))*127))&255)
     return out
 
-def adf(game):
+def adf(game,need=0):
+    """need = bytes the game uses from the data start (tile world: data + cleared memory)"""
     size=(len(game)+511)//512*512
+    bss=max(0,len(ENGINE)+need-size)
     boot=bytearray(1024); boot[:len(BOOT)]=BOOT
-    struct.pack_into('>L',boot,len(BOOT)-4,size)
+    struct.pack_into('>LL',boot,len(BOOT)-8,size,bss)
     s=0
     for i in range(256):
         if i==1: continue

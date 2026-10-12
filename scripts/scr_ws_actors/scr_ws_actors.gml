@@ -71,6 +71,7 @@ function bobs_load()
 /// How many actors go on the disk: 8 in ADAM Lite, up to 32 in ADAM Pro
 function actors_on_disk()
 {
+    if (proj.tiles_on) { return min(ACT_MAX_SPR, array_length(proj.actors)); }     // tile world: hardware sprites only
     if (pro_on()) { return min(ACT_MAX_ALL, array_length(proj.actors)); }
     return min(ACT_MAX_SPR, array_length(proj.actors));
 }
@@ -82,7 +83,7 @@ function actors_bob_flags()
 {
     var _n = actors_on_disk();
     var _out = array_create(_n, false);
-    if (!pro_on()) { return _out; }
+    if (!pro_on() || proj.tiles_on) { return _out; }
     var _spr = 0;
     for (var i = 0; i < _n; i++)
     {
@@ -234,7 +235,7 @@ function ws_actors_draw(_x1, _y1, _x2, _y2)
             undo_mark("actdup" + string(current_time));
             var _cp = struct_overlay(actor_new(""), json_parse(json_stringify(proj.actors[sel_actor])));
             _cp.name = _cp.name + " 2";
-            _cp.x = min(BD_W - actor_dims(_cp)[0], _cp.x + 30);
+            _cp.x = min(world_w() - actor_dims(_cp)[0], _cp.x + 30);
             array_push(proj.actors, _cp);
             sel_actor = _na;
         }
@@ -262,10 +263,27 @@ function ws_actors_draw(_x1, _y1, _x2, _y2)
     var _fx = floor((_cx1 + _cx2 - _fw) / 2);
     var _fy = floor((_y1 + _y2 - _fh) / 2) - 10;
     ui_rrect(_fx - 6, _fy - 6, _fx + _fw + 6, _fy + _fh + 6, 10, c_black, c_black, 0.35);
-    backdrop_draw(_fx, _fy, _scale);
-    terrain_draw(_fx, _fy, _scale);
+    // tile world: the stage is a screen of the map, round the selected actor
+    var _ox = 0;
+    var _oy = 0;
+    if (proj.tiles_on)
+    {
+        if (!act_drag && _na > 0)
+        {
+            act_camx = clamp(proj.actors[sel_actor].x + 8 - BD_W div 2, 0, world_w() - BD_W);
+            act_camy = clamp(proj.actors[sel_actor].y + 12 - BD_H div 2, 0, world_h() - BD_H);
+        }
+        _ox = act_camx;
+        _oy = act_camy;
+        tile_map_draw(_fx, _fy, _ox, _oy, BD_W, BD_H, _scale);
+    }
+    else
+    {
+        backdrop_draw(_fx, _fy, _scale);
+        terrain_draw(_fx, _fy, _scale);
+    }
     // the ground line that walkers, hoppers and fallers stand on
-    if (current_time - ground_cache_time > 400)
+    if (!proj.tiles_on && current_time - ground_cache_time > 400)
     {
         ground_cache = ground_table_cached(proj);
         var _lh = level_heights_shown();
@@ -274,7 +292,7 @@ function ws_actors_draw(_x1, _y1, _x2, _y2)
     }
     var _gtab = ground_cache;
     draw_set_alpha(0.55);
-    for (var gl = 0; gl < BD_W - 1; gl++)
+    for (var gl = 0; gl < BD_W - 1 && !proj.tiles_on; gl++)
     {
         if (_gtab[gl] < 256 && _gtab[gl + 1] < 256 && (gl div 3) mod 2 == 0)
         {
@@ -283,14 +301,16 @@ function ws_actors_draw(_x1, _y1, _x2, _y2)
     }
     draw_set_alpha(1);
 
-    ui_register("act_stage", _fx, _fy, _fx + _fw, _fy + _fh, "Stage|Drag actors to set where they start. Hidden actors are drawn faded.");
+    var _sthelp = "Stage|Drag actors to set where they start. Hidden actors are drawn faded.";
+    if (proj.tiles_on) { _sthelp = "Stage|A screen of the tile world round the selected actor: drag actors to set where they start. To place them anywhere on the map, use the Map on the Tiles page."; }
+    ui_register("act_stage", _fx, _fy, _fx + _fw, _fy + _fh, _sthelp);
     var _hover = -1;
     if (ui_hit(_fx, _fy, _fx + _fw, _fy + _fh))
     {
         for (var h = _na - 1; h >= 0; h--)
         {
-            var _hx = _fx + proj.actors[h].x * _scale;
-            var _hy = _fy + proj.actors[h].y * _scale;
+            var _hx = _fx + (proj.actors[h].x - _ox) * _scale;
+            var _hy = _fy + (proj.actors[h].y - _oy) * _scale;
             var _hd = actor_dims(proj.actors[h]);
             if (point_in_rectangle(ui_mx, ui_my, _hx, _hy, _hx + _hd[0] * _scale, _hy + _hd[1] * _scale))
             {
@@ -303,8 +323,8 @@ function ws_actors_draw(_x1, _y1, _x2, _y2)
     {
         sel_actor = _hover;
         act_drag = true;
-        act_drag_dx = ui_mx - (_fx + proj.actors[_hover].x * _scale);
-        act_drag_dy = ui_my - (_fy + proj.actors[_hover].y * _scale);
+        act_drag_dx = ui_mx - (_fx + (proj.actors[_hover].x - _ox) * _scale);
+        act_drag_dy = ui_my - (_fy + (proj.actors[_hover].y - _oy) * _scale);
         undo_mark("actdrag" + string(current_time));
         ui_take_click();
     }
@@ -313,16 +333,17 @@ function ws_actors_draw(_x1, _y1, _x2, _y2)
     {
         var _ad = proj.actors[sel_actor];
         var _dd = actor_dims(_ad);
-        _ad.x = clamp(round((ui_mx - act_drag_dx - _fx) / _scale), 0, BD_W - _dd[0]);
-        _ad.y = clamp(round((ui_my - act_drag_dy - _fy) / _scale), 0, BD_H - _dd[1]);
+        _ad.x = clamp(round((ui_mx - act_drag_dx - _fx) / _scale) + _ox, 0, world_w() - _dd[0]);
+        _ad.y = clamp(round((ui_my - act_drag_dy - _fy) / _scale) + _oy, 0, world_h() - _dd[1]);
         proj_dirty = true;
     }
     // draw back to front: lower channels are in front on the Amiga
     for (var d = _na - 1; d >= 0; d--)
     {
         var _ac2 = proj.actors[d];
-        var _dx = _fx + _ac2.x * _scale;
-        var _dy = _fy + _ac2.y * _scale;
+        var _dx = _fx + (_ac2.x - _ox) * _scale;
+        var _dy = _fy + (_ac2.y - _oy) * _scale;
+        if (_dx < _fx - SPR_W * _scale || _dy < _fy - SPR_H * _scale || _dx > _fx + _fw || _dy > _fy + _fh) { continue; }
         var _alpha = 1;
         if (!_ac2.visible) { _alpha = 0.4; }
         var _frame_spr = actor_preview_sprite(_ac2);
@@ -331,8 +352,9 @@ function ws_actors_draw(_x1, _y1, _x2, _y2)
     for (var d2 = 0; d2 < _na; d2++)
     {
         var _ac3 = proj.actors[d2];
-        var _ex = _fx + _ac3.x * _scale;
-        var _ey = _fy + _ac3.y * _scale;
+        var _ex = _fx + (_ac3.x - _ox) * _scale;
+        var _ey = _fy + (_ac3.y - _oy) * _scale;
+        if (_ex < _fx - SPR_W * _scale || _ey < _fy - SPR_H * _scale || _ex > _fx + _fw || _ey > _fy + _fh) { continue; }
         var _ed = actor_dims(_ac3);
         if (d2 == sel_actor)
         {
@@ -353,8 +375,8 @@ function ws_actors_draw(_x1, _y1, _x2, _y2)
     {
         var _ag = proj.actors[sel_actor];
         var _agd = actor_dims(_ag);
-        var _gx = _fx + (_ag.x + _agd[0] div 2) * _scale;
-        var _gy = _fy + (_ag.y + _agd[1] div 2) * _scale;
+        var _gx = _fx + (_ag.x - _ox + _agd[0] div 2) * _scale;
+        var _gy = _fy + (_ag.y - _oy + _agd[1] div 2) * _scale;
         ui_dotted_line(_fx, _gy, _fx + _fw, _gy, global.TH.warn, 0.7, 5);
         ui_dotted_line(_gx, _fy, _gx, _fy + _fh, global.TH.warn, 0.7, 5);
         var _txt = "X " + string(_ag.x) + "   Y " + string(_ag.y);
@@ -422,9 +444,9 @@ function ws_actors_draw(_x1, _y1, _x2, _y2)
     _y += 6;
     var _sd = actor_dims(_s);
     ui_heading(_fx2, _y, "Start X");
-    set_val(_s, "x", ui_stepper("act_x", _fx2, _y + 18, _half, _s.x, 0, BD_W - _sd[0], "Start X|Horizontal start position in pixels (0 = left edge, " + string(BD_W - _sd[0]) + " = right edge). Hold Shift for steps of 10."), "actx");
+    set_val(_s, "x", ui_stepper("act_x", _fx2, _y + 18, _half, _s.x, 0, world_w() - _sd[0], "Start X|Horizontal start position in pixels (0 = left edge, " + string(world_w() - _sd[0]) + " = right edge). Hold Shift for steps of 10."), "actx");
     ui_heading(_fx2 + _half + 12, _y, "Start Y");
-    set_val(_s, "y", ui_stepper("act_y", _fx2 + _half + 12, _y + 18, _half, _s.y, 0, BD_H - _sd[1], "Start Y|Vertical start position (0 = top, " + string(BD_H - _sd[1]) + " = bottom). Hold Shift for steps of 10."), "acty");
+    set_val(_s, "y", ui_stepper("act_y", _fx2 + _half + 12, _y + 18, _half, _s.y, 0, world_h() - _sd[1], "Start Y|Vertical start position (0 = top, " + string(world_h() - _sd[1]) + " = bottom). Hold Shift for steps of 10."), "acty");
     _y += 66;
 
     // levels
@@ -476,7 +498,7 @@ function ws_actors_draw(_x1, _y1, _x2, _y2)
     var _bobv = ui_toggle("act_bob", _fx2, _y, _boblabel, _s.bob && pro_on(), "Draw as a BOB|A BOB (blitter object) is drawn into the backdrop by the Amiga's blitter instead of being a hardware sprite. BOBs use the nearest backdrop colours and do not take one of the 8 sprites, so a game can have up to 32 actors. Actors after the 8th sprite become BOBs anyway. Part of ADAM Pro.");
     if (_bobv != (_s.bob && pro_on()))
     {
-        if (pro_gate("BOBs")) { set_val(_s, "bob", _bobv, "actbob"); }
+        if (feature_gate("BOBs")) { set_val(_s, "bob", _bobv, "actbob"); }
     }
     _y += 34;
 

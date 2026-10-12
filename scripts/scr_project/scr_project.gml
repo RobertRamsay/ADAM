@@ -462,7 +462,13 @@ function project_new()
         sky_bot : 0xffa040,
         sky_mid_y : 128,
         songs : [],                              // Phase 2 contract: 0..4 songs (Music page)
-        level_song : array_create(LEVEL_MAX, -1) // Phase 2 contract: song per level, -1 = none
+        level_song : array_create(LEVEL_MAX, -1), // Phase 2 contract: song per level, -1 = none
+        tiles_on : false,                        // play on the tile map (Tiles page) instead of the backdrop
+        tiles : tiles_default(),                 // up to TILE_MAX tiles; 0 = air
+        map_w : 64,
+        map_h : 32,
+        map : map_starter(64, 32),               // map_w x map_h tile numbers
+        tile_dig : true                          // the player digs (fire + direction) and places (fire)
     };
     for (var i = 0; i < 8; i++)
     {
@@ -618,6 +624,7 @@ function project_from_loaded(_raw)
         }
     }
     _p.level_song = _lsv;
+    tiles_fix(_p);                       // tile world (older files have none)
     return _p;
 }
 
@@ -719,6 +726,30 @@ function project_pack(_src)
         _out.sprites = _ns;
     }
 
+    if (is_array(_src[$ "map"]))
+    {
+        variable_struct_remove(_out, "map");
+        _out.map_z = pack_u8(_src.map);
+    }
+    var _lt = _src[$ "tiles"];
+    if (is_array(_lt))
+    {
+        var _ntl = [];
+        for (var t = 0; t < array_length(_lt); t++)
+        {
+            var _tt = _lt[t];
+            if (is_struct(_tt) && is_array(_tt[$ "px"]))
+            {
+                var _ct = struct_overlay({}, _tt);
+                variable_struct_remove(_ct, "px");
+                _ct.pxz = pack_u8(_tt.px);
+                _tt = _ct;
+            }
+            array_push(_ntl, _tt);
+        }
+        _out.tiles = _ntl;
+    }
+
     var _lv = _src[$ "levels"];
     if (is_array(_lv))
     {
@@ -783,6 +814,28 @@ function project_unpack(_raw)
             {
                 _v.heights = unpack_u8(_v.heights_z, BD_W);
                 variable_struct_remove(_v, "heights_z");
+            }
+        }
+    }
+
+    var _mz = _raw[$ "map_z"];
+    if (is_string(_mz))
+    {
+        var _mw = _raw[$ "map_w"];
+        var _mh = _raw[$ "map_h"];
+        if (is_numeric(_mw) && is_numeric(_mh)) { _raw.map = unpack_u8(_mz, floor(_mw) * floor(_mh)); }
+        variable_struct_remove(_raw, "map_z");
+    }
+    var _lt = _raw[$ "tiles"];
+    if (is_array(_lt))
+    {
+        for (var t = 0; t < array_length(_lt); t++)
+        {
+            var _tt = _lt[t];
+            if (is_struct(_tt) && is_string(_tt[$ "pxz"]))
+            {
+                _tt.px = unpack_u8(_tt.pxz, TILE_PX * TILE_PX);
+                variable_struct_remove(_tt, "pxz");
             }
         }
     }
@@ -913,6 +966,7 @@ function project_load_from(_path)
 function project_after_change()
 {
     mem_mark_stale();
+    tiles_mark_all();
     for (var i = 0; i < SPR_COUNT; i++) { spr_dirty[i] = true; }
     bd_dirty = true;
     proj.depth = clamp(proj.depth, 1, machine_cur().max_depth);
@@ -941,6 +995,7 @@ function undo_keys(_ws)
         case WS_SOUND:    return ["sfx"];
         case WS_MUSIC:    return ["songs", "level_song"];
         case WS_ANIMATE:  return ["actors"];
+        case WS_TILES:    return ["tiles_on", "tiles", "map_w", "map_h", "map", "tile_dig", "actors"];
     }
     return [];
 }

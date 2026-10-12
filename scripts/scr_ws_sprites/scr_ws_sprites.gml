@@ -250,7 +250,7 @@ function ws_sprites_draw(_x1, _y1, _x2, _y2)
     var _hnew = ui_dropdown("spr_h", _fx + _szw + 12, _y + 18, _szw, 32, ["16 high", "24 high", "32 high", "48 high", "64 high"], _hcur, "Sprite height|A hardware sprite is 16 x 24 pixels. In ADAM Pro a sprite can be 16, 24, 32, 48 or 64 pixels high; one bigger than 16 x 24 is drawn as a BOB. Making it smaller cuts off the bottom.");
     if (_wnew != _wcur || _hnew != _hcur)
     {
-        if (pro_gate("Bigger sprites"))
+        if (feature_gate("Bigger sprites"))
         {
             undo_mark("sprsize" + string(current_time));
             spr_resize(_s, _wvals[_wnew], _hvals[_hnew]);

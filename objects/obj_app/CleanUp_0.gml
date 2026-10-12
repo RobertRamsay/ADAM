@@ -4,6 +4,7 @@ sfx_preview_stop();
 music_preview_free();
 spr_cache_free();
 backdrop_gfx_free();
+tiles_gfx_free();
 ds_map_destroy(ui_rects);
 ds_map_destroy(ui_anim);
 ds_map_destroy(ui_scroll);
