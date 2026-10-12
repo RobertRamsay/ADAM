@@ -111,6 +111,7 @@ function logic_sentence(_r)
         case 5: _s += "the game starts"; break;
         case 6: _s += _an + " jumps"; break;
         case 7: _s += "a level starts"; break;
+        case 8: _s += "fire is held for " + string_format(_r.n / 10, 0, 1) + " seconds with the stick still"; break;
     }
     var _tn = "?";
     if (_r.target < _na) { _tn = _names[_r.target]; }
@@ -141,19 +142,26 @@ function logic_sentence(_r)
         case 17: _s += "count one towards the " + string_lower(proj.goal_label) + " goal"; break;
         case 18: _s += "play the music '" + logic_song_name(_r.value) + "' from the start"; break;
         case 19: _s += "stop the music"; break;
+        case 20:
+            var _tln = "?";
+            if (_r.value >= 0 && _r.value < array_length(proj.tiles)) { _tln = proj.tiles[_r.value].name; }
+            _s += "put a " + _tln + " tile where " + _tn + " is (if nothing solid is there)";
+            break;
     }
     return _s + ".";
 }
 
 // ---------------------------------------------------------------------------
-// Groups: named, collapsible sets of rules. proj.rules stays in run order and
-// is kept sorted by group (rules outside any group first, then each group in
-// order), so what you see top to bottom is exactly the order the Amiga checks.
+// Groups: named, collapsible sets of rules, which can sit inside other groups
+// (parent = the group they are in, -1 = top level). proj.rules stays in run
+// order and is kept sorted by group (rules outside any group first, then each
+// group's rules in tree order: a group, then the groups inside it), so what you
+// see top to bottom is exactly the order the Amiga checks. Groups start folded.
 // ---------------------------------------------------------------------------
 
 function group_new(_name)
 {
-    return { name : _name, collapsed : false, enabled : true };
+    return { name : _name, collapsed : true, enabled : true, parent : -1 };
 }
 
 function group_colour(_g)
@@ -161,13 +169,101 @@ function group_colour(_g)
     return make_colour_hsv((_g * 47 + 140) mod 255, 150, 230);
 }
 
-/// Stable sort of the rules by group (-1 = no group comes first)
+/// The parent of group _g in _groups (-1 = top level, or when it is not a valid group)
+function group_parent_of(_groups, _g)
+{
+    if (_g < 0 || _g >= array_length(_groups)) { return -1; }
+    var _p = _groups[_g].parent;
+    if (!is_numeric(_p) || _p < 0 || _p >= array_length(_groups)) { return -1; }
+    return _p;
+}
+
+/// True when group _g (or a group it is inside) is switched off - its rules are not built
+function group_off_in(_groups, _g)
+{
+    var _n = 0;
+    while (_g >= 0 && _g < array_length(_groups) && _n <= array_length(_groups))
+    {
+        if (!_groups[_g].enabled) { return true; }
+        _g = group_parent_of(_groups, _g);
+        _n += 1;
+    }
+    return false;
+}
+
+/// How deep group _g sits (0 = top level)
+function group_depth(_g)
+{
+    var _d = 0;
+    var _p = group_parent_of(proj.groups, _g);
+    while (_p >= 0 && _d <= array_length(proj.groups))
+    {
+        _d += 1;
+        _p = group_parent_of(proj.groups, _p);
+    }
+    return _d;
+}
+
+/// True when _g is _anc or inside it (at any depth)
+function group_inside(_g, _anc)
+{
+    var _n = 0;
+    while (_g >= 0 && _n <= array_length(proj.groups))
+    {
+        if (_g == _anc) { return true; }
+        _g = group_parent_of(proj.groups, _g);
+        _n += 1;
+    }
+    return false;
+}
+
+/// True when a group _g is inside is folded (so _g is not shown)
+function group_hidden(_g)
+{
+    var _p = group_parent_of(proj.groups, _g);
+    var _n = 0;
+    while (_p >= 0 && _n <= array_length(proj.groups))
+    {
+        if (proj.groups[_p].collapsed) { return true; }
+        _p = group_parent_of(proj.groups, _p);
+        _n += 1;
+    }
+    return false;
+}
+
+/// The groups in tree order: each group, then the groups inside it
+function group_order()
+{
+    var _out = [];
+    var _stack = [];
+    for (var g = array_length(proj.groups) - 1; g >= 0; g--)
+    {
+        if (group_parent_of(proj.groups, g) < 0) { array_push(_stack, g); }
+    }
+    while (array_length(_stack) > 0 && array_length(_out) <= array_length(proj.groups))
+    {
+        var _g = array_pop(_stack);
+        array_push(_out, _g);
+        for (var c = array_length(proj.groups) - 1; c >= 0; c--)
+        {
+            if (group_parent_of(proj.groups, c) == _g) { array_push(_stack, c); }
+        }
+    }
+    return _out;
+}
+
+/// Stable sort of the rules by group (-1 = no group comes first), groups in tree order
 function logic_sort_rules()
 {
     var _out = [];
-    var _ng = array_length(proj.groups);
-    for (var g = -1; g < _ng; g++)
+    var _order = group_order();
+    for (var i0 = 0; i0 < array_length(proj.rules); i0++)
     {
+        if (proj.rules[i0].group < 0) { array_push(_out, proj.rules[i0]); }
+    }
+    for (var k = 0; k < array_length(_order); k++)
+    {
+        var g = _order[k];
         for (var i = 0; i < array_length(proj.rules); i++)
         {
             if (proj.rules[i].group == g) { array_push(_out, proj.rules[i]); }
@@ -176,25 +272,54 @@ function logic_sort_rules()
     proj.rules = _out;
 }
 
+/// "Outer > Inner" name of group _g
+function group_path(_g)
+{
+    var _s = proj.groups[_g].name;
+    var _p = group_parent_of(proj.groups, _g);
+    var _n = 0;
+    while (_p >= 0 && _n < 8)
+    {
+        _s = proj.groups[_p].name + " > " + _s;
+        _p = group_parent_of(proj.groups, _p);
+        _n += 1;
+    }
+    return _s;
+}
+
 function group_names()
 {
     var _n = ["(no group)"];
-    for (var g = 0; g < array_length(proj.groups); g++) { array_push(_n, proj.groups[g].name); }
+    for (var g = 0; g < array_length(proj.groups); g++) { array_push(_n, group_path(g)); }
     return _n;
 }
 
+/// Removes group _g: its rules and the groups inside it move up into its parent
 function group_delete(_g)
 {
+    var _up = group_parent_of(proj.groups, _g);
     for (var i = 0; i < array_length(proj.rules); i++)
     {
         var _r = proj.rules[i];
-        if (_r.group == _g) { _r.group = -1; }
-        else { if (_r.group > _g) { _r.group -= 1; } }
+        if (_r.group == _g) { _r.group = _up; }
+    }
+    for (var c = 0; c < array_length(proj.groups); c++)
+    {
+        if (proj.groups[c].parent == _g) { proj.groups[c].parent = _up; }
+    }
+    for (var i2 = 0; i2 < array_length(proj.rules); i2++)
+    {
+        if (proj.rules[i2].group > _g) { proj.rules[i2].group -= 1; }
+    }
+    for (var c2 = 0; c2 < array_length(proj.groups); c2++)
+    {
+        if (proj.groups[c2].parent > _g) { proj.groups[c2].parent -= 1; }
     }
     array_delete(proj.groups, _g, 1);
     logic_sort_rules();
 }
 
+/// Swaps groups _a and _b (two groups with the same parent: their order flips)
 function group_swap(_a, _b)
 {
     var _tmp = proj.groups[_a];
@@ -206,14 +331,32 @@ function group_swap(_a, _b)
         if (_r.group == _a) { _r.group = _b; }
         else { if (_r.group == _b) { _r.group = _a; } }
     }
+    for (var c = 0; c < array_length(proj.groups); c++)
+    {
+        var _gp = proj.groups[c];
+        if (_gp.parent == _a) { _gp.parent = _b; }
+        else { if (_gp.parent == _b) { _gp.parent = _a; } }
+    }
     logic_sort_rules();
 }
 
-/// Is rule _r switched off by its group?
+/// The group before (_dir -1) or after (_dir 1) _g with the same parent, or -1
+function group_sibling(_g, _dir)
+{
+    var _p = group_parent_of(proj.groups, _g);
+    var _j = _g + _dir;
+    while (_j >= 0 && _j < array_length(proj.groups))
+    {
+        if (group_parent_of(proj.groups, _j) == _p) { return _j; }
+        _j += _dir;
+    }
+    return -1;
+}
+
+/// Is rule _r switched off by its group (or a group that group is inside)?
 function rule_disabled(_r)
 {
-    if (_r.group < 0 || _r.group >= array_length(proj.groups)) { return false; }
-    return !proj.groups[_r.group].enabled;
+    return group_off_in(proj.groups, _r.group);
 }
 
 /// One WHEN / DO card. Returns 0, or 1 = delete, 2 = up, 3 = down.
@@ -254,6 +397,11 @@ function logic_rule_card(_r, i, _cx, _cy, _cw, _anames, _snames, _gnames)
             set_val(_r, "a", ui_dropdown(_rid + "_a", _wx, _wy, 150, 30, _anames, _r.a, "Which actor|The actor whose jump fires this rule - great for a jump sound."), _rid + "a");
             ui_text(_wx + 158, _wy + 15, "jumps", global.TH.text_dim, fa_left, fa_middle, global.f_body, 1);
             break;
+        case 8:
+            ui_text(_wx, _wy + 15, "for", global.TH.text_dim, fa_left, fa_middle, global.f_body, 1);
+            set_val(_r, "n", ui_stepper(_rid + "_n", _wx + 34, _wy, 120, clamp(_r.n, 1, 100), 1, 100, "Hold time|How long fire is held, in tenths of a second (10 = one second), with the joystick left alone. Fires once per hold - hold again for another. Great for 'hold fire to build a ladder part'."), _rid + "n");
+            ui_text(_wx + 162, _wy + 15, "tenths of a second", global.TH.text_dim, fa_left, fa_middle, global.f_body, 1);
+            break;
         case 3:
             set_val(_r, "n", ui_stepper(_rid + "_n", _wx, _wy, 150, _r.n, 1, 9999, "Score target|The rule fires once when the score reaches this number. Hold Shift for steps of 10."), _rid + "n");
             ui_text(_wx + 158, _wy + 15, "points", global.TH.text_dim, fa_left, fa_middle, global.f_body, 1);
@@ -269,7 +417,7 @@ function logic_rule_card(_r, i, _cx, _cy, _cw, _anames, _snames, _gnames)
     set_val(_r, "act", ui_dropdown(_rid + "_act", _dx, _dy, 210, 30, global.DO_NAMES, _r.act, "DO|What happens when the WHEN part is true."), _rid + "act");
     _dx += 220;
     var _act = _r.act;
-    if (_act == 4 || _act == 5 || _act == 6 || _act == 7 || _act == 11 || _act == 12 || _act == 14 || _act == 15 || _act == 16)
+    if (_act == 4 || _act == 5 || _act == 6 || _act == 7 || _act == 11 || _act == 12 || _act == 14 || _act == 15 || _act == 16 || _act == 20)
     {
         set_val(_r, "target", ui_dropdown(_rid + "_t", _dx, _dy, 150, 30, _anames, _r.target, "Which actor|The actor this action changes."), _rid + "t");
         _dx += 160;
@@ -304,6 +452,13 @@ function logic_rule_card(_r, i, _cx, _cy, _cw, _anames, _snames, _gnames)
             ui_text(_dx, _dy + 15, "No songs yet - make one on the Music page", global.TH.warn, fa_left, fa_middle, global.f_body, 1);
         }
     }
+    if (_act == 20)
+    {
+        var _tnames = [];
+        for (var tq = 0; tq < array_length(proj.tiles); tq++) { array_push(_tnames, string(tq) + ": " + proj.tiles[tq].name); }
+        set_val(_r, "value", ui_dropdown(_rid + "_tile", _dx, _dy, 170, 30, _tnames, clamp(_r.value, 0, array_length(_tnames) - 1), "Tile|The tile put down where the actor is (its middle, else its feet or head) - only where nothing solid is. A ladder part to climb out of a hole, a block to stand on, a torch. Tile world games only (Tiles page)."), _rid + "tile");
+        if (!proj.tiles_on) { ui_text(_dx + 180, _dy + 15, "(tile worlds only)", global.TH.warn, fa_left, fa_middle, global.f_small, 1); }
+    }
     if (_act == 8)
     {
         set_val(_r, "value", ui_colour_drop(_rid + "_col", _dx, _dy, 180, 30, clamp(_r.value, 0, pal_count() - 1), "Colour|The backdrop palette colour that colour 0 (the background and border) changes to."), _rid + "col");
@@ -319,6 +474,14 @@ function logic_rule_card(_r, i, _cx, _cy, _cw, _anames, _snames, _gnames)
         undo_mark("rulegrp" + string(current_time));
         _r.group = _ng;
         logic_resort = true;
+        var _og = _ng;                  // open the group it went into (and the groups that is inside)
+        var _on = 0;
+        while (_og >= 0 && _on < 64)
+        {
+            proj.groups[_og].collapsed = false;
+            _og = group_parent_of(proj.groups, _og);
+            _on += 1;
+        }
     }
     var _tx = _cx + _cw - 40;
     if (ui_button(_rid + "_del", _tx, _cy + 10, 30, 30, "X", "Delete rule|Removes this rule. You can Undo this.", BTN_DANGER)) { _res = 1; }
@@ -349,7 +512,7 @@ function ws_logic_draw(_x1, _y1, _x2, _y2)
         }
         else { toast("100 rules is the limit", 1); }
     }
-    if (ui_button("logic_addgroup", _lx2 - 296, _y1 + 8, 136, 30, "+ Add group", "Add group|Makes a new named group. Put rules in it with the Group drop-down on each rule, collapse it to tidy up, or switch it off to test without those rules.", BTN_NORMAL))
+    if (ui_button("logic_addgroup", _lx2 - 296, _y1 + 8, 136, 30, "+ Add group", "Add group|Makes a new named group. Put rules in it with the Group drop-down on each rule, put groups inside groups (+ Group, or 'In:' on a group), fold it to tidy up, or switch it off to test without those rules.", BTN_NORMAL))
     {
         undo_mark("grpadd" + string(current_time));
         array_push(proj.groups, group_new("Group " + string(_ngr + 1)));
@@ -380,14 +543,17 @@ function ws_logic_draw(_x1, _y1, _x2, _y2)
     var _gnames = group_names();
     var _cw = _lx2 - 14 - _lx - 10;
 
-    // layout: [kind, index] with kind 0 = rule, 1 = group header
+    // layout: [kind, index] with kind 0 = rule, 1 = group header; groups in tree order
     var _items = [];
     for (var i0 = 0; i0 < _nr; i0++)
     {
         if (proj.rules[i0].group < 0) { array_push(_items, [0, i0]); }
     }
-    for (var g = 0; g < _ngr; g++)
+    var _gorder = group_order();
+    for (var go = 0; go < array_length(_gorder); go++)
     {
+        var g = _gorder[go];
+        if (group_hidden(g)) { continue; }
         array_push(_items, [1, g]);
         if (!proj.groups[g].collapsed)
         {
@@ -434,6 +600,7 @@ function ws_logic_draw(_x1, _y1, _x2, _y2)
     var _movei = -1;
     var _gact = -1;
     var _gop = "";
+    var _gpar = -1;
     var _y = _ly1 + 10 - _off;
     for (var k2 = 0; k2 < array_length(_items); k2++)
     {
@@ -442,6 +609,9 @@ function ws_logic_draw(_x1, _y1, _x2, _y2)
         {
             var _g = _it[1];
             var _gr = proj.groups[_g];
+            var _gin = group_depth(_g) * 20;        // groups inside groups step in
+            var _gx0 = _lx + _gin;
+            var _gw0 = _cw - _gin;
             if (_y + _hdrh >= _ly1 - 10 && _y <= _ly2 + 10)
             {
                 var _gid = "grp_" + string(_g);
@@ -450,28 +620,35 @@ function ws_logic_draw(_x1, _y1, _x2, _y2)
                 {
                     if (proj.rules[c].group == _g) { _count += 1; }
                 }
+                var _nsub = 0;
+                for (var cg = 0; cg < _ngr; cg++)
+                {
+                    if (group_parent_of(proj.groups, cg) == _g) { _nsub += 1; }
+                }
                 var _gcol = group_colour(_g);
                 var _ga = 0.95;
-                if (!_gr.enabled) { _ga = 0.5; }
-                ui_rrect(_lx, _y, _lx + _cw, _y + _hdrh, 10, merge_colour(global.TH.btn_hot_top, _gcol, 0.18), global.TH.btn_bot, _ga);
-                ui_rrect(_lx, _y, _lx + 8, _y + _hdrh, 4, _gcol, _gcol, 1);
-                ui_rrect_line(_lx, _y, _lx + _cw, _y + _hdrh, 10, _gcol, 0.6, 1);
+                if (group_off_in(proj.groups, _g)) { _ga = 0.5; }
+                ui_rrect(_gx0, _y, _gx0 + _gw0, _y + _hdrh, 10, merge_colour(global.TH.btn_hot_top, _gcol, 0.18), global.TH.btn_bot, _ga);
+                ui_rrect(_gx0, _y, _gx0 + 8, _y + _hdrh, 4, _gcol, _gcol, 1);
+                ui_rrect_line(_gx0, _y, _gx0 + _gw0, _y + _hdrh, 10, _gcol, 0.6, 1);
                 // collapse / expand
-                var _chot = ui_register(_gid + "_fold", _lx + 12, _y + 6, _lx + 44, _y + _hdrh - 6, "Collapse / expand|Folds this group down to its title, or opens it.");
-                ui_chevron(_lx + 28, _y + _hdrh * 0.5, 6, c_white, !_gr.collapsed);
+                var _chot = ui_register(_gid + "_fold", _gx0 + 12, _y + 6, _gx0 + 44, _y + _hdrh - 6, "Collapse / expand|Folds this group down to its title (and the groups inside it), or opens it.");
+                ui_chevron(_gx0 + 28, _y + _hdrh * 0.5, 6, c_white, !_gr.collapsed);
                 if (_chot && ui_pressed)
                 {
                     ui_take_click();
                     _gr.collapsed = !_gr.collapsed;
                     proj_dirty = true;
                 }
-                var _nmw = max(120, min(300, _cw - 470));
-                var _nm = ui_textfield(_gid + "_name", _lx + 48, _y + 7, _nmw, 30, _gr.name, 28, "Group name|Call it what the rules do, e.g. 'Hoppers hit the hero' or 'Collecting gems'.");
+                var _nmw = max(100, min(260, _gw0 - 700));
+                var _nm = ui_textfield(_gid + "_name", _gx0 + 48, _y + 7, _nmw, 30, _gr.name, 28, "Group name|Call it what the rules do, e.g. 'Hoppers hit the hero' or 'Collecting gems'.");
                 set_val(_gr, "name", _nm, _gid + "name");
                 var _rt = string(_count) + " rule";
                 if (_count != 1) { _rt += "s"; }
-                ui_text(_lx + 48 + _nmw + 12, _y + _hdrh * 0.5, _rt, global.TH.text_dim, fa_left, fa_middle, global.f_small, 1);
-                var _bx = _lx + _cw - 8;
+                if (_nsub > 0) { _rt += ", " + string(_nsub) + " group"; }
+                if (_nsub > 1) { _rt += "s"; }
+                ui_text(_gx0 + 48 + _nmw + 10, _y + _hdrh * 0.5, _rt, global.TH.text_dim, fa_left, fa_middle, global.f_small, 1);
+                var _bx = _gx0 + _gw0 - 8;
                 _bx -= 30;
                 if (ui_button(_gid + "_del", _bx, _y + 7, 30, 30, "X", "Remove group|Removes the group. Its rules are kept and move out of the group. You can Undo this.", BTN_DANGER)) { _gact = _g; _gop = "del"; }
                 _bx -= 36;
@@ -480,8 +657,19 @@ function ws_logic_draw(_x1, _y1, _x2, _y2)
                 if (ui_button(_gid + "_up", _bx, _y + 7, 30, 30, "^", "Move group up|The whole group runs earlier.", BTN_GHOST)) { _gact = _g; _gop = "up"; }
                 _bx -= 86;
                 if (ui_button(_gid + "_add", _bx, _y + 7, 80, 30, "+ Rule", "Add rule to this group|Adds a new rule at the end of this group.", BTN_NORMAL)) { _gact = _g; _gop = "add"; }
-                _bx -= 110;
-                set_val(_gr, "enabled", ui_toggle(_gid + "_on", _bx, _y + 10, "On", _gr.enabled, "Group on / off|Switch a group off to leave its rules out of the game while you test - they are kept, just not built."), _gid + "on");
+                _bx -= 86;
+                if (ui_button(_gid + "_sub", _bx, _y + 7, 80, 30, "+ Group", "Add a group inside|Makes a new group inside this one - group your groups, e.g. 'Enemies' holding 'Bats' and 'Slimes'.", BTN_GHOST)) { _gact = _g; _gop = "sub"; }
+                _bx -= 166;
+                var _pn = ["In: (top level)"];
+                for (var pg = 0; pg < _ngr; pg++) { array_push(_pn, "In: " + group_path(pg)); }
+                var _np = ui_dropdown(_gid + "_par", _bx, _y + 7, 160, 30, _pn, group_parent_of(proj.groups, _g) + 1, "Inside group|Which group this group sits in. Its rules run with that group's, and switching that group off switches this one off too.") - 1;
+                if (_np != group_parent_of(proj.groups, _g))
+                {
+                    if (_np >= 0 && group_inside(_np, _g)) { toast("A group cannot go inside itself or a group inside it", 1); }
+                    else { _gact = _g; _gop = "par"; _gpar = _np; }
+                }
+                _bx -= 70;
+                set_val(_gr, "enabled", ui_toggle(_gid + "_on", _bx, _y + 10, "On", _gr.enabled, "Group on / off|Switch a group off to leave its rules - and the groups inside it - out of the game while you test. They are kept, just not built."), _gid + "on");
             }
             _y += _hdrh + 10;
         }
@@ -491,7 +679,7 @@ function ws_logic_draw(_x1, _y1, _x2, _y2)
             if (_y + _cardh >= _ly1 - 10 && _y <= _ly2 + 10)
             {
                 var _ind = 0;
-                if (proj.rules[_i].group >= 0) { _ind = 16; }
+                if (proj.rules[_i].group >= 0) { _ind = 16 + group_depth(proj.rules[_i].group) * 20; }
                 var _res = logic_rule_card(proj.rules[_i], _i, _lx + _ind, _y, _cw - _ind, _anames, _snames, _gnames);
                 if (_res == 1) { _del = _i; }
                 if (_res == 2) { _movei = _i; _move = -1; }
@@ -533,15 +721,30 @@ function ws_logic_draw(_x1, _y1, _x2, _y2)
             undo_mark("grpdel" + string(current_time));
             group_delete(_gact);
         }
-        if (_gop == "up" && _gact > 0)
+        if (_gop == "up" && group_sibling(_gact, -1) >= 0)
         {
             undo_mark("grpmove" + string(current_time));
-            group_swap(_gact, _gact - 1);
+            group_swap(_gact, group_sibling(_gact, -1));
         }
-        if (_gop == "dn" && _gact < array_length(proj.groups) - 1)
+        if (_gop == "dn" && group_sibling(_gact, 1) >= 0)
         {
             undo_mark("grpmove" + string(current_time));
-            group_swap(_gact, _gact + 1);
+            group_swap(_gact, group_sibling(_gact, 1));
+        }
+        if (_gop == "par")
+        {
+            undo_mark("grppar" + string(current_time));
+            proj.groups[_gact].parent = _gpar;
+            logic_sort_rules();
+        }
+        if (_gop == "sub")
+        {
+            undo_mark("grpsub" + string(current_time));
+            var _sg = group_new("Group " + string(array_length(proj.groups) + 1));
+            _sg.parent = _gact;
+            array_push(proj.groups, _sg);
+            proj.groups[_gact].collapsed = false;
+            logic_sort_rules();
         }
         if (_gop == "add")
         {
@@ -554,6 +757,14 @@ function ws_logic_draw(_x1, _y1, _x2, _y2)
                 _nr2.group = _gact;
                 array_push(proj.rules, _nr2);
                 proj.groups[_gact].collapsed = false;
+                var _op = group_parent_of(proj.groups, _gact);       // open the groups it is inside too
+                var _on2 = 0;
+                while (_op >= 0 && _on2 < 64)
+                {
+                    proj.groups[_op].collapsed = false;
+                    _op = group_parent_of(proj.groups, _op);
+                    _on2 += 1;
+                }
                 logic_sort_rules();
                 logic_reveal = _nr2;
             }

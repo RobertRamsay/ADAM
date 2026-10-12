@@ -16,7 +16,7 @@ def build(proj, aga):
     blob=bytearray()
     def align(n):
         while len(blob)%n: blob.append(0)
-    blob+= b'\0'*96                          # header (HDR_SIZE)
+    blob+= b'\0'*100                         # header (HDR_SIZE)
     align(8)
     off_pal=len(blob)
     for i in range(ncol):
@@ -203,7 +203,7 @@ def build(proj, aga):
         blob.extend(b'\0'*20)                  # T_IMG T_MAP T_WMAP T_BUF T_BUFPL, filled in below
         blob.extend(struct.pack('>HHHHHHL',S,sh,tline,ncol,nrow,0,ring))
         for td in t['tiles']:
-            fl=(1 if td.get('solid') else 0)|(2 if td.get('dig') else 0)|(4 if td.get('goal') else 0)
+            fl=(1 if td.get('solid') else 0)|(2 if td.get('dig') else 0)|(4 if td.get('goal') else 0)|(8 if td.get('ladder') else 0)
             snd=td.get('sound',-1); snd=0xff if snd<0 else snd&7
             bec=td.get('becomes',0)
             if bec>=nt: bec=0
@@ -226,6 +226,35 @@ def build(proj, aga):
         else: blob.extend(bytes(t['map']))
         align(8)
         struct.pack_into('>LL',blob,tile_fix,off_img,off_map)
+    # custom HUD (engine.s UI_*, ADAM Pro): proj['ui'] = dict(bottom, rows, font (512 bytes or None),
+    # panel (320 x rows*8 colour indexes or None), fields = [ui_ref field dicts])
+    off_ui=0
+    u=proj.get('ui')
+    if u:
+        import ui_ref
+        align(8)
+        off_ui=len(blob)
+        blob.extend(struct.pack('>HHHH',1|(2 if u.get('bottom') else 0),u['rows'],len(u['fields']),0))
+        ufix=len(blob)
+        blob.extend(b'\0'*8)
+        for f in u['fields']: blob.extend(ui_ref.field_bytes(f))
+        align(8)
+        off_font=0
+        if u.get('font'):
+            off_font=len(blob); blob.extend(bytes(u['font'])); align(8)
+        off_panel=0
+        if u.get('panel'):
+            off_panel=len(blob)
+            pp=u['panel']; h=u['rows']*8
+            for pl in range(depth):
+                for y in range(h):
+                    for bx in range(40):
+                        v=0
+                        for k in range(8):
+                            if (min(pp[y*320+bx*8+k],(1<<depth)-1)>>pl)&1: v|=0x80>>k
+                        blob.append(v)
+            align(8)
+        struct.pack_into('>LL',blob,ufix,off_font,off_panel)
     # music table (engine.s M_*): proj['songs'] = list of MOD files as bytes (up to 4),
     # proj['level_song'] = song index per level (10 entries, -1 = none)
     off_music=0
@@ -270,11 +299,11 @@ def build(proj, aga):
     player=-1
     for i,a in enumerate(actors):
         if a['role'] in (0,6): player=i; break
-    hdr=struct.pack('>4sHHHHHHHHHHHH',b'ADAM',6,1 if aga else 0,depth,len(actors),len(rules),proj['lives'],
+    hdr=struct.pack('>4sHHHHHHHHHHHH',b'ADAM',7,1 if aga else 0,depth,len(actors),len(rules),proj['lives'],
                     int(proj['show_score']),int(proj['show_lives']),proj['hud_row'],proj['hud_col'],proj['msg_col'],player & 0xffff)+struct.pack('>L',off_game)
     hdr+=struct.pack('>LLLLLLLLLLLLLLL',off_pal,off_planes,off_act,off_rules,off_sfx,off_over,off_win,off_sprcol,off_disp,off_grad,off_ground,off_work,off_music,off_disp2,off_back)
-    hdr+=struct.pack('>L',off_tiles)
-    blob[0:96]=hdr
+    hdr+=struct.pack('>LL',off_tiles,off_ui)
+    blob[0:100]=hdr
     return bytes(blob)
 
 # ---- animations (data block version 5); scr_project.gml anim_plan() does the same

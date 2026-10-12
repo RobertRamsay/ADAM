@@ -62,6 +62,11 @@ function tut_init()
         tut_step(WS_ANIMATE, "anim_lib_tab_1", "Animation library", "Every animation your actors already have, playing live. Drag one onto any joystick slot - or onto Walk, In air or Falling - to copy it there. You can also drag one slot onto another."),
         tut_step(WS_ANIMATE, "anim_test", "Test it", "Switch Test on and drive the preview with the arrow keys, WASD or a gamepad, to see each animation as the Amiga will play it."),
         tut_step(WS_ANIMATE, "anim_flip", "Facing left", "Draw your frames facing right and switch this on: when the actor moves left, the Amiga shows them turned round."),
+        // ---------- UI ----------
+        tut_step(WS_UI, "ui_on", "Your own HUD", "ADAM Pro: switch on a custom HUD - a framed panel at the top or bottom of the screen, with the score, lives, goal and more where you want them."),
+        tut_step(WS_UI, "ui_style", "Panel frame", "Pick a ready-made frame - metal, wood, stone, neon, parchment - in your game's colours, then draw on it in the Panel frame editor below the preview."),
+        tut_step(WS_UI, "ui_font", "Font", "A font style for the HUD and the game's messages, or Custom to draw your own letters."),
+        tut_step(WS_UI, "ui_preview", "Fields", "Drag the fields round the preview. Pick one to change what it shows, its label, colour and shadow on the right."),
         // ---------- LOGIC ----------
         tut_step(WS_LOGIC, "", "Rules make it a game", "Each rule is a sentence: WHEN something happens, DO something. For example: WHEN Hero touches Gem, DO add 10 to the score."),
         tut_step(WS_LOGIC, "logic_add", "Add a rule", "Press this to add a new rule, then change its parts with the drop-down menus."),

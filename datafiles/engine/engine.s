@@ -56,7 +56,25 @@ H_MUSIC     equ 80         ; offset: music table, 0 = no music
 H_DISP2     equ 84         ; offset: second display buffer for BOBs (depth * 10240 + 8), 0 = no BOBs
 H_BACK      equ 88         ; offset: BOB background - backdrop + hills + HUD (depth * 10240 + 8), 0 = no BOBs
 H_TILES     equ 92         ; offset: tile world, 0 = none (version 6)
-HDR_SIZE    equ 96
+H_UI        equ 96         ; offset: custom HUD (ADAM Pro UI editor), 0 = the standard HUD (version 7)
+HDR_SIZE    equ 100
+
+; custom HUD (UI_*): a panel strip of ROWS text rows at the top or bottom, its
+; picture (the backdrop with the panel frame baked in), a font and the fields
+UI_FLAGS    equ 0          ; bit 0 on, bit 1 at the bottom (the top in a tile world)
+UI_ROWS     equ 2          ; height in text rows (8 lines each), 1..6
+UI_NF       equ 4          ; number of fields
+UI_FONT     equ 8          ; long offset: 64 x 8 bytes font (characters 32..95), 0 = the built-in one
+UI_PANEL    equ 12         ; long offset: panel picture, depth planes x ROWS x 8 lines x 40 bytes, 0 = none
+UI_FIELDS   equ 16         ; NF x 32 bytes (F_*)
+F_TYPE      equ 0          ; 0 text, 1 score, 2 lives, 3 goal, 4 tile carried, 5 level
+F_COL       equ 2          ; text column 0..39
+F_ROW       equ 4          ; row in the panel
+F_COLOUR    equ 6
+F_SHADOW    equ 8          ; shadow colour (down and right one pixel), -1 = none
+F_DIGITS    equ 10         ; digits of the number
+F_LABEL     equ 12         ; 20 bytes: label before the value, or the text (0 ends it)
+F_SIZE      equ 32
 
 ; tile world (version 6): a map of 16 x 16 tiles that scrolls both ways
 ; behind the actors, with a HUD strip at the top of the screen
@@ -77,12 +95,13 @@ T_NCOL      equ 34         ; tiles across the scrolling picture: 320 / S + 2
 T_NROW      equ 36         ; tiles down it: 256 / S + 2
 T_RING      equ 40         ; long: NROW x S x LINE - the picture is a ring this big, kept twice
 T_PROPS     equ 44         ; NT x 8 bytes (TP_*), then NT x 4 bytes of names for the HUD
-TP_FLAGS    equ 0          ; byte: bit 0 solid, bit 1 can be dug, bit 2 counts towards the level goal
+TP_FLAGS    equ 0          ; byte: bit 0 solid, bit 1 can be dug, bit 2 counts towards the level goal,
+                           ; bit 3 ladder (a platform player climbs it)
 TP_SOUND    equ 1          ; byte: sound 0..7, $ff = none
 TP_HARD     equ 2          ; frames of digging it takes
 TP_POINTS   equ 4          ; score for digging it
 TP_BECOMES  equ 6          ; the tile left behind when it is dug
-HUD_LINES   equ 8          ; the HUD strip above a tile world
+HUD_LINES   equ 8          ; the standard HUD strip above a tile world (v_hudlines: the custom one)
 ;  The scrolling picture is 22 x 18 tiles round the camera. Tile (c, r) is at
 ;  buf + r * 16 * 44 + (c + 1) * 2: moving right one tile only moves the
 ;  bitplane pointers on by 2 bytes, and the new column on the right lands on
@@ -233,6 +252,11 @@ v_sfx       rs.b 12        ; ptplayer sfx structure: ptr.l len.w per.w vol.w cha
 v_disp      rs.l 1
 v_digits    rs.b 8
 v_opaque    rs.w 1
+v_font      rs.l 1         ; the font text is drawn with
+v_shadow    rs.w 1         ; shadow colour of the text drawn now, -1 = none
+v_ui        rs.l 1         ; custom HUD block, 0 = the standard HUD
+v_hudrow0   rs.w 1         ; text row of the HUD on the normal display
+v_hudlines  rs.w 1         ; lines of the HUD strip above a tile world
 v_latch     rs.w 128
 v_disp2     rs.l 1         ; BOBs: second display buffer, 0 = no BOBs (one display, v_disp)
 v_back      rs.l 1         ; BOBs: backdrop + hills + HUD, copied back where a BOB was
@@ -392,9 +416,34 @@ init_display:
             move.l  d1,d0
             add.l   a4,d0
 .nog        move.l  d0,v_game(a5)
-            move.l  #0,v_tiles(a5)          ; tile world
+            lea     font(pc),a0                 ; text: the built-in font, no shadow
+            move.l  a0,v_font(a5)
+            move.w  #-1,v_shadow(a5)
+            move.l  #0,v_ui(a5)
+            move.w  H_HUDROW(a4),v_hudrow0(a5)
+            move.w  #HUD_LINES,v_hudlines(a5)
+            move.l  H_UI(a4),d1                 ; custom HUD (ADAM Pro)
+            beq.s   .noui
+            lea     0(a4,d1.l),a0
+            btst    #0,UI_FLAGS+1(a0)
+            beq.s   .noui
+            move.l  a0,v_ui(a5)
+            move.l  UI_FONT(a0),d1
+            beq.s   .uif
+            add.l   a4,d1
+            move.l  d1,v_font(a5)
+.uif        move.w  UI_ROWS(a0),d1
+            lsl.w   #3,d1
+            move.w  d1,v_hudlines(a5)
+            move.w  #0,v_hudrow0(a5)
+            btst    #1,UI_FLAGS+1(a0)
+            beq.s   .noui
+            moveq   #32,d1
+            sub.w   UI_ROWS(a0),d1
+            move.w  d1,v_hudrow0(a5)
+.noui       move.l  #0,v_tiles(a5)          ; tile world
             move.w  #0,v_tmode(a5)
-            move.w  H_HUDROW(a4),v_hudrow(a5)
+            move.w  v_hudrow0(a5),v_hudrow(a5)
             move.l  H_TILES(a4),d1
             beq.s   .notile
             lea     0(a4,d1.l),a0
@@ -565,6 +614,7 @@ restore_backdrop:
 .cp         move.l  (a0)+,(a1)+
             dbf     d7,.cp
             bsr     draw_terrain            ; this level's hills into the work copy
+            bsr     ui_panel_blit           ; the custom HUD panel over them
             move.l  v_work(a5),a0           ; work copy -> screen
             move.l  v_disp(a5),a1
             bsr.s   copy_planes
@@ -1497,7 +1547,7 @@ tiles_on:   tst.l   v_tiles(a5)
 tiles_off:  tst.w   v_tmode(a5)
             beq     .r
             move.w  #0,v_tmode(a5)
-            move.w  H_HUDROW(a4),v_hudrow(a5)
+            move.w  v_hudrow0(a5),v_hudrow(a5)
             move.w  #$0038,$92(a6)
             move.w  #$00d0,$94(a6)
             btst    #0,H_FLAGS+1(a4)
@@ -1770,7 +1820,7 @@ cop_scroll: tst.w   v_tmode(a5)
             add.w   d0,d0
             moveq   #0,d3
             move.w  v_camy(a5),d3
-            add.w   #HUD_LINES,d3
+            add.w   v_hudlines(a5),d3
             mulu    v_tline(a5),d3
             ext.l   d0
             add.l   d0,d3
@@ -1911,7 +1961,34 @@ tile_vres:  movem.l d0-d1,-(sp)
 ; gravity in a tile world: falls pixel by pixel until it lands on a solid
 ; tile, bumps its head on one going up
 tile_phys:  bsr     tile_hres
-            move.w  v_vy(a5,d5.w),d0
+            cmp.w   #6,A_ROLE(a2)           ; a platform player on a ladder climbs: up / down, no gravity
+            bne     .grav
+            bsr     on_ladder
+            beq     .grav
+            move.w  #0,v_vy(a5,d5.w)
+            move.w  #0,v_ysub(a5,d5.w)
+            move.w  #1,v_gnd(a5,d5.w)
+            bsr     snap_col                ; line up with the ladder (so it fits the shaft)
+            move.w  v_joy(a5),d2
+            btst    #0,d2
+            beq.s   .cdn
+            move.w  v_ax(a5,d5.w),d0
+            move.w  v_ay(a5,d5.w),d1
+            sub.w   v_spd(a5,d5.w),d1
+            bsr     box_solid
+            bne.s   .cr
+            move.w  d1,v_ay(a5,d5.w)
+            rts
+.cdn        btst    #1,d2
+            beq.s   .cr
+            move.w  v_ax(a5,d5.w),d0
+            move.w  v_ay(a5,d5.w),d1
+            add.w   v_spd(a5,d5.w),d1
+            bsr     box_solid
+            bne.s   .cr
+            move.w  d1,v_ay(a5,d5.w)
+.cr         rts
+.grav       move.w  v_vy(a5,d5.w),d0
             cmp.w   #7,A_ROLE(a2)           ; hoppers float down more slowly
             beq.s   .light
             addq.w  #GRAVITY,d0
@@ -1997,7 +2074,8 @@ tile_dig:   move.l  v_tiles(a5),a0
             bra.s   .vdig
 .down       add.w   A_BY1(a2),d1
             addq.w  #4,d1
-.vdig       bsr     .midx
+.vdig       bsr     snap_col                ; straight down / up: line up with the column
+            bsr     .midx
             bsr     dig_px
             bne     .held
             move.w  v_ax(a5,d5.w),d0
@@ -2162,6 +2240,105 @@ place_px:   movem.l d0-d4/a0-a1,-(sp)
             bsr     draw_hud
 .r          movem.l (sp)+,d0-d4/a0-a1
             rts
+
+; DO 20: tile world - put tile R_VAL where actor d4 (offset d5) is, at the
+; middle of its box, if that place is not solid (a ladder part, a block, a torch)
+act_ptile:  tst.w   v_tmode(a5)
+            beq     .r
+            movem.l d0-d4/a0-a2,-(sp)
+            cmp.w   H_NACT(a4),d4
+            bcc.s   .out
+            move.l  H_ACTORS(a4),d0
+            lea     0(a4,d0.l),a2
+            mulu    #ACT_SIZE,d4
+            add.l   d4,a2                   ; its record (the box)
+            moveq   #2,d4                   ; try its middle, then its feet, then its head
+.try        move.w  v_ax(a5,d5.w),d0
+            move.w  A_BX0(a2),d1
+            add.w   A_BX1(a2),d1
+            asr.w   #1,d1
+            add.w   d1,d0
+            move.w  v_ay(a5,d5.w),d1
+            cmp.w   #1,d4
+            bne.s   .t2
+            add.w   A_BY1(a2),d1            ; feet
+            subq.w  #2,d1
+            bra.s   .t4
+.t2         bcs.s   .t3
+            move.w  A_BY0(a2),d2            ; middle
+            add.w   A_BY1(a2),d2
+            asr.w   #1,d2
+            add.w   d2,d1
+            bra.s   .t4
+.t3         add.w   A_BY0(a2),d1            ; head
+            addq.w  #2,d1
+.t4         bsr     px_cell                 ; d0 / d1 = column / row, d2 = cell, d3 = tile
+            beq.s   .nx
+            lsl.w   #3,d3
+            move.l  v_tiles(a5),a0
+            btst    #0,T_PROPS+TP_FLAGS(a0,d3.w)
+            beq.s   .put                    ; nothing solid there
+.nx         dbf     d4,.try
+            bra.s   .out
+.put        move.w  R_VAL(a3),d3
+            cmp.w   T_NT(a0),d3
+            bcc.s   .out
+            bsr     map_put
+            bsr     redraw_cell
+.out        movem.l (sp)+,d0-d4/a0-a2
+.r          rts
+
+; actor d5 / a2: its box middle onto the middle of the tile column it is in,
+; if that place is free - climbing a ladder, digging straight up or down
+snap_col:   movem.l d0-d4,-(sp)
+            move.w  A_BX0(a2),d1
+            add.w   A_BX1(a2),d1
+            asr.w   #1,d1
+            move.w  v_ax(a5,d5.w),d3
+            add.w   d1,d3
+            move.w  v_tsh(a5),d4
+            lsr.w   d4,d3
+            lsl.w   d4,d3
+            move.w  v_tsz(a5),d2
+            lsr.w   #1,d2
+            add.w   d2,d3
+            sub.w   d1,d3
+            move.w  d3,d0
+            move.w  v_ay(a5,d5.w),d1
+            bsr     box_solid
+            bne.s   .r
+            move.w  d3,v_ax(a5,d5.w)
+.r          movem.l (sp)+,d0-d4
+            rts
+
+; Z clear when actor d5 / a2 is on a ladder tile (its feet or its middle)
+on_ladder:  movem.l d0-d3/a0,-(sp)
+            move.w  v_ax(a5,d5.w),d0
+            move.w  A_BX0(a2),d1
+            add.w   A_BX1(a2),d1
+            asr.w   #1,d1
+            add.w   d1,d0
+            move.w  d0,-(sp)                ; middle x
+            move.w  v_ay(a5,d5.w),d1
+            add.w   A_BY1(a2),d1            ; feet
+            bsr.s   .lad
+            bne.s   .yes
+            move.w  (sp),d0
+            move.w  v_ay(a5,d5.w),d1
+            move.w  A_BY0(a2),d2
+            add.w   A_BY1(a2),d2
+            asr.w   #1,d2
+            add.w   d2,d1                   ; middle
+            bsr.s   .lad
+.yes        addq.l  #2,sp                   ; (leaves the flags alone)
+            movem.l (sp)+,d0-d3/a0
+            rts
+.lad        bsr     px_cell
+            beq.s   .no
+            lsl.w   #3,d3
+            move.l  v_tiles(a5),a0
+            btst    #3,T_PROPS+TP_FLAGS(a0,d3.w)
+.no         rts
 
 ; 8 directions from (3 x vertical + horizontal): up-left, up, up-right,
 ; left, (still), right, down-left, down, down-right
@@ -2483,15 +2660,31 @@ run_rules:
             move.w  R_WHEN(a3),d0
             beq.s   .touch
             cmp.w   #1,d0
-            beq.s   .fire
+            beq     .fire
             cmp.w   #2,d0
-            beq.s   .timer
+            beq     .timer
             cmp.w   #3,d0
             beq     .score
             cmp.w   #4,d0
             beq     .lives
             cmp.w   #6,d0
             beq.s   .jump
+            cmp.w   #8,d0
+            beq.s   .hold
+            bra     .next
+
+.hold       move.w  v_joy(a5),d0            ; fire held (stick centred) for N tenths of a second:
+            and.w   #$1f,d0                 ; fires once a hold
+            cmp.w   #$10,d0
+            bne     .clear
+            move.w  R_N(a3),d0
+            mulu    #5,d0
+            cmp.w   (a2),d0
+            bls     .next                   ; already fired this hold
+            addq.w  #1,(a2)
+            cmp.w   (a2),d0
+            bne     .next
+            bsr     fire_action
             bra     .next
 
 .jump       move.l  v_jumped(a5),d0         ; actor a jumped this frame
@@ -2585,7 +2778,7 @@ do_action:
             move.w  d5,d4
             lsl.w   #ACTV_SHIFT,d5
             move.w  R_ACT(a3),d0
-            cmp.w   #19,d0
+            cmp.w   #20,d0
             bhi     act_none
             add.w   d0,d0
             move.w  acttab(pc,d0.w),d0
@@ -2610,6 +2803,7 @@ acttab:     dc.w    act_score-acttab
             dc.w    act_goal-acttab
             dc.w    act_music-acttab
             dc.w    act_nomusic-acttab
+            dc.w    act_ptile-acttab
 
 act_none:   rts
 
@@ -2898,7 +3092,7 @@ big_char:   movem.l d0-d7/a0-a3,-(sp)
 .sp         moveq   #32,d0
 .ok         sub.w   #32,d0
             lsl.w   #3,d0
-            lea     font(pc),a1
+            move.l  v_font(a5),a1
             add.w   d0,a1
             move.w  d2,d4
             mulu    #40,d4
@@ -3052,7 +3246,7 @@ build_grad:
             move.w  #$fffe,(a0)+
             tst.w   v_tmode(a5)             ; tile world: the scrolling picture starts here
             beq.s   .nosp
-            cmp.w   #HUD_LINES,d3
+            cmp.w   v_hudlines(a5),d3
             bne.s   .nosp
             bsr     .split
 .nosp       tst.w   d5
@@ -3077,7 +3271,12 @@ build_grad:
             rts
 .nosky      tst.w   v_tmode(a5)             ; no sky: just the tile world split
             beq.s   .off
-            move.l  #((($2c+HUD_LINES)<<8)|$07)<<16|$fffe,(a0)+
+            move.w  v_hudlines(a5),d0       ; wait for the end of the HUD strip
+            add.w   #$2c,d0
+            lsl.w   #8,d0
+            or.w    #$07,d0
+            move.w  d0,(a0)+
+            move.w  #$fffe,(a0)+
             bsr     .split
             bra.s   .off
 ; bitplane pointers (filled in by cop_scroll), modulos and fine scroll
@@ -3247,6 +3446,8 @@ draw_text:
             rts
 
 draw_char:
+            cmp.w   #40,d1                  ; off the right edge: nothing
+            bhs     .off
             movem.l d0-d7/a0-a3,-(sp)
             and.w   #$ff,d0
             cmp.w   #96,d0                  ; fold lower case
@@ -3259,7 +3460,7 @@ draw_char:
 .sp         moveq   #32,d0
 .ok         sub.w   #32,d0
             lsl.w   #3,d0
-            lea     font(pc),a1
+            move.l  v_font(a5),a1
             add.w   d0,a1                   ; glyph
             move.w  d2,d4
             mulu    #320,d4
@@ -3271,23 +3472,39 @@ draw_char:
             move.w  H_DEPTH(a4),d6
             subq.w  #1,d6
             moveq   #0,d5                   ; plane number
-            move.l  v_dd2(a5),d4            ; BOBs: the second display too (0 = same byte)
 .plane      move.l  a1,a0
             moveq   #7,d7
 .line       move.b  (a0)+,d0                ; glyph bits
-            moveq   #0,d1                   ; opaque text: colour 0 box
+            moveq   #0,d4                   ; shadow bits: the line above, one pixel right
+            tst.w   v_shadow(a5)
+            bmi.s   .ns
+            cmp.w   #7,d7
+            beq.s   .ns
+            move.b  -2(a0),d4
+            lsr.b   #1,d4
+.ns         moveq   #0,d1                   ; opaque text: colour 0 box
             tst.w   v_opaque(a5)
             bne.s   .bg
             move.b  (a3),d1                 ; background
 .bg
             move.b  d0,d2
+            or.b    d4,d2
             not.b   d2
             and.b   d2,d1
             btst    d5,d3
             beq.s   .clr
             or.b    d0,d1
-.clr        move.b  d1,(a2)
-            move.b  d1,0(a2,d4.l)
+.clr        move.w  v_shadow(a5),d2         ; the shadow where there is no letter
+            bmi.s   .wr
+            btst    d5,d2
+            beq.s   .wr
+            move.b  d0,d2
+            not.b   d2
+            and.b   d4,d2
+            or.b    d2,d1
+.wr         move.b  d1,(a2)
+            move.l  v_dd2(a5),d2            ; BOBs: the second display too (0 = same byte)
+            move.b  d1,0(a2,d2.l)
             move.l  v_ddk(a5),d2            ; and the BOB background, so wiping a BOB keeps the text
             move.b  d1,0(a2,d2.l)
             lea     40(a2),a2
@@ -3298,7 +3515,7 @@ draw_char:
             addq.w  #1,d5
             dbf     d6,.plane
             movem.l (sp)+,d0-d7/a0-a3
-            rts
+.off        rts
 
 ; d0 = 0..99 drawn as two digits at d1 (d1 moves on)
 two_digits: movem.l d0/d4,-(sp)
@@ -3317,6 +3534,8 @@ two_digits: movem.l d0/d4,-(sp)
             rts
 
 draw_hud:
+            tst.l   v_ui(a5)
+            bne     ui_hud
             movem.l d0-d3/a0-a1,-(sp)
             move.w  v_hudrow(a5),d2
             move.w  H_HUDCOL(a4),d3
@@ -3402,6 +3621,165 @@ draw_hud:
             addq.w  #6,d1
             bsr     draw_char
 .nolv       movem.l (sp)+,d0-d3/a0-a1
+            rts
+
+;  the custom HUD panel picture -> the work copy (top or bottom strip)
+ui_panel_blit:
+            movem.l d0-d3/a0-a2,-(sp)
+            move.l  v_ui(a5),d0
+            beq.s   .r
+            move.l  d0,a2
+            move.l  UI_PANEL(a2),d0
+            beq.s   .r
+            lea     0(a4,d0.l),a0           ; the picture, plane after plane
+            move.w  v_hudrow0(a5),d0
+            mulu    #320,d0                 ; byte where the strip starts
+            move.l  v_work(a5),a1
+            add.l   d0,a1
+            move.w  UI_ROWS(a2),d2
+            mulu    #80,d2                  ; longs a plane (rows x 8 lines x 40 bytes / 4)
+            subq.w  #1,d2
+            move.w  H_DEPTH(a4),d3
+            subq.w  #1,d3
+.pl         move.l  a1,-(sp)
+            move.w  d2,d1
+.cp         move.l  (a0)+,(a1)+
+            dbf     d1,.cp
+            move.l  (sp)+,a1
+            add.l   #PLANE_SIZE,a1
+            dbf     d3,.pl
+.r          movem.l (sp)+,d0-d3/a0-a2
+            rts
+
+;  the custom HUD: each field in its place, colour, shadow and label
+ui_hud:     movem.l d0-d7/a0-a3,-(sp)
+            move.l  v_ui(a5),a3
+            move.w  UI_NF(a3),d7
+            beq     .done
+            subq.w  #1,d7
+            lea     UI_FIELDS(a3),a2
+.f          move.w  F_ROW(a2),d2
+            cmp.w   UI_ROWS(a3),d2          ; only rows the panel has
+            bcc     .nx
+            add.w   v_hudrow(a5),d2
+            move.w  F_COL(a2),d1
+            move.w  F_COLOUR(a2),d3
+            move.w  F_SHADOW(a2),v_shadow(a5)
+            lea     F_LABEL(a2),a0
+            move.w  F_TYPE(a2),d6
+            cmp.w   #3,d6                   ; goal: only with a goal; no label of its own -> the goal's name
+            bne.s   .lb
+            move.l  v_game(a5),d0
+            beq     .nx
+            move.l  d0,a1
+            tst.w   G_GOAL(a1)
+            beq     .nx
+            tst.b   (a0)
+            bne.s   .lb
+            lea     G_LABEL(a1),a0
+.lb         cmp.w   #4,d6                   ; tile carried: only in a tile world where the player digs
+            bne.s   .dl
+            bsr     hud_digging
+            beq     .nx
+.dl         bsr     draw_text               ; the label
+.adv        tst.b   (a0)+                   ; column after it
+            beq.s   .va
+            addq.w  #1,d1
+            bra.s   .adv
+.va         tst.w   d6
+            beq     .nx
+            cmp.w   #1,d6
+            bne.s   .nsc
+            move.l  v_score(a5),d0          ; score: F_DIGITS digits (1..6)
+            move.w  F_DIGITS(a2),d4
+            bsr     ui_number
+            bra     .nx
+.nsc        cmp.w   #2,d6
+            bne.s   .nlv
+            moveq   #0,d0
+            move.w  v_lives(a5),d0
+            move.w  F_DIGITS(a2),d4
+            bsr     ui_number
+            bra     .nx
+.nlv        cmp.w   #5,d6
+            bne.s   .ngl
+            moveq   #0,d0
+            move.w  v_level(a5),d0
+            move.w  F_DIGITS(a2),d4
+            bsr     ui_number
+            bra     .nx
+.ngl        cmp.w   #3,d6
+            bne.s   .ntl
+            move.l  v_game(a5),d0
+            beq     .nx
+            move.l  d0,a1
+            tst.w   G_GOAL(a1)
+            beq     .nx
+            tst.b   F_LABEL(a2)             ; after the goal's own name: a space
+            bne.s   .gs
+            addq.w  #1,d1
+.gs         move.w  v_goal(a5),d0           ; nn/nn
+            bsr     two_digits
+            moveq   #'/',d0
+            bsr     draw_char
+            addq.w  #1,d1
+            move.w  G_GOAL(a1),d0
+            bsr     two_digits
+            bra.s   .nx
+.ntl        cmp.w   #4,d6
+            bne.s   .nx
+            move.w  v_sel(a5),d0            ; the tile's name, then how many
+            move.l  v_tiles(a5),a0
+            move.w  T_NT(a0),d4
+            lsl.w   #3,d4
+            lea     T_PROPS(a0,d4.w),a0
+            add.w   d0,d0
+            add.w   d0,d0
+            add.w   d0,a0
+            moveq   #3,d4
+.tn         moveq   #0,d0
+            move.b  (a0)+,d0
+            bne.s   .tc
+            moveq   #' ',d0
+.tc         bsr     draw_char
+            addq.w  #1,d1
+            dbf     d4,.tn
+            moveq   #' ',d0
+            bsr     draw_char
+            addq.w  #1,d1
+            move.w  v_sel(a5),d0
+            add.w   d0,d0
+            lea     v_inv(a5),a0
+            move.w  0(a0,d0.w),d0
+            bsr     two_digits
+.nx         lea     F_SIZE(a2),a2
+            dbf     d7,.f
+.done       move.w  #-1,v_shadow(a5)
+            movem.l (sp)+,d0-d7/a0-a3
+            rts
+
+; d0 = number drawn with d4 digits (1..6, leading zeros) at d1 (d1 moves on)
+ui_number:  movem.l d0/d4-d5/a0,-(sp)
+            and.w   #7,d4
+            bne.s   .ok
+            moveq   #1,d4
+.ok         cmp.w   #6,d4
+            bls.s   .k
+            moveq   #6,d4
+.k          lea     v_digits+6(a5),a0
+            move.b  #0,(a0)
+            move.w  d4,d5
+            subq.w  #1,d5
+.dg         divu    #10,d0
+            swap    d0
+            add.b   #'0',d0
+            move.b  d0,-(a0)
+            clr.w   d0
+            swap    d0
+            dbf     d5,.dg
+            bsr     draw_text
+            add.w   d4,d1
+            movem.l (sp)+,d0/d4-d5/a0
             rts
 
 ; Z clear when the HUD shows the tile carried (tile world where the player digs)

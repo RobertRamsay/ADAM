@@ -204,6 +204,17 @@ function lite_trim(_p, _warn)
     _q.sprites = _sprs;
     if (_cut_spr) { array_push(_warn, "Sprites and BOBs are up to " + string(LITE_SPR_W) + " x " + string(LITE_SPR_H) + " in ADAM Lite, so bigger ones are cut to that size - ADAM Pro draws them up to 64 x 64."); }
 
+    // the custom HUD (UI page) is ADAM Pro: the standard HUD instead
+    if (_p.ui.on)
+    {
+        var _uq = {};
+        var _un = variable_struct_get_names(_p.ui);
+        for (var uk = 0; uk < array_length(_un); uk++) { _uq[$ _un[uk]] = _p.ui[$ _un[uk]]; }
+        _uq.on = false;
+        _q.ui = _uq;
+        array_push(_warn, "The custom HUD (UI page) is part of ADAM Pro - the game uses the standard HUD.");
+    }
+
     // tile world: 96 tile types, a map up to 256 x 256 tiles
     if (_p.tiles_on)
     {

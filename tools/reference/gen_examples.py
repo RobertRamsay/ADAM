@@ -191,7 +191,20 @@ def make_project(name,pal16,img,sprites,actors,rules,sky,hud_col=1,msg_col=14,li
     return dict(version=1,name=name,machine=machine,depth=depth,pal=pal,pixels=list(img.getdata()),sprites=spr,actors=actors,rules=rules,
                 sfx=sfx or sfx_list(),lives=lives,show_score=True,show_lives=True,hud_row=0,hud_colour=hud_col,msg_colour=msg_col,
                 over_text=over,win_text=win,solid=[0]*128,levels_on=False,levels=[],terrain_cols=[10,9,11,12],goal_on=False,goal=20,goal_label='GEMS',title_on=False,title1=name.upper(),title2='PRESS FIRE TO START',lev_text='LEVEL',sky_on=True,sky_top=sky[0],sky_mid=sky[1],sky_bot=sky[2],sky_mid_y=sky[3],
-                songs=songs or [],level_song=[-1]*10)
+                songs=songs or [],level_song=[-1]*10,ui=ui_default())
+
+def ui_default():
+    # the custom HUD is off: the standard one (scr_ws_ui.gml ui_new)
+    return dict(on=False,bottom=False,rows=1,frame_on=True,style="Metal",frame=[0]*576,font_style=0,font=[],fields=[])
+
+def dress_ui(p,style,font_style,rows,fields,bottom=False):
+    # ADAM Pro custom HUD: a 9-slice panel in the game's own colours, a font style and the fields.
+    # fields: (type, label, col, row, colour rgb, shadow rgb or None, digits)
+    import ui_ref
+    ncol=1<<p['depth']
+    near=lambda c: ui_ref.pal_nearest(p['pal'],c,ncol)
+    fl=[dict(type=t,label=lab,col=c,row=r,colour=near(col),shadow=(near(sh) if sh is not None else -1),digits=dg) for t,lab,c,r,col,sh,dg in fields]
+    p['ui']=dict(on=True,bottom=bottom,rows=rows,frame_on=True,style=style,frame=ui_ref.frame_preset(style,p['pal'],ncol),font_style=font_style,font=[],fields=fl)
 
 def canvas(): return Image.new('P',(W,H),0)
 
@@ -653,6 +666,9 @@ def firefly_night():
     p=make_project("Firefly Night",pal,im,sprites,actors,rules,[0x02030c,0x101a48,0x34305e,165],hud_col=1,msg_col=14,sfx=sfx,
                    win="THE JAR IS FULL! - PRESS FIRE",over="THE BATS WIN - PRESS FIRE",songs=[tune])
     p.update(title_on=True,title1="FIREFLY NIGHT",title2="PRESS FIRE TO START")
+    # ADAM Pro: a carved wooden HUD panel, italic amber lettering with a dark shadow
+    dress_ui(p,"Wood",3,2,[(1,"SCORE ",2,0,0xffd060,0x301808,5),(2,"LIVES ",29,0,0xffd060,0x301808,1),
+                         (0,"FIREFLY NIGHT",14,1,0xf0e0b0,0x301808,0)])
     O=art.A['ff_owl']; O2=art.A['ff_owl2']; BT=art.A['ff_bat']; BT2=art.A['ff_bat2']; F=art.A['ff_fly']
     bat=dict(anims={0:([2,5,("Bat rise",tf_shift(BT,dy=-1)),("Bat flap rise",tf_shift(BT2,dy=-1))],6,0)})
     specs={0:dict(anims={0:([0,("Owl hover",tf_shift(O,dy=-1)),("Owl hover 2",tf_shift(O,dy=-2))],14,2),
@@ -784,6 +800,13 @@ def to_builder(p):
     bp=dict(depth=p['depth'],pal=[qm(c) for c in p['pal']],pixels=p['pixels'],sprites=spr,actors=acts,rules=p['rules'],
                 sfx=[s for s in p['sfx']],lives=p['lives'],show_score=1,show_lives=1,hud_row=0,hud_col=p['hud_colour'],msg_col=p['msg_colour'],
                 over=p['over_text'],win=p['win_text'],grad=sky_table(p,aga),ground=ground_table(p),game=game_block(p))
+    u=p.get('ui')
+    if u and u.get('on'):
+        import ui_ref
+        uu=dict(u); uu['bottom']=bool(u.get('bottom')) and not p.get('tiles_on')
+        bp['ui']=dict(bottom=uu['bottom'],rows=u['rows'],fields=[f for f in u['fields'] if f['row']<u['rows'] and f['col']<40][:16],
+                      font=(ui_ref.font_bytes(u) if u.get('font_style',0)!=0 else None),
+                      panel=(ui_ref.panel_pixels(uu,p['pixels']) if u.get('frame_on',True) else None))
     if p.get('tiles_on'):
         bp['tiles']=dict(w=p['map_w'],h=p['map_h'],dig=p['tile_dig'],tiles=p['tiles'],map=p['map'],size=p.get('tile_size',16))
     return bp, conf

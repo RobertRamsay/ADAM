@@ -14,12 +14,12 @@
 function project_defs_init()
 {
     global.ROLE_NAMES = ["Player (joystick)", "Bouncer (diagonal)", "Patrol left-right", "Patrol up-down", "Chaser (follows player)", "Still (does not move)", "Platform player (walks + jumps)", "Hopper (jumps left and right)", "Faller (drops onto the ground)"];
-    global.WHEN_NAMES = ["Actor touches actor", "Fire button is pressed", "Every few seconds", "Score reaches", "Lives run out", "The game starts", "Actor jumps", "A level starts"];
+    global.WHEN_NAMES = ["Actor touches actor", "Fire button is pressed", "Every few seconds", "Score reaches", "Lives run out", "The game starts", "Actor jumps", "A level starts", "Fire is held (stick still)"];
     global.DO_NAMES   = ["Add to score", "Lose a life", "Play a sound", "Flash the screen", "Send actor back to start",
                          "Move actor to a random spot", "Hide actor", "Show actor", "Change background colour",
                          "Game over", "You win!", "Speed up actor", "Slow down actor", "Add a life", "Move actor to another actor",
                          "Show actor for a moment", "Make actor safe for a while", "Count towards the level goal",
-                         "Play music", "Stop music"];
+                         "Play music", "Stop music", "Place a tile (tile world)"];
     global.WAVE_NAMES = ["Triangle (soft)", "Sawtooth (buzzy)", "Square (classic)", "Noise (crunchy)"];
     global.SFX_PRESET_NAMES = ["Coin", "Laser", "Explosion", "Jump", "Hit", "Power up", "Lose", "Blip"];
     global.TEMPLATE_NAMES = ["Player touches enemy: lose a life", "Player gets pickup: score",
@@ -399,7 +399,7 @@ function actor_preview_sprite(_ac)
 
 function rule_new()
 {
-    return { when : 0, a : 0, b : 1, n : 1, act : 0, target : 0, value : 10, group : -1 };
+    return { when : 0, a : 0, b : 1, n : 1, act : 0, target : 0, value : 10, group : -1 };      // n: seconds / score / tenths held; value: points / sound / colour / actor / song / tile
 }
 
 function sfx_new(_name)
@@ -481,7 +481,8 @@ function project_new()
         map_w : 64,
         map_h : 32,
         map : map_starter(64, 32),               // map_w x map_h tile numbers
-        tile_dig : true                          // the player digs (fire + direction) and places (fire)
+        tile_dig : true,                         // the player digs (fire + direction) and places (fire)
+        ui : ui_new()                            // ADAM Pro custom HUD (UI page)
     };
     for (var i = 0; i < 8; i++)
     {
@@ -507,6 +508,12 @@ function struct_overlay(_dst, _src)
         _dst[$ _k] = _src[$ _k];
     }
     return _dst;
+}
+
+/// Folds every rule group (opening a project or an example)
+function groups_fold_all()
+{
+    for (var g = 0; g < array_length(proj.groups); g++) { proj.groups[g].collapsed = true; }
 }
 
 function project_from_loaded(_raw)
@@ -597,6 +604,24 @@ function project_from_loaded(_raw)
     {
         for (var gi = 0; gi < array_length(_lg); gi++) { array_push(_grs, struct_overlay(group_new("Group"), _lg[gi])); }
     }
+    for (var gq = 0; gq < array_length(_grs); gq++)
+    {
+        var _gq = _grs[gq];
+        if (!is_numeric(_gq.parent) || _gq.parent < -1 || _gq.parent >= array_length(_grs) || _gq.parent == gq) { _gq.parent = -1; }
+        _gq.parent = floor(_gq.parent);
+    }
+    for (var gc = 0; gc < array_length(_grs); gc++)
+    {
+        // a loop of groups inside each other: cut it
+        var _walk = _grs[gc].parent;
+        var _steps = 0;
+        while (_walk >= 0 && _steps <= array_length(_grs))
+        {
+            _walk = _grs[_walk].parent;
+            _steps += 1;
+        }
+        if (_steps > array_length(_grs)) { _grs[gc].parent = -1; }
+    }
     _p.groups = _grs;
     for (var ri = 0; ri < array_length(_p.rules); ri++)
     {
@@ -638,6 +663,7 @@ function project_from_loaded(_raw)
     }
     _p.level_song = _lsv;
     tiles_fix(_p);                       // tile world (older files have none)
+    _p.ui = ui_from_loaded(_raw[$ "ui"]);       // custom HUD (older files have none)
     return _p;
 }
 
@@ -1011,6 +1037,7 @@ function project_load_from(_path)
     }
     var _old_machine = proj.machine;
     proj = project_from_loaded(_raw);
+    groups_fold_all();                  // a project opens with every rule group folded
     proj_path = _path;
     // the disk follows the project: MyGame.adam builds MyGame.adf next to it
     out_path = filename_change_ext(_path, ".adf");
@@ -1059,6 +1086,7 @@ function undo_keys(_ws)
         case WS_MUSIC:    return ["songs", "level_song"];
         case WS_ANIMATE:  return ["actors"];
         case WS_TILES:    return ["tiles_on", "tile_size", "tiles", "map_w", "map_h", "map", "tile_dig", "actors"];
+        case WS_UI:       return ["ui"];
     }
     return [];
 }

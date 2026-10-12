@@ -215,6 +215,20 @@ tile_map_dirty = true;
 tile_view_mx = 0;           // map pixel at the top left of that cache
 tile_view_my = 0;
 
+// UI page (ADAM Pro custom HUD)
+ui_sel_field = 0;           // the field picked
+ui_edit_tab = 0;            // 0 = panel frame editor, 1 = font editor
+ui_pen = 1;                 // colour the frame editor draws with
+ui_font_char = 33;          // character the font editor draws ('A')
+ui_drawing = false;         // a stroke on the frame or font editor
+ui_drag_field = -1;         // field being dragged on the preview
+ui_drag_dx = 0;
+ui_drag_dy = 0;
+ui_prev_surf = -1;          // the preview: backdrop + panel + fields (index surface)
+ui_prev_buf = -1;
+ui_prev_key = "";           // what it was drawn from
+ui_prev_tick = 0;
+
 // Animate page
 anim_sel = 0;               // 0 Idle, 1 Walk, 2 Jump, 3 Fall
 anim_slot = 0;              // selected frame; the one after the last adds a frame
@@ -431,6 +445,7 @@ shot_pages = [
     { ws : WS_BACKDROP, panel : 0, name : "backdrop" },
     { ws : WS_BACKDROP, panel : 1, name : "copper_sky" },
     { ws : WS_TILES,    panel : 0, name : "tiles" },
+    { ws : WS_UI,       panel : 0, name : "ui" },
     { ws : WS_LEVELS,   panel : 0, name : "levels" },
     { ws : WS_SPRITES,  panel : 0, name : "sprites" },
     { ws : WS_ACTORS,   panel : 0, name : "actors" },

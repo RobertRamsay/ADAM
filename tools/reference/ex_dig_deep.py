@@ -10,7 +10,7 @@ W, H = 128, 64          # map size in tiles
 # colour 0 shows the copper sky, so only air (and the gaps in leaves) use it
 PAL = [0x000000, 0xffffff, 0x4a2a14, 0x7a4a24, 0xa86c3c, 0x34343e, 0x5e5e6a, 0x8a8a96,
        0x2a6a1a, 0x48a02a, 0x8ad04a, 0xffcc22, 0x40e8ff, 0xd83020, 0xff8820, 0x161626]
-AIR, GRASS, DIRT, STONE, SLATE, SAND, CLAY, COAL, IRON, GOLD, GEM, WOOD, LEAVES, BRICK, BEDROCK, MOSS, WATER, DWALL, SWALL, TORCH = range(20)
+AIR, GRASS, DIRT, STONE, SLATE, SAND, CLAY, COAL, IRON, GOLD, GEM, WOOD, LEAVES, BRICK, BEDROCK, MOSS, WATER, DWALL, SWALL, TORCH, LADDER = range(21)
 
 def noise(x, y, s):
     v = (x * 374761393 + y * 668265263 + s * 2147483647) & 0xffffffff
@@ -48,8 +48,8 @@ def blobs(px, col, hi, seed, n=3, r=2.2):
 
 def tiles():
     t = []
-    def add(name, px, solid=True, dig=True, hard=12, points=0, goal=False, sound=-1, becomes=0):
-        t.append(dict(name=name, px=px, solid=solid, dig=dig, hard=hard, points=points, goal=goal, sound=sound, becomes=becomes))
+    def add(name, px, solid=True, dig=True, hard=12, points=0, goal=False, sound=-1, becomes=0, ladder=False):
+        t.append(dict(name=name, px=px, solid=solid, dig=dig, hard=hard, points=points, goal=goal, sound=sound, becomes=becomes, ladder=ladder))
     add("AIR", [0] * 256, False, False)
     g = tex(3, 2, 4, 1)
     for y in range(5):
@@ -128,6 +128,17 @@ def tiles():
             if (x - 7.5) ** 2 / 3 + (y - 4.5) ** 2 / 6 < 1.5: tc[y * 16 + x] = 14
             if (x - 7.5) ** 2 + (y - 5) ** 2 < 1.5: tc[y * 16 + x] = 11
     add("TRCH", tc, False, True, hard=2, sound=4, becomes=SWALL)
+    # a ladder part: two rails and rungs, see-through between them (the player climbs it)
+    ld = []
+    for y in range(16):
+        for x in range(16):
+            v = 0
+            if x in (3, 12): v = 3
+            if x in (4, 13): v = 2
+            if 4 <= x <= 11 and y % 5 == 2: v = 4
+            if 4 <= x <= 11 and y % 5 == 3: v = 2
+            ld.append(v)
+    add("LADR", ld, False, True, hard=4, sound=4, becomes=AIR, ladder=True)
     return t
 
 def world(seed=1985):
@@ -388,20 +399,25 @@ def dig_deep():
              R(when=0, a=0, b=5, act=1), R(when=0, a=0, b=5, act=4, target=0), R(when=0, a=0, b=5, act=16, target=0), R(when=0, a=0, b=5, act=2, value=6),
              R(when=6, a=0, act=2, value=3),
              R(when=4, act=9),
-             R(when=5, act=18, value=0)]
+             # hold fire for a second: a ladder part where the miner stands, to climb out of holes
+             R(when=8, n=10, act=20, target=0, value=LADDER),
+             R(when=8, n=10, act=2, value=4),
+             # the wind blows through the caves now and again
+             R(when=2, n=9, act=2, value=7),
+             R(when=2, n=23, act=2, value=7)]
     sfx = g.sfx_list({0: dict(name="Treasure", wave=2, pitch=84, sweep=12, len=8, atk=0, dec=5, sus=0, rel=5),
                       3: dict(name="Dig", wave=3, pitch=26, sweep=-2, len=3, atk=0, dec=3, sus=0, rel=2),
                       4: dict(name="Clink", wave=2, pitch=70, sweep=-6, len=3, atk=0, dec=3, sus=0, rel=3),
-                      6: dict(name="Ouch", wave=0, pitch=46, sweep=-1, len=26, atk=1, dec=8, sus=9, rel=7)})
-    tune = g.song("Underground", 112, [
-        g.bars("Half time", 4, "Rock beat", 12),
-        g.bars("Root pulse", 4, "Walking bass", 4, "Root pulse", 4, "Walking bass", 4),
-        g.bars("Long minor", 4, "Minor to major", 4, "Long minor", 4, "Minor to major", 4),
-        g.bars("", 8, "Arp down", 2, "Hook two", 2, "Arp down", 2, "Hook two", 2)], loop_bar=4)
+                      6: dict(name="Ouch", wave=0, pitch=46, sweep=-1, len=26, atk=1, dec=8, sus=9, rel=7),
+                      7: dict(name="Wind", wave=3, pitch=6, sweep=-1, len=32, atk=10, dec=10, sus=12, rel=9, gain=70)})
     p = g.make_project("Dig Deep", PAL, img, sprites, actors, rules, [0x1850b0, 0x60a8ff, 0xc8e8ff, 120],
-                       hud_col=1, msg_col=11, sfx=sfx, win="ALL THE TREASURE! - PRESS FIRE", over="BURIED! - PRESS FIRE", songs=[tune])
+                       hud_col=1, msg_col=11, sfx=sfx, win="ALL THE TREASURE! - PRESS FIRE", over="BURIED! - PRESS FIRE", songs=[])
     p.update(goal_on=True, goal=12, goal_label="GOLD", title_on=True, title1="DIG DEEP", title2="PRESS FIRE TO START")
     p.update(tiles_on=True, tile_size=16, tiles=tl, map_w=W, map_h=H, map=m, tile_dig=True)
+    # ADAM Pro: a stone HUD panel, bold lettering with shadows: score, gold, the tile carried, lives
+    g.dress_ui(p, "Stone", 1, 2, [(1, "SCORE ", 1, 0, 0xffffff, 0x161626, 5), (3, "", 17, 0, 0xffcc22, 0x161626, 0),
+                                  (4, "", 29, 0, 0x40e8ff, 0x161626, 0), (2, "LIVES ", 1, 1, 0xff8820, 0x161626, 1),
+                                  (0, "HOLD FIRE: LADDER", 17, 1, 0xd8d8e0, 0x161626, 0)])
     # animations: walk, jump and fall, and the pickaxe on the With Fire joystick
     T = g.tf_shift
     walk = [("Miner step", miner_rows(1)), ("Miner pass", miner_rows(2)), ("Miner step 2", miner_rows(3)), ("Miner pass 2", miner_rows(2, bob=1))]

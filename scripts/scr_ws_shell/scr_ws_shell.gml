@@ -11,7 +11,8 @@
 #macro WS_MUSIC 8
 #macro WS_ANIMATE 9
 #macro WS_TILES 10
-#macro WS_COUNT 11
+#macro WS_UI 11
+#macro WS_COUNT 12
 
 function ws_set(_i)
 {
@@ -269,12 +270,12 @@ function ui_scale_step(_d)
 
 function ws_tabs()
 {
-    return [WS_HOME, WS_BACKDROP, WS_TILES, WS_LEVELS, WS_SPRITES, WS_ACTORS, WS_ANIMATE, WS_LOGIC, WS_SOUND, WS_MUSIC, WS_BUILD];
+    return [WS_HOME, WS_BACKDROP, WS_TILES, WS_LEVELS, WS_SPRITES, WS_ACTORS, WS_ANIMATE, WS_UI, WS_LOGIC, WS_SOUND, WS_MUSIC, WS_BUILD];
 }
 
 function ws_name(_w)
 {
-    var _n = ["Home", "Backdrop", "Sprites", "Actors", "Logic", "Sound", "Build", "Levels", "Music", "Animate", "Tiles"];
+    var _n = ["Home", "Backdrop", "Sprites", "Actors", "Logic", "Sound", "Build", "Levels", "Music", "Animate", "Tiles", "UI"];
     return _n[_w];
 }
 
@@ -291,7 +292,8 @@ function ws_help(_w)
         "Levels|Up to 10 levels, each with its own hills grown from a seed and shaped by hand. Also the level goal counter and the title screen.",
         "Music|Make up to 4 songs from ready-made loops on Paula's 4 channels, edit their notes, and choose the music for each level.",
         "Animate|Give each actor Idle, Walk, Jump and Fall animations from the sprite bank (4 frames each in ADAM Lite, 8 in ADAM Pro). The Amiga picks the right one as the actor moves.",
-        "Tiles|Draw a tile set - tiles of 8 x 8 up to 64 x 64 pixels, 96 kinds in ADAM Lite, 512 in Pro - and paint a tile world (up to 256 x 256 tiles in Lite, 1024 x 1024 in Pro) that scrolls both ways - with digging and placing tiles, Terraria style."
+        "Tiles|Draw a tile set - tiles of 8 x 8 up to 64 x 64 pixels, 96 kinds in ADAM Lite, 512 in Pro - and paint a tile world (up to 256 x 256 tiles in Lite, 1024 x 1024 in Pro) that scrolls both ways - with digging and placing tiles, Terraria style.",
+        "UI|ADAM Pro: design the game's HUD - a framed panel (metal, wood, stone, neon, parchment or your own 9-slice frame), a font style or your own font, and fields for score, lives, the goal, the tile carried, the level and text, each with its own place, colour and shadow."
     ];
     return _h[_w];
 }

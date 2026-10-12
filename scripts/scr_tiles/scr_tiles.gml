@@ -73,6 +73,7 @@ function tile_new(_name, _s)
         hard : 12,                          // 50ths of a second of digging
         points : 0,                         // score for digging it
         goal : false,                       // counts towards the level goal
+        ladder : false,                     // a platform player climbs it (up / down, no falling)
         sound : -1,                         // sound when it is dug, -1 = none
         becomes : 0                         // the tile left behind
     };
@@ -226,6 +227,7 @@ function tile_from_loaded(_raw, _s)
     if (!is_bool(_t.solid)) { _t.solid = (is_numeric(_t.solid) && _t.solid != 0); }
     if (!is_bool(_t.dig)) { _t.dig = (is_numeric(_t.dig) && _t.dig != 0); }
     if (!is_bool(_t.goal)) { _t.goal = (is_numeric(_t.goal) && _t.goal != 0); }
+    if (!is_bool(_t.ladder)) { _t.ladder = (is_numeric(_t.ladder) && _t.ladder != 0); }
     if (!is_numeric(_t.hard)) { _t.hard = 12; }
     _t.hard = clamp(floor(_t.hard), 1, 250);
     if (!is_numeric(_t.points)) { _t.points = 0; }
@@ -785,6 +787,8 @@ function ws_tiles_draw(_x1, _y1, _x2, _y2)
     set_val(_t, "dig", ui_toggle("tile_digok", _fx, _y, "Can be dug", _t.dig, "Can be dug|The player can dig it out (with Dig and place on) and carries it to put down again."), "tiledigok");
     _y += 32;
     set_val(_t, "goal", ui_toggle("tile_goal", _fx, _y, "Counts towards the goal", _t.goal, "Counts towards the level goal|Digging it adds one to the level goal counter (Levels page) - gold, gems, treasure."), "tilegoal");
+    _y += 32;
+    set_val(_t, "ladder", ui_toggle("tile_ladder", _fx, _y, "Ladder (climb it)", _t.ladder, "Ladder|A platform player on it climbs with up and down instead of falling - ladders, vines, ropes. Switch Solid off for it. Put ladder parts down with the rule DO 'Place a tile', e.g. WHEN fire is held for 1 second."), "tileladder");
     _y += 36;
     var _half = floor((_fw - 12) / 2);
     ui_heading(_fx, _y, "Dig time (50ths)");

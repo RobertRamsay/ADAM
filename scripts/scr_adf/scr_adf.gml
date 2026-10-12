@@ -6,7 +6,7 @@
 /// The data block layout is documented at the top of engine.s.
 
 #macro ADF_SIZE 901120
-#macro ADF_HDR 96
+#macro ADF_HDR 100
 #macro ADF_SONGS_MAX 4
 #macro OS_RESERVE_KB 160
 // Original A500s have only 512KB of chip RAM. Even with a trapdoor slow-RAM card
@@ -291,11 +291,7 @@ function adam_data_block_raw(_p, _measure = false)
     for (var ru = 0; ru < array_length(_p.rules); ru++)
     {
         var _rr = _p.rules[ru];
-        var _off_grp = false;
-        if (_rr.group >= 0 && _rr.group < array_length(_p.groups))
-        {
-            if (!_p.groups[_rr.group].enabled) { _off_grp = true; }
-        }
+        var _off_grp = group_off_in(_p.groups, _rr.group);     // its group, or a group that is inside, is off
         if (!_off_grp) { array_push(_rules, _rr); }
     }
     var _nr = min(100, array_length(_rules));
@@ -528,11 +524,11 @@ function adam_data_block_raw(_p, _measure = false)
         if (_ru.act == 8) { _val = clamp(_val, 0, _ncol - 1); }
         if (_ru.act == 2) { _val = clamp(_val, 0, 7); }
         if (_ru.act == 18) { _val = clamp(_val, 0, ADF_SONGS_MAX - 1); }
-        be16(_b, clamp(_ru.when, 0, 7));
+        be16(_b, clamp(_ru.when, 0, 8));
         be16(_b, clamp(_ru.a, 0, ACT_MAX_ALL - 1));
         be16(_b, clamp(_ru.b, 0, ACT_MAX_ALL - 1));
         be16(_b, clamp(_ru.n, 1, 65535));
-        be16(_b, clamp(_ru.act, 0, 19));
+        be16(_b, clamp(_ru.act, 0, 20));
         be16(_b, clamp(_ru.target, 0, ACT_MAX_ALL - 1));
         be16(_b, clamp(_val, 0, 65535));
         be16(_b, 0);
@@ -679,6 +675,7 @@ function adam_data_block_raw(_p, _measure = false)
             if (_td.solid) { _fl = _fl | 1; }
             if (_td.dig) { _fl = _fl | 2; }
             if (_td.goal) { _fl = _fl | 4; }
+            if (_td.ladder) { _fl = _fl | 8; }
             var _snd = 0xff;
             if (_td.sound >= 0) { _snd = _td.sound & 7; }
             buffer_write(_b, buffer_u8, _fl);
@@ -731,6 +728,79 @@ function adam_data_block_raw(_p, _measure = false)
         buf_align(_b, 8);
         poke32(_b, _tile_fix, _off_timg);
         poke32(_b, _tile_fix + 4, _off_tmap);
+    }
+
+    // custom HUD (ADAM Pro UI page, engine.s UI_*): flags, rows, the fields, the
+    // font (when not the built-in one) and the panel picture (the backdrop strip
+    // with the frame baked in), depth planes x rows x 8 lines x 40 bytes
+    var _off_ui = 0;
+    var _u = _p.ui;
+    if (_u.on)
+    {
+        buf_align(_b, 8);
+        _off_ui = buffer_tell(_b);
+        var _uf = 1;
+        if (_u.bottom && !_p.tiles_on) { _uf = _uf | 2; }
+        // fields on rows the panel has, starting inside the screen (the rest are left out)
+        var _ufl = [];
+        for (var uq = 0; uq < array_length(_u.fields); uq++)
+        {
+            if (_u.fields[uq].row < _u.rows && _u.fields[uq].col < 40 && array_length(_ufl) < 16) { array_push(_ufl, _u.fields[uq]); }
+        }
+        var _unf = array_length(_ufl);
+        be16(_b, _uf);
+        be16(_b, _u.rows);
+        be16(_b, _unf);
+        be16(_b, 0);
+        var _ufix = buffer_tell(_b);
+        buf_zeros(_b, 8);               // UI_FONT, UI_PANEL: filled in below
+        for (var uf = 0; uf < _unf; uf++)
+        {
+            var _fd = _ufl[uf];
+            be16(_b, _fd.type);
+            be16(_b, _fd.col);
+            be16(_b, _fd.row);
+            be16(_b, clamp(_fd.colour, 0, _ncol - 1));
+            var _shc = -1;
+            if (_fd.shadow >= 0) { _shc = clamp(_fd.shadow, 0, _ncol - 1); }
+            be16(_b, _shc & 0xffff);
+            be16(_b, _fd.digits);
+            buf_fixed_text(_b, string_upper(string_copy(_fd.label, 1, UI_LABEL_MAX)), 20);
+        }
+        buf_align(_b, 8);
+        var _off_ufont = 0;
+        if (_u.font_style != 0)
+        {
+            _off_ufont = buffer_tell(_b);
+            var _fb = ui_font_bytes(_u);
+            for (var fb = 0; fb < 512; fb++) { buffer_write(_b, buffer_u8, _fb[fb]); }
+            buf_align(_b, 8);
+        }
+        var _off_upanel = 0;
+        if (_u.frame_on)
+        {
+            _off_upanel = buffer_tell(_b);
+            var _pp = ui_panel_pixels(_u, _p.pixels);
+            var _uh = _u.rows * 8;
+            for (var upl = 0; upl < _depth; upl++)
+            {
+                for (var uy = 0; uy < _uh; uy++)
+                {
+                    for (var ubx = 0; ubx < 40; ubx++)
+                    {
+                        var _ub = 0;
+                        for (var uk = 0; uk < 8; uk++)
+                        {
+                            if (((min(_pp[uy * 320 + ubx * 8 + uk], _ncol - 1) >> upl) & 1) != 0) { _ub = _ub | (0x80 >> uk); }
+                        }
+                        buffer_write(_b, buffer_u8, _ub);
+                    }
+                }
+            }
+            buf_align(_b, 8);
+        }
+        poke32(_b, _ufix, _off_ufont);
+        poke32(_b, _ufix + 4, _off_upanel);
     }
 
     // music: the songs as ProTracker MODs, played by ptplayer in the engine
@@ -791,7 +861,7 @@ function adam_data_block_raw(_p, _measure = false)
     if (_p.show_score) { _sc = 1; }
     var _lv = 0;
     if (_p.show_lives) { _lv = 1; }
-    poke16(_b, 4, 6);                    // data block version 6: tile world (H_TILES); 5: animation tables (A_ANIM); 4: BOBs (H_DISP2, H_BACK, A_BOB) of any size (A_XMAX, A_YMAX, A_BSIZE)
+    poke16(_b, 4, 7);                    // data block version 7: custom HUD (H_UI); 6: tile world (H_TILES); 5: animation tables (A_ANIM); 4: BOBs
     poke16(_b, 6, _flags);
     poke16(_b, 8, _depth);
     poke16(_b, 10, _na);
@@ -820,6 +890,7 @@ function adam_data_block_raw(_p, _measure = false)
     poke32(_b, 84, _off_disp2);
     poke32(_b, 88, _off_back);
     poke32(_b, 92, _off_tiles);
+    poke32(_b, 96, _off_ui);
 
     for (var rm = 0; rm < _nr; rm++)
     {

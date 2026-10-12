@@ -69,6 +69,7 @@ function example_load_now(_i)
         return;
     }
     proj.machine = _machine;
+    groups_fold_all();
     proj_path = "";
     out_path = "";            // asked on the first build, so another game's disk is never overwritten
     proj_dirty = false;
