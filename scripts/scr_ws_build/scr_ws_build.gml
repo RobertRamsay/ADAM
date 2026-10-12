@@ -19,18 +19,32 @@ function build_choose_output()
 
 function build_ws_build(_run)
 {
-    if (out_path == "")
+    // Build & play with no disk chosen yet (an example, a new game): play a test
+    // disk from the temp folder straight away. Build on its own asks where to save.
+    var _path = out_path;
+    var _test = false;
+    if (_path == "")
     {
-        if (!build_choose_output()) { return; }
+        if (_run)
+        {
+            _path = temp_directory + "adam_test.adf";
+            _test = true;
+        }
+        else
+        {
+            if (!build_choose_output()) { return; }
+            _path = out_path;
+        }
     }
     var _t0 = current_time;
-    if (build_adf(out_path))
+    if (build_adf(_path))
     {
         build_log_add(build_msg + "  (" + string(current_time - _t0) + " ms)", 0);
+        if (_test) { build_log_add("Test disk in the temp folder - press Build to save the disk where you want it.", 0); }
         for (var i = 0; i < array_length(build_warnings); i++) { build_log_add(build_warnings[i], 1); }
         toast("Build complete!", 0);
         build_make_listing();
-        if (_run) { launch_fsuae(out_path); }
+        if (_run) { launch_fsuae(_path); }
     }
     else
     {
