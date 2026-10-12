@@ -63,17 +63,7 @@ function draw_logo(_x, _y, _compact)
     if (_qhot && ui_pressed)
     {
         ui_take_click();
-        var _ask = "Quit ADAM?";
-        if (proj_dirty)
-        {
-            _ask = "Quit ADAM?\n\n\"" + proj.name + "\" has changes that are not saved to a project file yet. "
-                + "ADAM keeps them and brings them back next time you start it - but to keep your own copy, "
-                + "click No and use Save on the Home page first.";
-        }
-        if (show_question(_ask))
-        {
-            game_end();     // the Game End event autosaves the project and settings
-        }
+        app_quit_ask();
     }
     if (_compact) { return _w; }
     ui_text(_x + 44, _y + _h * 0.5, "ADAM", c_white, fa_left, fa_middle, global.f_title, 1);
@@ -230,6 +220,7 @@ function shortcuts_step()
     if (ui_focus != "") { return; }
     if (machine_pick_active) { return; }
     if (about_active) { return; }
+    if (confirm_active) { return; }
     var _ctrl = keyboard_check(vk_control);
     if (_ctrl && keyboard_check_pressed(ord("Z"))) { undo_do(); }
     if (_ctrl && keyboard_check_pressed(ord("Y"))) { redo_do(); }

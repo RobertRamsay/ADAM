@@ -113,6 +113,15 @@ fsuae_pad = 0;              // FS-UAE joystick: 0 keyboard (cursors + right Ctrl
 global.FSUAE_PAD_NAMES = ["Keyboard", "Gamepad"];
 app_focused = true;
 logo_quit_k = 0;            // top-left ball fading into the quit X (0 ball - 1 X)
+confirm_active = false;     // "Are you sure?" panel (scr_confirm)
+confirm_anim = 0;
+confirm_title = "";
+confirm_body = "";
+confirm_yes = "";
+confirm_no = "";
+confirm_danger = false;
+confirm_func = app_quit_now;  // run with confirm_arg when the answer is yes
+confirm_arg = 0;
 out_path = "";
 
 // backdrop

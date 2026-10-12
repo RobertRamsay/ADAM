@@ -29,8 +29,14 @@ function example_load(_i)
 {
     if (proj_dirty)
     {
-        if (!show_question("You have unsaved changes. Load the example anyway?")) { return; }
+        confirm_open("Load the example?", confirm_unsaved_text("Loading the example"), "Load example", "Cancel", true, example_load_now, _i);
+        return;
     }
+    example_load_now(_i);
+}
+
+function example_load_now(_i)
+{
     var _e = global.EXAMPLES[clamp(_i, 0, array_length(global.EXAMPLES) - 1)];
     var _txt = file_read_text(working_directory + "examples/" + _e.file);
     if (_txt == "")

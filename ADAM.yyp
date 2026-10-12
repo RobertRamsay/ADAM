@@ -50,6 +50,7 @@
     {"id":{"name":"obj_app","path":"objects/obj_app/obj_app.yy",},},
     {"id":{"name":"rm_studio","path":"rooms/rm_studio/rm_studio.yy",},},
     {"id":{"name":"scr_about","path":"scripts/scr_about/scr_about.yy",},},
+    {"id":{"name":"scr_confirm","path":"scripts/scr_confirm/scr_confirm.yy",},},
     {"id":{"name":"scr_adf","path":"scripts/scr_adf/scr_adf.yy",},},
     {"id":{"name":"scr_examples","path":"scripts/scr_examples/scr_examples.yy",},},
     {"id":{"name":"scr_gfx","path":"scripts/scr_gfx/scr_gfx.yy",},},
