@@ -319,6 +319,7 @@ function learn_menu_names()
     var _n = ["Tutorial for this page: " + ws_name(ws) + "  (F1)"];
     var _l = lesson_menu_names();
     for (var i = 0; i < array_length(_l); i++) { array_push(_n, _l[i]); }
+    array_push(_n, "What's new in ADAM " + ADAM_VERSION);
     return _n;
 }
 
@@ -338,7 +339,7 @@ function lesson_menu_names()
 /// The lesson card (drawn after the page so ui_rects holds this frame's controls)
 function lesson_draw(_gw, _gh)
 {
-    if (!les_active || tut_active || machine_pick_active || about_active)
+    if (!les_active || tut_active || machine_pick_active || about_active || whatsnew_active)
     {
         les_card_rect = [0, 0, 0, 0];
         return;

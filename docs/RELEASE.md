@@ -16,6 +16,12 @@ set, in `options/windows/options_windows.yy` (IDE: Game Options > Windows):
 - `option_windows_display_name` - e.g. `ADAM_V1.0.0`
 - `option_windows_version` - e.g. `1.0.0.0`
 
+Add the version's notes at the top of `whatsnew_entries()` in
+`scripts/scr_whatsnew/scr_whatsnew.gml`, with `ver` equal to the new
+`ADAM_VERSION`. People who used an earlier version see them once after the
+machine picker ("Read later" / "Don't show again"); with no entry for the
+version the panel does not pop up. It is also in the Learn ADAM menu.
+
 Commit: `Version x.y.z`.
 
 ## 2. Turn the dev tools off (release build only)
