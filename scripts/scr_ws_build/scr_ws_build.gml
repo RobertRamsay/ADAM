@@ -183,10 +183,12 @@ function ws_build_draw(_x1, _y1, _x2, _y2)
     ui_heading(_fx, _y, "FS-UAE emulator");
     var _btn_w = 88;
     var _row_w = _fw - _btn_w - 8;
-    // "Get FS-UAE": opens fs-uae.net (Windows release) or downloads it (Mac); Windows dev builds have "Get test copy" there
-    var _get_w = 108;
-    if (ADAM_DEV_TOOLS && os_type != os_macosx) { _row_w -= _btn_w + 8; }
-    else { _row_w -= _get_w + 8; }
+    // the button left of Find: "Get FS-UAE" (opens fs-uae.net in Windows release builds, downloads it on a Mac),
+    // "Get test copy" in dev builds, "Re-download" once there is one - sized for
+    // the longest label, so none is cut short
+    draw_set_font(global.f_bold);
+    var _get_w = max(108, ceil(max(ui_sw("Get FS-UAE"), ui_sw("Get test copy"), ui_sw("Re-download"))) + 28);
+    _row_w -= _get_w + 8;
     ui_inset(_fx, _y + 18, _fx + _row_w, _y + 50, 8);
     if (fsuae_dl_id >= 0)
     {
@@ -265,7 +267,7 @@ function ws_build_draw(_x1, _y1, _x2, _y2)
     {
         var _glab = "Get test copy";
         if (file_exists(fsuae_test_exe())) { _glab = "Re-download"; }
-        if (ui_button("build_fsuae_get", _fx + _fw - _btn_w * 2 - 8, _y + 18, _btn_w, 32, _glab, "FS-UAE test copy|Developer convenience: downloads the official FS-UAE 3.1.66 for Windows into ADAM's save folder, so Build and play works straight away. 'Build and play' fetches it by itself when no FS-UAE is found.", BTN_GHOST))
+        if (ui_button("build_fsuae_get", _fx + _fw - _btn_w - 8 - _get_w, _y + 18, _get_w, 32, _glab, "FS-UAE test copy|Developer convenience: downloads the official FS-UAE 3.1.66 for Windows into ADAM's save folder, so Build and play works straight away. 'Build and play' fetches it by itself when no FS-UAE is found.", BTN_GHOST))
         {
             fsuae_download("");
         }
