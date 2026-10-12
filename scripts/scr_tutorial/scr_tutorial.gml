@@ -52,6 +52,8 @@ function tut_init()
         tut_step(WS_ANIMATE, "anim_slot_0", "Frames", "Up to 8 frames each. Click a frame - or the + after the last one - then click sprites in the bank to fill it in."),
         tut_step(WS_ANIMATE, "anim_bank_0", "The sprite bank", "All your sprites, ready to use as frames. Draw them on the Sprites page - there is room for 128."),
         tut_step(WS_ANIMATE, "anim_rate", "Speed and style", "How long each frame stays on screen, and whether it loops, plays once or ping-pongs back and forth."),
+        tut_step(WS_ANIMATE, "anim_dirs", "8 directions", "A movement layout: an animation for each way the actor can move - people walking every way, or a ship that veers and holds its lean (set it to Once). Empty directions borrow from the others."),
+        tut_step(WS_ANIMATE, "anim_test", "Test it", "Switch Test on and drive the preview with the arrow keys, WASD or a gamepad, to see each animation as the Amiga will play it."),
         tut_step(WS_ANIMATE, "anim_flip", "Facing left", "Draw your frames facing right and switch this on: when the actor moves left, the Amiga shows them turned round."),
         // ---------- LOGIC ----------
         tut_step(WS_LOGIC, "", "Rules make it a game", "Each rule is a sentence: WHEN something happens, DO something. For example: WHEN Hero touches Gem, DO add 10 to the score."),

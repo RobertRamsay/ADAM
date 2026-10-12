@@ -1,0 +1,36 @@
+From 858ceabb7e9083de55003f986a820378b0089c1d Mon Sep 17 00:00:00 2001
+From: Bob <robertramsay78@googlemail.com>
+Date: Mon, 12 Oct 2026 18:52:37 +0100
+Subject: [PATCH] Animate page: fix crash after removing or clearing a frame
+
+The sprite bank still used the frame count from before the button press,
+so it read past the end of the shortened frames array.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01BQFSzGarhTTpK2DHf8XzFr
+---
+ scripts/scr_ws_animate/scr_ws_animate.gml | 6 ++++--
+ 1 file changed, 4 insertions(+), 2 deletions(-)
+
+diff --git a/scripts/scr_ws_animate/scr_ws_animate.gml b/scripts/scr_ws_animate/scr_ws_animate.gml
+index e7d9ff5..4c18541 100644
+--- a/scripts/scr_ws_animate/scr_ws_animate.gml
++++ b/scripts/scr_ws_animate/scr_ws_animate.gml
+@@ -374,10 +374,12 @@ function ws_animate_draw(_x1, _y1, _x2, _y2)
+         ui_rrect(_gx, _gy, _gx + _gcell, _gy + _gcell, 6, pal_col(0), pal_col(0), 1);
+         var _gsc = (_gcell - 6) / max(_bsp.w, _bsp.h);
+         draw_sprite_amiga(b, _gx + (_gcell - _bsp.w * _gsc) / 2, _gy + (_gcell - _bsp.h * _gsc) / 2, _gsc, 1);
++        // read the frames afresh: a button above may have just removed or cleared some
++        var _live = _s.anims[anim_sel].frames;
+         var _inanim = false;
+-        for (var f = 0; f < _nf; f++)
++        for (var f = 0; f < array_length(_live); f++)
+         {
+-            if (_an.frames[f] == b) { _inanim = true; }
++            if (_live[f] == b) { _inanim = true; }
+         }
+         if (_inanim) { ui_rrect_line(_gx, _gy, _gx + _gcell, _gy + _gcell, 6, global.TH.accent2, 0.9, 2); }
+         else { ui_rrect_line(_gx, _gy, _gx + _gcell, _gy + _gcell, 6, global.TH.accent, 0.25 + 0.65 * _ba, 1); }
+-- 
+2.43.0
+

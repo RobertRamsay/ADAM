@@ -1,0 +1,121 @@
+From a43f13faa606be952e2d2f5f80ec65c6da795262 Mon Sep 17 00:00:00 2001
+From: Bob <robertramsay78@googlemail.com>
+Date: Mon, 12 Oct 2026 19:24:03 +0100
+Subject: [PATCH] Animate: double-click a frame or a bank sprite to draw it on
+ the Sprites page
+
+A double-click on the bank does not also add the sprite: the frame the first
+click added is taken back.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01BQFSzGarhTTpK2DHf8XzFr
+---
+ objects/obj_app/Create_0.gml              |  3 ++
+ scripts/scr_ws_animate/scr_ws_animate.gml | 41 +++++++++++++++++++++--
+ 2 files changed, 41 insertions(+), 3 deletions(-)
+
+diff --git a/objects/obj_app/Create_0.gml b/objects/obj_app/Create_0.gml
+index 574984b..f8511a2 100644
+--- a/objects/obj_app/Create_0.gml
++++ b/objects/obj_app/Create_0.gml
+@@ -198,6 +198,9 @@ anim_test_dir = 2;          // 8 directions: last way it moved (0 N .. 7 NW)
+ anim_test_face = false;     // last moved left
+ anim_test_x = 0;            // where the test actor has drifted to in the preview
+ anim_test_y = 0;
++anim_click_id = "";         // double-click: the control clicked last, and when
++anim_click_time = 0;
++anim_click_added = false;   // that click added a frame (a double-click takes it back)
+ act_drag = false;
+ act_drag_dx = 0;
+ act_drag_dy = 0;
+diff --git a/scripts/scr_ws_animate/scr_ws_animate.gml b/scripts/scr_ws_animate/scr_ws_animate.gml
+index e22969c..c338be4 100644
+--- a/scripts/scr_ws_animate/scr_ws_animate.gml
++++ b/scripts/scr_ws_animate/scr_ws_animate.gml
+@@ -41,6 +41,26 @@ function anim_begin_edit(_ac, _tag)
+     anim_t0 = current_time;
+ }
+ 
++/// True on the second click of a double-click on control _id (within 0.4 s)
++function anim_dbl(_id)
++{
++    if (anim_click_id == _id && current_time - anim_click_time < 400)
++    {
++        anim_click_id = "";
++        return true;
++    }
++    anim_click_id = _id;
++    anim_click_time = current_time;
++    return false;
++}
++
++/// Opens sprite _i on the Sprites page to draw it
++function anim_edit_sprite(_i)
++{
++    spr_sel = clamp(_i, 0, SPR_COUNT - 1);
++    ws_set(WS_SPRITES);
++}
++
+ /// Draws sprite design _i, turned round when _flip, in colours _cols
+ function draw_sprite_amiga_flip(_i, _x, _y, _scale, _flip, _cols, _alpha)
+ {
+@@ -438,7 +458,7 @@ function ws_animate_draw(_x1, _y1, _x2, _y2)
+         var _kid = "anim_slot_" + string(k);
+         if (k < _nf)
+         {
+-            var _khot = ui_register(_kid, _kx, _sy, _kx + _cellw, _sy + _cellw, "Frame " + string(k + 1) + "|Click to select it, then click a sprite in the bank to change it. Remove, move or clear it with the buttons below.");
++            var _khot = ui_register(_kid, _kx, _sy, _kx + _cellw, _sy + _cellw, "Frame " + string(k + 1) + "|Click to select it, then click a sprite in the bank to change it. Double-click to draw it on the Sprites page. Remove, move or clear it with the buttons below.");
+             ui_rrect(_kx, _sy, _kx + _cellw, _sy + _cellw, 8, pal_col(0), pal_col(0), 1);
+             var _ks = proj.sprites[clamp(_an.frames[k], 0, SPR_COUNT - 1)];
+             var _ksc = (_cellw - 8) / max(_ks.w, _ks.h);
+@@ -450,6 +470,7 @@ function ws_animate_draw(_x1, _y1, _x2, _y2)
+             {
+                 anim_slot = k;
+                 ui_take_click();
++                if (anim_dbl(_kid)) { anim_edit_sprite(_an.frames[k]); }
+             }
+         }
+         else if (k == _nf)
+@@ -583,7 +604,7 @@ function ws_animate_draw(_x1, _y1, _x2, _y2)
+         if (_gy < _gtop - _gcell || _gy > _y2) { continue; }
+         var _bid = "anim_bank_" + string(b);
+         var _bsp = proj.sprites[b];
+-        var _bhot = ui_register(_bid, _gx, _gy, _gx + _gcell, _gy + _gcell, string(b + 1) + ": " + _bsp.name + "|Click to put this sprite in the selected frame (or add it at the end). On a hardware sprite every frame shows in the actor's own colours.");
++        var _bhot = ui_register(_bid, _gx, _gy, _gx + _gcell, _gy + _gcell, string(b + 1) + ": " + _bsp.name + "|Click to put this sprite in the selected frame (or add it at the end). Double-click to draw it on the Sprites page. On a hardware sprite every frame shows in the actor's own colours.");
+         var _ba = 0;
+         if (_bhot) { _ba = 1; }
+         ui_rrect(_gx, _gy, _gx + _gcell, _gy + _gcell, 6, pal_col(0), pal_col(0), 1);
+@@ -601,8 +622,21 @@ function ws_animate_draw(_x1, _y1, _x2, _y2)
+         if (_bhot && ui_pressed)
+         {
+             ui_take_click();
+-            if (anim_can_edit())
++            if (anim_dbl(_bid))
++            {
++                // double-click: draw it instead. The first click added it at the end - take that back.
++                var _back = _s.anims[anim_sel].frames;
++                if (anim_click_added && array_length(_back) > 0 && _back[array_length(_back) - 1] == b)
++                {
++                    array_delete(_back, array_length(_back) - 1, 1);
++                    anim_slot = array_length(_back);
++                }
++                anim_click_added = false;
++                anim_edit_sprite(b);
++            }
++            else if (anim_can_edit())
+             {
++                anim_click_added = false;
+                 var _cur = _s.anims[anim_sel].frames;
+                 if (anim_slot < array_length(_cur))
+                 {
+@@ -615,6 +649,7 @@ function ws_animate_draw(_x1, _y1, _x2, _y2)
+                 {
+                     anim_begin_edit(_s, "animadd" + string(current_time));
+                     array_push(_s.anims[anim_sel].frames, b);
++                    anim_click_added = true;
+                     anim_slot = min(array_length(_s.anims[anim_sel].frames), ANIM_FRAMES - 1);
+                 }
+                 else
+-- 
+2.43.0
+

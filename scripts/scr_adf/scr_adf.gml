@@ -329,10 +329,11 @@ function adam_data_block(_p, _measure = false)
         _plans[a] = _plan;
         if (!is_undefined(_plan))
         {
-            // offsets of the images made so far, by sprite slot: [facing right, facing left]
+            // images made so far, by sprite slot: [as drawn, turned round] (-1 = not made yet)
             var _made = {};
             _made[$ string(_si)] = [_spr_off[a], -1];
-            for (var e = 0; e < ANIM_COUNT; e++)
+            var _dirs = (array_length(_plan) > ANIM_BASIC);
+            for (var e = 0; e < array_length(_plan); e++)
             {
                 var _fr = _plan[e].frames;
                 for (var f = 0; f < array_length(_fr); f++)
@@ -340,16 +341,21 @@ function adam_data_block(_p, _measure = false)
                     var _fs = clamp(_fr[f], 0, SPR_COUNT - 1);
                     var _key = string(_fs);
                     var _got = _made[$ _key];
-                    if (is_undefined(_got))
+                    if (is_undefined(_got)) { _got = [-1, -1]; }
+                    // which ways round it is needed: as the entry says, and turned
+                    // the other way too when it faces left (not with 8 directions)
+                    var _need0 = !_plan[e].flip;
+                    var _need1 = _plan[e].flip;
+                    if (_acts[a].anim_flip && !_dirs)
                     {
-                        _got = [adf_actor_image(_b, _p.sprites[_fs], _bob[a], _bsz, _map, _depth), -1];
-                        _made[$ _key] = _got;
+                        _need0 = true;
+                        _need1 = true;
                     }
-                    if (_acts[a].anim_flip && _got[1] < 0)
-                    {
-                        var _lft = adf_actor_image(_b, spr_flipped(_p.sprites[_fs]), _bob[a], _bsz, _map, _depth);
-                        _made[$ _key] = [_got[0], _lft];
-                    }
+                    var _o0 = _got[0];
+                    var _o1 = _got[1];
+                    if (_need0 && _o0 < 0) { _o0 = adf_actor_image(_b, _p.sprites[_fs], _bob[a], _bsz, _map, _depth); }
+                    if (_need1 && _o1 < 0) { _o1 = adf_actor_image(_b, spr_flipped(_p.sprites[_fs]), _bob[a], _bsz, _map, _depth); }
+                    _made[$ _key] = [_o0, _o1];
                 }
             }
             _imgs[a] = _made;
@@ -362,7 +368,8 @@ function adam_data_block(_p, _measure = false)
         if (is_undefined(_pl)) { continue; }
         buf_align(_b, 8);
         _anim_off[a3] = buffer_tell(_b);
-        for (var e2 = 0; e2 < ANIM_COUNT; e2++)
+        var _dirs2 = (array_length(_pl) > ANIM_BASIC);
+        for (var e2 = 0; e2 < array_length(_pl); e2++)
         {
             var _fr2 = _pl[e2].frames;
             var _nf = min(ANIM_FRAMES, array_length(_fr2));
@@ -372,14 +379,17 @@ function adam_data_block(_p, _measure = false)
             be16(_b, 0);
             for (var side = 0; side < 2; side++)
             {
+                // right: as the entry says; left: turned the other way when it faces
+                // left (8 directions bake any turning into the entries instead)
+                var _way = 0;
+                if (_pl[e2].flip) { _way = 1; }
+                if (side == 1 && _acts[a3].anim_flip && !_dirs2) { _way = 1 - _way; }
                 for (var k = 0; k < ANIM_FRAMES; k++)
                 {
                     var _fi = 0;
                     if (k < _nf) { _fi = k; }
                     var _im = _imgs[a3][$ string(clamp(_fr2[_fi], 0, SPR_COUNT - 1))];
-                    var _o = _im[0];
-                    if (side == 1 && _acts[a3].anim_flip) { _o = _im[1]; }
-                    be32(_b, _o);
+                    be32(_b, _im[_way]);
                 }
             }
         }
@@ -452,8 +462,11 @@ function adam_data_block(_p, _measure = false)
         be16(_b, max(0, _alloc.chan[a2]));
         be32(_b, _spr2_off[a2]);
         be16(_b, clamp(_ac.anim_rate, 2, 30));
-        var _am = 0;
-        if (_ac.anim_moving) { _am = 1; }
+        var _am = 0;                     // A_AMODE: bit 0 = 8 directions
+        if (!is_undefined(_plans[a2]))
+        {
+            if (array_length(_plans[a2]) > ANIM_BASIC) { _am = 1; }
+        }
         be16(_b, _am);
         be16(_b, clamp(_ac.from_level, 1, LEVEL_MAX));
         be16(_b, clamp(_ac.faster_every, 0, LEVEL_MAX));

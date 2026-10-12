@@ -120,6 +120,60 @@ def auto_groups(p):
     for r in p['rules']: r['group']=order.index(key(r))
     p['rules']=sorted(p['rules'],key=lambda r:r['group'])
 
+# ---- animations (Animate page): each animated actor gets 3 or 4 frames per animation.
+# Extra frames are made from the drawn ones with these small changes.
+def tf_shift(rows,dx=0,dy=0):
+    out=[]
+    for y in range(24):
+        sy=y-dy
+        r=rows[sy] if 0<=sy<24 else "."*16
+        if dx>0: r="."*dx+r[:16-dx]
+        elif dx<0: r=r[-dx:]+"."*(-dx)
+        out.append(r)
+    return out
+def tf_hflip(rows): return [r[::-1] for r in rows]
+def tf_flip_from(rows,y0): return rows[:y0]+[r[::-1] for r in rows[y0:]]   # legs / flame the other way
+def tf_lean(rows,k):
+    # leans the picture to the right: the top moves k pixels, the bottom stays
+    out=[]
+    for y,r in enumerate(rows):
+        d=round(k*(23-y)/23)
+        out.append(("."*d+r)[:16] if d>0 else r)
+    return out
+def tf_row(rows,y,new): return rows[:y]+[new]+rows[y+1:]
+
+def animate(p,prefix,specs):
+    """specs: {actor index: dict(anims={0..11: (frames, rate, mode)}, flip=bool, dirs=bool)}
+    frames are art names or row lists; new pictures go in the next free sprite slots
+    with the colours of the actor's own sprite"""
+    slots={}
+    def slot_for(fr,cols,name):
+        if isinstance(fr,int): return fr
+        key=fr if isinstance(fr,str) else prefix+name
+        if key in slots: return slots[key]
+        rows=art.A[fr] if isinstance(fr,str) else fr
+        for i,s in enumerate(p['sprites']):
+            if s['name'].startswith('Sprite ') and not any(s['px']):
+                break
+        else:
+            i=len(p['sprites']); p['sprites'].append(dict(name="",px=[0]*384,cols=cols))
+        p['sprites'][i]=dict(name=name,px=[int(c) if c in '123' else 0 for r in rows for c in r],cols=list(cols))
+        slots[key]=i; return i
+    for ai,sp in specs.items():
+        a=p['actors'][ai]
+        cols=p['sprites'][a['sprite']]['cols']
+        anims=[dict(frames=[],rate=8,mode=0) for _ in range(12)]
+        for k,(frames,rate,mode) in sp['anims'].items():
+            fl=[]
+            for j,fr in enumerate(frames):
+                if isinstance(fr,tuple): nm,rows=fr; fl.append(slot_for(rows,cols,nm))
+                else: fl.append(slot_for(fr,cols,fr))
+            anims[k]=dict(frames=fl,rate=rate,mode=mode)
+        a['anims']=anims; a['anim_flip']=sp.get('flip',False); a['anim_dirs']=sp.get('dirs',False)
+        if a['role']!=7: a['anim_sprite']=-1
+    for i,s in enumerate(p['sprites']):
+        if not s['name']: s['name']="Frame %d"%(i+1)
+
 def make_project(name,pal16,img,sprites,actors,rules,sky,hud_col=1,msg_col=14,lives=3,over="GAME OVER - PRESS FIRE",win="YOU WIN! - PRESS FIRE",sfx=None,songs=None):
     pal=palette_default(); pal[:16]=pal16
     spr=[]
@@ -253,6 +307,17 @@ def gem_hunter():
         levels.append(dict(seed=seed,hilly=hilly,base=200,heights=terrain(seed,hilly,200)))
     p.update(levels_on=True,levels=levels,terrain_cols=[10,9,11,12],goal_on=True,goal=20,goal_label="GEMS",
              title_on=True,title1="GEM HUNTER",title2="PRESS FIRE TO START",lev_text="LEVEL")
+    H=art.A['gh_hero']; H2=art.A['gh_hero2']; HP=art.A['hop2']; C=art.A['cloud']; C2=art.A['cloud2']; G2=art.A['gem2']; P2=art.A['pop2']
+    hero=dict(flip=True,anims={0:([0,("Hero bob",tf_shift(H,dy=-1)),("Hero bob 2",tf_shift(H,dy=-2))],12,2),
+                               1:([0,4,("Hero step",tf_shift(H,dy=-1)),("Hero walk 2",tf_flip_from(H2,15))],5,0),
+                               2:([4,("Hero leap",tf_shift(H2,dy=-1)),("Hero leap 2",tf_shift(H2,dy=-2))],4,1)})
+    hero['anims'][3]=([("Hero bob",tf_shift(H,dy=-1)),("Hero drop",tf_shift(H,dy=1)),0],4,1)
+    hopper=dict(anims={0:([1,("Hopper wobble",tf_shift(HP,dy=1)),("Hopper wobble 2",tf_shift(HP,dx=1,dy=1))],10,2),
+                       2:([1,("Hopper stretch",tf_shift(HP,dy=-1)),("Hopper stretch 2",tf_shift(HP,dy=-2))],4,1)})
+    animate(p,"gh",{0:hero,1:hopper,2:hopper,3:hopper,4:hopper,
+                    5:dict(anims={0:([3,7,("Cloud drift",tf_shift(C,dx=1)),("Cloud drift puff",tf_shift(C2,dx=1))],25,0)}),
+                    6:dict(anims={0:([2,6,("Gem sparkle 2",tf_hflip(G2))],10,0)}),
+                    7:dict(anims={0:([8,9,("Pop flash",tf_hflip(P2))],4,0)})})
     return p
 
 # ------------------------------------------------------------------ DEEP DIVE
@@ -322,8 +387,17 @@ def deep_dive():
         bars("",2,"Offbeat bass",14),
         bars("Long minor",4,"Minor to major",4,"Long minor",4,"Minor to major",4),
         bars("",4,"Long notes",4,"Hook two",2,"Long notes",2,"Hook two",2,"Long notes",2)])
-    return make_project("Deep Dive",pal,im,sprites,actors,rules,[0x70d8f0,0x1868a8,0x021028,95],sfx=sfx,msg_col=14,
+    p=make_project("Deep Dive",pal,im,sprites,actors,rules,[0x70d8f0,0x1868a8,0x021028,95],sfx=sfx,msg_col=14,
                         win="YOU FOUND THEM ALL!",over="OUT OF AIR - PRESS FIRE",songs=[tune])
+    D=art.A['diver']; D2=art.A['diver2']; J=art.A['jelly']; SH=tf_hflip(art.A['shark']); SH2=tf_hflip(art.A['shark2']); P2=art.A['pearl2']
+    pearl=lambda r: dict(anims={0:([3,7,("Pearl shine 2",tf_hflip(P2))],r,0)})
+    animate(p,"dd",{0:dict(anims={0:([0,("Diver float",tf_shift(D,dy=-1)),("Diver float 2",tf_shift(D,dy=-2))],14,2),
+                                   1:([0,4,("Diver glide",tf_shift(D,dy=-1)),("Diver kick 2",tf_flip_from(D2,16))],7,0)}),
+                    1:dict(anims={0:([1,("Jelly rise",tf_shift(J,dy=-1)),5,("Jelly rise 2",tf_shift(J,dy=-2))],12,0)}),
+                    2:dict(anims={0:([1,("Jelly rise",None),5,("Jelly rise 2",None)],12,0)}),
+                    3:dict(flip=True,anims={0:([("Shark right",SH),("Shark right tail",SH2),("Shark right glide",tf_shift(SH,dy=1)),("Shark right tail 2",tf_shift(SH2,dy=1))],6,0)}),
+                    4:pearl(10),5:pearl(14)})
+    return p
 
 # ------------------------------------------------------------------ STAR CATCHER
 def star_catcher():
@@ -383,8 +457,19 @@ def star_catcher():
         bars("Octave bounce",16),
         bars("Rising chords",16),
         bars("",4,"Arp up",2,"Arp down",2,"Arp up",2,"Arp down",2,"Arp up",2,"Arp down",2)])
-    return make_project("Star Catcher",pal,im,sprites,actors,rules,[0x000000,0x1a0838,0x0a1840,140],msg_col=14,
+    p=make_project("Star Catcher",pal,im,sprites,actors,rules,[0x000000,0x1a0838,0x0a1840,140],msg_col=14,
                         win="GALAXY SAVED! - PRESS FIRE",over="SHIP LOST - PRESS FIRE",songs=[tune])
+    S1=art.A["ship"]; S2=art.A["ship2"]; RK=art.A["rock"]; RK2=art.A["rock2"]; U=art.A['ufo']; T2=art.A['star2']
+    fl=("Rocket flicker",tf_flip_from(S2,16)); burn=[4,fl,("Rocket burn",tf_shift(S2,dy=-1))]
+    # the rocket uses the 8 directions: it veers to the side and holds the lean (Once);
+    # left is the right turned round
+    rocket=dict(dirs=True,flip=True,anims={0:([0,4,fl],4,0),4:(burn,4,0),8:([0,("Rocket brake",tf_shift(S1,dy=1)),("Rocket brake 2",tf_shift(S1,dy=2))],6,1),
+                                           6:([("Rocket veer",tf_lean(S2,2)),("Rocket veer 2",tf_lean(S2,3)),("Rocket veer 3",tf_lean(S2,4))],4,1)})
+    rock=dict(anims={0:([1,5,("Asteroid spin 2",tf_hflip(RK)),("Asteroid spin 3",tf_hflip(RK2))],16,0)})
+    animate(p,"sc",{0:rocket,1:rock,2:rock,
+                    3:dict(anims={0:([2,6,("UFO lights 2",tf_row(U,10,"2113113113113112"[2:]+"2113113113113112"[:2]))],8,0)}),
+                    4:dict(anims={0:([3,7,("Star twinkle 2",tf_hflip(T2))],10,2)})})
+    return p
 
 # ------------------------------------------------------------------ DODGE BALL
 def dodge_ball():
@@ -431,8 +516,15 @@ def dodge_ball():
         bars("Acid line",16),
         bars("Offbeat skank",16),
         bars("",8,"Trill",2,"Hook two",2,"Trill",2,"Hook two",2)])
-    return make_project("Dodge Ball",pal,im,sprites,actors,rules,[0x300050,0xb02090,0xffa040,118],msg_col=14,
+    p=make_project("Dodge Ball",pal,im,sprites,actors,rules,[0x300050,0xb02090,0xffa040,118],msg_col=14,
                         win="CHAMPION! - PRESS FIRE",over="KNOCKED OUT - PRESS FIRE",songs=[tune])
+    B=art.A['blob']; BA=art.A['ball']; BA2=art.A['ball2']; G2=art.A['gem2']
+    def ball(si,s2,nm): return dict(anims={0:([si,s2,(nm+" 3",tf_hflip(BA)),(nm+" 4",tf_hflip(BA2))],8,0)})
+    animate(p,"db",{0:dict(anims={0:([0,("Player breathe",tf_shift(B,dy=-1)),("Player breathe 2",tf_shift(B,dy=-2))],12,2),
+                                   1:([0,4,("Player bounce",tf_shift(B,dy=-1)),4],8,0)}),
+                    1:ball(1,5,"Red ball spin"),2:ball(1,5,"Red ball spin"),3:ball(2,6,"Yellow ball spin"),4:ball(2,6,"Yellow ball spin"),
+                    5:dict(anims={0:([3,7,("Bonus sparkle 2",tf_hflip(G2))],10,0)})})
+    return p
 
 # ------------------------------------------------------------------ FIREFLY NIGHT (ADAM Pro: BOBs)
 def firefly_night():
@@ -537,6 +629,14 @@ def firefly_night():
     p=make_project("Firefly Night",pal,im,sprites,actors,rules,[0x02030c,0x101a48,0x34305e,165],hud_col=1,msg_col=14,sfx=sfx,
                    win="THE JAR IS FULL! - PRESS FIRE",over="THE BATS WIN - PRESS FIRE",songs=[tune])
     p.update(title_on=True,title1="FIREFLY NIGHT",title2="PRESS FIRE TO START")
+    O=art.A['ff_owl']; O2=art.A['ff_owl2']; BT=art.A['ff_bat']; BT2=art.A['ff_bat2']; F=art.A['ff_fly']
+    bat=dict(anims={0:([2,5,("Bat rise",tf_shift(BT,dy=-1)),("Bat flap rise",tf_shift(BT2,dy=-1))],6,0)})
+    specs={0:dict(anims={0:([0,("Owl hover",tf_shift(O,dy=-1)),("Owl hover 2",tf_shift(O,dy=-2))],14,2),
+                         1:([0,3,("Owl glide",tf_shift(O,dy=-1)),("Owl flap high",tf_shift(O2,dy=-1))],6,0)}),
+           1:bat,2:bat,3:bat}
+    for i in range(4,len(p['actors'])):
+        specs[i]=dict(anims={0:([1,4,("Firefly glow",tf_hflip(F))],p['actors'][i]['anim_rate'],0)})
+    animate(p,"ff",specs)
     return p
 
 # ------------------------------------------------------------------ helpers
@@ -648,7 +748,7 @@ def to_builder(p):
     acts=[]
     for i,a in enumerate(p['actors'][:32]):
         d=dict(x=a['x'],y=a['y'],role=a['role'],speed=a['speed'],visible=int(a['visible']),left=int(a['start_left']),up=int(a['start_up']),
-               sprite=a['sprite'],chan=max(0,chan[i]),anim=a['anim_sprite'],rate=a['anim_rate'],amode=int(a['anim_moving']),anims=a.get('anims',[]),flip=a.get('anim_flip',False),**{'from':a['from_level'],'fast':a['faster_every']})
+               sprite=a['sprite'],chan=max(0,chan[i]),anim=a['anim_sprite'],rate=a['anim_rate'],amode=int(a['anim_moving']),anims=a.get('anims',[]),flip=a.get('anim_flip',False),dirs=a.get('anim_dirs',False),**{'from':a['from_level'],'fast':a['faster_every']})
         if chan[i]<0:
             d['bob']=1; d['bobmap']=[pal_nearest(p,c) for c in p['sprites'][a['sprite']]['cols']]
         acts.append(d)

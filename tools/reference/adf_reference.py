@@ -98,9 +98,10 @@ def build(proj, aga):
                     made[(si,fl)]=mk(flipped(sp) if fl else sp)
                 return made[(si,fl)]
             ents=[]
-            for frames,rate,mode in plan:
-                right=[img(f,False) for f in frames]
-                left=[img(f,True) for f in frames] if a.get('flip') else right
+            dirs=len(plan)>4
+            for frames,rate,mode,fl in plan:
+                right=[img(f,fl) for f in frames]
+                left=[img(f,not fl) for f in frames] if a.get('flip') and not dirs else right
                 ents.append((len(frames),rate,mode,right,left))
             plans.append(ents)
         else: plans.append(None)
@@ -125,7 +126,8 @@ def build(proj, aga):
         by0,by1=(min(ys),max(ys)) if ys else (0,bh-1)
         bsize=(bh<<6)|(bw//16+1) if a.get('bob') else 0
         blob+=struct.pack('>HHHHHHHHHHHL',min(a['x'],320-bw),min(a['y'],256-bh),a['role'],a['speed'],int(a['visible']),int(a['left']),int(a['up']),bx0,by0,bx1,by1,spr_offs[i])
-        blob+=struct.pack('>HLHHHHHHHH',a.get('chan',i),spr2_offs[i],a.get('rate',8),a.get('amode',0),a.get('from',1),a.get('fast',0),
+        aflags=1 if plans[i] and len(plans[i])>4 else 0     # A_AMODE bit 0: 8 directions
+        blob+=struct.pack('>HLHHHHHHHH',a.get('chan',i),spr2_offs[i],a.get('rate',8),aflags,a.get('from',1),a.get('fast',0),
                           1 if a.get('bob') else 0,320-bw,256-bh,bsize)
         blob+=struct.pack('>L',anim_offs[i])
     align(8)
@@ -220,32 +222,69 @@ def build(proj, aga):
     blob[0:92]=hdr
     return bytes(blob)
 
-# ---- animations (data block version 5); scr_adf.gml anim_plan() does the same
-# actor dict: anims = 4 x {frames: [sprite indexes, up to 8], rate: 2..30, mode: 0 loop / 1 once / 2 ping-pong}
-# (Idle, Walk, Jump, Fall), flip = frames turn to face left; or the version 4
-# two-frame animation: anim = second sprite, rate, amode (1 = only while moving)
+# ---- animations (data block version 5); scr_project.gml anim_plan() does the same
+# actor dict: anims = 12 x {frames: [sprite indexes, up to 8], rate: 2..30, mode: 0 loop / 1 once / 2 ping-pong}
+# (0 Idle, 1 Walk, 2 Jump, 3 Fall, 4..11 = N NE E SE S SW W NW), dirs = use the 8 directions
+# instead of Walk, flip = frames turn round to face left (in 8 directions: a missing
+# side is the other side turned round); or the version 4 two-frame animation:
+# anim = second sprite, rate, amode (1 = only while moving)
+DIR_CHAINS=[  # (entry, turned round) tried in order for each direction; 1 = Walk
+    [(4,0),(1,0)],                        # N
+    [(5,0),(11,1),(6,0),(10,1),(1,0)],    # NE
+    [(6,0),(10,1),(1,0)],                 # E
+    [(7,0),(9,1),(6,0),(10,1),(1,0)],     # SE
+    [(8,0),(1,0)],                        # S
+    [(9,0),(7,1),(10,0),(6,1),(1,2)],     # SW  (2 = Walk, turned round when flip is on)
+    [(10,0),(6,1),(1,2)],                 # W
+    [(11,0),(5,1),(10,0),(6,1),(1,2)]]    # NW
+
+def anim_entries(a):
+    out=[]
+    for k in range(12):
+        e=a.get('anims',[])[k] if k<len(a.get('anims',[])) else {}
+        fr=[f for f in e.get('frames',[])][:8]
+        out.append((fr,max(2,min(30,e.get('rate',8))),max(0,min(2,e.get('mode',0))),0) if fr else None)
+    return out
+
 def anims_used(a):
-    return any(len(e.get('frames',[]))>0 for e in a.get('anims',[])[:4])
+    n=12 if a.get('dirs') else 4
+    return any(e for e in anim_entries(a)[:n])
 
 def anim_plan(a):
-    """None for one frame, else 4 x (frames, rate, mode) with empty ones filled in"""
+    """None for one frame, else 4 (or 12 with 8 directions) x (frames, rate, mode, turned round)"""
     base=a['sprite']
     if anims_used(a):
-        ents=[]
-        for k in range(4):
-            e=a['anims'][k] if k<len(a['anims']) else {}
-            fr=[f for f in e.get('frames',[])][:8]
-            ents.append((fr,max(2,min(30,e.get('rate',8))),max(0,min(2,e.get('mode',0)))) if fr else None)
-        idle,walk,jump,fall=ents
-        if not idle: idle=walk if walk else ([base],8,0)
+        ents=anim_entries(a)
+        flip=bool(a.get('flip'))
+        idle,walk,jump,fall=ents[:4]
+        if a.get('dirs'):
+            dirs=[]
+            for chain in DIR_CHAINS:
+                got=None
+                for k,t in chain:
+                    if t==1 and not flip: continue
+                    src=ents[k]
+                    if k==1 and not src: src=idle
+                    if src:
+                        fr,rt,md,_=src
+                        got=(fr,rt,md,1 if (t==1 or (t==2 and flip)) else 0); break
+                dirs.append(got)
+            for d in range(8):                         # nothing at all: east (or west), else the sprite
+                if not dirs[d]: dirs[d]=dirs[2] or dirs[6] or ([base],8,0,0)
+            if not idle: idle=([base],8,3,0)              # stand facing the last direction
+            if not walk: walk=dirs[2]
+            if not jump: jump=walk
+            if not fall: fall=jump
+            return [idle,walk,jump,fall]+dirs
+        if not idle: idle=walk if walk else ([base],8,0,0)
         if not walk: walk=idle
         if not jump: jump=walk
         if not fall: fall=jump
         return [idle,walk,jump,fall]
     if a.get('anim',-1)>=0 and a['role']!=7:
         rate=max(2,min(30,a.get('rate',8)))
-        both=([base,a['anim']],rate,0)
-        idle=([base],rate,0) if a.get('amode',0) else both
+        both=([base,a['anim']],rate,0,0)
+        idle=([base],rate,0,0) if a.get('amode',0) else both
         return [idle,both,both,both]
     return None
 

@@ -78,7 +78,7 @@ A_SPR       equ 22         ; long offset of this actor's hardware sprite block
 A_CHAN      equ 26         ; hardware sprite channel 0..7 (colour pair = channel / 2)
 A_SPR2      equ 28         ; long offset of a hopper's crouch frame, 0 = none
 A_ARATE     equ 32         ; (version 4: frames per animation frame - unused since version 5)
-A_AMODE     equ 34         ; (version 4: 1 = only while moving - unused since version 5)
+A_AMODE     equ 34         ; animation flags: bit 0 = 8 directions (table has 12 entries)
 A_FROM      equ 36         ; first level this actor appears on (1..10)
 A_FAST      equ 38         ; +1 speed every N levels, 0 = never
 A_BOB       equ 40         ; 1 = BOB: A_SPR / A_SPR2 / frames are BOB images, A_CHAN is unused
@@ -92,9 +92,13 @@ ACT_SIZE    equ 52
 ; 1 Walk (moving), 2 Jump (in the air going up), 3 Fall (in the air coming
 ; down; Jump and Fall only for platform players, hoppers and fallers). ADAM
 ; fills empty animations in from the others, so every entry has 1..8 frames.
+; With 8 directions (A_AMODE bit 0) 8 more follow: 4 N, 5 NE, 6 E, 7 SE, 8 S,
+; 9 SW, 10 W, 11 NW, used instead of Walk; ADAM bakes any turning round into
+; their frames. An entry with mode 3 ('stand facing') shows frame 1 of the
+; direction the actor last moved in.
 AN_N        equ 0          ; number of frames 1..8
 AN_RATE     equ 2          ; 50ths of a second per frame (2..30)
-AN_MODE     equ 4          ; 0 = loop, 1 = once (stays on the last), 2 = ping-pong
+AN_MODE     equ 4          ; 0 = loop, 1 = once (stays on the last), 2 = ping-pong, 3 = stand facing (8 directions)
 AN_RIGHT    equ 8          ; 8 longs: frame offsets facing right
 AN_LEFT     equ 40         ; 8 longs: facing left (the same frames when not flipped)
 ANIM_SIZE   equ 72
@@ -165,6 +169,7 @@ v_fofs      rs.l 1         ; offset of the frame shown now (bob_draw draws it)
 v_aset      rs.w 1         ; animation playing: 0 Idle, 1 Walk, 2 Jump, 3 Fall, -1 = none yet
 v_astart    rs.w 1         ; v_anim when it started
 v_face      rs.w 1         ; 1 = facing left
+v_dir       rs.w 1         ; 8 directions: last direction moved, 0 N .. 7 NW
             rsset   -128+MAX_ACT*ACTV_SIZE
 v_anim      rs.w 1
 v_joyprev   rs.w 1
@@ -624,6 +629,11 @@ init_actors:
             move.l  A_SPR(a2),v_fofs(a5,d5.w)
             move.w  #-1,v_aset(a5,d5.w)
             move.w  A_LEFT(a2),v_face(a5,d5.w)
+            move.w  #2,v_dir(a5,d5.w)       ; facing east, or west when it starts moving left
+            tst.w   A_LEFT(a2)
+            beq.s   .east
+            move.w  #6,v_dir(a5,d5.w)
+.east
             lea     ACT_SIZE(a2),a2
             addq.w  #1,d7
             cmp.w   d6,d7
@@ -1099,13 +1109,35 @@ place_sprites:
             blt.s   .got
             moveq   #3,d2
             bra.s   .got
-.walkq      move.w  v_ax(a5,d5.w),d3
-            cmp.w   v_px(a5,d5.w),d3
-            bne.s   .walk
-            move.w  v_ay(a5,d5.w),d3
-            cmp.w   v_py(a5,d5.w),d3
+.walkq      move.w  v_ax(a5,d5.w),d3        ; d3 / d4 = how far it moved this frame
+            sub.w   v_px(a5,d5.w),d3
+            move.w  v_ay(a5,d5.w),d4
+            sub.w   v_py(a5,d5.w),d4
+            move.w  d3,d0
+            or.w    d4,d0
+            beq.s   .got                    ; standing still: Idle
+            moveq   #1,d2                   ; moving: Walk
+            btst    #0,A_AMODE+1(a2)        ; or one of 8 directions
             beq.s   .got
-.walk       moveq   #1,d2
+            moveq   #1,d0                   ; d0 = 3 x (up 0, level 1, down 2) + (left 0, still 1, right 2)
+            tst.w   d4
+            beq.s   .dy0
+            bmi.s   .dyn
+            moveq   #2,d0
+            bra.s   .dy0
+.dyn        moveq   #0,d0
+.dy0        mulu    #3,d0
+            tst.w   d3
+            beq.s   .dx0
+            bmi.s   .dx1
+            addq.w  #2,d0
+            bra.s   .dx1
+.dx0        addq.w  #1,d0
+.dx1        lea     dir_tab(pc),a0
+            moveq   #0,d2
+            move.b  0(a0,d0.w),d2
+            move.w  d2,v_dir(a5,d5.w)
+            addq.w  #4,d2
 .got        cmp.w   v_aset(a5,d5.w),d2      ; a new animation starts from its first frame
             beq.s   .same
             move.w  d2,v_aset(a5,d5.w)
@@ -1113,6 +1145,16 @@ place_sprites:
 .same       mulu    #ANIM_SIZE,d2
             add.l   d2,d1
             lea     0(a4,d1.l),a0           ; a0 = this animation
+            cmp.w   #3,AN_MODE(a0)          ; stand facing: first frame of the last direction
+            bne.s   .tick
+            move.w  v_dir(a5,d5.w),d2
+            addq.w  #4,d2
+            mulu    #ANIM_SIZE,d2
+            move.l  A_ANIM(a2),d1
+            add.l   d2,d1
+            move.l  AN_RIGHT(a4,d1.l),d0
+            bra     .frame
+.tick
             moveq   #0,d3
             move.w  v_anim(a5),d3
             sub.w   v_astart(a5,d5.w),d3    ; 50ths since it started
@@ -1210,6 +1252,11 @@ place_sprites:
             blt     .loop
 .done       rts
 
+; 8 directions from (3 x vertical + horizontal): up-left, up, up-right,
+; left, (still), right, down-left, down, down-right
+dir_tab:    dc.b    7,0,1,6,0,2,5,4,3
+            even
+
 hide_sprites:
             move.w  H_NACT(a4),d6
             beq.s   .done
@@ -1228,7 +1275,10 @@ hide_sprites:
 .h1         move.l  A_ANIM(a2),d0           ; and every animation frame
             beq.s   .h2
             lea     0(a4,d0.l),a1
-            moveq   #3,d2                   ; 4 animations
+            moveq   #3,d2                   ; 4 animations (12 with 8 directions)
+            btst    #0,A_AMODE+1(a2)
+            beq.s   .ha
+            moveq   #11,d2
 .ha         lea     AN_RIGHT(a1),a3
             moveq   #15,d1                  ; 8 right + 8 left
 .hf         move.l  (a3)+,d0

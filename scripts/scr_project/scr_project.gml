@@ -112,6 +112,7 @@ function actor_new(_name)
         anim_moving : false,
         anims : anims_new(),    // Idle, Walk, Jump, Fall (Animate page)
         anim_flip : false,      // frames turn round when it moves left
+        anim_dirs : false,      // 8 directions (N NE E SE S SW W NW) instead of Walk
         from_level : 1,
         faster_every : 0,
         bob : false             // ADAM Pro: drawn by the blitter instead of a hardware sprite
@@ -125,7 +126,9 @@ function actor_new(_name)
 // in 50ths of a second per frame and a mode. Empty ones borrow from the
 // others when the disk is built (anim_plan, same as adf_reference.py).
 // ---------------------------------------------------------------------------
-#macro ANIM_COUNT 4
+#macro ANIM_COUNT 12            // stored per actor: 0 Idle, 1 Walk, 2 Jump, 3 Fall, 4..11 N NE E SE S SW W NW
+#macro ANIM_BASIC 4             // Idle, Walk, Jump, Fall
+#macro ANIM_DIR0 4              // first of the 8 directions
 #macro ANIM_FRAMES 8
 
 function anim_new()
@@ -140,7 +143,7 @@ function anims_new()
     return _a;
 }
 
-/// Makes a loaded anims array safe: 4 entries, up to 8 frames each, values in range
+/// Makes a loaded anims array safe: 12 entries (older files have 4), up to 8 frames each, values in range
 function anims_from_loaded(_raw)
 {
     var _out = anims_new();
@@ -165,32 +168,59 @@ function anims_from_loaded(_raw)
     return _out;
 }
 
-/// True when the actor has any Animate-page frames (they replace the two-frame animation)
+/// True when the actor has any Animate-page frames (they replace the two-frame animation).
+/// The 8 directions only count while 8 directions is switched on.
 function anims_used(_ac)
 {
-    for (var i = 0; i < ANIM_COUNT; i++)
+    var _n = ANIM_BASIC;
+    if (_ac.anim_dirs) { _n = ANIM_COUNT; }
+    for (var i = 0; i < _n; i++)
     {
         if (array_length(_ac.anims[i].frames) > 0) { return true; }
     }
     return false;
 }
 
-/// Starts the Animate page from the actor's two-frame animation, if it has one
+/// Starts the Animate page from the actor's two-frame animation, if it has one.
+/// Either way the two-frame animation is switched off (a hopper keeps its
+/// crouch frame), so clearing every frame here really leaves one frame.
 function anims_seed_from_legacy(_ac)
 {
-    if (anims_used(_ac)) { return; }
-    if (_ac.anim_sprite < 0 || _ac.role == 7) { return; }
-    var _r = clamp(_ac.anim_rate, 2, 30);
-    _ac.anims[1].frames = [_ac.sprite, _ac.anim_sprite];
-    _ac.anims[1].rate = _r;
-    if (_ac.anim_moving) { _ac.anims[0].frames = [_ac.sprite]; }
-    else { _ac.anims[0].frames = [_ac.sprite, _ac.anim_sprite]; }
-    _ac.anims[0].rate = _r;
+    if (_ac.role == 7) { return; }
+    if (!anims_used(_ac) && _ac.anim_sprite >= 0)
+    {
+        var _r = clamp(_ac.anim_rate, 2, 30);
+        _ac.anims[1].frames = [_ac.sprite, _ac.anim_sprite];
+        _ac.anims[1].rate = _r;
+        if (_ac.anim_moving) { _ac.anims[0].frames = [_ac.sprite]; }
+        else { _ac.anims[0].frames = [_ac.sprite, _ac.anim_sprite]; }
+        _ac.anims[0].rate = _r;
+    }
+    _ac.anim_sprite = -1;
 }
 
-/// What the disk plays: undefined for one frame, else 4 x { frames, rate, mode }
-/// with empty animations filled in from the others. Must match anim_plan in
+/// The directions tried, in order, for each of the 8 (N NE E SE S SW W NW) when it
+/// has no frames: [entry, turn] pairs - turn 1 = turned round (only with anim_flip),
+/// 2 = turned round when anim_flip is on; entry 1 is Walk. Same as DIR_CHAINS in
 /// tools/reference/adf_reference.py.
+function anim_dir_chains()
+{
+    return [
+        [[4, 0], [1, 0]],
+        [[5, 0], [11, 1], [6, 0], [10, 1], [1, 0]],
+        [[6, 0], [10, 1], [1, 0]],
+        [[7, 0], [9, 1], [6, 0], [10, 1], [1, 0]],
+        [[8, 0], [1, 0]],
+        [[9, 0], [7, 1], [10, 0], [6, 1], [1, 2]],
+        [[10, 0], [6, 1], [1, 2]],
+        [[11, 0], [5, 1], [10, 0], [6, 1], [1, 2]]
+    ];
+}
+
+/// What the disk plays: undefined for one frame, else 4 (or 12 with 8 directions)
+/// x { frames, rate, mode, flip } with empty animations filled in from the others
+/// (flip = its frames are turned round; mode 3 = stand facing the last direction).
+/// Must match anim_plan in tools/reference/adf_reference.py.
 function anim_plan(_ac)
 {
     if (anims_used(_ac))
@@ -199,25 +229,66 @@ function anim_plan(_ac)
         for (var i = 0; i < ANIM_COUNT; i++)
         {
             var _src = _ac.anims[i];
-            if (array_length(_src.frames) > 0) { array_push(_e, { frames : _src.frames, rate : clamp(_src.rate, 2, 30), mode : clamp(_src.mode, 0, 2) }); }
+            if (array_length(_src.frames) > 0) { array_push(_e, { frames : _src.frames, rate : clamp(_src.rate, 2, 30), mode : clamp(_src.mode, 0, 2), flip : false }); }
             else { array_push(_e, undefined); }
+        }
+        if (_ac.anim_dirs)
+        {
+            var _chains = anim_dir_chains();
+            var _dirs = array_create(8, undefined);
+            for (var d = 0; d < 8; d++)
+            {
+                var _ch = _chains[d];
+                for (var c = 0; c < array_length(_ch); c++)
+                {
+                    var _k = _ch[c][0];
+                    var _t = _ch[c][1];
+                    if (_t == 1 && !_ac.anim_flip) { continue; }
+                    var _src2 = _e[_k];
+                    if (_k == 1 && is_undefined(_src2)) { _src2 = _e[0]; }
+                    if (!is_undefined(_src2))
+                    {
+                        var _fl = false;
+                        if (_t == 1) { _fl = true; }
+                        if (_t == 2 && _ac.anim_flip) { _fl = true; }
+                        _dirs[d] = { frames : _src2.frames, rate : _src2.rate, mode : _src2.mode, flip : _fl };
+                        break;
+                    }
+                }
+            }
+            for (var d2 = 0; d2 < 8; d2++)
+            {
+                if (is_undefined(_dirs[d2]))
+                {
+                    if (!is_undefined(_dirs[2])) { _dirs[d2] = _dirs[2]; }
+                    else if (!is_undefined(_dirs[6])) { _dirs[d2] = _dirs[6]; }
+                    else { _dirs[d2] = { frames : [_ac.sprite], rate : 8, mode : 0, flip : false }; }
+                }
+            }
+            var _out = [_e[0], _e[1], _e[2], _e[3]];
+            if (is_undefined(_out[0])) { _out[0] = { frames : [_ac.sprite], rate : 8, mode : 3, flip : false }; }
+            if (is_undefined(_out[1])) { _out[1] = _dirs[2]; }
+            if (is_undefined(_out[2])) { _out[2] = _out[1]; }
+            if (is_undefined(_out[3])) { _out[3] = _out[2]; }
+            for (var d3 = 0; d3 < 8; d3++) { array_push(_out, _dirs[d3]); }
+            return _out;
         }
         if (is_undefined(_e[0]))
         {
             if (!is_undefined(_e[1])) { _e[0] = _e[1]; }
-            else { _e[0] = { frames : [_ac.sprite], rate : 8, mode : 0 }; }
+            else { _e[0] = { frames : [_ac.sprite], rate : 8, mode : 0, flip : false }; }
         }
         if (is_undefined(_e[1])) { _e[1] = _e[0]; }
         if (is_undefined(_e[2])) { _e[2] = _e[1]; }
         if (is_undefined(_e[3])) { _e[3] = _e[2]; }
-        return _e;
+        return [_e[0], _e[1], _e[2], _e[3]];
     }
     if (_ac.anim_sprite >= 0 && _ac.role != 7)
     {
         var _rt = clamp(_ac.anim_rate, 2, 30);
-        var _both = { frames : [_ac.sprite, _ac.anim_sprite], rate : _rt, mode : 0 };
+        var _both = { frames : [_ac.sprite, _ac.anim_sprite], rate : _rt, mode : 0, flip : false };
         var _idle = _both;
-        if (_ac.anim_moving) { _idle = { frames : [_ac.sprite], rate : _rt, mode : 0 }; }
+        if (_ac.anim_moving) { _idle = { frames : [_ac.sprite], rate : _rt, mode : 0, flip : false }; }
         return [_idle, _both, _both, _both];
     }
     return undefined;
@@ -246,6 +317,7 @@ function actor_preview_sprite(_ac)
     var _plan = anim_plan(_ac);
     if (is_undefined(_plan)) { return _ac.sprite; }
     var _e = _plan[0];
+    if (_e.mode == 3) { _e = _plan[ANIM_DIR0 + 2]; }      // stands facing east
     return _e.frames[anim_frame_at(_e, current_time div 20)];
 }
 
@@ -402,6 +474,12 @@ function project_from_loaded(_raw)
         {
             var _lact = struct_overlay(actor_new("Actor"), _la[k]);
             _lact.anims = anims_from_loaded(_lact.anims);
+            if (!is_bool(_lact.anim_dirs))
+            {
+                var _dv = false;
+                if (is_numeric(_lact.anim_dirs)) { _dv = (_lact.anim_dirs != 0); }
+                _lact.anim_dirs = _dv;
+            }
             if (!is_bool(_lact.anim_flip))
             {
                 var _fv = false;
