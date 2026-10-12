@@ -332,7 +332,7 @@ function adam_data_block(_p, _measure = false)
             // images made so far, by sprite slot: [as drawn, turned round] (-1 = not made yet)
             var _made = {};
             _made[$ string(_si)] = [_spr_off[a], -1];
-            var _dirs = _acts[a].anim_dirs;
+            var _dirs = anims_dirs_on(_acts[a]);
             for (var e = 0; e < array_length(_plan); e++)
             {
                 var _fr = _plan[e].frames;
@@ -368,7 +368,7 @@ function adam_data_block(_p, _measure = false)
         if (is_undefined(_pl)) { continue; }
         buf_align(_b, 8);
         _anim_off[a3] = buffer_tell(_b);
-        var _dirs2 = _acts[a3].anim_dirs;
+        var _dirs2 = anims_dirs_on(_acts[a3]);
         for (var e2 = 0; e2 < array_length(_pl); e2++)
         {
             var _fr2 = _pl[e2].frames;
@@ -465,7 +465,7 @@ function adam_data_block(_p, _measure = false)
         var _am = 0;                     // A_AMODE: bit 0 = 8 directions, bit 1 = Fire animations
         if (!is_undefined(_plans[a2]))
         {
-            if (_ac.anim_dirs && array_length(_plans[a2]) >= ANIM_FIRE0) { _am = _am | 1; }
+            if (anims_dirs_on(_ac) && array_length(_plans[a2]) >= ANIM_FIRE0) { _am = _am | 1; }
             if (array_length(_plans[a2]) > ANIM_FIRE0) { _am = _am | 2; }
         }
         be16(_b, _am);

@@ -112,7 +112,7 @@ function actor_new(_name)
         anim_moving : false,
         anims : anims_new(),    // Idle, Walk, Jump, Fall (Animate page)
         anim_flip : false,      // frames turn round when it moves left
-        anim_dirs : false,      // 8 directions (N NE E SE S SW W NW) instead of Walk
+        anim_dirs : false,      // (older files; the 8 directions are on when they have frames)
         from_level : 1,
         faster_every : 0,
         bob : false             // ADAM Pro: drawn by the blitter instead of a hardware sprite
@@ -174,13 +174,23 @@ function anims_from_loaded(_raw)
 /// The 8 directions only count while 8 directions is switched on.
 function anims_used(_ac)
 {
-    var _n = ANIM_BASIC;
-    if (_ac.anim_dirs) { _n = ANIM_FIRE0; }
+    var _n = ANIM_FIRE0;
     for (var i = 0; i < _n; i++)
     {
         if (array_length(_ac.anims[i].frames) > 0) { return true; }
     }
     return anims_fire_used(_ac);
+}
+
+/// True when the joystick directions have frames: then the 8 directions are used
+/// instead of Walk (empty ones borrow from the others and from Walk)
+function anims_dirs_on(_ac)
+{
+    for (var i = ANIM_DIR0; i < ANIM_DIR0 + 8; i++)
+    {
+        if (array_length(_ac.anims[i].frames) > 0) { return true; }
+    }
+    return false;
 }
 
 /// True when the actor has Fire animations (played while the player holds fire)
@@ -287,7 +297,7 @@ function anim_plan(_ac)
         var _fall = _e[3];
         var _dirs = undefined;
         var _one = { frames : [_ac.sprite], rate : 8, mode : 0, flip : false };
-        if (_ac.anim_dirs)
+        if (anims_dirs_on(_ac))
         {
             var _w0 = _walk;
             if (is_undefined(_w0)) { _w0 = _idle; }

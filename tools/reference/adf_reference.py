@@ -98,7 +98,7 @@ def build(proj, aga):
                     made[(si,fl)]=mk(flipped(sp) if fl else sp)
                 return made[(si,fl)]
             ents=[]
-            dirs=bool(a.get('dirs'))
+            dirs=dirs_on(a)
             for ei,(frames,rate,mode,fl) in enumerate(plan):
                 right=[img(f,fl) for f in frames]
                 left=[img(f,not fl) for f in frames] if a.get('flip') and not dirs and ei<4 else right
@@ -127,7 +127,7 @@ def build(proj, aga):
         bsize=(bh<<6)|(bw//16+1) if a.get('bob') else 0
         blob+=struct.pack('>HHHHHHHHHHHL',min(a['x'],320-bw),min(a['y'],256-bh),a['role'],a['speed'],int(a['visible']),int(a['left']),int(a['up']),bx0,by0,bx1,by1,spr_offs[i])
         aflags=0                                       # A_AMODE bit 0: 8 directions, bit 1: Fire
-        if plans[i] and a.get('dirs') and len(plans[i])>=12: aflags|=1
+        if plans[i] and dirs_on(a) and len(plans[i])>=12: aflags|=1
         if plans[i] and len(plans[i])>12: aflags|=2
         blob+=struct.pack('>HLHHHHHHHH',a.get('chan',i),spr2_offs[i],a.get('rate',8),aflags,a.get('from',1),a.get('fast',0),
                           1 if a.get('bob') else 0,320-bw,256-bh,bsize)
@@ -249,9 +249,11 @@ def anim_entries(a):
     return out
 
 def anims_used(a):
-    ents=anim_entries(a)
-    n=12 if a.get('dirs') else 4
-    return any(e for e in ents[:n]) or any(e for e in ents[12:21])
+    return any(e for e in anim_entries(a))
+
+def dirs_on(a):
+    """the 8 directions are used (instead of Walk) when any of them has frames"""
+    return any(e for e in anim_entries(a)[4:12])
 
 def fire_used(a):
     return any(e for e in anim_entries(a)[12:21])
@@ -279,7 +281,7 @@ def anim_plan(a):
         ents=anim_entries(a)
         flip=bool(a.get('flip'))
         idle,walk,jump,fall=ents[:4]
-        if a.get('dirs'):
+        if dirs_on(a):
             dirs=resolve_dirs(ents,4,walk or idle,flip)
             dirs=[d or ([base],8,0,0) for d in dirs]
             if not idle: idle=([base],8,3,0)              # stand facing the last direction
