@@ -16,8 +16,14 @@ function home_open()
 {
     if (proj_dirty)
     {
-        if (!show_question("You have unsaved changes. Open another project anyway?")) { return; }
+        confirm_open("Open another project?", confirm_unsaved_text("Opening another project"), "Open...", "Cancel", true, home_open_now, 0);
+        return;
     }
+    home_open_now(0);
+}
+
+function home_open_now(_unused)
+{
     var _path = get_open_filename("ADAM project|*.adam", "");
     if (_path != "") { project_load_from(_path); }
 }
@@ -26,8 +32,14 @@ function home_new()
 {
     if (proj_dirty)
     {
-        if (!show_question("You have unsaved changes. Start a new project anyway?")) { return; }
+        confirm_open("Start a new project?", confirm_unsaved_text("A new project"), "New project", "Cancel", true, home_new_now, 0);
+        return;
     }
+    home_new_now(0);
+}
+
+function home_new_now(_unused)
+{
     var _machine = proj.machine;
     proj = project_new();
     proj.machine = _machine;

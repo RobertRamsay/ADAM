@@ -253,8 +253,14 @@ function lesson_start(_i)
     }
     if (proj_dirty)
     {
-        if (!show_question("A lesson starts a new project. You have unsaved changes - start the lesson anyway?")) { return; }
+        confirm_open("Start the lesson?", confirm_unsaved_text("A lesson starts a new project, which"), "Start lesson", "Cancel", true, lesson_start_now, _i);
+        return;
     }
+    lesson_start_now(_i);
+}
+
+function lesson_start_now(_i)
+{
     var _machine = proj.machine;
     proj = project_new();
     proj.machine = _machine;

@@ -32,6 +32,7 @@ tut_offer_draw(gui_w, gui_h);
 tut_draw(gui_w, gui_h);
 lesson_draw(gui_w, gui_h);
 machine_pick_draw(gui_w, gui_h);
+confirm_draw(gui_w, gui_h);
 ui_frame_end();
 if (_shot) { dev_shots_end(); }
 
