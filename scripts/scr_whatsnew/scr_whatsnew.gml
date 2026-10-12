@@ -11,7 +11,7 @@ function whatsnew_entries()
         {
             ver : "1.0.1",
             items : [
-                "FS-UAE, the free Amiga emulator, now comes with ADAM on Windows: Build and play works straight after installing, with nothing else to download. (If you picked your own FS-UAE with Find, ADAM keeps using it.)",
+                "FS-UAE, the free Amiga emulator, now comes with ADAM: Build & play works straight after installing. On Windows it is included; on a Mac, ADAM downloads the right one for your Mac the first time. (If you picked your own FS-UAE with Find, ADAM keeps using it.)",
                 "Quit from full screen: rest the mouse on the ADAM ball (top left) and it turns into an X - click it to close ADAM. Your work is kept and opens again next time.",
                 "Questions such as \"Quit ADAM?\" and \"Start a new project?\" now appear in ADAM's own panel, with Enter for yes and Esc for cancel.",
                 "Fixed: on some older graphics cards ADAM could go black when you came back to it from a game running full screen.",
