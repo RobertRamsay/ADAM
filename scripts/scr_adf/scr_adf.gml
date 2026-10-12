@@ -220,7 +220,8 @@ function adf_bob_dims(_p, _a)
 }
 
 /// Builds the game data block. Returns { buf, size, warnings[], sound_bytes, plane_bytes }.
-function adam_data_block(_p)
+/// _measure = true only sizes it (the memory bar): the backdrop planes are left blank.
+function adam_data_block(_p, _measure = false)
 {
     var _warn = [];
     var _m = machine_get(_p.machine);
@@ -257,7 +258,8 @@ function adam_data_block(_p)
 
     // backdrop bitplanes (pristine copy)
     var _off_planes = buffer_tell(_b);
-    for (var pl = 0; pl < _depth; pl++)
+    if (_measure) { buf_zeros(_b, _depth * 10240); }
+    for (var pl = 0; pl < _depth && !_measure; pl++)
     {
         for (var _iy = 0; _iy < BD_H; _iy++)
         {
@@ -687,6 +689,99 @@ function adf_music_table(_b, _p, _warn)
 }
 
 /// Builds the ADF file. Returns true on success and fills build_* fields.
+/// Size in bytes of the 68000 engine (engine.bin), or 0 if it is missing
+function mem_engine_bytes()
+{
+    var _f = working_directory + "engine/engine.bin";
+    if (!file_exists(_f)) { return 0; }
+    var _eb = buffer_load(_f);
+    var _n = buffer_get_size(_eb);
+    buffer_delete(_eb);
+    return _n;
+}
+
+/// Measures the game as it would go on the disk, for the memory bar
+function mem_measure()
+{
+    mem_stale = false;
+    mem_proj_ref = proj;
+    mem_machine = proj.machine;
+    var _m = machine_cur();
+    mem_chip_free = max(1, (_m.chip_kb - OS_RESERVE_KB) * 1024);
+    mem_disk_free = ADF_SIZE - 1024;
+    try
+    {
+        var _data = adam_data_block(proj, true);
+        mem_size = mem_engine_size + _data.size;
+        mem_plane_size = _data.plane_bytes;
+        mem_sound_size = _data.sound_bytes;
+        buffer_delete(_data.buf);
+        mem_ok = true;
+    }
+    catch (_e)
+    {
+        mem_ok = false;
+        if (ADAM_DEV_TOOLS) { show_debug_message("ADAM memory bar: could not measure - " + string(_e)); }
+    }
+}
+
+/// Asks for the memory bar to be measured again once things settle
+function mem_mark_stale()
+{
+    mem_stale = true;
+    mem_stale_time = current_time;
+}
+
+/// The memory bar in the status bar: chip RAM (or the floppy, whichever runs
+/// out first) split into engine, backdrop, sound & music and the rest
+function mem_bar_draw(_x, _y, _w, _h)
+{
+    var _m = machine_cur();
+    var _range = max(1, min(mem_chip_free, mem_disk_free));
+    var _disk_first = (mem_disk_free < mem_chip_free);
+    var _used = mem_size;
+    var _frac = clamp(_used / _range, 0, 1);
+    var _edge = global.TH.panel_edge;
+    if (_used > _range * 0.75) { _edge = global.TH.warn; }
+    if (_used > _range * 0.9) { _edge = global.TH.danger; }
+    ui_rrect(_x, _y, _x + _w, _y + _h, 4, c_black, c_black, 0.35);
+    if (mem_ok)
+    {
+        var _iw = _w - 2;
+        var _bx = _x + 1;
+        var _parts = [mem_engine_size, mem_plane_size, mem_sound_size, max(0, mem_size - mem_engine_size - mem_plane_size - mem_sound_size)];
+        var _top = [global.TH.accent, global.TH.accent2, global.TH.warn, make_colour_rgb(95, 211, 140)];
+        var _bot = [global.TH.accent_dark, merge_colour(global.TH.accent2, c_black, 0.3), merge_colour(global.TH.warn, c_black, 0.3), make_colour_rgb(60, 150, 100)];
+        for (var i = 0; i < 4; i++)
+        {
+            var _pw = min(_parts[i] / _range * _iw, _x + 1 + _iw - _bx);
+            if (_pw >= 1)
+            {
+                ui_rrect(_bx, _y + 1, _bx + _pw, _y + _h - 1, 3, _top[i], _bot[i], 1);
+                _bx += _pw;
+            }
+        }
+        if (!_m.aga)
+        {
+            // red tick: the most that fits an A500 with only 512KB of chip RAM
+            var _kx = _x + 1 + min(1, (A500_512K_CHIP_KB - OS_RESERVE_KB) * 1024 / _range) * _iw;
+            draw_line_width_colour(_kx, _y - 2, _kx, _y + _h + 2, 2, global.TH.danger, global.TH.danger);
+        }
+    }
+    ui_rrect_line(_x, _y, _x + _w, _y + _h, 4, _edge, 0.9, 1);
+
+    var _lab = "Memory  -";
+    if (mem_ok) { _lab = "Memory  " + string(ceil(_used / 1024)) + " / " + string(_range div 1024) + " KB  (" + string(floor(_frac * 100)) + "%)"; }
+    ui_text(_x - 10, _y + _h * 0.5, _lab, global.TH.text_dim, fa_right, fa_middle, global.f_small, 1);
+
+    var _help = "Memory|How full your game is. Blue: the ADAM engine. Orange: the backdrop and the screens. Yellow: sound samples and music. Green: sprites, actors, rules and the rest.";
+    if (_disk_first) { _help += " The full bar is one floppy disk (about " + string(mem_disk_free div 1024) + " KB) - on the " + _m.name + " the disk fills up before its " + string(mem_chip_free div 1024) + " KB of free chip RAM."; }
+    else { _help += " The full bar is the chip RAM left free on a stock " + _m.name + " (about " + string(mem_chip_free div 1024) + " KB)."; }
+    if (!_m.aga) { _help += " The red tick is about " + string(A500_512K_CHIP_KB - OS_RESERVE_KB) + " KB: past it the game will not run on an A500 with only 512KB of chip RAM."; }
+    _help += " Amber from 75%, red from 90%.";
+    ui_register("mem_bar", _x - 10 - 190, _y - 6, _x + _w, _y + _h + 6, _help);
+}
+
 function build_adf(_path)
 {
     var _dir = working_directory + "engine/";

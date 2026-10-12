@@ -121,6 +121,16 @@ if (launch_timer > 0)
     }
 }
 
+// memory bar: measure again a moment after a change, never in the middle of a stroke
+if (mem_proj_ref != proj || mem_machine != proj.machine)
+{
+    if (!mem_stale) { mem_mark_stale(); }
+}
+if (mem_stale && !mouse_check_button(mb_left) && !mouse_check_button(mb_right) && current_time - mem_stale_time > 400)
+{
+    mem_measure();
+}
+
 // Music page preview: keep Paula's four channels streaming
 music_preview_step();
 

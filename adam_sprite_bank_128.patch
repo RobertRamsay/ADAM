@@ -1,0 +1,122 @@
+From c1ac3aa3254592dc3072a4e35be6e4d60a856ad6 Mon Sep 17 00:00:00 2001
+From: Bob <robertramsay78@googlemail.com>
+Date: Mon, 12 Oct 2026 17:53:19 +0100
+Subject: [PATCH] Pro: sprite bank of 128 (Lite keeps 32)
+
+Projects always hold 128 sprite slots; spr_bank_size() gives 128 in Pro and
+32 in Lite. Lite shows the extra slots as one locked Pro row.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01BQFSzGarhTTpK2DHf8XzFr
+---
+ scripts/scr_project/scr_project.gml       | 11 +++++++-
+ scripts/scr_ws_actors/scr_ws_actors.gml   |  2 +-
+ scripts/scr_ws_shell/scr_ws_shell.gml     |  2 +-
+ scripts/scr_ws_sprites/scr_ws_sprites.gml | 32 ++++++++++++++++++++---
+ 4 files changed, 40 insertions(+), 7 deletions(-)
+
+diff --git a/scripts/scr_project/scr_project.gml b/scripts/scr_project/scr_project.gml
+index 37eacd0..e0b2ef6 100644
+--- a/scripts/scr_project/scr_project.gml
++++ b/scripts/scr_project/scr_project.gml
+@@ -1,6 +1,7 @@
+ /// ADAM - project data model, example game, save/load, undo, settings
+ 
+-#macro SPR_COUNT 32
++#macro SPR_COUNT 128           // sprite bank slots in every project (ADAM Pro can use all 128)
++#macro SPR_LITE 32             // sprite bank slots ADAM Lite can use
+ #macro SPR_W 16
+ #macro SPR_H 24
+ #macro BD_W 320
+@@ -55,6 +56,14 @@ function palette_default()
+     return _p;
+ }
+ 
++/// Sprite bank slots this edition can use: 128 in ADAM Pro, 32 in ADAM Lite.
++/// Projects always keep all 128, so a Pro project opens safely in Lite.
++function spr_bank_size()
++{
++    if (pro_on()) { return SPR_COUNT; }
++    return SPR_LITE;
++}
++
+ function sprite_new(_name)
+ {
+     return {
+diff --git a/scripts/scr_ws_actors/scr_ws_actors.gml b/scripts/scr_ws_actors/scr_ws_actors.gml
+index 87fcedc..5f918b7 100644
+--- a/scripts/scr_ws_actors/scr_ws_actors.gml
++++ b/scripts/scr_ws_actors/scr_ws_actors.gml
+@@ -11,7 +11,7 @@ function actor_names()
+ function sprite_names()
+ {
+     var _n = [];
+-    for (var i = 0; i < SPR_COUNT; i++) { array_push(_n, string(i + 1) + ": " + proj.sprites[i].name); }
++    for (var i = 0; i < spr_bank_size(); i++) { array_push(_n, string(i + 1) + ": " + proj.sprites[i].name); }
+     return _n;
+ }
+ 
+diff --git a/scripts/scr_ws_shell/scr_ws_shell.gml b/scripts/scr_ws_shell/scr_ws_shell.gml
+index ef9a553..a93c73a 100644
+--- a/scripts/scr_ws_shell/scr_ws_shell.gml
++++ b/scripts/scr_ws_shell/scr_ws_shell.gml
+@@ -280,7 +280,7 @@ function ws_help(_w)
+     var _h = [
+         "Home|Start here: open or create projects, pick the Amiga, and set game-wide options.",
+         "Backdrop|Paint the 320 x 256 background picture, choose its colours, or import a picture.",
+-        "Sprites|Draw up to 32 sprite pictures, 16 x 24 pixels with 3 colours each, for your players, enemies and pickups.",
++        "Sprites|Draw up to 32 sprite pictures (a bank of 128 in ADAM Pro), 16 x 24 pixels with 3 colours each, for your players, enemies and pickups.",
+         "Actors|Place the things that move: the player, enemies and pickups. Choose how each one behaves.",
+         "Logic|Make the game rules in plain English: WHEN something happens, DO something.",
+         "Sound|Design up to 8 sound effects for the Amiga's Paula chip and hear them instantly.",
+diff --git a/scripts/scr_ws_sprites/scr_ws_sprites.gml b/scripts/scr_ws_sprites/scr_ws_sprites.gml
+index f4a8972..23cd07e 100644
+--- a/scripts/scr_ws_sprites/scr_ws_sprites.gml
++++ b/scripts/scr_ws_sprites/scr_ws_sprites.gml
+@@ -98,15 +98,39 @@ function ws_sprites_draw(_x1, _y1, _x2, _y2)
+ {
+     var _lw = 230;
+     var _rw = 320;
++    var _bank = spr_bank_size();
++    spr_sel = clamp(spr_sel, 0, _bank - 1);
+     var _s = proj.sprites[spr_sel];
+ 
+-    // ---------------- sprite list ----------------
+-    ui_panel(_x1, _y1, _x1 + _lw, _y2, "Sprites (" + string(SPR_COUNT) + ")");
++    // ---------------- sprite bank ----------------
++    ui_panel(_x1, _y1, _x1 + _lw, _y2, "Sprite bank (" + string(_bank) + ")");
+     var _ly = _y1 + 54;
+     var _rowh = 60;
+-    var _lcontent = SPR_COUNT * _rowh + 10;
++    var _lrows = _bank;
++    if (_bank < SPR_COUNT) { _lrows = _bank + 1; }     // ADAM Lite: one locked row for the Pro slots
++    var _lcontent = _lrows * _rowh + 10;
+     var _loff = ui_scroll_begin("spr_list", _x1 + 6, _y1 + 50, _x1 + _lw - 6, _y2 - 8, _lcontent);
+-    for (var i = 0; i < SPR_COUNT; i++)
++    if (_bank < SPR_COUNT)
++    {
++        var _ky = _ly + _bank * _rowh - _loff;
++        if (_ky > _y1 - _rowh && _ky < _y2)
++        {
++            var _kid = "spr_slot_pro";
++            var _khot = ui_register(_kid, _x1 + 10, _ky, _x1 + _lw - 10, _ky + _rowh - 6, "More sprites|ADAM Pro has a bank of " + string(SPR_COUNT) + " sprites - " + string(SPR_COUNT - _bank) + " more slots for animation frames, enemies and pickups.");
++            var _ktgt = 0;
++            if (_khot) { _ktgt = 1; }
++            var _ka = ui_anim_to(_kid, _ktgt);
++            ui_rrect(_x1 + 10, _ky, _x1 + _lw - 10, _ky + _rowh - 6, 10, global.TH.btn_hot_top, global.TH.btn_hot_bot, 0.35 + 0.4 * _ka);
++            ui_text(_x1 + 20, _ky + (_rowh - 6) * 0.5 - 8, "Slots " + string(_bank + 1) + "-" + string(SPR_COUNT), global.TH.text_dim, fa_left, fa_middle, global.f_bold, 1);
++            ui_text(_x1 + 20, _ky + (_rowh - 6) * 0.5 + 9, "In ADAM Pro", global.TH.text_faint, fa_left, fa_middle, global.f_small, 1);
++            if (_khot && ui_pressed)
++            {
++                ui_take_click();
++                pro_gate("The " + string(SPR_COUNT) + "-sprite bank");
++            }
++        }
++    }
++    for (var i = 0; i < _bank; i++)
+     {
+         var _ry = _ly + i * _rowh - _loff;
+         if (_ry < _y1 - _rowh || _ry > _y2) { continue; }
+-- 
+2.43.0
+

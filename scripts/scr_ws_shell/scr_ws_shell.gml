@@ -280,7 +280,7 @@ function ws_help(_w)
     var _h = [
         "Home|Start here: open or create projects, pick the Amiga, and set game-wide options.",
         "Backdrop|Paint the 320 x 256 background picture, choose its colours, or import a picture.",
-        "Sprites|Draw up to 32 sprite pictures, 16 x 24 pixels with 3 colours each, for your players, enemies and pickups.",
+        "Sprites|Draw up to 32 sprite pictures (a bank of 128 in ADAM Pro), 16 x 24 pixels with 3 colours each, for your players, enemies and pickups.",
         "Actors|Place the things that move: the player, enemies and pickups. Choose how each one behaves.",
         "Logic|Make the game rules in plain English: WHEN something happens, DO something.",
         "Sound|Design up to 8 sound effects for the Amiga's Paula chip and hear them instantly.",

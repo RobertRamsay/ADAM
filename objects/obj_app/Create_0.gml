@@ -260,6 +260,19 @@ build_engine_size = 0;
 build_plane_size = 0;
 build_sound_size = 0;
 build_chip_free = 1;
+
+// memory bar (bottom of the screen): the game measured again a moment after each change
+mem_ok = false;
+mem_stale = true;
+mem_stale_time = 0;
+mem_proj_ref = undefined;   // the project last measured (a new or loaded project re-measures)
+mem_machine = "";
+mem_size = 0;
+mem_plane_size = 0;
+mem_sound_size = 0;
+mem_chip_free = 1;
+mem_disk_free = 1;
+mem_engine_size = mem_engine_bytes();
 build_show_asm = false;
 launch_pending = "";
 launch_timer = 0;

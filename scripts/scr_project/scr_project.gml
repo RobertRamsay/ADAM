@@ -1,6 +1,7 @@
 /// ADAM - project data model, example game, save/load, undo, settings
 
-#macro SPR_COUNT 32
+#macro SPR_COUNT 128           // sprite bank slots in every project (ADAM Pro can use all 128)
+#macro SPR_LITE 32             // sprite bank slots ADAM Lite can use
 #macro SPR_W 16
 #macro SPR_H 24
 #macro BD_W 320
@@ -53,6 +54,14 @@ function palette_default()
         array_push(_p, rgb_make(colour_get_red(_c), colour_get_green(_c), colour_get_blue(_c)));
     }
     return _p;
+}
+
+/// Sprite bank slots this edition can use: 128 in ADAM Pro, 32 in ADAM Lite.
+/// Projects always keep all 128, so a Pro project opens safely in Lite.
+function spr_bank_size()
+{
+    if (pro_on()) { return SPR_COUNT; }
+    return SPR_LITE;
 }
 
 function sprite_new(_name)
@@ -624,6 +633,7 @@ function project_load_from(_path)
 
 function project_after_change()
 {
+    mem_mark_stale();
     for (var i = 0; i < SPR_COUNT; i++) { spr_dirty[i] = true; }
     bd_dirty = true;
     proj.depth = clamp(proj.depth, 1, machine_cur().max_depth);
@@ -716,6 +726,7 @@ function undo_mark_full(_tag)
 function undo_mark_ex(_tag, _full)
 {
     proj_dirty = true;
+    mem_mark_stale();
     if (_tag == undo_last_tag && current_time - undo_last_time < 1200)
     {
         undo_last_time = current_time;

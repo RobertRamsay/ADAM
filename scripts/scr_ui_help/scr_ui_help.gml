@@ -98,10 +98,18 @@ function ui_status_bar(_gw, _gh)
         _msg = ui_help_title;
         if (ui_help_body != "") { _msg += "  -  " + ui_help_body; }
     }
-    ui_text(16, _y + 17, ui_text_fit(_msg, global.f_small, _gw - 480), global.TH.text_dim, fa_left, fa_middle, global.f_small, 1);
     var _dirty = "Saved";
     if (proj_dirty) { _dirty = "Unsaved changes"; }
-    ui_text(_gw - 16, _y + 17, proj.name + "   |   " + machine_cur().name + "   |   " + _dirty, global.TH.text_faint, fa_right, fa_middle, global.f_small, 1);
+    var _right = proj.name + "   |   " + machine_cur().name + "   |   " + _dirty;
+    draw_set_font(global.f_small);
+    var _rw = ui_sw(_right);
+    // memory bar, just left of the project name
+    var _mw = 200;
+    var _mx = _gw - 16 - _rw - 28 - _mw;
+    mem_bar_draw(_mx, _y + 11, _mw, 12);
+    var _help_w = max(120, _mx - 210 - 32);
+    ui_text(16, _y + 17, ui_text_fit(_msg, global.f_small, _help_w), global.TH.text_dim, fa_left, fa_middle, global.f_small, 1);
+    ui_text(_gw - 16, _y + 17, _right, global.TH.text_faint, fa_right, fa_middle, global.f_small, 1);
 }
 
 function toast(_text, _kind)

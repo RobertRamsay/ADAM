@@ -98,15 +98,39 @@ function ws_sprites_draw(_x1, _y1, _x2, _y2)
 {
     var _lw = 230;
     var _rw = 320;
+    var _bank = spr_bank_size();
+    spr_sel = clamp(spr_sel, 0, _bank - 1);
     var _s = proj.sprites[spr_sel];
 
-    // ---------------- sprite list ----------------
-    ui_panel(_x1, _y1, _x1 + _lw, _y2, "Sprites (" + string(SPR_COUNT) + ")");
+    // ---------------- sprite bank ----------------
+    ui_panel(_x1, _y1, _x1 + _lw, _y2, "Sprite bank (" + string(_bank) + ")");
     var _ly = _y1 + 54;
     var _rowh = 60;
-    var _lcontent = SPR_COUNT * _rowh + 10;
+    var _lrows = _bank;
+    if (_bank < SPR_COUNT) { _lrows = _bank + 1; }     // ADAM Lite: one locked row for the Pro slots
+    var _lcontent = _lrows * _rowh + 10;
     var _loff = ui_scroll_begin("spr_list", _x1 + 6, _y1 + 50, _x1 + _lw - 6, _y2 - 8, _lcontent);
-    for (var i = 0; i < SPR_COUNT; i++)
+    if (_bank < SPR_COUNT)
+    {
+        var _ky = _ly + _bank * _rowh - _loff;
+        if (_ky > _y1 - _rowh && _ky < _y2)
+        {
+            var _kid = "spr_slot_pro";
+            var _khot = ui_register(_kid, _x1 + 10, _ky, _x1 + _lw - 10, _ky + _rowh - 6, "More sprites|ADAM Pro has a bank of " + string(SPR_COUNT) + " sprites - " + string(SPR_COUNT - _bank) + " more slots for animation frames, enemies and pickups.");
+            var _ktgt = 0;
+            if (_khot) { _ktgt = 1; }
+            var _ka = ui_anim_to(_kid, _ktgt);
+            ui_rrect(_x1 + 10, _ky, _x1 + _lw - 10, _ky + _rowh - 6, 10, global.TH.btn_hot_top, global.TH.btn_hot_bot, 0.35 + 0.4 * _ka);
+            ui_text(_x1 + 20, _ky + (_rowh - 6) * 0.5 - 8, "Slots " + string(_bank + 1) + "-" + string(SPR_COUNT), global.TH.text_dim, fa_left, fa_middle, global.f_bold, 1);
+            ui_text(_x1 + 20, _ky + (_rowh - 6) * 0.5 + 9, "In ADAM Pro", global.TH.text_faint, fa_left, fa_middle, global.f_small, 1);
+            if (_khot && ui_pressed)
+            {
+                ui_take_click();
+                pro_gate("The " + string(SPR_COUNT) + "-sprite bank");
+            }
+        }
+    }
+    for (var i = 0; i < _bank; i++)
     {
         var _ry = _ly + i * _rowh - _loff;
         if (_ry < _y1 - _rowh || _ry > _y2) { continue; }

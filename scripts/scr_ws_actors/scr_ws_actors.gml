@@ -11,7 +11,7 @@ function actor_names()
 function sprite_names()
 {
     var _n = [];
-    for (var i = 0; i < SPR_COUNT; i++) { array_push(_n, string(i + 1) + ": " + proj.sprites[i].name); }
+    for (var i = 0; i < spr_bank_size(); i++) { array_push(_n, string(i + 1) + ": " + proj.sprites[i].name); }
     return _n;
 }
 
