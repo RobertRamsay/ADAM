@@ -5,3 +5,6 @@ tools/intro/intro.wav
 tools/intro/*.mp4
 .claude/worktrees/
 ADAM.zip
+
+# FS-UAE is copied in by tools/release_build.ps1 for release builds only
+datafiles/FS-UAE/

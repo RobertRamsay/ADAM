@@ -937,6 +937,7 @@ function dev_shots_end()
 // ---------------------------------------------------------------------------
 #macro ADAM_DEV_TOOLS true
 #macro FSUAE_HOME_URL "https://fs-uae.net"
+#macro FSUAE_BUNDLED_VERSION "FS-UAE 3.2.35"   // the copy tools/release_build.ps1 puts next to ADAM.exe
 #macro FSUAE_ZIP_URL "https://github.com/FrodeSolheim/fs-uae/releases/download/v3.1.66/FS-UAE_3.1.66_Windows_x86-64.zip"
 // Intel build: runs on every Mac (through Rosetta on Apple silicon)
 #macro FSUAE_DMG_URL "https://github.com/FrodeSolheim/fs-uae/releases/download/v3.1.66/FS-UAE_3.1.66_macOS_x86-64.dmg"
@@ -992,10 +993,22 @@ function fsuae_find_installed()
     return "";
 }
 
-/// The fs-uae.exe (FS-UAE.app on a Mac) ADAM will run, or "" when there is none
+/// The FS-UAE that comes with ADAM (Windows release builds: an FS-UAE folder
+/// next to ADAM.exe, added by tools/release_build.ps1), or ""
+function fsuae_bundled_exe()
+{
+    if (os_type != os_windows) { return ""; }
+    var _p = program_directory + "FS-UAE/Windows/x86-64/fs-uae.exe";
+    if (file_exists(_p)) { return _p; }
+    return "";
+}
+
+/// The fs-uae.exe (FS-UAE.app on a Mac) ADAM will run, or "" when there is none:
+/// one you picked with Find, else the one that comes with ADAM, else an installed one
 function fsuae_exe()
 {
     if (fsuae_path_ok(fsuae_path)) { return fsuae_path; }
+    if (fsuae_bundled_exe() != "") { return fsuae_bundled_exe(); }
     if (ADAM_DEV_TOOLS && file_exists(fsuae_test_exe())) { return fsuae_test_exe(); }
     return fsuae_find_installed();
 }
@@ -1004,6 +1017,7 @@ function fsuae_exe()
 function fsuae_source_label()
 {
     if (fsuae_path_ok(fsuae_path)) { return fsuae_path; }
+    if (fsuae_bundled_exe() != "") { return "The FS-UAE that comes with ADAM (" + FSUAE_BUNDLED_VERSION + ")"; }
     if (ADAM_DEV_TOOLS && file_exists(fsuae_test_exe())) { return "ADAM's test copy (FS-UAE 3.1.66)"; }
     var _inst = fsuae_find_installed();
     if (_inst != "") { return _inst + "  (found)"; }

@@ -208,7 +208,7 @@ function ws_build_draw(_x1, _y1, _x2, _y2)
         }
         ui_text(_fx + 10, _y + 34, ui_text_fit(_src, global.f_small, _row_w - 20), _scol, fa_left, fa_middle, global.f_small, 1);
     }
-    if (ui_button("build_fsuae", _fx + _fw - _btn_w, _y + 18, _btn_w, 32, "Find", "Find FS-UAE|Point ADAM at your own fs-uae.exe (free from fs-uae.net). Your choice always wins over ADAM's test copy. Right-click clears it.", BTN_NORMAL))
+    if (ui_button("build_fsuae", _fx + _fw - _btn_w, _y + 18, _btn_w, 32, "Find", "Find FS-UAE|Point ADAM at your own fs-uae.exe (free from fs-uae.net). Your choice always wins over the FS-UAE that comes with ADAM. Right-click clears it.", BTN_NORMAL))
     {
         var _filter = "FS-UAE|fs-uae.exe;fs-uae";
         if (os_type == os_macosx) { _filter = "FS-UAE|*.app;fs-uae"; }
@@ -223,7 +223,8 @@ function ws_build_draw(_x1, _y1, _x2, _y2)
     {
         fsuae_path = "";
         settings_save();
-        toast("Using ADAM's test copy or an installed FS-UAE", 0);
+        if (fsuae_bundled_exe() != "") { toast("Using the FS-UAE that comes with ADAM", 0); }
+        else { toast("Using ADAM's test copy or an installed FS-UAE", 0); }
     }
     var _lt = ui_toggle("build_light", _fx, _y + 56, "Light emulator mode", fsuae_light, "Light emulator mode|Runs FS-UAE without syncing to your monitor and without smoothing. Much lighter on your PC; turn it off for the smoothest scrolling.");
     if (_lt != fsuae_light)

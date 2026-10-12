@@ -27,6 +27,10 @@ https://aminet.net/package/mus/play/ptplayer
 
 FS-UAE (the Amiga emulator)
 FS-UAE by Frode Solheim and contributors is free software under the GNU
-General Public License, version 2. It is a separate program: it is not part
-of ADAM and is not included with ADAM. ADAM only starts the copy of FS-UAE
-that you installed yourself. Get it from https://fs-uae.net
+General Public License, version 2. It is a separate program, not part of
+ADAM: ADAM only starts it to play the disks you build.
+On Windows, an unchanged copy of FS-UAE 3.2.35 comes with ADAM, in the FS-UAE
+folder next to ADAM.exe; its licences are in FS-UAE/Licenses. Its source code
+(fs-uae-3.2.35.tar.xz) is on ADAM's itch.io page next to the ADAM downloads,
+and at https://github.com/FrodeSolheim/fs-uae/releases/tag/v3.2.35
+On other systems, get FS-UAE from https://fs-uae.net

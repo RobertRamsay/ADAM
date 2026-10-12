@@ -30,8 +30,9 @@ In `scripts/scr_adf/scr_adf.gml` set
 
     #macro ADAM_DEV_TOOLS false
 
-This removes the "Get test copy" FS-UAE download from the Build page; users
-point ADAM at their own FS-UAE. Do **not** commit this to `main` - day-to-day
+This removes the "Get test copy" FS-UAE download from the Build page; release
+builds use the FS-UAE that comes with ADAM (step 4), or one the user points ADAM
+at with Find. Do **not** commit this to `main` - day-to-day
 development runs with it `true`. Keep it on the release branch or revert it
 after the build.
 
@@ -60,9 +61,24 @@ If the engine changed since the last release: `powershell -File
 tools\assemble_engine.ps1`, then `python tools\reference\gen_examples.py` and
 make sure `datafiles/examples/*.adam` only changed if they were meant to.
 
-## 4. Build the Windows zip
+## 4. Build the Windows zip and installer
 
-Either the IDE: target Windows, VM, **Create Executable > Package as Zip**, or
+`tools\release_build.ps1` does steps 2, 2b, 3 and 4 in one go and puts every
+source file back byte for byte afterwards (nothing to revert):
+
+    powershell -File tools\release_build.ps1 -Ed 0 -Out D:\POLYTRICITY\ADAM_builds -FsUae D:\POLYTRICITY\ADAM_builds\thirdparty\FS-UAE_3.2.35_Windows
+    powershell -File tools\release_build.ps1 -Ed 1 -Out D:\POLYTRICITY\ADAM_builds -FsUae D:\POLYTRICITY\ADAM_builds\thirdparty\FS-UAE_3.2.35_Windows
+
+It makes `ADAM_V<version>_LITE.zip` / `_Setup.exe` (and `_PRO`), named from
+`ADAM_VERSION`. `-FsUae` is the unpacked official FS-UAE Windows release
+(`FS-UAE_3.2.35_Windows_x86-64.zip` from github.com/FrodeSolheim/fs-uae/releases,
+kept outside the repo): it goes in as an `FS-UAE` folder next to `ADAM.exe`, so
+Build and play works with nothing else to install. ADAM uses a FS-UAE picked
+with Find first, then this one, then an installed one. When FS-UAE is updated,
+change `FSUAE_BUNDLED_VERSION` in `scr_adf`, LICENCES.txt and the source
+upload (step 7), and play the example games on it first.
+
+By hand instead: the IDE: target Windows, VM, **Create Executable > Package as Zip**, or
 Igor from the command line (scratch folder outside the repo; keep `--temp`
 and `--of` apart from where the log is written):
 
@@ -91,7 +107,9 @@ GameMaker copies every Included File next to `ADAM.exe`. The zip must contain:
 | `engine/engine.s`, `engine/boot.s`, `engine/font.inc` | engine source (included today; drop them from Included Files if they should not ship) |
 | `examples/*.adam` | the example games (four Lite, plus Firefly Night for Pro - both builds ship all five) |
 
-Nothing from `tools/`, no FS-UAE, no Kickstart ROMs, no `.patch` files.
+| `FS-UAE/` | the official FS-UAE Windows release, unchanged, with its `Licenses` folder (only when built with `-FsUae`) |
+
+Nothing from `tools/`, no Kickstart ROMs, no `.patch` files.
 
 ## 6. Smoke test (on the zipped build, unzipped to a fresh folder)
 
@@ -106,7 +124,7 @@ first run.
 6. **Actors**: add one of each role, drag them, check the colour pair warning.
 7. **Logic**: add a WHEN/DO rule and a group; undo.
 8. **Sound**: make a synth sound and import a WAV; preview both.
-9. **Build**: with `ADAM_DEV_TOOLS false` there is no "Get test copy" button; use **Find** to point at an installed FS-UAE. Build an ADF - no warnings beyond expected ones.
+9. **Build**: with `ADAM_DEV_TOOLS false` there is no "Get test copy" button; the FS-UAE row reads "The FS-UAE that comes with ADAM (FS-UAE 3.2.35)". Build an ADF - no warnings beyond expected ones.
 10. **Boot as A600**: Build and play - the loading bar shows, the game runs, joystick in port 2 moves the player, score/lives show, game over and fire to restart work.
 11. Change machine to **Amiga 1200** (top bar), build and play again - boots as A1200 (AGA); a 128-colour backdrop shows correctly.
 12. Load each example game and build it for both machines.
@@ -124,9 +142,14 @@ first run.
 - or the web: Edit game > Uploads > Upload files, tick **Windows**, and
   delete/hide the old upload.
 
-Update the itch page: version and changelog, minimum spec, "needs FS-UAE
-(free, fs-uae.net) to play the games", and a line crediting Poppins (SIL OFL)
-and font8x8 (public domain).
+- **FS-UAE source (GPL):** the Windows builds include FS-UAE, so its source
+  must be offered from the same place. Upload `fs-uae-3.2.35.tar.xz` (from the
+  same GitHub release) to both itch pages as an extra download named
+  "FS-UAE 3.2.35 source code (GPL)". LICENCES.txt points to it.
+
+Update the itch page: version and changelog, minimum spec, "FS-UAE (the free
+Amiga emulator) comes with ADAM on Windows", and a line crediting Poppins (SIL
+OFL), font8x8 (public domain) and FS-UAE (GPL v2).
 
 ## 8. After the release
 
