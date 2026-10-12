@@ -112,6 +112,7 @@ fsuae_light = true;
 fsuae_pad = 0;              // FS-UAE joystick: 0 keyboard (cursors + right Ctrl), 1 gamepad
 global.FSUAE_PAD_NAMES = ["Keyboard", "Gamepad"];
 app_focused = true;
+logo_quit_k = 0;            // top-left ball fading into the quit X (0 ball - 1 X)
 out_path = "";
 
 // backdrop

@@ -41,7 +41,40 @@ function draw_logo(_x, _y, _compact)
     ui_rrect(_x, _y, _x + _w, _y + _h, _r, make_colour_rgb(68, 79, 96), make_colour_rgb(38, 45, 57), 1);
     ui_rrect(_x + 2, _y + 1, _x + _w - 2, _y + _h * 0.45, _r - 1, c_white, c_white, 0.06);
     ui_rrect_line(_x, _y, _x + _w, _y + _h, _r, global.TH.panel_edge, 0.8, 1);
-    draw_boing(_x + 8, _y + 4, 26, 1);
+
+    // the ball doubles as the quit button: hovered, it fades into an X (0.4 s)
+    var _qhot = ui_register("top_quit", _x + 2, _y, _x + 40, _y + _h, "Quit ADAM|Click to close ADAM. Your work is kept: it opens again next time you start ADAM.");
+    var _qstep = (delta_time / 1000000) / 0.4;
+    if (_qhot) { logo_quit_k = min(1, logo_quit_k + _qstep); }
+    else { logo_quit_k = max(0, logo_quit_k - _qstep); }
+    var _qk = logo_quit_k;
+    if (_qk < 1) { draw_boing(_x + 8, _y + 4, 26, 1 - _qk); }
+    if (_qk > 0)
+    {
+        var _qx = _x + 21;
+        var _qy = _y + 17;
+        draw_set_alpha(_qk);
+        draw_circle_colour(_qx, _qy, 13, global.TH.danger, global.TH.danger_dark, false);
+        draw_set_colour(c_white);
+        draw_line_width(_qx - 5, _qy - 5, _qx + 5, _qy + 5, 3);
+        draw_line_width(_qx - 5, _qy + 5, _qx + 5, _qy - 5, 3);
+        draw_set_alpha(1);
+    }
+    if (_qhot && ui_pressed)
+    {
+        ui_take_click();
+        var _ask = "Quit ADAM?";
+        if (proj_dirty)
+        {
+            _ask = "Quit ADAM?\n\n\"" + proj.name + "\" has changes that are not saved to a project file yet. "
+                + "ADAM keeps them and brings them back next time you start it - but to keep your own copy, "
+                + "click No and use Save on the Home page first.";
+        }
+        if (show_question(_ask))
+        {
+            game_end();     // the Game End event autosaves the project and settings
+        }
+    }
     if (_compact) { return _w; }
     ui_text(_x + 44, _y + _h * 0.5, "ADAM", c_white, fa_left, fa_middle, global.f_title, 1);
     // the four Amiga "checkmark" stripes
