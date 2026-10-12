@@ -41,6 +41,26 @@ function anim_begin_edit(_ac, _tag)
     anim_t0 = current_time;
 }
 
+/// True on the second click of a double-click on control _id (within 0.4 s)
+function anim_dbl(_id)
+{
+    if (anim_click_id == _id && current_time - anim_click_time < 400)
+    {
+        anim_click_id = "";
+        return true;
+    }
+    anim_click_id = _id;
+    anim_click_time = current_time;
+    return false;
+}
+
+/// Opens sprite _i on the Sprites page to draw it
+function anim_edit_sprite(_i)
+{
+    spr_sel = clamp(_i, 0, SPR_COUNT - 1);
+    ws_set(WS_SPRITES);
+}
+
 /// Draws sprite design _i, turned round when _flip, in colours _cols
 function draw_sprite_amiga_flip(_i, _x, _y, _scale, _flip, _cols, _alpha)
 {
@@ -438,7 +458,7 @@ function ws_animate_draw(_x1, _y1, _x2, _y2)
         var _kid = "anim_slot_" + string(k);
         if (k < _nf)
         {
-            var _khot = ui_register(_kid, _kx, _sy, _kx + _cellw, _sy + _cellw, "Frame " + string(k + 1) + "|Click to select it, then click a sprite in the bank to change it. Remove, move or clear it with the buttons below.");
+            var _khot = ui_register(_kid, _kx, _sy, _kx + _cellw, _sy + _cellw, "Frame " + string(k + 1) + "|Click to select it, then click a sprite in the bank to change it. Double-click to draw it on the Sprites page. Remove, move or clear it with the buttons below.");
             ui_rrect(_kx, _sy, _kx + _cellw, _sy + _cellw, 8, pal_col(0), pal_col(0), 1);
             var _ks = proj.sprites[clamp(_an.frames[k], 0, SPR_COUNT - 1)];
             var _ksc = (_cellw - 8) / max(_ks.w, _ks.h);
@@ -450,6 +470,7 @@ function ws_animate_draw(_x1, _y1, _x2, _y2)
             {
                 anim_slot = k;
                 ui_take_click();
+                if (anim_dbl(_kid)) { anim_edit_sprite(_an.frames[k]); }
             }
         }
         else if (k == _nf)
@@ -583,7 +604,7 @@ function ws_animate_draw(_x1, _y1, _x2, _y2)
         if (_gy < _gtop - _gcell || _gy > _y2) { continue; }
         var _bid = "anim_bank_" + string(b);
         var _bsp = proj.sprites[b];
-        var _bhot = ui_register(_bid, _gx, _gy, _gx + _gcell, _gy + _gcell, string(b + 1) + ": " + _bsp.name + "|Click to put this sprite in the selected frame (or add it at the end). On a hardware sprite every frame shows in the actor's own colours.");
+        var _bhot = ui_register(_bid, _gx, _gy, _gx + _gcell, _gy + _gcell, string(b + 1) + ": " + _bsp.name + "|Click to put this sprite in the selected frame (or add it at the end). Double-click to draw it on the Sprites page. On a hardware sprite every frame shows in the actor's own colours.");
         var _ba = 0;
         if (_bhot) { _ba = 1; }
         ui_rrect(_gx, _gy, _gx + _gcell, _gy + _gcell, 6, pal_col(0), pal_col(0), 1);
@@ -601,8 +622,21 @@ function ws_animate_draw(_x1, _y1, _x2, _y2)
         if (_bhot && ui_pressed)
         {
             ui_take_click();
-            if (anim_can_edit())
+            if (anim_dbl(_bid))
             {
+                // double-click: draw it instead. The first click added it at the end - take that back.
+                var _back = _s.anims[anim_sel].frames;
+                if (anim_click_added && array_length(_back) > 0 && _back[array_length(_back) - 1] == b)
+                {
+                    array_delete(_back, array_length(_back) - 1, 1);
+                    anim_slot = array_length(_back);
+                }
+                anim_click_added = false;
+                anim_edit_sprite(b);
+            }
+            else if (anim_can_edit())
+            {
+                anim_click_added = false;
                 var _cur = _s.anims[anim_sel].frames;
                 if (anim_slot < array_length(_cur))
                 {
@@ -615,6 +649,7 @@ function ws_animate_draw(_x1, _y1, _x2, _y2)
                 {
                     anim_begin_edit(_s, "animadd" + string(current_time));
                     array_push(_s.anims[anim_sel].frames, b);
+                    anim_click_added = true;
                     anim_slot = min(array_length(_s.anims[anim_sel].frames), ANIM_FRAMES - 1);
                 }
                 else
