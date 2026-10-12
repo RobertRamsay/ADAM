@@ -78,7 +78,8 @@ A_SPR       equ 22         ; long offset of this actor's hardware sprite block
 A_CHAN      equ 26         ; hardware sprite channel 0..7 (colour pair = channel / 2)
 A_SPR2      equ 28         ; long offset of a hopper's crouch frame, 0 = none
 A_ARATE     equ 32         ; (version 4: frames per animation frame - unused since version 5)
-A_AMODE     equ 34         ; animation flags: bit 0 = 8 directions (table has 12 entries)
+A_AMODE     equ 34         ; animation flags: bit 0 = 8 directions (table has 12 entries),
+                           ; bit 1 = Fire animations for the player (table has 21 entries)
 A_FROM      equ 36         ; first level this actor appears on (1..10)
 A_FAST      equ 38         ; +1 speed every N levels, 0 = never
 A_BOB       equ 40         ; 1 = BOB: A_SPR / A_SPR2 / frames are BOB images, A_CHAN is unused
@@ -96,6 +97,9 @@ ACT_SIZE    equ 52
 ; 9 SW, 10 W, 11 NW, used instead of Walk; ADAM bakes any turning round into
 ; their frames. An entry with mode 3 ('stand facing') shows frame 1 of the
 ; direction the actor last moved in.
+; With Fire animations (A_AMODE bit 1) 9 more follow: 12 Fire (no direction),
+; 13..20 Fire + N .. NW. While the player holds fire they are picked from the
+; joystick direction instead of the movement (digging, shooting, swinging).
 AN_N        equ 0          ; number of frames 1..8
 AN_RATE     equ 2          ; 50ths of a second per frame (2..30)
 AN_MODE     equ 4          ; 0 = loop, 1 = once (stays on the last), 2 = ping-pong, 3 = stand facing (8 directions)
@@ -1098,7 +1102,40 @@ place_sprites:
             bra     .frame
 .anim       move.l  A_ANIM(a2),d1
             beq     .frame                  ; one frame
-            moveq   #0,d2                   ; d2 = animation: 0 Idle
+            btst    #1,A_AMODE+1(a2)        ; Fire animations: the player holding fire
+            beq.s   .nofire
+            cmp.w   H_PLAYER(a4),d7
+            bne.s   .nofire
+            move.w  v_joy(a5),d3
+            btst    #4,d3
+            beq.s   .nofire
+            moveq   #1,d0                   ; joystick -> 3 x (up 0, level 1, down 2) + (left 0, centre 1, right 2)
+            btst    #0,d3
+            beq.s   .fd1
+            moveq   #0,d0
+.fd1        btst    #1,d3
+            beq.s   .fd2
+            moveq   #2,d0
+.fd2        mulu    #3,d0
+            addq.w  #1,d0
+            btst    #2,d3
+            beq.s   .fd3
+            subq.w  #1,d0
+            move.w  #1,v_face(a5,d5.w)
+.fd3        btst    #3,d3
+            beq.s   .fd4
+            addq.w  #1,d0
+            move.w  #0,v_face(a5,d5.w)
+.fd4        moveq   #12,d2                  ; Fire, no direction
+            cmp.w   #4,d0
+            beq     .got
+            lea     dir_tab(pc),a0
+            moveq   #0,d2
+            move.b  0(a0,d0.w),d2
+            move.w  d2,v_dir(a5,d5.w)
+            add.w   #13,d2
+            bra     .got
+.nofire     moveq   #0,d2                   ; d2 = animation: 0 Idle
             move.w  A_ROLE(a2),d3
             cmp.w   #6,d3                   ; platform player, hopper, faller: Jump / Fall in the air
             blt.s   .walkq
@@ -1275,8 +1312,12 @@ hide_sprites:
 .h1         move.l  A_ANIM(a2),d0           ; and every animation frame
             beq.s   .h2
             lea     0(a4,d0.l),a1
-            moveq   #3,d2                   ; 4 animations (12 with 8 directions)
-            btst    #0,A_AMODE+1(a2)
+            moveq   #3,d2                   ; 4 animations (12 with 8 directions, 21 with Fire)
+            btst    #1,A_AMODE+1(a2)
+            beq.s   .hd
+            moveq   #20,d2
+            bra.s   .ha
+.hd         btst    #0,A_AMODE+1(a2)
             beq.s   .ha
             moveq   #11,d2
 .ha         lea     AN_RIGHT(a1),a3

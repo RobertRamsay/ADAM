@@ -191,6 +191,7 @@ anim_sel = 0;               // 0 Idle, 1 Walk, 2 Jump, 3 Fall
 anim_slot = 0;              // selected frame; the one after the last adds a frame
 anim_t0 = 0;                // current_time the preview started
 anim_face_left = false;     // preview the frames turned round
+anim_layer = 0;             // 0 = the moving animations, 1 = With Fire
 anim_test = false;          // drive the preview with arrow keys / WASD / gamepad
 anim_test_entry = -1;       // animation the test is playing
 anim_test_t0 = 0;           // current_time it started

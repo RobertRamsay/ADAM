@@ -98,10 +98,10 @@ def build(proj, aga):
                     made[(si,fl)]=mk(flipped(sp) if fl else sp)
                 return made[(si,fl)]
             ents=[]
-            dirs=len(plan)>4
-            for frames,rate,mode,fl in plan:
+            dirs=bool(a.get('dirs'))
+            for ei,(frames,rate,mode,fl) in enumerate(plan):
                 right=[img(f,fl) for f in frames]
-                left=[img(f,not fl) for f in frames] if a.get('flip') and not dirs else right
+                left=[img(f,not fl) for f in frames] if a.get('flip') and not dirs and ei<4 else right
                 ents.append((len(frames),rate,mode,right,left))
             plans.append(ents)
         else: plans.append(None)
@@ -126,7 +126,9 @@ def build(proj, aga):
         by0,by1=(min(ys),max(ys)) if ys else (0,bh-1)
         bsize=(bh<<6)|(bw//16+1) if a.get('bob') else 0
         blob+=struct.pack('>HHHHHHHHHHHL',min(a['x'],320-bw),min(a['y'],256-bh),a['role'],a['speed'],int(a['visible']),int(a['left']),int(a['up']),bx0,by0,bx1,by1,spr_offs[i])
-        aflags=1 if plans[i] and len(plans[i])>4 else 0     # A_AMODE bit 0: 8 directions
+        aflags=0                                       # A_AMODE bit 0: 8 directions, bit 1: Fire
+        if plans[i] and a.get('dirs') and len(plans[i])>=12: aflags|=1
+        if plans[i] and len(plans[i])>12: aflags|=2
         blob+=struct.pack('>HLHHHHHHHH',a.get('chan',i),spr2_offs[i],a.get('rate',8),aflags,a.get('from',1),a.get('fast',0),
                           1 if a.get('bob') else 0,320-bw,256-bh,bsize)
         blob+=struct.pack('>L',anim_offs[i])
@@ -240,47 +242,63 @@ DIR_CHAINS=[  # (entry, turned round) tried in order for each direction; 1 = Wal
 
 def anim_entries(a):
     out=[]
-    for k in range(12):
+    for k in range(21):
         e=a.get('anims',[])[k] if k<len(a.get('anims',[])) else {}
         fr=[f for f in e.get('frames',[])][:8]
         out.append((fr,max(2,min(30,e.get('rate',8))),max(0,min(2,e.get('mode',0))),0) if fr else None)
     return out
 
 def anims_used(a):
+    ents=anim_entries(a)
     n=12 if a.get('dirs') else 4
-    return any(e for e in anim_entries(a)[:n])
+    return any(e for e in ents[:n]) or any(e for e in ents[12:21])
+
+def fire_used(a):
+    return any(e for e in anim_entries(a)[12:21])
+
+def resolve_dirs(ents,base_k,walk,flip):
+    """8 directions from entries base_k..base_k+7 with DIR_CHAINS (entry 1 = walk)"""
+    dirs=[]
+    for chain in DIR_CHAINS:
+        got=None
+        for k,t in chain:
+            if t==1 and not flip: continue
+            src=walk if k==1 else ents[k-4+base_k]
+            if src:
+                fr,rt,md,_=src
+                got=(fr,rt,md,1 if (t==1 or (t==2 and flip)) else 0); break
+        dirs.append(got)
+    for d in range(8):                         # nothing at all: east (or west)
+        if not dirs[d]: dirs[d]=dirs[2] or dirs[6]
+    return dirs
 
 def anim_plan(a):
-    """None for one frame, else 4 (or 12 with 8 directions) x (frames, rate, mode, turned round)"""
+    """None for one frame, else 4 (12 with 8 directions, 21 with Fire) x (frames, rate, mode, turned round)"""
     base=a['sprite']
     if anims_used(a):
         ents=anim_entries(a)
         flip=bool(a.get('flip'))
         idle,walk,jump,fall=ents[:4]
         if a.get('dirs'):
-            dirs=[]
-            for chain in DIR_CHAINS:
-                got=None
-                for k,t in chain:
-                    if t==1 and not flip: continue
-                    src=ents[k]
-                    if k==1 and not src: src=idle
-                    if src:
-                        fr,rt,md,_=src
-                        got=(fr,rt,md,1 if (t==1 or (t==2 and flip)) else 0); break
-                dirs.append(got)
-            for d in range(8):                         # nothing at all: east (or west), else the sprite
-                if not dirs[d]: dirs[d]=dirs[2] or dirs[6] or ([base],8,0,0)
+            dirs=resolve_dirs(ents,4,walk or idle,flip)
+            dirs=[d or ([base],8,0,0) for d in dirs]
             if not idle: idle=([base],8,3,0)              # stand facing the last direction
             if not walk: walk=dirs[2]
-            if not jump: jump=walk
-            if not fall: fall=jump
-            return [idle,walk,jump,fall]+dirs
-        if not idle: idle=walk if walk else ([base],8,0,0)
-        if not walk: walk=idle
+        else:
+            if not idle: idle=walk if walk else ([base],8,0,0)
+            if not walk: walk=idle
+            dirs=None
         if not jump: jump=walk
         if not fall: fall=jump
-        return [idle,walk,jump,fall]
+        out=[idle,walk,jump,fall]
+        if fire_used(a):
+            if dirs is None: dirs=[walk]*8                # not used without 8 directions
+            fstand=ents[12]
+            fd=resolve_dirs(ents,13,fstand,flip)
+            if not fstand: fstand=fd[2] or fd[6] or idle
+            fd=[d or fstand for d in fd]
+            return out+dirs+[fstand]+fd
+        return out+dirs if dirs else out
     if a.get('anim',-1)>=0 and a['role']!=7:
         rate=max(2,min(30,a.get('rate',8)))
         both=([base,a['anim']],rate,0,0)

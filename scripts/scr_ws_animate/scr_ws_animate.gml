@@ -11,12 +11,14 @@
 
 function anim_names()
 {
-    return ["Idle", "Walk", "Jump", "Fall", "N", "NE", "E", "SE", "S", "SW", "W", "NW"];
+    return ["Idle", "Walk", "Jump", "Fall", "N", "NE", "E", "SE", "S", "SW", "W", "NW",
+            "Fire", "N", "NE", "E", "SE", "S", "SW", "W", "NW"];
 }
 
 function anim_long_names()
 {
-    return ["Idle", "Walk", "Jump", "Fall", "Up", "Up and right", "Right", "Down and right", "Down", "Down and left", "Left", "Up and left"];
+    return ["Idle", "Walk", "Jump", "Fall", "Up", "Up and right", "Right", "Down and right", "Down", "Down and left", "Left", "Up and left",
+            "Fire", "Fire + up", "Fire + up and right", "Fire + right", "Fire + down and right", "Fire + down", "Fire + down and left", "Fire + left", "Fire + up and left"];
 }
 
 function anim_mode_names()
@@ -80,14 +82,17 @@ function draw_sprite_amiga_flip(_i, _x, _y, _scale, _flip, _cols, _alpha)
     gpu_set_texfilter(true);
 }
 
-/// Joystick for the test mode: arrow keys, WASD or any gamepad (stick or d-pad).
-/// Returns [dx, dy] with -1, 0 or 1 each.
+/// Joystick for the test mode: arrow keys, WASD or any gamepad (stick or d-pad);
+/// fire is Space, Ctrl or the gamepad's A button.
+/// Returns [dx, dy, fire] with -1, 0 or 1 each and fire true / false.
 function anim_test_input()
 {
     var _dx = 0;
     var _dy = 0;
+    var _fire = false;
     if (ui_focus == "")
     {
+        if (keyboard_check(vk_space) || keyboard_check(vk_control)) { _fire = true; }
         if (keyboard_check(vk_left) || keyboard_check(ord("A"))) { _dx -= 1; }
         if (keyboard_check(vk_right) || keyboard_check(ord("D"))) { _dx += 1; }
         if (keyboard_check(vk_up) || keyboard_check(ord("W"))) { _dy -= 1; }
@@ -102,8 +107,9 @@ function anim_test_input()
         if (_ax > 0.4 || gamepad_button_check(g, gp_padr)) { _dx += 1; }
         if (_ay < -0.4 || gamepad_button_check(g, gp_padu)) { _dy -= 1; }
         if (_ay > 0.4 || gamepad_button_check(g, gp_padd)) { _dy += 1; }
+        if (gamepad_button_check(g, gp_face1)) { _fire = true; }
     }
-    return [clamp(_dx, -1, 1), clamp(_dy, -1, 1)];
+    return [clamp(_dx, -1, 1), clamp(_dy, -1, 1), _fire];
 }
 
 /// Direction 0..7 (N NE E SE S SW W NW) of a move, as engine.s dir_tab
@@ -122,11 +128,13 @@ function anim_compass_cell(_s, _plan, _k, _cx, _cy, _cell, _cols, _lit)
     var _own = array_length(_s.anims[_k].frames);
     var _help = _lnames[_k] + "|Click to give this direction its own frames. Empty directions borrow from the others (turned round when 'Turn to face left' is on).";
     if (_k == 0) { _help = "Idle|Plays while the actor stands still. Empty: it stands facing the way it last moved (the first frame of that direction)."; }
+    if (_k == ANIM_FIRE0) { _help = "Fire|Plays while the player holds fire without a direction. Empty: it uses a Fire direction, or the normal animation."; }
+    else if (_k > ANIM_FIRE0) { _help = _lnames[_k] + "|Plays while the player holds fire and pushes this way - digging, shooting, swinging. Empty: it borrows from the other Fire directions."; }
     var _hot = ui_register(_id, _cx, _cy, _cx + _cell, _cy + _cell, _help);
     var _bg = 0.35;
     if (_hot) { _bg = 0.6; }
     ui_rrect(_cx, _cy, _cx + _cell, _cy + _cell, 8, pal_col(0), pal_col(0), 1);
-    if (!is_undefined(_plan))
+    if (!is_undefined(_plan) && _k < array_length(_plan))
     {
         var _e = _plan[_k];
         if (_e.mode == 3) { _e = _plan[ANIM_DIR0 + 2]; }
@@ -242,8 +250,10 @@ function ws_animate_draw(_x1, _y1, _x2, _y2)
     }
     var _s = proj.actors[sel_actor];
     var _cols = actor_cols_from(_alloc, sel_actor);
-    if (!_s.anim_dirs && anim_sel >= ANIM_BASIC) { anim_sel = 0; }
-    if (_s.anim_dirs && anim_sel == 1) { anim_sel = ANIM_DIR0 + 2; }
+    if (anim_layer == 1 && anim_sel < ANIM_FIRE0) { anim_sel = ANIM_FIRE0; }
+    if (anim_layer == 0 && anim_sel >= ANIM_FIRE0) { anim_sel = 0; }
+    if (anim_layer == 0 && !_s.anim_dirs && anim_sel >= ANIM_BASIC) { anim_sel = 0; }
+    if (anim_layer == 0 && _s.anim_dirs && anim_sel == 1) { anim_sel = ANIM_DIR0 + 2; }
     anim_sel = clamp(anim_sel, 0, ANIM_COUNT - 1);
     var _names = anim_names();
     var _lnames = anim_long_names();
@@ -252,9 +262,31 @@ function ws_animate_draw(_x1, _y1, _x2, _y2)
     // ---------------- centre: animations, movement layout, preview, frames ----------------
     ui_panel(_cx1, _y1, _cx2, _y2, "Animate " + _s.name);
 
+    // layers: the animations while moving, and the player's animations while it holds fire
+    var _nfire = 0;
+    for (var fe = ANIM_FIRE0; fe < ANIM_COUNT; fe++) { _nfire += array_length(_s.anims[fe].frames); }
+    var _llab = ["Moving", "With Fire"];
+    if (_nfire > 0) { _llab[1] = "With Fire  " + string(_nfire); }
+    var _lhelp = ["Moving|The animations the actor plays as it stands, moves, jumps and falls.", "With Fire|Animations the player plays while it holds fire: one with no direction and one for each of the 8 directions it pushes - digging, shooting, swinging a sword. Only the player uses them."];
+    for (var ly = 0; ly < 2; ly++)
+    {
+        if (ui_tab("anim_layer_" + string(ly), _cx2 - 20 - (2 - ly) * 124, _y1 + 12, 118, 28, _llab[ly], anim_layer == ly, _lhelp[ly]))
+        {
+            if (anim_layer != ly)
+            {
+                anim_layer = ly;
+                anim_slot = 0;
+                anim_t0 = current_time;
+                if (ly == 1) { anim_sel = ANIM_FIRE0; }
+                else { anim_sel = 0; }
+            }
+        }
+    }
+
     // which animations: Idle / Walk / Jump / Fall, or Idle + the 8 directions (+ Jump / Fall)
     var _tabs = [0, 1, 2, 3];
     if (_s.anim_dirs) { _tabs = [0, 2, 3]; }
+    if (anim_layer == 1) { _tabs = []; }
     var _tw = 84;
     var _thelp = [
         "Idle|Plays while the actor stands still.",
@@ -279,7 +311,14 @@ function ws_animate_draw(_x1, _y1, _x2, _y2)
         }
     }
     var _tgx = _cx1 + 20 + array_length(_tabs) * (_tw + 6) + 10;
-    var _dirs_v = ui_toggle("anim_dirs", _tgx, _y1 + 53, "8 directions", _s.anim_dirs, "8 directions|A movement layout: give the actor its own animation for each of 8 directions - people walking every way, or a ship that veers and holds its lean (Once). Missing directions borrow from the others. Replaces Walk.");
+    if (anim_layer == 1)
+    {
+        ui_text(_cx1 + 20, _y1 + 65, "Fire + direction", global.TH.text_dim, fa_left, fa_middle, global.f_bold, 1);
+        draw_set_font(global.f_bold);
+        _tgx = _cx1 + 20 + ui_sw("Fire + direction") + 20;
+    }
+    var _dirs_v = _s.anim_dirs;
+    if (anim_layer == 0) { _dirs_v = ui_toggle("anim_dirs", _tgx, _y1 + 53, "8 directions", _s.anim_dirs, "8 directions|A movement layout: give the actor its own animation for each of 8 directions - people walking every way, or a ship that veers and holds its lean (Once). Missing directions borrow from the others. Replaces Walk."); }
     if (_dirs_v != _s.anim_dirs && anim_can_edit())
     {
         anim_begin_edit(_s, "animdirs" + string(current_time));
@@ -289,8 +328,9 @@ function ws_animate_draw(_x1, _y1, _x2, _y2)
         else { anim_sel = 1; }
     }
     draw_set_font(global.f_body);
-    var _tgx2 = _tgx + 54 + ui_sw("8 directions") + 18;
-    var _test_v = ui_toggle("anim_test", _tgx2, _y1 + 53, "Test", anim_test, "Test|Drive the preview with the arrow keys, WASD or a gamepad and watch the animations change as the Amiga will change them.");
+    var _tgx2 = _tgx;
+    if (anim_layer == 0) { _tgx2 = _tgx + 54 + ui_sw("8 directions") + 18; }
+    var _test_v = ui_toggle("anim_test", _tgx2, _y1 + 53, "Test", anim_test, "Test|Drive the preview with the arrow keys, WASD or a gamepad (fire: Space, Ctrl or the A button) and watch the animations change as the Amiga will change them.");
     if (_test_v != anim_test)
     {
         anim_test = _test_v;
@@ -336,20 +376,33 @@ function ws_animate_draw(_x1, _y1, _x2, _y2)
             anim_test_x += _in[0] * 1.5;
             anim_test_y += _in[1] * 1.5;
         }
+        // holding fire: the Fire animations, picked from the joystick direction (as engine.s)
+        var _fire_on = false;
+        if (!is_undefined(_plan)) { _fire_on = (_in[2] && array_length(_plan) > ANIM_FIRE0); }
+        if (_fire_on)
+        {
+            _k2 = ANIM_FIRE0;
+            if (_in[0] != 0 || _in[1] != 0)
+            {
+                anim_test_dir = anim_dir_of(_in[0], _in[1]);
+                _k2 = ANIM_FIRE0 + 1 + anim_test_dir;
+            }
+        }
         if (_k2 != anim_test_entry)
         {
             anim_test_entry = _k2;
             anim_test_t0 = current_time;
         }
         _test_k = _k2;
-        if (!_s.anim_dirs && _s.anim_flip && anim_test_face) { _test_flip = true; }
+        if (!_s.anim_dirs && _s.anim_flip && anim_test_face && _k2 < ANIM_BASIC) { _test_flip = true; }
     }
 
-    // movement layout: a compass of the 8 directions round Idle
-    if (_s.anim_dirs)
+    // movement layout: a compass of the 8 directions round Idle (or round Fire)
+    if (_s.anim_dirs || anim_layer == 1)
     {
         var _cell = floor(min(70, (_py2 - _py1 - 8) / 3));
         var _order = [11, 4, 5, 10, 0, 6, 9, 8, 7];       // NW N NE / W Idle E / SW S SE
+        if (anim_layer == 1) { _order = [20, 13, 14, 19, 12, 15, 18, 17, 16]; }
         for (var q = 0; q < 9; q++)
         {
             var _qx = _vx1 + (q mod 3) * (_cell + 4);
@@ -372,6 +425,13 @@ function ws_animate_draw(_x1, _y1, _x2, _y2)
         var _bsc = max(1, floor(min((_cx2 - 20 - _vx1 - 40) / _bs.w, (_py2 - _py1 - 50) / _bs.h)));
         draw_sprite_amiga_flip(_s.sprite, floor((_vx1 + _cx2 - 20 - _bs.w * _bsc) / 2), floor((_py1 + _py2 - 20 - _bs.h * _bsc) / 2), _bsc, _test_flip, _cols, 1);
     }
+    else if (_test_k >= array_length(_plan))
+    {
+        _note = "No Fire animations yet - pick sprites from the bank to add some (until then the player keeps its normal animation)";
+        var _fs = proj.sprites[clamp(_s.sprite, 0, SPR_COUNT - 1)];
+        var _fsc = max(1, floor(min((_cx2 - 20 - _vx1 - 40) / _fs.w, (_py2 - _py1 - 50) / _fs.h)));
+        draw_sprite_amiga_cols(_s.sprite, floor((_vx1 + _cx2 - 20 - _fs.w * _fsc) / 2), floor((_py1 + _py2 - 20 - _fs.h * _fsc) / 2), _fsc, _cols, 0.35);
+    }
     else
     {
         var _pk = _test_k;
@@ -379,7 +439,7 @@ function ws_animate_draw(_x1, _y1, _x2, _y2)
         var _ticks = (current_time - anim_t0) div 20;
         if (anim_test) { _ticks = (current_time - anim_test_t0) div 20; }
         var _flip = _pe.flip;
-        if (!anim_test && !_s.anim_dirs && _s.anim_flip && anim_face_left) { _flip = !_flip; }
+        if (!anim_test && !_s.anim_dirs && _s.anim_flip && anim_face_left && _pk < ANIM_BASIC) { _flip = !_flip; }
         if (_test_flip) { _flip = !_flip; }
         var _fi = 0;
         if (_pe.mode == 3)
@@ -425,6 +485,7 @@ function ws_animate_draw(_x1, _y1, _x2, _y2)
         {
             _note = "Test: " + _lnames[_test_k] + "   -   arrow keys, WASD or gamepad";
             if (_gravity && !_s.anim_dirs) { _note += " (up = jump, down = fall)"; }
+            _note += ", fire = Space / Ctrl / A";
         }
         else if (_nf == 0)
         {
@@ -438,7 +499,7 @@ function ws_animate_draw(_x1, _y1, _x2, _y2)
         }
     }
     ui_text(_vx1 + 16, _py2 - 22, ui_text_fit(_note, global.f_small, _cx2 - _vx1 - 200), global.TH.text_dim, fa_left, fa_middle, global.f_small, 1);
-    if (_s.anim_flip && !_s.anim_dirs && !anim_test)
+    if (_s.anim_flip && !_s.anim_dirs && !anim_test && anim_layer == 0)
     {
         anim_face_left = ui_toggle("anim_faceleft", _cx2 - 170, _py2 - 34, "Facing left", anim_face_left, "Facing left|Shows the frames turned round, as the actor looks while it moves left.");
     }

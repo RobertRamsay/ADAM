@@ -126,9 +126,11 @@ function actor_new(_name)
 // in 50ths of a second per frame and a mode. Empty ones borrow from the
 // others when the disk is built (anim_plan, same as adf_reference.py).
 // ---------------------------------------------------------------------------
-#macro ANIM_COUNT 12            // stored per actor: 0 Idle, 1 Walk, 2 Jump, 3 Fall, 4..11 N NE E SE S SW W NW
+#macro ANIM_COUNT 21            // stored per actor: 0 Idle, 1 Walk, 2 Jump, 3 Fall, 4..11 N NE E SE S SW W NW,
+                                // 12 Fire, 13..20 Fire + N .. NW (the player holding fire)
 #macro ANIM_BASIC 4             // Idle, Walk, Jump, Fall
 #macro ANIM_DIR0 4              // first of the 8 directions
+#macro ANIM_FIRE0 12            // Fire with no direction; 13..20 = Fire + the 8 directions
 #macro ANIM_FRAMES 8
 
 function anim_new()
@@ -173,8 +175,18 @@ function anims_from_loaded(_raw)
 function anims_used(_ac)
 {
     var _n = ANIM_BASIC;
-    if (_ac.anim_dirs) { _n = ANIM_COUNT; }
+    if (_ac.anim_dirs) { _n = ANIM_FIRE0; }
     for (var i = 0; i < _n; i++)
+    {
+        if (array_length(_ac.anims[i].frames) > 0) { return true; }
+    }
+    return anims_fire_used(_ac);
+}
+
+/// True when the actor has Fire animations (played while the player holds fire)
+function anims_fire_used(_ac)
+{
+    for (var i = ANIM_FIRE0; i < ANIM_COUNT; i++)
     {
         if (array_length(_ac.anims[i].frames) > 0) { return true; }
     }
@@ -217,10 +229,47 @@ function anim_dir_chains()
     ];
 }
 
-/// What the disk plays: undefined for one frame, else 4 (or 12 with 8 directions)
-/// x { frames, rate, mode, flip } with empty animations filled in from the others
-/// (flip = its frames are turned round; mode 3 = stand facing the last direction).
-/// Must match anim_plan in tools/reference/adf_reference.py.
+/// The 8 directions resolved from entries _base.._base+7 of _e (undefined = empty)
+/// with anim_dir_chains, where entry 1 means _walk. Empty ones end up as east (or west).
+function anim_resolve_dirs(_e, _base, _walk, _flip)
+{
+    var _chains = anim_dir_chains();
+    var _dirs = array_create(8, undefined);
+    for (var d = 0; d < 8; d++)
+    {
+        var _ch = _chains[d];
+        for (var c = 0; c < array_length(_ch); c++)
+        {
+            var _k = _ch[c][0];
+            var _t = _ch[c][1];
+            if (_t == 1 && !_flip) { continue; }
+            var _src = _walk;
+            if (_k != 1) { _src = _e[_k - ANIM_DIR0 + _base]; }
+            if (!is_undefined(_src))
+            {
+                var _fl = false;
+                if (_t == 1) { _fl = true; }
+                if (_t == 2 && _flip) { _fl = true; }
+                _dirs[d] = { frames : _src.frames, rate : _src.rate, mode : _src.mode, flip : _fl };
+                break;
+            }
+        }
+    }
+    for (var d2 = 0; d2 < 8; d2++)
+    {
+        if (is_undefined(_dirs[d2]))
+        {
+            if (!is_undefined(_dirs[2])) { _dirs[d2] = _dirs[2]; }
+            else if (!is_undefined(_dirs[6])) { _dirs[d2] = _dirs[6]; }
+        }
+    }
+    return _dirs;
+}
+
+/// What the disk plays: undefined for one frame, else 4 (12 with 8 directions,
+/// 21 with Fire animations) x { frames, rate, mode, flip } with empty animations
+/// filled in from the others (flip = its frames are turned round; mode 3 = stand
+/// facing the last direction). Must match anim_plan in tools/reference/adf_reference.py.
 function anim_plan(_ac)
 {
     if (anims_used(_ac))
@@ -232,64 +281,69 @@ function anim_plan(_ac)
             if (array_length(_src.frames) > 0) { array_push(_e, { frames : _src.frames, rate : clamp(_src.rate, 2, 30), mode : clamp(_src.mode, 0, 2), flip : false }); }
             else { array_push(_e, undefined); }
         }
+        var _idle = _e[0];
+        var _walk = _e[1];
+        var _jump = _e[2];
+        var _fall = _e[3];
+        var _dirs = undefined;
+        var _one = { frames : [_ac.sprite], rate : 8, mode : 0, flip : false };
         if (_ac.anim_dirs)
         {
-            var _chains = anim_dir_chains();
-            var _dirs = array_create(8, undefined);
+            var _w0 = _walk;
+            if (is_undefined(_w0)) { _w0 = _idle; }
+            _dirs = anim_resolve_dirs(_e, ANIM_DIR0, _w0, _ac.anim_flip);
             for (var d = 0; d < 8; d++)
             {
-                var _ch = _chains[d];
-                for (var c = 0; c < array_length(_ch); c++)
-                {
-                    var _k = _ch[c][0];
-                    var _t = _ch[c][1];
-                    if (_t == 1 && !_ac.anim_flip) { continue; }
-                    var _src2 = _e[_k];
-                    if (_k == 1 && is_undefined(_src2)) { _src2 = _e[0]; }
-                    if (!is_undefined(_src2))
-                    {
-                        var _fl = false;
-                        if (_t == 1) { _fl = true; }
-                        if (_t == 2 && _ac.anim_flip) { _fl = true; }
-                        _dirs[d] = { frames : _src2.frames, rate : _src2.rate, mode : _src2.mode, flip : _fl };
-                        break;
-                    }
-                }
+                if (is_undefined(_dirs[d])) { _dirs[d] = _one; }
             }
-            for (var d2 = 0; d2 < 8; d2++)
+            if (is_undefined(_idle)) { _idle = { frames : [_ac.sprite], rate : 8, mode : 3, flip : false }; }
+            if (is_undefined(_walk)) { _walk = _dirs[2]; }
+        }
+        else
+        {
+            if (is_undefined(_idle))
             {
-                if (is_undefined(_dirs[d2]))
-                {
-                    if (!is_undefined(_dirs[2])) { _dirs[d2] = _dirs[2]; }
-                    else if (!is_undefined(_dirs[6])) { _dirs[d2] = _dirs[6]; }
-                    else { _dirs[d2] = { frames : [_ac.sprite], rate : 8, mode : 0, flip : false }; }
-                }
+                if (!is_undefined(_walk)) { _idle = _walk; }
+                else { _idle = _one; }
             }
-            var _out = [_e[0], _e[1], _e[2], _e[3]];
-            if (is_undefined(_out[0])) { _out[0] = { frames : [_ac.sprite], rate : 8, mode : 3, flip : false }; }
-            if (is_undefined(_out[1])) { _out[1] = _dirs[2]; }
-            if (is_undefined(_out[2])) { _out[2] = _out[1]; }
-            if (is_undefined(_out[3])) { _out[3] = _out[2]; }
-            for (var d3 = 0; d3 < 8; d3++) { array_push(_out, _dirs[d3]); }
+            if (is_undefined(_walk)) { _walk = _idle; }
+        }
+        if (is_undefined(_jump)) { _jump = _walk; }
+        if (is_undefined(_fall)) { _fall = _jump; }
+        var _out = [_idle, _walk, _jump, _fall];
+        if (anims_fire_used(_ac))
+        {
+            if (is_undefined(_dirs)) { _dirs = array_create(8, _walk); }     // not used without 8 directions
+            var _fstand = _e[ANIM_FIRE0];
+            var _fd = anim_resolve_dirs(_e, ANIM_FIRE0 + 1, _fstand, _ac.anim_flip);
+            if (is_undefined(_fstand))
+            {
+                if (!is_undefined(_fd[2])) { _fstand = _fd[2]; }
+                else if (!is_undefined(_fd[6])) { _fstand = _fd[6]; }
+                else { _fstand = _idle; }
+            }
+            for (var d3 = 0; d3 < 8; d3++)
+            {
+                if (is_undefined(_fd[d3])) { _fd[d3] = _fstand; }
+            }
+            for (var d4 = 0; d4 < 8; d4++) { array_push(_out, _dirs[d4]); }
+            array_push(_out, _fstand);
+            for (var d5 = 0; d5 < 8; d5++) { array_push(_out, _fd[d5]); }
             return _out;
         }
-        if (is_undefined(_e[0]))
+        if (!is_undefined(_dirs))
         {
-            if (!is_undefined(_e[1])) { _e[0] = _e[1]; }
-            else { _e[0] = { frames : [_ac.sprite], rate : 8, mode : 0, flip : false }; }
+            for (var d6 = 0; d6 < 8; d6++) { array_push(_out, _dirs[d6]); }
         }
-        if (is_undefined(_e[1])) { _e[1] = _e[0]; }
-        if (is_undefined(_e[2])) { _e[2] = _e[1]; }
-        if (is_undefined(_e[3])) { _e[3] = _e[2]; }
-        return [_e[0], _e[1], _e[2], _e[3]];
+        return _out;
     }
     if (_ac.anim_sprite >= 0 && _ac.role != 7)
     {
         var _rt = clamp(_ac.anim_rate, 2, 30);
         var _both = { frames : [_ac.sprite, _ac.anim_sprite], rate : _rt, mode : 0, flip : false };
-        var _idle = _both;
-        if (_ac.anim_moving) { _idle = { frames : [_ac.sprite], rate : _rt, mode : 0, flip : false }; }
-        return [_idle, _both, _both, _both];
+        var _lidle = _both;
+        if (_ac.anim_moving) { _lidle = { frames : [_ac.sprite], rate : _rt, mode : 0, flip : false }; }
+        return [_lidle, _both, _both, _both];
     }
     return undefined;
 }
