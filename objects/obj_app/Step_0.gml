@@ -69,6 +69,10 @@ if (_focus != app_focused)
     app_focused = _focus;
     if (_focus) { game_set_speed(60, gamespeed_fps); }
     else { game_set_speed(10, gamespeed_fps); }
+    // back from another program while full screen: some graphics cards lose
+    // the screen meanwhile and show black, so set it up afresh (the backdrop,
+    // sprite and hill images are rebuilt by themselves when they are missing)
+    if (_focus && window_get_fullscreen()) { display_reset(app_aa, true); }
 }
 
 // interface scale for HD / QHD / 4K

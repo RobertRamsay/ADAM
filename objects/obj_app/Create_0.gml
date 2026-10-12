@@ -1,17 +1,12 @@
 /// ADAM - Amiga no-code game maker - app controller
 
 // ---------- display ----------
-var _aa = 0;
-if ((display_aa & 8) != 0) { _aa = 8; }
-else
-{
-    if ((display_aa & 4) != 0) { _aa = 4; }
-    else
-    {
-        if ((display_aa & 2) != 0) { _aa = 2; }
-    }
-}
-display_reset(_aa, true);
+// 2x anti-aliasing at most: it smooths the rounded corners just as well as
+// 8x, and 8x kept eight copies of every screen pixel - about 450 MB of
+// graphics memory on a 4K screen (2x: about 210 MB), too much for older cards
+app_aa = 0;
+if ((display_aa & 2) != 0) { app_aa = 2; }
+display_reset(app_aa, true);
 draw_set_circle_precision(48);
 window_set_min_width(1280);
 window_set_min_height(760);
