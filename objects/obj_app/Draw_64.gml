@@ -29,6 +29,7 @@ about_draw(gui_w, gui_h);
 ui_help_draw(gui_w, gui_h);
 toasts_draw(gui_w, gui_h);
 tut_offer_draw(gui_w, gui_h);
+update_card_draw(gui_w, gui_h);
 tut_draw(gui_w, gui_h);
 lesson_draw(gui_w, gui_h);
 whatsnew_draw(gui_w, gui_h);

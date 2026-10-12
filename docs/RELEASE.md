@@ -142,6 +142,13 @@ first run.
 - or the web: Edit game > Uploads > Upload files, tick **Windows**, and
   delete/hide the old upload.
 
+- **Tell ADAM the update is out - last, once both itch pages have it:** set
+  `version` (and the `notes` line) in `latest.json` at the root of the repo
+  and push `main`. ADAM 1.0.1 and later fetch that file at start-up and show
+  "ADAM x.y.z is out" with a Get it button (`scripts/scr_update`). Its
+  `lite_url` / `pro_url` are the pages Get it opens for each edition, so they
+  can be fixed without a new build. Pushing it before the upload would send
+  people to a page without the new version.
 - **FS-UAE source (GPL):** the Windows builds include FS-UAE, so its source
   must be offered from the same place. Upload `fs-uae-3.2.35.tar.xz` (from the
   same GitHub release) to both itch pages as an extra download named
