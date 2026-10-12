@@ -9,7 +9,8 @@
 #macro WS_BUILD 6
 #macro WS_LEVELS 7
 #macro WS_MUSIC 8
-#macro WS_COUNT 9
+#macro WS_ANIMATE 9
+#macro WS_COUNT 10
 
 function ws_set(_i)
 {
@@ -244,6 +245,7 @@ function shortcuts_step()
         {
             if (keyboard_check_pressed(ord(string(i + 1)))) { ws_set(_tabs[i]); }
         }
+        if (array_length(_tabs) >= 10 && keyboard_check_pressed(ord("0"))) { ws_set(_tabs[9]); }
     }
 }
 
@@ -266,12 +268,12 @@ function ui_scale_step(_d)
 
 function ws_tabs()
 {
-    return [WS_HOME, WS_BACKDROP, WS_LEVELS, WS_SPRITES, WS_ACTORS, WS_LOGIC, WS_SOUND, WS_MUSIC, WS_BUILD];
+    return [WS_HOME, WS_BACKDROP, WS_LEVELS, WS_SPRITES, WS_ACTORS, WS_ANIMATE, WS_LOGIC, WS_SOUND, WS_MUSIC, WS_BUILD];
 }
 
 function ws_name(_w)
 {
-    var _n = ["Home", "Backdrop", "Sprites", "Actors", "Logic", "Sound", "Build", "Levels", "Music"];
+    var _n = ["Home", "Backdrop", "Sprites", "Actors", "Logic", "Sound", "Build", "Levels", "Music", "Animate"];
     return _n[_w];
 }
 
@@ -280,13 +282,14 @@ function ws_help(_w)
     var _h = [
         "Home|Start here: open or create projects, pick the Amiga, and set game-wide options.",
         "Backdrop|Paint the 320 x 256 background picture, choose its colours, or import a picture.",
-        "Sprites|Draw up to 32 sprite pictures (a bank of 128 in ADAM Pro), 16 x 24 pixels with 3 colours each, for your players, enemies and pickups.",
+        "Sprites|Draw up to 128 sprite pictures, 16 x 24 pixels with 3 colours each, for your players, enemies and pickups.",
         "Actors|Place the things that move: the player, enemies and pickups. Choose how each one behaves.",
         "Logic|Make the game rules in plain English: WHEN something happens, DO something.",
         "Sound|Design up to 8 sound effects for the Amiga's Paula chip and hear them instantly.",
         "Build|Turn your game into a bootable Amiga disk (.ADF) and play it in FS-UAE or on a real Amiga.",
         "Levels|Up to 10 levels, each with its own hills grown from a seed and shaped by hand. Also the level goal counter and the title screen.",
-        "Music|Make up to 4 songs from ready-made loops on Paula's 4 channels, edit their notes, and choose the music for each level."
+        "Music|Make up to 4 songs from ready-made loops on Paula's 4 channels, edit their notes, and choose the music for each level.",
+        "Animate|Give each actor Idle, Walk, Jump and Fall animations of up to 8 frames from the sprite bank. The Amiga picks the right one as the actor moves."
     ];
     return _h[_w];
 }

@@ -77,13 +77,43 @@ def build(proj, aga):
         s=proj['sprites'][a['sprite']]
         if a.get('bob'): return sw(s),sh(s)
         return 16,24
+    def flipped(s):
+        w,h=sw(s),sh(s)
+        return dict(s,px=[s['px'][y*w+(w-1-x)] for y in range(h) for x in range(w)])
+    plans=[]
     for a in actors:
         bw,bh=asize(a)
         if a.get('bob'): mk=lambda s,a=a,bw=bw,bh=bh: bimg(s,a['bobmap'],bw,bh)
         else: mk=sblock
         spr_offs.append(mk(proj['sprites'][a['sprite']]))
-        if a.get('anim',-1)>=0: spr2_offs.append(mk(proj['sprites'][a['anim']]))
+        # a hopper's crouch frame (two-frame animation of version 4)
+        if a['role']==7 and a.get('anim',-1)>=0: spr2_offs.append(mk(proj['sprites'][a['anim']]))
         else: spr2_offs.append(0)
+        plan=anim_plan(a)
+        if plan:
+            made={(a['sprite'],False):spr_offs[-1]}
+            def img(si,fl,mk=mk):
+                if (si,fl) not in made:
+                    sp=proj['sprites'][si]
+                    made[(si,fl)]=mk(flipped(sp) if fl else sp)
+                return made[(si,fl)]
+            ents=[]
+            for frames,rate,mode in plan:
+                right=[img(f,False) for f in frames]
+                left=[img(f,True) for f in frames] if a.get('flip') else right
+                ents.append((len(frames),rate,mode,right,left))
+            plans.append(ents)
+        else: plans.append(None)
+    align(8)
+    # animation tables (engine.s AN_*): 4 x { n, rate, mode, 0, 8 right offsets, 8 left offsets }
+    anim_offs=[]
+    for ents in plans:
+        if not ents: anim_offs.append(0); continue
+        align(8); anim_offs.append(len(blob))
+        for n,rate,mode,right,left in ents:
+            blob.extend(struct.pack('>HHHH',n,rate,mode,0))
+            for side in (right,left):
+                for k in range(8): blob.extend(struct.pack('>L',side[k%n] if k<n else side[0]))
     align(8)
     off_act=len(blob)
     for i,a in enumerate(actors):
@@ -97,6 +127,7 @@ def build(proj, aga):
         blob+=struct.pack('>HHHHHHHHHHHL',min(a['x'],320-bw),min(a['y'],256-bh),a['role'],a['speed'],int(a['visible']),int(a['left']),int(a['up']),bx0,by0,bx1,by1,spr_offs[i])
         blob+=struct.pack('>HLHHHHHHHH',a.get('chan',i),spr2_offs[i],a.get('rate',8),a.get('amode',0),a.get('from',1),a.get('fast',0),
                           1 if a.get('bob') else 0,320-bw,256-bh,bsize)
+        blob+=struct.pack('>L',anim_offs[i])
     align(8)
     off_rules=len(blob)
     for r in rules:
@@ -183,11 +214,40 @@ def build(proj, aga):
     player=-1
     for i,a in enumerate(actors):
         if a['role'] in (0,6): player=i; break
-    hdr=struct.pack('>4sHHHHHHHHHHHH',b'ADAM',4,1 if aga else 0,depth,len(actors),len(rules),proj['lives'],
+    hdr=struct.pack('>4sHHHHHHHHHHHH',b'ADAM',5,1 if aga else 0,depth,len(actors),len(rules),proj['lives'],
                     int(proj['show_score']),int(proj['show_lives']),proj['hud_row'],proj['hud_col'],proj['msg_col'],player & 0xffff)+struct.pack('>L',off_game)
     hdr+=struct.pack('>LLLLLLLLLLLLLLL',off_pal,off_planes,off_act,off_rules,off_sfx,off_over,off_win,off_sprcol,off_disp,off_grad,off_ground,off_work,off_music,off_disp2,off_back)
     blob[0:92]=hdr
     return bytes(blob)
+
+# ---- animations (data block version 5); scr_adf.gml anim_plan() does the same
+# actor dict: anims = 4 x {frames: [sprite indexes, up to 8], rate: 2..30, mode: 0 loop / 1 once / 2 ping-pong}
+# (Idle, Walk, Jump, Fall), flip = frames turn to face left; or the version 4
+# two-frame animation: anim = second sprite, rate, amode (1 = only while moving)
+def anims_used(a):
+    return any(len(e.get('frames',[]))>0 for e in a.get('anims',[])[:4])
+
+def anim_plan(a):
+    """None for one frame, else 4 x (frames, rate, mode) with empty ones filled in"""
+    base=a['sprite']
+    if anims_used(a):
+        ents=[]
+        for k in range(4):
+            e=a['anims'][k] if k<len(a['anims']) else {}
+            fr=[f for f in e.get('frames',[])][:8]
+            ents.append((fr,max(2,min(30,e.get('rate',8))),max(0,min(2,e.get('mode',0)))) if fr else None)
+        idle,walk,jump,fall=ents
+        if not idle: idle=walk if walk else ([base],8,0)
+        if not walk: walk=idle
+        if not jump: jump=walk
+        if not fall: fall=jump
+        return [idle,walk,jump,fall]
+    if a.get('anim',-1)>=0 and a['role']!=7:
+        rate=max(2,min(30,a.get('rate',8)))
+        both=([base,a['anim']],rate,0)
+        idle=([base],rate,0) if a.get('amode',0) else both
+        return [idle,both,both,both]
+    return None
 
 def render_sfx(s):
     rate=3546895/322

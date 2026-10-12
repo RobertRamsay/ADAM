@@ -185,6 +185,12 @@ spr_dirty = array_create(SPR_COUNT, true);
 
 // actors
 sel_actor = 0;
+
+// Animate page
+anim_sel = 0;               // 0 Idle, 1 Walk, 2 Jump, 3 Fall
+anim_slot = 0;              // selected frame; the one after the last adds a frame
+anim_t0 = 0;                // current_time the preview started
+anim_face_left = false;     // preview the frames turned round
 act_drag = false;
 act_drag_dx = 0;
 act_drag_dy = 0;
@@ -372,6 +378,7 @@ shot_pages = [
     { ws : WS_LEVELS,   panel : 0, name : "levels" },
     { ws : WS_SPRITES,  panel : 0, name : "sprites" },
     { ws : WS_ACTORS,   panel : 0, name : "actors" },
+    { ws : WS_ANIMATE,  panel : 0, name : "animate" },
     { ws : WS_LOGIC,    panel : 0, name : "logic" },
     { ws : WS_SOUND,    panel : 0, name : "sound" },
     { ws : WS_MUSIC,    panel : 0, name : "music" },

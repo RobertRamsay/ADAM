@@ -69,6 +69,7 @@
     {"id":{"name":"scr_update","path":"scripts/scr_update/scr_update.yy",},},
     {"id":{"name":"scr_whatsnew","path":"scripts/scr_whatsnew/scr_whatsnew.yy",},},
     {"id":{"name":"scr_ws_actors","path":"scripts/scr_ws_actors/scr_ws_actors.yy",},},
+    {"id":{"name":"scr_ws_animate","path":"scripts/scr_ws_animate/scr_ws_animate.yy",},},
     {"id":{"name":"scr_ws_backdrop","path":"scripts/scr_ws_backdrop/scr_ws_backdrop.yy",},},
     {"id":{"name":"scr_ws_build","path":"scripts/scr_ws_build/scr_ws_build.yy",},},
     {"id":{"name":"scr_ws_home","path":"scripts/scr_ws_home/scr_ws_home.yy",},},

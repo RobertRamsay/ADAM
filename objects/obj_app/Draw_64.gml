@@ -15,6 +15,7 @@ switch (ws)
     case WS_BACKDROP: ws_backdrop_draw(_x1, _y1, _x2, _y2); break;
     case WS_SPRITES:  ws_sprites_draw(_x1, _y1, _x2, _y2);  break;
     case WS_ACTORS:   ws_actors_draw(_x1, _y1, _x2, _y2);   break;
+    case WS_ANIMATE:  ws_animate_draw(_x1, _y1, _x2, _y2);  break;
     case WS_LOGIC:    ws_logic_draw(_x1, _y1, _x2, _y2);    break;
     case WS_SOUND:    ws_sound_draw(_x1, _y1, _x2, _y2);    break;
     case WS_MUSIC:    ws_music_draw(_x1, _y1, _x2, _y2);    break;

@@ -1,7 +1,6 @@
 /// ADAM - project data model, example game, save/load, undo, settings
 
-#macro SPR_COUNT 128           // sprite bank slots in every project (ADAM Pro can use all 128)
-#macro SPR_LITE 32             // sprite bank slots ADAM Lite can use
+#macro SPR_COUNT 128           // sprite bank slots in every project (ADAM Lite and Pro)
 #macro SPR_W 16
 #macro SPR_H 24
 #macro BD_W 320
@@ -56,12 +55,10 @@ function palette_default()
     return _p;
 }
 
-/// Sprite bank slots this edition can use: 128 in ADAM Pro, 32 in ADAM Lite.
-/// Projects always keep all 128, so a Pro project opens safely in Lite.
+/// Sprite bank slots: all 128, in ADAM Lite and ADAM Pro
 function spr_bank_size()
 {
-    if (pro_on()) { return SPR_COUNT; }
-    return SPR_LITE;
+    return SPR_COUNT;
 }
 
 function sprite_new(_name)
@@ -110,13 +107,146 @@ function actor_new(_name)
         visible : true,
         start_left : false,
         start_up : false,
-        anim_sprite : -1,
+        anim_sprite : -1,       // two-frame animation (and a hopper's crouch frame)
         anim_rate : 8,
         anim_moving : false,
+        anims : anims_new(),    // Idle, Walk, Jump, Fall (Animate page)
+        anim_flip : false,      // frames turn round when it moves left
         from_level : 1,
         faster_every : 0,
         bob : false             // ADAM Pro: drawn by the blitter instead of a hardware sprite
     };
+}
+
+// ---------------------------------------------------------------------------
+// Animations (Animate page, Lite and Pro). Each actor has 4: Idle (standing
+// still), Walk (moving), Jump and Fall (in the air - platform players,
+// hoppers and fallers). Each is up to ANIM_FRAMES sprite-bank slots, a speed
+// in 50ths of a second per frame and a mode. Empty ones borrow from the
+// others when the disk is built (anim_plan, same as adf_reference.py).
+// ---------------------------------------------------------------------------
+#macro ANIM_COUNT 4
+#macro ANIM_FRAMES 8
+
+function anim_new()
+{
+    return { frames : [], rate : 8, mode : 0 };      // mode 0 loop, 1 once, 2 ping-pong
+}
+
+function anims_new()
+{
+    var _a = [];
+    for (var i = 0; i < ANIM_COUNT; i++) { array_push(_a, anim_new()); }
+    return _a;
+}
+
+/// Makes a loaded anims array safe: 4 entries, up to 8 frames each, values in range
+function anims_from_loaded(_raw)
+{
+    var _out = anims_new();
+    if (!is_array(_raw)) { return _out; }
+    for (var i = 0; i < min(ANIM_COUNT, array_length(_raw)); i++)
+    {
+        var _e = _raw[i];
+        if (!is_struct(_e)) { continue; }
+        var _fr = _e[$ "frames"];
+        if (is_array(_fr))
+        {
+            for (var k = 0; k < min(ANIM_FRAMES, array_length(_fr)); k++)
+            {
+                if (is_numeric(_fr[k])) { array_push(_out[i].frames, clamp(floor(_fr[k]), 0, SPR_COUNT - 1)); }
+            }
+        }
+        var _r = _e[$ "rate"];
+        if (is_numeric(_r)) { _out[i].rate = clamp(floor(_r), 2, 30); }
+        var _m = _e[$ "mode"];
+        if (is_numeric(_m)) { _out[i].mode = clamp(floor(_m), 0, 2); }
+    }
+    return _out;
+}
+
+/// True when the actor has any Animate-page frames (they replace the two-frame animation)
+function anims_used(_ac)
+{
+    for (var i = 0; i < ANIM_COUNT; i++)
+    {
+        if (array_length(_ac.anims[i].frames) > 0) { return true; }
+    }
+    return false;
+}
+
+/// Starts the Animate page from the actor's two-frame animation, if it has one
+function anims_seed_from_legacy(_ac)
+{
+    if (anims_used(_ac)) { return; }
+    if (_ac.anim_sprite < 0 || _ac.role == 7) { return; }
+    var _r = clamp(_ac.anim_rate, 2, 30);
+    _ac.anims[1].frames = [_ac.sprite, _ac.anim_sprite];
+    _ac.anims[1].rate = _r;
+    if (_ac.anim_moving) { _ac.anims[0].frames = [_ac.sprite]; }
+    else { _ac.anims[0].frames = [_ac.sprite, _ac.anim_sprite]; }
+    _ac.anims[0].rate = _r;
+}
+
+/// What the disk plays: undefined for one frame, else 4 x { frames, rate, mode }
+/// with empty animations filled in from the others. Must match anim_plan in
+/// tools/reference/adf_reference.py.
+function anim_plan(_ac)
+{
+    if (anims_used(_ac))
+    {
+        var _e = [];
+        for (var i = 0; i < ANIM_COUNT; i++)
+        {
+            var _src = _ac.anims[i];
+            if (array_length(_src.frames) > 0) { array_push(_e, { frames : _src.frames, rate : clamp(_src.rate, 2, 30), mode : clamp(_src.mode, 0, 2) }); }
+            else { array_push(_e, undefined); }
+        }
+        if (is_undefined(_e[0]))
+        {
+            if (!is_undefined(_e[1])) { _e[0] = _e[1]; }
+            else { _e[0] = { frames : [_ac.sprite], rate : 8, mode : 0 }; }
+        }
+        if (is_undefined(_e[1])) { _e[1] = _e[0]; }
+        if (is_undefined(_e[2])) { _e[2] = _e[1]; }
+        if (is_undefined(_e[3])) { _e[3] = _e[2]; }
+        return _e;
+    }
+    if (_ac.anim_sprite >= 0 && _ac.role != 7)
+    {
+        var _rt = clamp(_ac.anim_rate, 2, 30);
+        var _both = { frames : [_ac.sprite, _ac.anim_sprite], rate : _rt, mode : 0 };
+        var _idle = _both;
+        if (_ac.anim_moving) { _idle = { frames : [_ac.sprite], rate : _rt, mode : 0 }; }
+        return [_idle, _both, _both, _both];
+    }
+    return undefined;
+}
+
+/// Frame number 0..n-1 of an animation _ticks 50ths of a second after it started (as engine.s does)
+function anim_frame_at(_e, _ticks)
+{
+    var _n = array_length(_e.frames);
+    if (_n <= 1) { return 0; }
+    var _steps = floor(_ticks / max(2, _e.rate));
+    if (_e.mode == 1) { return min(_steps, _n - 1); }
+    if (_e.mode == 2)
+    {
+        var _per = 2 * _n - 2;
+        var _m = _steps mod _per;
+        if (_m >= _n) { return _per - _m; }
+        return _m;
+    }
+    return _steps mod _n;
+}
+
+/// The sprite an actor shows on the Actors page stage right now (its idle animation)
+function actor_preview_sprite(_ac)
+{
+    var _plan = anim_plan(_ac);
+    if (is_undefined(_plan)) { return _ac.sprite; }
+    var _e = _plan[0];
+    return _e.frames[anim_frame_at(_e, current_time div 20)];
 }
 
 function rule_new()
@@ -271,6 +401,13 @@ function project_from_loaded(_raw)
         for (var k = 0; k < min(ACT_MAX_ALL, array_length(_la)); k++)
         {
             var _lact = struct_overlay(actor_new("Actor"), _la[k]);
+            _lact.anims = anims_from_loaded(_lact.anims);
+            if (!is_bool(_lact.anim_flip))
+            {
+                var _fv = false;
+                if (is_numeric(_lact.anim_flip)) { _fv = (_lact.anim_flip != 0); }
+                _lact.anim_flip = _fv;
+            }
             if (!is_bool(_lact.bob))
             {
                 var _bv = false;
@@ -661,6 +798,7 @@ function undo_keys(_ws)
         case WS_LOGIC:    return ["rules", "groups"];
         case WS_SOUND:    return ["sfx"];
         case WS_MUSIC:    return ["songs", "level_song"];
+        case WS_ANIMATE:  return ["actors"];
     }
     return [];
 }

@@ -1,0 +1,205 @@
+From 0714acf0c6b0c465c0ac31ecb568979c87d278bc Mon Sep 17 00:00:00 2001
+From: Bob <robertramsay78@googlemail.com>
+Date: Mon, 12 Oct 2026 18:46:35 +0100
+Subject: [PATCH] Sprite bank of 128 and the Animate page in ADAM Lite too
+
+spr_bank_size() is 128 in every edition (the locked Pro row is gone) and
+anim_can_edit() no longer asks pro_gate, so Lite users can fill the whole
+bank and animate their actors. Help, tutorial and CLAUDE.md text updated.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01BQFSzGarhTTpK2DHf8XzFr
+---
+ CLAUDE.md                                 |  3 ++-
+ objects/obj_app/Create_0.gml              |  2 +-
+ scripts/scr_project/scr_project.gml       | 15 ++++++--------
+ scripts/scr_tutorial/scr_tutorial.gml     |  4 ++--
+ scripts/scr_ws_animate/scr_ws_animate.gml |  8 ++++----
+ scripts/scr_ws_shell/scr_ws_shell.gml     |  4 ++--
+ scripts/scr_ws_sprites/scr_ws_sprites.gml | 24 +----------------------
+ 7 files changed, 18 insertions(+), 42 deletions(-)
+
+diff --git a/CLAUDE.md b/CLAUDE.md
+index faeae39..ec58709 100644
+--- a/CLAUDE.md
++++ b/CLAUDE.md
+@@ -114,7 +114,8 @@ the layout changed, examples regenerated if needed, and a short "how to verify"
+ - **Output:** play-in-browser export for itch.io (web Amiga emulator); hard-drive install (WHDLoad slave) and CD32 image; custom boot / loading screens and an intro maker; proper DOS disk so the ADF shows a named disk with an icon on Workbench.
+ - **Workflow:** genre templates and asset packs; play the game inside the editor without FS-UAE; 68000 source export for learning.
+ - Each Pro feature ships with a Pro example game and a Pro lesson (`pro : true` in `global.EXAMPLES` / `les_defs`; Lite shows them with a Pro label).
+-- **Animation editor (Pro) - done:** Animate page (`scr_ws_animate`, `WS_ANIMATE`), engine data version 5. Still to do from Bob's spec: Hit / Die animations with a DO "play animation" action and a WHEN "animation ends" rule, onion skin in the sprite editor, a Pro example game and a Pro lesson. Original spec: Today an actor has two frames (`sprite`, `anim_sprite`, `anim_rate`, `anim_moving`; engine `A_SPR2`). Replace with:
++- **Sprite bank (128 slots) and the Animate page are in ADAM Lite and Pro** (Bob's call, 12 Oct 2026): `spr_bank_size()` is always 128 and `anim_can_edit()` is always true - gate them there again if that changes.
++- **Animation editor - done:** Animate page (`scr_ws_animate`, `WS_ANIMATE`), engine data version 5. Still to do from Bob's spec: Hit / Die animations with a DO "play animation" action and a WHEN "animation ends" rule, onion skin in the sprite editor, a Pro example game and a Pro lesson. Original spec: Today an actor has two frames (`sprite`, `anim_sprite`, `anim_rate`, `anim_moving`; engine `A_SPR2`). Replace with:
+   - New **Animate** page (or a tab on Sprites): named animations per actor - Idle, Walk, Jump, Fall, Hit, Die - each a strip of up to 8 frames picked from the sprite bank (128 slots in Pro, `spr_bank_size()`), a rate in 50ths of a second (per animation; per-frame delay optional), and a mode: Loop / Once / Ping-pong. Flip H for facing left (reuse right-facing frames). Live preview at real speed and onion skin in the sprite editor.
+   - Actor state picks the animation automatically: still -> Idle, moving -> Walk, platform player in the air -> Jump / Fall. New rule bits: DO "play animation" (value = animation), WHEN "animation ends".
+   - Data block: actor record gets an offset to an animation table instead of `A_SPR2` (bump version to 5, keep Lite's two-frame actors working by writing them as a 2-frame Loop). Frame images are written once per used sprite slot and shared. Change `engine.s`, `scr_adf.gml` and `adf_reference.py` together; old `.adam` files load with `anim_sprite` turned into a 2-frame Walk/Idle.
+diff --git a/objects/obj_app/Create_0.gml b/objects/obj_app/Create_0.gml
+index d7b7c70..49a0b99 100644
+--- a/objects/obj_app/Create_0.gml
++++ b/objects/obj_app/Create_0.gml
+@@ -186,7 +186,7 @@ spr_dirty = array_create(SPR_COUNT, true);
+ // actors
+ sel_actor = 0;
+ 
+-// Animate page (ADAM Pro)
++// Animate page
+ anim_sel = 0;               // 0 Idle, 1 Walk, 2 Jump, 3 Fall
+ anim_slot = 0;              // selected frame; the one after the last adds a frame
+ anim_t0 = 0;                // current_time the preview started
+diff --git a/scripts/scr_project/scr_project.gml b/scripts/scr_project/scr_project.gml
+index 44c6361..3d7217f 100644
+--- a/scripts/scr_project/scr_project.gml
++++ b/scripts/scr_project/scr_project.gml
+@@ -1,7 +1,6 @@
+ /// ADAM - project data model, example game, save/load, undo, settings
+ 
+-#macro SPR_COUNT 128           // sprite bank slots in every project (ADAM Pro can use all 128)
+-#macro SPR_LITE 32             // sprite bank slots ADAM Lite can use
++#macro SPR_COUNT 128           // sprite bank slots in every project (ADAM Lite and Pro)
+ #macro SPR_W 16
+ #macro SPR_H 24
+ #macro BD_W 320
+@@ -56,12 +55,10 @@ function palette_default()
+     return _p;
+ }
+ 
+-/// Sprite bank slots this edition can use: 128 in ADAM Pro, 32 in ADAM Lite.
+-/// Projects always keep all 128, so a Pro project opens safely in Lite.
++/// Sprite bank slots: all 128, in ADAM Lite and ADAM Pro
+ function spr_bank_size()
+ {
+-    if (pro_on()) { return SPR_COUNT; }
+-    return SPR_LITE;
++    return SPR_COUNT;
+ }
+ 
+ function sprite_new(_name)
+@@ -113,8 +110,8 @@ function actor_new(_name)
+         anim_sprite : -1,       // two-frame animation (and a hopper's crouch frame)
+         anim_rate : 8,
+         anim_moving : false,
+-        anims : anims_new(),    // ADAM Pro: Idle, Walk, Jump, Fall (Animate page)
+-        anim_flip : false,      // ADAM Pro: frames turn round when it moves left
++        anims : anims_new(),    // Idle, Walk, Jump, Fall (Animate page)
++        anim_flip : false,      // frames turn round when it moves left
+         from_level : 1,
+         faster_every : 0,
+         bob : false             // ADAM Pro: drawn by the blitter instead of a hardware sprite
+@@ -122,7 +119,7 @@ function actor_new(_name)
+ }
+ 
+ // ---------------------------------------------------------------------------
+-// Animations (ADAM Pro, Animate page). Each actor has 4: Idle (standing
++// Animations (Animate page, Lite and Pro). Each actor has 4: Idle (standing
+ // still), Walk (moving), Jump and Fall (in the air - platform players,
+ // hoppers and fallers). Each is up to ANIM_FRAMES sprite-bank slots, a speed
+ // in 50ths of a second per frame and a mode. Empty ones borrow from the
+diff --git a/scripts/scr_tutorial/scr_tutorial.gml b/scripts/scr_tutorial/scr_tutorial.gml
+index 04faf02..ba5c424 100644
+--- a/scripts/scr_tutorial/scr_tutorial.gml
++++ b/scripts/scr_tutorial/scr_tutorial.gml
+@@ -47,10 +47,10 @@ function tut_init()
+         tut_step(WS_ACTORS, "act_speed", "Speed", "How fast this actor moves. Try 1 or 2 for enemies to start with - you can always speed them up with a rule."),
+         tut_step(WS_ACTORS, "act_vis", "Hidden actors", "Actors can start hidden and appear later using the 'Show actor' action."),
+         tut_step(WS_ACTORS, "act_anim", "Animation", "Give an actor a second sprite and it flips between the two - a walk cycle, a flapping fin or a twinkling star. 'Only when moving' is perfect for walking."),
+-        // ---------- ANIMATE (ADAM Pro) ----------
++        // ---------- ANIMATE ----------
+         tut_step(WS_ANIMATE, "anim_tab_0", "Four animations", "Every actor can have an Idle, Walk, Jump and Fall animation. The Amiga picks the right one by itself: Idle while it stands still, Walk while it moves, Jump and Fall in the air."),
+         tut_step(WS_ANIMATE, "anim_slot_0", "Frames", "Up to 8 frames each. Click a frame - or the + after the last one - then click sprites in the bank to fill it in."),
+-        tut_step(WS_ANIMATE, "anim_bank_0", "The sprite bank", "All your sprites, ready to use as frames. Draw them on the Sprites page; ADAM Pro has room for 128."),
++        tut_step(WS_ANIMATE, "anim_bank_0", "The sprite bank", "All your sprites, ready to use as frames. Draw them on the Sprites page - there is room for 128."),
+         tut_step(WS_ANIMATE, "anim_rate", "Speed and style", "How long each frame stays on screen, and whether it loops, plays once or ping-pongs back and forth."),
+         tut_step(WS_ANIMATE, "anim_flip", "Facing left", "Draw your frames facing right and switch this on: when the actor moves left, the Amiga shows them turned round."),
+         // ---------- LOGIC ----------
+diff --git a/scripts/scr_ws_animate/scr_ws_animate.gml b/scripts/scr_ws_animate/scr_ws_animate.gml
+index a58ce09..e7d9ff5 100644
+--- a/scripts/scr_ws_animate/scr_ws_animate.gml
++++ b/scripts/scr_ws_animate/scr_ws_animate.gml
+@@ -1,4 +1,4 @@
+-/// ADAM - Animate workspace (ADAM Pro): Idle, Walk, Jump and Fall animations
++/// ADAM - Animate workspace (ADAM Lite and Pro): Idle, Walk, Jump and Fall animations
+ /// of up to 8 frames for each actor, picked from the sprite bank.
+ ///
+ /// The engine picks the animation by itself: Idle while the actor stands
+@@ -15,10 +15,11 @@ function anim_mode_names()
+     return ["Loop", "Once (stop on the last frame)", "Ping-pong"];
+ }
+ 
+-/// True when the Animate page may change things (ADAM Pro)
++/// True when the Animate page may change things (every edition; kept as the
++/// one place to gate it with pro_gate("Animations") again)
+ function anim_can_edit()
+ {
+-    return pro_gate("Animations");
++    return true;
+ }
+ 
+ /// Marks an undo step for the selected actor, starting from its two-frame
+@@ -124,7 +125,6 @@ function ws_animate_draw(_x1, _y1, _x2, _y2)
+ 
+     // ---------------- centre: tabs, preview, frame strip ----------------
+     var _ptitle = "Animate " + _s.name;
+-    if (!pro_on()) { _ptitle += "  (ADAM Pro)"; }
+     ui_panel(_cx1, _y1, _cx2, _y2, _ptitle);
+     var _tw = floor((_cx2 - _cx1 - 40 - 3 * 8) / 4);
+     var _thelp = [
+diff --git a/scripts/scr_ws_shell/scr_ws_shell.gml b/scripts/scr_ws_shell/scr_ws_shell.gml
+index 7884edd..d830558 100644
+--- a/scripts/scr_ws_shell/scr_ws_shell.gml
++++ b/scripts/scr_ws_shell/scr_ws_shell.gml
+@@ -282,14 +282,14 @@ function ws_help(_w)
+     var _h = [
+         "Home|Start here: open or create projects, pick the Amiga, and set game-wide options.",
+         "Backdrop|Paint the 320 x 256 background picture, choose its colours, or import a picture.",
+-        "Sprites|Draw up to 32 sprite pictures (a bank of 128 in ADAM Pro), 16 x 24 pixels with 3 colours each, for your players, enemies and pickups.",
++        "Sprites|Draw up to 128 sprite pictures, 16 x 24 pixels with 3 colours each, for your players, enemies and pickups.",
+         "Actors|Place the things that move: the player, enemies and pickups. Choose how each one behaves.",
+         "Logic|Make the game rules in plain English: WHEN something happens, DO something.",
+         "Sound|Design up to 8 sound effects for the Amiga's Paula chip and hear them instantly.",
+         "Build|Turn your game into a bootable Amiga disk (.ADF) and play it in FS-UAE or on a real Amiga.",
+         "Levels|Up to 10 levels, each with its own hills grown from a seed and shaped by hand. Also the level goal counter and the title screen.",
+         "Music|Make up to 4 songs from ready-made loops on Paula's 4 channels, edit their notes, and choose the music for each level.",
+-        "Animate|ADAM Pro: give each actor Idle, Walk, Jump and Fall animations of up to 8 frames from the sprite bank. The Amiga picks the right one as the actor moves."
++        "Animate|Give each actor Idle, Walk, Jump and Fall animations of up to 8 frames from the sprite bank. The Amiga picks the right one as the actor moves."
+     ];
+     return _h[_w];
+ }
+diff --git a/scripts/scr_ws_sprites/scr_ws_sprites.gml b/scripts/scr_ws_sprites/scr_ws_sprites.gml
+index 23cd07e..658e497 100644
+--- a/scripts/scr_ws_sprites/scr_ws_sprites.gml
++++ b/scripts/scr_ws_sprites/scr_ws_sprites.gml
+@@ -106,30 +106,8 @@ function ws_sprites_draw(_x1, _y1, _x2, _y2)
+     ui_panel(_x1, _y1, _x1 + _lw, _y2, "Sprite bank (" + string(_bank) + ")");
+     var _ly = _y1 + 54;
+     var _rowh = 60;
+-    var _lrows = _bank;
+-    if (_bank < SPR_COUNT) { _lrows = _bank + 1; }     // ADAM Lite: one locked row for the Pro slots
+-    var _lcontent = _lrows * _rowh + 10;
++    var _lcontent = _bank * _rowh + 10;
+     var _loff = ui_scroll_begin("spr_list", _x1 + 6, _y1 + 50, _x1 + _lw - 6, _y2 - 8, _lcontent);
+-    if (_bank < SPR_COUNT)
+-    {
+-        var _ky = _ly + _bank * _rowh - _loff;
+-        if (_ky > _y1 - _rowh && _ky < _y2)
+-        {
+-            var _kid = "spr_slot_pro";
+-            var _khot = ui_register(_kid, _x1 + 10, _ky, _x1 + _lw - 10, _ky + _rowh - 6, "More sprites|ADAM Pro has a bank of " + string(SPR_COUNT) + " sprites - " + string(SPR_COUNT - _bank) + " more slots for animation frames, enemies and pickups.");
+-            var _ktgt = 0;
+-            if (_khot) { _ktgt = 1; }
+-            var _ka = ui_anim_to(_kid, _ktgt);
+-            ui_rrect(_x1 + 10, _ky, _x1 + _lw - 10, _ky + _rowh - 6, 10, global.TH.btn_hot_top, global.TH.btn_hot_bot, 0.35 + 0.4 * _ka);
+-            ui_text(_x1 + 20, _ky + (_rowh - 6) * 0.5 - 8, "Slots " + string(_bank + 1) + "-" + string(SPR_COUNT), global.TH.text_dim, fa_left, fa_middle, global.f_bold, 1);
+-            ui_text(_x1 + 20, _ky + (_rowh - 6) * 0.5 + 9, "In ADAM Pro", global.TH.text_faint, fa_left, fa_middle, global.f_small, 1);
+-            if (_khot && ui_pressed)
+-            {
+-                ui_take_click();
+-                pro_gate("The " + string(SPR_COUNT) + "-sprite bank");
+-            }
+-        }
+-    }
+     for (var i = 0; i < _bank; i++)
+     {
+         var _ry = _ly + i * _rowh - _loff;
+-- 
+2.43.0
+

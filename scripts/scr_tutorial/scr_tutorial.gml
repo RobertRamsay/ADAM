@@ -47,6 +47,12 @@ function tut_init()
         tut_step(WS_ACTORS, "act_speed", "Speed", "How fast this actor moves. Try 1 or 2 for enemies to start with - you can always speed them up with a rule."),
         tut_step(WS_ACTORS, "act_vis", "Hidden actors", "Actors can start hidden and appear later using the 'Show actor' action."),
         tut_step(WS_ACTORS, "act_anim", "Animation", "Give an actor a second sprite and it flips between the two - a walk cycle, a flapping fin or a twinkling star. 'Only when moving' is perfect for walking."),
+        // ---------- ANIMATE ----------
+        tut_step(WS_ANIMATE, "anim_tab_0", "Four animations", "Every actor can have an Idle, Walk, Jump and Fall animation. The Amiga picks the right one by itself: Idle while it stands still, Walk while it moves, Jump and Fall in the air."),
+        tut_step(WS_ANIMATE, "anim_slot_0", "Frames", "Up to 8 frames each. Click a frame - or the + after the last one - then click sprites in the bank to fill it in."),
+        tut_step(WS_ANIMATE, "anim_bank_0", "The sprite bank", "All your sprites, ready to use as frames. Draw them on the Sprites page - there is room for 128."),
+        tut_step(WS_ANIMATE, "anim_rate", "Speed and style", "How long each frame stays on screen, and whether it loops, plays once or ping-pongs back and forth."),
+        tut_step(WS_ANIMATE, "anim_flip", "Facing left", "Draw your frames facing right and switch this on: when the actor moves left, the Amiga shows them turned round."),
         // ---------- LOGIC ----------
         tut_step(WS_LOGIC, "", "Rules make it a game", "Each rule is a sentence: WHEN something happens, DO something. For example: WHEN Hero touches Gem, DO add 10 to the score."),
         tut_step(WS_LOGIC, "logic_add", "Add a rule", "Press this to add a new rule, then change its parts with the drop-down menus."),

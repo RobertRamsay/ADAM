@@ -76,16 +76,28 @@ A_BX1       equ 18
 A_BY1       equ 20
 A_SPR       equ 22         ; long offset of this actor's hardware sprite block
 A_CHAN      equ 26         ; hardware sprite channel 0..7 (colour pair = channel / 2)
-A_SPR2      equ 28         ; long offset of the second animation frame, 0 = none
-A_ARATE     equ 32         ; frames per animation frame
-A_AMODE     equ 34         ; 0 = always animate, 1 = only while moving
+A_SPR2      equ 28         ; long offset of a hopper's crouch frame, 0 = none
+A_ARATE     equ 32         ; (version 4: frames per animation frame - unused since version 5)
+A_AMODE     equ 34         ; (version 4: 1 = only while moving - unused since version 5)
 A_FROM      equ 36         ; first level this actor appears on (1..10)
 A_FAST      equ 38         ; +1 speed every N levels, 0 = never
-A_BOB       equ 40         ; 1 = BOB: A_SPR / A_SPR2 point at BOB images, A_CHAN is unused
+A_BOB       equ 40         ; 1 = BOB: A_SPR / A_SPR2 / frames are BOB images, A_CHAN is unused
 A_XMAX      equ 42         ; furthest right it goes: 320 - width
 A_YMAX      equ 44         ; furthest down it goes: 256 - height
 A_BSIZE     equ 46         ; BOB: BLTSIZE (height << 6) | (width in words + 1), 0 for a sprite
-ACT_SIZE    equ 48
+A_ANIM      equ 48         ; long offset of the animation table, 0 = one frame (A_SPR)
+ACT_SIZE    equ 52
+
+; animation table (data block version 5): 4 entries - 0 Idle (standing still),
+; 1 Walk (moving), 2 Jump (in the air going up), 3 Fall (in the air coming
+; down; Jump and Fall only for platform players, hoppers and fallers). ADAM
+; fills empty animations in from the others, so every entry has 1..8 frames.
+AN_N        equ 0          ; number of frames 1..8
+AN_RATE     equ 2          ; 50ths of a second per frame (2..30)
+AN_MODE     equ 4          ; 0 = loop, 1 = once (stays on the last), 2 = ping-pong
+AN_RIGHT    equ 8          ; 8 longs: frame offsets facing right
+AN_LEFT     equ 40         ; 8 longs: facing left (the same frames when not flipped)
+ANIM_SIZE   equ 72
 
 ; BOB image (ADAM Pro): 16, 32, 48 or 64 pixels wide (w words) and h lines -
 ; w x h mask words, then depth x w x h words of bitplanes
@@ -131,8 +143,8 @@ MOMENT      equ 25         ; 'show for a moment' = half a second
 ; the field offsets (-128..-97) fit the signed 8-bit displacement and the
 ; index register carries the actor. Scalars follow the MAX_ACT records.
 MAX_ACT     equ 32
-ACTV_SIZE   equ 32
-ACTV_SHIFT  equ 5
+ACTV_SIZE   equ 64
+ACTV_SHIFT  equ 6
             rsset   -128
 v_ax        rs.w 1
 v_ay        rs.w 1
@@ -149,7 +161,10 @@ v_gnd       rs.w 1         ; 1 = standing on the ground
 v_squat     rs.w 1         ; hopper squat countdown before a jump
 v_life      rs.w 1         ; frames until a 'shown for a moment' actor hides
 v_safe      rs.w 1         ; frames of flashing immunity left
-v_frame     rs.w 1         ; BOB animation frame to draw: 0 = A_SPR, 1 = A_SPR2
+v_fofs      rs.l 1         ; offset of the frame shown now (bob_draw draws it)
+v_aset      rs.w 1         ; animation playing: 0 Idle, 1 Walk, 2 Jump, 3 Fall, -1 = none yet
+v_astart    rs.w 1         ; v_anim when it started
+v_face      rs.w 1         ; 1 = facing left
             rsset   -128+MAX_ACT*ACTV_SIZE
 v_anim      rs.w 1
 v_joyprev   rs.w 1
@@ -606,6 +621,9 @@ init_actors:
             move.w  #0,v_squat(a5,d5.w)
             move.w  #0,v_life(a5,d5.w)
             move.w  #0,v_safe(a5,d5.w)
+            move.l  A_SPR(a2),v_fofs(a5,d5.w)
+            move.w  #-1,v_aset(a5,d5.w)
+            move.w  A_LEFT(a2),v_face(a5,d5.w)
             lea     ACT_SIZE(a2),a2
             addq.w  #1,d7
             cmp.w   d6,d7
@@ -1052,43 +1070,95 @@ place_sprites:
             moveq   #0,d7
 .loop       move.w  d7,d5
             lsl.w   #ACTV_SHIFT,d5
-            move.l  A_SPR(a2),d0            ; pick the animation frame
-            move.l  A_SPR2(a2),d1
-            beq.s   .frame
-            cmp.w   #7,A_ROLE(a2)           ; hoppers show frame 2 while squatting
-            bne.s   .cyc
+            move.w  v_ax(a5,d5.w),d0        ; which way it faces
+            cmp.w   v_px(a5,d5.w),d0
+            beq.s   .faced
+            blt.s   .fleft
+            move.w  #0,v_face(a5,d5.w)
+            bra.s   .faced
+.fleft      move.w  #1,v_face(a5,d5.w)
+.faced      move.l  A_SPR(a2),d0            ; pick the animation frame
+            cmp.w   #7,A_ROLE(a2)           ; hoppers show their crouch frame while squatting
+            bne.s   .anim
+            tst.l   A_SPR2(a2)
+            beq.s   .anim
             tst.w   v_squat(a5,d5.w)
-            beq.s   .frame
-            move.l  d1,d0
-            bra.s   .frame
-.cyc
-            moveq   #0,d2
-            move.w  v_anim(a5),d2
-            move.w  A_ARATE(a2),d3
-            bne.s   .rate
-            moveq   #8,d3
-.rate       divu    d3,d2
-            btst    #0,d2
-            beq.s   .moving
-            tst.w   A_AMODE(a2)
-            beq.s   .two
-            move.w  v_ax(a5,d5.w),d2        ; only while moving
-            cmp.w   v_px(a5,d5.w),d2
-            bne.s   .two
-            move.w  v_ay(a5,d5.w),d2
-            cmp.w   v_py(a5,d5.w),d2
-            beq.s   .frame
-.two        move.l  d1,d0
-.moving
+            beq.s   .anim
+            move.l  A_SPR2(a2),d0
+            bra     .frame
+.anim       move.l  A_ANIM(a2),d1
+            beq     .frame                  ; one frame
+            moveq   #0,d2                   ; d2 = animation: 0 Idle
+            move.w  A_ROLE(a2),d3
+            cmp.w   #6,d3                   ; platform player, hopper, faller: Jump / Fall in the air
+            blt.s   .walkq
+            tst.w   v_gnd(a5,d5.w)
+            bne.s   .walkq
+            moveq   #2,d2
+            tst.w   v_vy(a5,d5.w)
+            blt.s   .got
+            moveq   #3,d2
+            bra.s   .got
+.walkq      move.w  v_ax(a5,d5.w),d3
+            cmp.w   v_px(a5,d5.w),d3
+            bne.s   .walk
+            move.w  v_ay(a5,d5.w),d3
+            cmp.w   v_py(a5,d5.w),d3
+            beq.s   .got
+.walk       moveq   #1,d2
+.got        cmp.w   v_aset(a5,d5.w),d2      ; a new animation starts from its first frame
+            beq.s   .same
+            move.w  d2,v_aset(a5,d5.w)
+            move.w  v_anim(a5),v_astart(a5,d5.w)
+.same       mulu    #ANIM_SIZE,d2
+            add.l   d2,d1
+            lea     0(a4,d1.l),a0           ; a0 = this animation
+            moveq   #0,d3
+            move.w  v_anim(a5),d3
+            sub.w   v_astart(a5,d5.w),d3    ; 50ths since it started
+            move.w  AN_RATE(a0),d4
+            bne.s   .rt
+            moveq   #8,d4
+.rt         divu    d4,d3                   ; d3 = steps
+            and.l   #$ffff,d3
+            move.w  AN_N(a0),d4             ; frames 1..8
+            move.w  AN_MODE(a0),d2
+            beq.s   .mloop
+            cmp.w   #1,d2
+            beq.s   .monce
+            cmp.w   #1,d4                   ; ping-pong: 0 1 2 .. n-1 n-2 .. 1
+            ble.s   .mf0
+            move.w  d4,d2
+            add.w   d2,d2
+            subq.w  #2,d2                   ; period 2n - 2
+            divu    d2,d3
+            swap    d3
+            cmp.w   d4,d3
+            blt.s   .mfi
+            neg.w   d3
+            add.w   d2,d3
+            bra.s   .mfi
+.monce      cmp.w   d4,d3                   ; once: stays on the last frame
+            blt.s   .mfi
+            move.w  d4,d3
+            subq.w  #1,d3
+            bra.s   .mfi
+.mloop      divu    d4,d3
+            swap    d3
+            bra.s   .mfi
+.mf0        moveq   #0,d3
+.mfi        and.w   #7,d3
+            lsl.w   #2,d3
+            add.w   #AN_RIGHT,d3
+            tst.w   v_face(a5,d5.w)
+            beq.s   .rgt
+            add.w   #AN_LEFT-AN_RIGHT,d3
+.rgt        move.l  0(a0,d3.w),d0
 .frame      move.w  v_ax(a5,d5.w),v_px(a5,d5.w)
             move.w  v_ay(a5,d5.w),v_py(a5,d5.w)
-            tst.w   A_BOB(a2)               ; BOBs: just note the frame, bob_draw draws it
+            move.l  d0,v_fofs(a5,d5.w)      ; BOBs: just note the frame, bob_draw draws it
+            tst.w   A_BOB(a2)
             beq.s   .hw
-            moveq   #0,d1
-            cmp.l   A_SPR(a2),d0
-            beq.s   .bf
-            moveq   #1,d1
-.bf         move.w  d1,v_frame(a5,d5.w)
             bra     .next
 .hw         lea     0(a4,d0.l),a0           ; a0 = sprite block to show
             move.l  a0,d0                   ; point this channel at it
@@ -1152,9 +1222,21 @@ hide_sprites:
             lea     0(a4,d0.l),a0
             move.l  #0,(a0)
             move.l  A_SPR2(a2),d0
-            beq.s   .h2
+            beq.s   .h1
             lea     0(a4,d0.l),a0
             move.l  #0,(a0)
+.h1         move.l  A_ANIM(a2),d0           ; and every animation frame
+            beq.s   .h2
+            lea     0(a4,d0.l),a1
+            moveq   #3,d2                   ; 4 animations
+.ha         lea     AN_RIGHT(a1),a3
+            moveq   #15,d1                  ; 8 right + 8 left
+.hf         move.l  (a3)+,d0
+            lea     0(a4,d0.l),a0
+            move.l  #0,(a0)
+            dbf     d1,.hf
+            lea     ANIM_SIZE(a1),a1
+            dbf     d2,.ha
 .h2
             lea     ACT_SIZE(a2),a2
             dbf     d6,.h
@@ -1272,11 +1354,8 @@ bob_draw:
             beq.s   .vis
             btst    #2,v_anim+1(a5)
             bne     .nxt
-.vis        move.l  A_SPR(a2),d0
-            tst.w   v_frame(a5,d5.w)
-            beq.s   .f
-            move.l  A_SPR2(a2),d0
-.f          lea     0(a4,d0.l),a0           ; a0 = mask, the planes follow
+.vis        move.l  v_fofs(a5,d5.w),d0
+            lea     0(a4,d0.l),a0           ; a0 = mask, the planes follow
             moveq   #0,d0
             move.w  v_ay(a5,d5.w),d0
             mulu    #40,d0

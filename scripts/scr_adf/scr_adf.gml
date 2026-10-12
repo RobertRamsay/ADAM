@@ -212,6 +212,27 @@ function adf_bob_image(_b, _s, _bw, _bh, _map, _depth)
     return _o;
 }
 
+/// One picture of an actor: a hardware sprite block, or a BOB image of size _bsz
+function adf_actor_image(_b, _s, _isbob, _bsz, _map, _depth)
+{
+    if (_isbob) { return adf_bob_image(_b, _s, _bsz[0], _bsz[1], _map, _depth); }
+    return adf_sprite_block(_b, _s);
+}
+
+/// A copy of sprite _s turned to face the other way (for actors that face left)
+function spr_flipped(_s)
+{
+    var _c = { name : _s.name, w : _s.w, h : _s.h, px : array_create(_s.w * _s.h, 0), cols : _s.cols };
+    for (var py = 0; py < _s.h; py++)
+    {
+        for (var px = 0; px < _s.w; px++)
+        {
+            _c.px[py * _s.w + px] = _s.px[py * _s.w + (_s.w - 1 - px)];
+        }
+    }
+    return _c;
+}
+
 /// [width, height] in pixels that actor _a is drawn at as a BOB: its sprite's size
 function adf_bob_dims(_p, _a)
 {
@@ -278,31 +299,88 @@ function adam_data_block(_p, _measure = false)
     }
     buf_align(_b, 8);
 
-    // hardware sprite blocks per actor (and a second one when it animates);
-    // BOBs get BOB images in the nearest backdrop colours instead
+    // hardware sprite blocks per actor (a hopper's crouch frame too); BOBs get
+    // BOB images in the nearest backdrop colours instead. Then every frame of
+    // its animations, once per sprite slot (and once more turned round when it
+    // faces left), and the animation tables (engine.s AN_*).
     var _spr_off = array_create(_na, 0);
     var _spr2_off = array_create(_na, 0);
+    var _anim_off = array_create(_na, 0);
+    var _plans = array_create(_na, undefined);
+    var _imgs = array_create(_na, undefined);
     for (var a = 0; a < _na; a++)
     {
         var _si = clamp(_acts[a].sprite, 0, SPR_COUNT - 1);
         var _ai = _acts[a].anim_sprite;
+        var _map = [0, 0, 0];
+        var _bsz = [SPR_W, SPR_H];
         if (_bob[a])
         {
             var _scol = _p.sprites[_si].cols;
-            var _map = [pal_nearest(_p, _scol[0], _ncol), pal_nearest(_p, _scol[1], _ncol), pal_nearest(_p, _scol[2], _ncol)];
-            var _bsz = adf_bob_dims(_p, a);
-            _spr_off[a] = adf_bob_image(_b, _p.sprites[_si], _bsz[0], _bsz[1], _map, _depth);
-            if (_ai >= 0 && _ai < SPR_COUNT)
-            {
-                _spr2_off[a] = adf_bob_image(_b, _p.sprites[_ai], _bsz[0], _bsz[1], _map, _depth);
-            }
+            _map = [pal_nearest(_p, _scol[0], _ncol), pal_nearest(_p, _scol[1], _ncol), pal_nearest(_p, _scol[2], _ncol)];
+            _bsz = adf_bob_dims(_p, a);
         }
-        else
+        _spr_off[a] = adf_actor_image(_b, _p.sprites[_si], _bob[a], _bsz, _map, _depth);
+        if (_acts[a].role == 7 && _ai >= 0 && _ai < SPR_COUNT)
         {
-            _spr_off[a] = adf_sprite_block(_b, _p.sprites[_si]);
-            if (_ai >= 0 && _ai < SPR_COUNT)
+            _spr2_off[a] = adf_actor_image(_b, _p.sprites[_ai], _bob[a], _bsz, _map, _depth);
+        }
+        var _plan = anim_plan(_acts[a]);
+        _plans[a] = _plan;
+        if (!is_undefined(_plan))
+        {
+            // offsets of the images made so far, by sprite slot: [facing right, facing left]
+            var _made = {};
+            _made[$ string(_si)] = [_spr_off[a], -1];
+            for (var e = 0; e < ANIM_COUNT; e++)
             {
-                _spr2_off[a] = adf_sprite_block(_b, _p.sprites[_ai]);
+                var _fr = _plan[e].frames;
+                for (var f = 0; f < array_length(_fr); f++)
+                {
+                    var _fs = clamp(_fr[f], 0, SPR_COUNT - 1);
+                    var _key = string(_fs);
+                    var _got = _made[$ _key];
+                    if (is_undefined(_got))
+                    {
+                        _got = [adf_actor_image(_b, _p.sprites[_fs], _bob[a], _bsz, _map, _depth), -1];
+                        _made[$ _key] = _got;
+                    }
+                    if (_acts[a].anim_flip && _got[1] < 0)
+                    {
+                        var _lft = adf_actor_image(_b, spr_flipped(_p.sprites[_fs]), _bob[a], _bsz, _map, _depth);
+                        _made[$ _key] = [_got[0], _lft];
+                    }
+                }
+            }
+            _imgs[a] = _made;
+        }
+    }
+    buf_align(_b, 8);
+    for (var a3 = 0; a3 < _na; a3++)
+    {
+        var _pl = _plans[a3];
+        if (is_undefined(_pl)) { continue; }
+        buf_align(_b, 8);
+        _anim_off[a3] = buffer_tell(_b);
+        for (var e2 = 0; e2 < ANIM_COUNT; e2++)
+        {
+            var _fr2 = _pl[e2].frames;
+            var _nf = min(ANIM_FRAMES, array_length(_fr2));
+            be16(_b, _nf);
+            be16(_b, _pl[e2].rate);
+            be16(_b, _pl[e2].mode);
+            be16(_b, 0);
+            for (var side = 0; side < 2; side++)
+            {
+                for (var k = 0; k < ANIM_FRAMES; k++)
+                {
+                    var _fi = 0;
+                    if (k < _nf) { _fi = k; }
+                    var _im = _imgs[a3][$ string(clamp(_fr2[_fi], 0, SPR_COUNT - 1))];
+                    var _o = _im[0];
+                    if (side == 1 && _acts[a3].anim_flip) { _o = _im[1]; }
+                    be32(_b, _o);
+                }
             }
         }
     }
@@ -385,6 +463,7 @@ function adam_data_block(_p, _measure = false)
         be16(_b, BD_W - _aw);            // A_XMAX
         be16(_b, BD_H - _ah);            // A_YMAX
         be16(_b, _bsize);                // A_BSIZE
+        be32(_b, _anim_off[a2]);         // A_ANIM
         if (_alloc.conflict[a2]) { array_push(_warn, "Actor '" + _ac.name + "' shares a sprite colour pair with different colours - it will borrow its partner's colours."); }
         if (_bob[a2] && !_ac.bob)
         {
@@ -561,7 +640,7 @@ function adam_data_block(_p, _measure = false)
     if (_p.show_score) { _sc = 1; }
     var _lv = 0;
     if (_p.show_lives) { _lv = 1; }
-    poke16(_b, 4, 4);                    // data block version 4: BOBs (H_DISP2, H_BACK, A_BOB) of any size (A_XMAX, A_YMAX, A_BSIZE)
+    poke16(_b, 4, 5);                    // data block version 5: animation tables (A_ANIM); 4: BOBs (H_DISP2, H_BACK, A_BOB) of any size (A_XMAX, A_YMAX, A_BSIZE)
     poke16(_b, 6, _flags);
     poke16(_b, 8, _depth);
     poke16(_b, 10, _na);
