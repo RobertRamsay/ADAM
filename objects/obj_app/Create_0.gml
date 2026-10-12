@@ -283,6 +283,15 @@ les_card_rect = [0, 0, 0, 0];
 les_done = array_create(5, false);  // lessons finished (saved in the settings) - one per entry in les_defs
 les_defs = [];
 lessons_init();
+update_check_on = true;      // look for a newer ADAM at start-up (scr_update; Home > Game settings)
+update_req = -1;
+update_latest = "";
+update_url = "";
+update_notes = "";
+update_card_on = false;
+update_card_anim = 0;
+update_card_rect = [0, 0, 0, 0];
+home_set_h = 0;              // height of the Home page settings (they scroll in a short window)
 whatsnew_active = false;    // "What's new" panel (scr_whatsnew)
 whatsnew_manual = false;    // opened from the Learn ADAM menu (just Close)
 whatsnew_anim = 0;
@@ -359,3 +368,6 @@ if (ADAM_DEV_TOOLS) { dev_cli_shots(); }
 
 // pick the Amiga before anything else (the Home tutorial follows it)
 machine_pick_open(true);
+
+// a newer ADAM on itch.io? (a card shows if so)
+if (!shot_on) { update_check_start(); }

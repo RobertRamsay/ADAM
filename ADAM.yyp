@@ -66,6 +66,7 @@
     {"id":{"name":"scr_ui_draw","path":"scripts/scr_ui_draw/scr_ui_draw.yy",},},
     {"id":{"name":"scr_ui_help","path":"scripts/scr_ui_help/scr_ui_help.yy",},},
     {"id":{"name":"scr_ui_widgets","path":"scripts/scr_ui_widgets/scr_ui_widgets.yy",},},
+    {"id":{"name":"scr_update","path":"scripts/scr_update/scr_update.yy",},},
     {"id":{"name":"scr_whatsnew","path":"scripts/scr_whatsnew/scr_whatsnew.yy",},},
     {"id":{"name":"scr_ws_actors","path":"scripts/scr_ws_actors/scr_ws_actors.yy",},},
     {"id":{"name":"scr_ws_backdrop","path":"scripts/scr_ws_backdrop/scr_ws_backdrop.yy",},},

@@ -71,6 +71,11 @@ function ui_frame_begin()
     {
         ui_input_ok = false;
     }
+    // so does the "new version" card
+    if (update_card_on && point_in_rectangle(ui_mx, ui_my, update_card_rect[0], update_card_rect[1], update_card_rect[2], update_card_rect[3]))
+    {
+        ui_input_ok = false;
+    }
     // so does the lesson card
     if (les_active && point_in_rectangle(ui_mx, ui_my, les_card_rect[0], les_card_rect[1], les_card_rect[2], les_card_rect[3]))
     {

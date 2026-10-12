@@ -113,7 +113,12 @@ function ws_home_draw(_x1, _y1, _x2, _y2)
     var _fx = _px + 20;
     var _fw = _x2 - _px - 40;
     var _half = floor((_fw - 12) / 2);
-    var _y = _y1 + 58;
+    // scrolls when the window is too short for every setting (home_set_h: last frame's height)
+    var _sy1 = _y1 + 46;
+    var _sy2 = _y2 - 6;
+    var _soff = ui_scroll_begin("home_set", _px + 4, _sy1, _x2 - 4, _sy2, home_set_h);
+    var _y = _y1 + 58 - _soff;
+    var _ytop = _y;
     ui_heading(_fx, _y, "Game name");
     var _nm = ui_textfield("home_name", _fx, _y + 18, _fw, 32, proj.name, 32, "Game name|The name of your game. It is used for the saved file names too.");
     set_val(proj, "name", _nm, "name");
@@ -183,6 +188,13 @@ function ws_home_draw(_x1, _y1, _x2, _y2)
         settings_save();
     }
     _y += 34;
+    var _uc = ui_toggle("home_updates", _fx, _y, "Check for updates", update_check_on, "Check for updates|When ADAM starts, it looks online for a newer version and, if there is one, shows a small card with a link to it. Nothing about you or your games is sent.");
+    if (_uc != update_check_on)
+    {
+        update_check_on = _uc;
+        settings_save();
+    }
+    _y += 34;
     if (ui_button("home_resettut", _fx, _y, 200, 30, "Reset page tutorials", "Reset tutorials|Makes every page offer its tutorial again the next time you visit it.", BTN_GHOST))
     {
         for (var w = 0; w < WS_COUNT; w++) { ws_seen[w] = false; }
@@ -193,4 +205,6 @@ function ws_home_draw(_x1, _y1, _x2, _y2)
     {
         about_open();
     }
+    home_set_h = (_y + 30 + 18) - _ytop + 12;
+    ui_scroll_end("home_set", _px + 4, _sy1, _x2 - 4, _sy2, home_set_h);
 }

@@ -852,6 +852,7 @@ function settings_load()
     ini_open("adam_settings.ini");
     settings_first_run = !ini_key_exists("machine", "last");
     whatsnew_seen = ini_read_string("ui", "whatsnew_seen", "");
+    update_check_on = ini_read_real("ui", "update_check", 1) == 1;
     fsuae_path = ini_read_string("paths", "fsuae", "");
     var _old_kick = ini_read_string("paths", "kickstart", "");     // before one ROM per machine
     for (var k = 0; k < array_length(global.MACHINES); k++)
@@ -914,6 +915,9 @@ function settings_save()
     if (start_fullscreen) { _fs = 1; }
     ini_write_real("ui", "fullscreen", _fs);
     ini_write_string("ui", "whatsnew_seen", whatsnew_seen);
+    var _uc = 0;
+    if (update_check_on) { _uc = 1; }
+    ini_write_real("ui", "update_check", _uc);
     ini_write_real("window", "x", wsave_x);
     ini_write_real("window", "y", wsave_y);
     ini_write_real("window", "w", wsave_w);
