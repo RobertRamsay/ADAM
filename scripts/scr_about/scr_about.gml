@@ -4,7 +4,7 @@
 // it. When it changes, also change option_windows_display_name and
 // option_windows_version in options/windows/options_windows.yy
 // (tools/release_check.ps1 checks they match).
-#macro ADAM_VERSION "1.0.0"
+#macro ADAM_VERSION "1.0.1"
 #macro ADAM_COPYRIGHT "(c) 2026 Polytricity Ltd"
 
 /// Opens the About & licences screen over everything
