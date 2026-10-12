@@ -28,6 +28,11 @@ function tut_init()
         tut_step(WS_BACKDROP, "bd_import", "Import a picture", "Got artwork already? Import a PNG or JPG. ADAM fits it to the screen and chooses the best colours for it, with optional dithering."),
         tut_step(WS_BACKDROP, "bd_solid", "Ground colours", "Mark the colours of your grass, floors and platforms as ground. Platform players, hoppers and fallers walk along the top of them - up and down every hill."),
         tut_step(WS_BACKDROP, "bd_tab_sky", "Copper sky", "The classic Amiga trick: the copper chip changes colour 0 on every line, painting a smooth sunset, sea or night sky behind your backdrop for free. Paint the sky areas in colour 0 to let it show."),
+        // ---------- TILES ----------
+        tut_step(WS_TILES, "tile_on", "A tile world", "Switch this on and your game plays on a big map of 16 x 16 tiles - up to 128 across and 64 down - that scrolls every way as the player moves. Great for cave diggers and platformers."),
+        tut_step(WS_TILES, "tile_tab_1", "Tile set", "Draw up to 32 tiles: grass, dirt, stone, gold, brick... Each says if it is solid, if it can be dug, how long it takes and what it scores."),
+        tut_step(WS_TILES, "tile_tab_0", "Map", "Paint the map with the tile picked on the left. Box fills a rectangle, Pick grabs a tile from the map. Drag actors to place them anywhere in the world."),
+        tut_step(WS_TILES, "tile_dig", "Dig and place", "The player digs with fire + a direction and puts tiles back with fire on its own - just like Terraria. Load the Dig Deep example to try it."),
         // ---------- LEVELS ----------
         tut_step(WS_LEVELS, "lvl_on", "Levels", "Switch levels on for a game of up to 10 levels. Each one has its own hills for platform players, hoppers and fallers to walk on."),
         tut_step(WS_LEVELS, "lvl_canvas", "Shape the ground", "Drag across the picture to draw where the ground is, or right-drag to smooth it. The hills are drawn by the Amiga at the start of each level, so they cost almost no memory."),
@@ -56,11 +61,6 @@ function tut_init()
         tut_step(WS_ANIMATE, "anim_tab_2", "In air and Falling", "Walk is used by any direction without frames of its own. In air and Falling play while a platform player, hopper or faller jumps and drops."),
         tut_step(WS_ANIMATE, "anim_test", "Test it", "Switch Test on and drive the preview with the arrow keys, WASD or a gamepad, to see each animation as the Amiga will play it."),
         tut_step(WS_ANIMATE, "anim_flip", "Facing left", "Draw your frames facing right and switch this on: when the actor moves left, the Amiga shows them turned round."),
-        // ---------- TILES ----------
-        tut_step(WS_TILES, "tile_on", "A tile world", "Switch this on and your game plays on a big map of 16 x 16 tiles - up to 128 across and 64 down - that scrolls every way as the player moves. Great for cave diggers and platformers."),
-        tut_step(WS_TILES, "tile_tab_1", "Tile set", "Draw up to 32 tiles: grass, dirt, stone, gold, brick... Each says if it is solid, if it can be dug, how long it takes and what it scores."),
-        tut_step(WS_TILES, "tile_tab_0", "Map", "Paint the map with the tile picked on the left. Box fills a rectangle, Pick grabs a tile from the map. Drag actors to place them anywhere in the world."),
-        tut_step(WS_TILES, "tile_dig", "Dig and place", "The player digs with fire + a direction and puts tiles back with fire on its own - just like Terraria. Load the Dig Deep example to try it."),
         // ---------- LOGIC ----------
         tut_step(WS_LOGIC, "", "Rules make it a game", "Each rule is a sentence: WHEN something happens, DO something. For example: WHEN Hero touches Gem, DO add 10 to the score."),
         tut_step(WS_LOGIC, "logic_add", "Add a rule", "Press this to add a new rule, then change its parts with the drop-down menus."),

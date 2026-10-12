@@ -318,6 +318,7 @@ function tile_map_surface()
             for (var c = 0; c < proj.map_w; c++) { tile_map_cell(_atlas, c, r); }
         }
         gpu_set_blendenable(true);
+        gpu_set_texfilter(true);
         surface_reset_target();
         tile_map_dirty = false;
     }
@@ -340,6 +341,7 @@ function tile_map_set(_c, _r, _t)
         gpu_set_texfilter(false);
         tile_map_cell(_atlas, _c, _r);
         gpu_set_blendenable(true);
+        gpu_set_texfilter(true);
         surface_reset_target();
     }
 }
@@ -350,6 +352,8 @@ function tile_map_draw(_x, _y, _mx, _my, _w, _h, _scale)
 {
     var _s = tile_map_surface();
     backdrop_shader_begin();
+    // the copper sky is fixed to the screen, so it follows the camera
+    backdrop_shader_sky(surface_get_height(_s), -_my);
     draw_surface_part_ext(_s, _mx, _my, _w, _h, _x, _y, _scale, _scale, c_white, 1);
     backdrop_shader_end();
 }
@@ -359,6 +363,7 @@ function tile_draw(_t, _x, _y, _size)
 {
     var _a = tile_atlas_surface();
     backdrop_shader_begin();
+    backdrop_shader_sky(0, 120);   // air in a tile picture: one line of mid sky
     draw_surface_part_ext(_a, _t * TILE_PX, 0, TILE_PX, TILE_PX, _x, _y, _size / TILE_PX, _size / TILE_PX, c_white, 1);
     backdrop_shader_end();
 }
@@ -471,6 +476,16 @@ function ws_tiles_draw(_x1, _y1, _x2, _y2)
             {
                 proj.actors[a].x = clamp(proj.actors[a].x, 0, world_w() - 16);
                 proj.actors[a].y = clamp(proj.actors[a].y, 0, world_h() - 24);
+            }
+        }
+        else
+        {
+            // back on the backdrop: bring actors placed deep in the map onto the screen
+            for (var b = 0; b < array_length(proj.actors); b++)
+            {
+                var _ad = actor_dims(proj.actors[b]);
+                proj.actors[b].x = clamp(proj.actors[b].x, 0, BD_W - _ad[0]);
+                proj.actors[b].y = clamp(proj.actors[b].y, 0, BD_H - _ad[1]);
             }
         }
     }
@@ -780,7 +795,18 @@ function tiles_map_editor(_x1, _y1, _x2, _y2)
                     tile_box_r = _celly;
                 }
             }
-            if (tile_painting && tile_tool == 0) { tile_map_set(_cellx, _celly, tile_paint_v); }
+            if (tile_painting && tile_tool == 0)
+            {
+                // join up to the last cell painted, so a fast drag leaves no gaps
+                var _steps = max(abs(_cellx - tile_box_c), abs(_celly - tile_box_r));
+                for (var st = 1; st <= _steps; st++)
+                {
+                    tile_map_set(tile_box_c + round((_cellx - tile_box_c) * st / _steps), tile_box_r + round((_celly - tile_box_r) * st / _steps), tile_paint_v);
+                }
+                tile_map_set(_cellx, _celly, tile_paint_v);
+                tile_box_c = _cellx;
+                tile_box_r = _celly;
+            }
         }
     }
     if (tile_painting && tile_tool == 1)

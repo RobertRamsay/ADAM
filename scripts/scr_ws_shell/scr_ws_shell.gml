@@ -246,7 +246,7 @@ function shortcuts_step()
         {
             if (keyboard_check_pressed(ord(string(i + 1)))) { ws_set(_tabs[i]); }
         }
-        if (array_length(_tabs) >= 10 && keyboard_check_pressed(ord("0"))) { ws_set(_tabs[9]); }
+        if (array_length(_tabs) >= 10 && keyboard_check_pressed(ord("0"))) { ws_set(_tabs[array_length(_tabs) - 1]); }   // 0 = Build
     }
 }
 

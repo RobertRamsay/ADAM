@@ -271,7 +271,7 @@ function ws_actors_draw(_x1, _y1, _x2, _y2)
         if (!act_drag && _na > 0)
         {
             act_camx = clamp(proj.actors[sel_actor].x + 8 - BD_W div 2, 0, world_w() - BD_W);
-            act_camy = clamp(proj.actors[sel_actor].y + 12 - BD_H div 2, 0, world_h() - BD_H);
+            act_camy = clamp(proj.actors[sel_actor].y + 12 - 136, 0, world_h() - BD_H);
         }
         _ox = act_camx;
         _oy = act_camy;

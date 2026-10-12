@@ -415,6 +415,7 @@ shot_pages = [
     { ws : WS_HOME,     panel : 0, name : "home" },
     { ws : WS_BACKDROP, panel : 0, name : "backdrop" },
     { ws : WS_BACKDROP, panel : 1, name : "copper_sky" },
+    { ws : WS_TILES,    panel : 0, name : "tiles" },
     { ws : WS_LEVELS,   panel : 0, name : "levels" },
     { ws : WS_SPRITES,  panel : 0, name : "sprites" },
     { ws : WS_ACTORS,   panel : 0, name : "actors" },

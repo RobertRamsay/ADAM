@@ -135,6 +135,7 @@ function backdrop_gfx_init()
     bd_pal_floats = array_create(PAL_MAX * 3, 0);
     bd_u_sky_on = shader_get_uniform(sh_palette, "u_sky_on");
     bd_u_sky_tex = shader_get_sampler_index(sh_palette, "u_sky_tex");
+    bd_u_sky_map = shader_get_uniform(sh_palette, "u_sky_map");
     bd_sky_surf = -1;           // 256 x 1: the copper sky's colour on each line
     bd_sky_key = "";            // what bd_sky_surf was drawn from
 }
@@ -230,11 +231,19 @@ function backdrop_shader_begin()
     var _on = 0;
     if (proj.sky_on) { _on = 1; }
     shader_set_uniform_f(bd_u_sky_on, _on);
+    shader_set_uniform_f(bd_u_sky_map, 256, 0);
     if (_strip != -1)
     {
         gpu_set_texfilter_ext(bd_u_sky_tex, false);
         texture_set_stage(bd_u_sky_tex, surface_get_texture(_strip));
     }
+}
+
+/// While the palette shader is set: which sky line each texel shows -
+/// screen line = texture y (0..1) * _texh + _ofs
+function backdrop_shader_sky(_texh, _ofs)
+{
+    shader_set_uniform_f(bd_u_sky_map, _texh, _ofs);
 }
 
 function backdrop_shader_end()
