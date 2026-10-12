@@ -176,12 +176,19 @@ def animate(p,prefix,specs):
 
 def make_project(name,pal16,img,sprites,actors,rules,sky,hud_col=1,msg_col=14,lives=3,over="GAME OVER - PRESS FIRE",win="YOU WIN! - PRESS FIRE",sfx=None,songs=None):
     pal=palette_default(); pal[:16]=pal16
+    depth=4; machine="A500_600"
+    if AGA['on']:
+        # resolve the in-between colours in the order they were made (a blend can use an earlier one)
+        for i,(a,b,k) in enumerate(AGA['order']):
+            t=k/AGA['steps']; ca=pal[a]; cb=pal[b]
+            pal[16+i]=sum(int(round(((ca>>sh)&255)*(1-t)+((cb>>sh)&255)*t))<<sh for sh in (16,8,0))
+        depth=7; machine="A1200"
     spr=[]
     for i in range(32):
         if i<len(sprites):
             n,a,cols=sprites[i]; spr.append(dict(name=n,px=art.px(a),cols=cols))
         else: spr.append(dict(name="Sprite %d"%(i+1),px=[0]*384,cols=[0xffdd33,0xdd3322,0xffffff]))
-    return dict(version=1,name=name,machine="A500_600",depth=4,pal=pal,pixels=list(img.getdata()),sprites=spr,actors=actors,rules=rules,
+    return dict(version=1,name=name,machine=machine,depth=depth,pal=pal,pixels=list(img.getdata()),sprites=spr,actors=actors,rules=rules,
                 sfx=sfx or sfx_list(),lives=lives,show_score=True,show_lives=True,hud_row=0,hud_colour=hud_col,msg_colour=msg_col,
                 over_text=over,win_text=win,solid=[0]*128,levels_on=False,levels=[],terrain_cols=[10,9,11,12],goal_on=False,goal=20,goal_label='GEMS',title_on=False,title1=name.upper(),title2='PRESS FIRE TO START',lev_text='LEVEL',sky_on=True,sky_top=sky[0],sky_mid=sky[1],sky_bot=sky[2],sky_mid_y=sky[3],
                 songs=songs or [],level_song=[-1]*10)
@@ -192,8 +199,25 @@ def canvas(): return Image.new('P',(W,H),0)
 BAYER8=[0,32,8,40,2,34,10,42, 48,16,56,24,50,18,58,26, 12,44,4,36,14,46,6,38, 60,28,52,20,62,30,54,22,
         3,35,11,43,1,33,9,41, 51,19,59,27,49,17,57,25, 15,47,7,39,13,45,5,37, 63,31,55,23,61,29,53,21]
 def bayer(x,y): return BAYER8[(y&7)*8+(x&7)]
+# A1200 versions: the same pictures, but each dithered blend between two backdrop colours
+# becomes a real in-between colour (16..127), so gradients are smooth and the 16 base
+# colours keep their numbers. Blends with colour 0 (the copper sky) stay dithered.
+AGA={'on':False,'steps':16,'keys':{},'order':[]}
+def aga_begin():
+    AGA.update(on=True,keys={},order=[])
+def aga_end():
+    AGA['on']=False
 def dmix(a,b,t,x,y):
-    # colour a at t=0 to colour b at t=1, dithered
+    # colour a at t=0 to colour b at t=1, dithered (A1200: an in-between colour)
+    if AGA['on'] and a!=b and a!=0 and b!=0:
+        n=AGA['steps']; k=int(round(max(0.0,min(1.0,t))*n))
+        if k<=0: return a
+        if k>=n: return b
+        key=(a,b,k)
+        if key in AGA['keys']: return AGA['keys'][key]
+        if (b,a,n-k) in AGA['keys']: return AGA['keys'][(b,a,n-k)]
+        if 16+len(AGA['order'])<128:
+            i=16+len(AGA['order']); AGA['keys'][key]=i; AGA['order'].append(key); return i
     return b if (bayer(x,y)+0.5)/64<t else a
 def ramp(cols,t,x,y):
     # dithered gradient through a list of palette colours, t 0..1
@@ -743,7 +767,12 @@ def game_block(p):
 
 def to_builder(p):
     chan,conf,owner=alloc(p)
-    spr=[dict(px=s['px'],cols=[q(c) for c in s['cols']]) for s in p['sprites']]
+    aga=p.get('machine')=='A1200'
+    def qm(c):
+        # the colour as the machine shows it: 12-bit on the A500/600, 24-bit on the A1200
+        if aga: return c
+        return q(c)
+    spr=[dict(px=s['px'],cols=[qm(c) for c in s['cols']]) for s in p['sprites']]
     # pair colours = owner's colours: emulate by giving each actor's sprite the owner colours is the same as build_test's rule
     acts=[]
     for i,a in enumerate(p['actors'][:32]):
@@ -752,15 +781,17 @@ def to_builder(p):
         if chan[i]<0:
             d['bob']=1; d['bobmap']=[pal_nearest(p,c) for c in p['sprites'][a['sprite']]['cols']]
         acts.append(d)
-    bp=dict(depth=p['depth'],pal=[q(c) for c in p['pal']],pixels=p['pixels'],sprites=spr,actors=acts,rules=p['rules'],
+    bp=dict(depth=p['depth'],pal=[qm(c) for c in p['pal']],pixels=p['pixels'],sprites=spr,actors=acts,rules=p['rules'],
                 sfx=[s for s in p['sfx']],lives=p['lives'],show_score=1,show_lives=1,hud_row=0,hud_col=p['hud_colour'],msg_col=p['msg_colour'],
-                over=p['over_text'],win=p['win_text'],grad=sky_table(p),ground=ground_table(p),game=game_block(p))
+                over=p['over_text'],win=p['win_text'],grad=sky_table(p,aga),ground=ground_table(p),game=game_block(p))
     if p.get('tiles_on'):
-        bp['tiles']=dict(w=p['map_w'],h=p['map_h'],dig=p['tile_dig'],tiles=p['tiles'],map=p['map'])
+        bp['tiles']=dict(w=p['map_w'],h=p['map_h'],dig=p['tile_dig'],tiles=p['tiles'],map=p['map'],size=p.get('tile_size',16))
     return bp, conf
 
 def preview(p,fn):
-    pal=[q(c) for c in p['pal']]; g=sky_table(p)
+    aga=p.get("machine")=="A1200"
+    pal=[q(c) for c in p["pal"]]; g=sky_table(p,aga)
+    if aga: pal=list(p["pal"])
     im=Image.new('RGB',(W,H))
     for y in range(H):
         sc=g[y]; sr=(sc>>16)&255; sg=(sc>>8)&255; sb=sc&255
@@ -781,16 +812,23 @@ def preview(p,fn):
 
 if __name__=='__main__':
     OUT=os.path.join(HERE,'out'); os.makedirs(OUT,exist_ok=True)
+    sys.modules['gen_examples']=sys.modules['__main__']   # one AGA state for ex_dig_deep too
     import ex_dig_deep
     for fn,make in [('gem_hunter',gem_hunter),('deep_dive',deep_dive),('star_catcher',star_catcher),('dodge_ball',dodge_ball),
                     ('firefly_night',firefly_night),('dig_deep',ex_dig_deep.dig_deep)]:
+      for aga in (False,True):
+        # every example also comes as an A1200 version with smooth in-between colours (<name>_a1200.adam)
+        if aga: aga_begin()
         p=make()
+        aga_end()
         auto_groups(p)
-        json.dump(p,open(os.path.join(REPO,'datafiles','examples','%s.adam'%fn),'w'),separators=(',',':'))
+        name=fn
+        if aga: name=fn+'_a1200'
+        json.dump(p,open(os.path.join(REPO,'datafiles','examples','%s.adam'%name),'w'),separators=(',',':'))
         bp,conf=to_builder(p)
         # build_test's pair colour rule takes the first actor on the pair
-        data=build(bp,False)
-        open(os.path.join(OUT,'%s.adf'%fn),'wb').write(adf(ENGINE+data,bp.get('_need',0)))
-        preview(p,os.path.join(OUT,'%s.png'%fn))
-        if p.get('tiles_on'): ex_dig_deep.map_png(p,os.path.join(OUT,'%s_map.png'%fn))
-        print(fn,'conflicts' if any(conf) else 'ok', len(json.dumps(p)))
+        data=build(bp,aga)
+        open(os.path.join(OUT,'%s.adf'%name),'wb').write(adf(ENGINE+data,bp.get('_need',0)))
+        preview(p,os.path.join(OUT,'%s.png'%name))
+        if p.get('tiles_on') and not aga: ex_dig_deep.map_png(p,os.path.join(OUT,'%s_map.png'%fn))
+        print(name,'conflicts' if any(conf) else 'ok', len(json.dumps(p)), 'colours', 1<<p['depth'], 'blends', len(AGA['order']) if aga else 0)

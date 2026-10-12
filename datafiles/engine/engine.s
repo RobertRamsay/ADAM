@@ -60,22 +60,28 @@ HDR_SIZE    equ 96
 
 ; tile world (version 6): a map of 16 x 16 tiles that scrolls both ways
 ; behind the actors, with a HUD strip at the top of the screen
-T_W         equ 0          ; map width in tiles (22..128)
-T_H         equ 2          ; map height in tiles (18..64)
-T_NT        equ 4          ; tile types 1..32 (tile 0 is empty air: colour 0, the sky shows)
-T_FLAGS     equ 6          ; bit 0 = the player digs (fire + direction) and places tiles (fire)
-T_IMG       equ 8          ; long offset: tile pictures, NT x depth planes x 16 words
-T_MAP       equ 12         ; long offset: the map as designed, W x H bytes
+T_W         equ 0          ; map width in tiles (at least T_NCOL)
+T_H         equ 2          ; map height in tiles (at least T_NROW)
+T_NT        equ 4          ; tile types 1..512 (tile 0 is empty air: colour 0, the sky shows)
+T_FLAGS     equ 6          ; bit 0 = the player digs (fire + direction) and places tiles (fire);
+                           ; bit 1 = map cells are words (more than 256 tile types), else bytes
+T_IMG       equ 8          ; long offset: tile pictures, NT x depth planes x S lines x S/8 bytes
+T_MAP       equ 12         ; long offset: the map as designed, W x H cells
 T_WMAP      equ 16         ; long offset: the map as played (memory cleared at load, after the data)
 T_BUF       equ 20         ; long offset: the scrolling picture, depth planes (cleared memory)
-T_BUFPL     equ 24         ; long: bytes per plane of the scrolling picture
-T_PROPS     equ 28         ; NT x 8 bytes (TP_*), then NT x 4 bytes of names for the HUD
-TP_FLAGS    equ 0          ; bit 0 solid, bit 1 can be dug, bit 2 counts towards the level goal
+T_BUFPL     equ 24         ; long: bytes per plane of the scrolling picture (2 x T_RING)
+T_SIZE      equ 28         ; tile size S in pixels: 8, 16, 32 or 64
+T_SHIFT     equ 30         ; log2 S: 3..6
+T_LINE      equ 32         ; bytes per line of the scrolling picture: NCOL x S / 8
+T_NCOL      equ 34         ; tiles across the scrolling picture: 320 / S + 2
+T_NROW      equ 36         ; tiles down it: 256 / S + 2
+T_RING      equ 40         ; long: NROW x S x LINE - the picture is a ring this big, kept twice
+T_PROPS     equ 44         ; NT x 8 bytes (TP_*), then NT x 4 bytes of names for the HUD
+TP_FLAGS    equ 0          ; byte: bit 0 solid, bit 1 can be dug, bit 2 counts towards the level goal
+TP_SOUND    equ 1          ; byte: sound 0..7, $ff = none
 TP_HARD     equ 2          ; frames of digging it takes
 TP_POINTS   equ 4          ; score for digging it
-TP_SOUND    equ 6          ; byte: sound 0..7, $ff = none
-TP_BECOMES  equ 7          ; byte: the tile left behind when it is dug
-TILE_LINE   equ 44         ; bytes per line of the scrolling picture (22 tiles)
+TP_BECOMES  equ 6          ; the tile left behind when it is dug
 HUD_LINES   equ 8          ; the HUD strip above a tile world
 ;  The scrolling picture is 22 x 18 tiles round the camera. Tile (c, r) is at
 ;  buf + r * 16 * 44 + (c + 1) * 2: moving right one tile only moves the
@@ -242,20 +248,27 @@ v_wmap      rs.l 1         ; the map as played
 v_tbuf      rs.l 1         ; scrolling picture, plane 0
 v_tbufpl    rs.l 1         ; bytes per plane of it
 v_timg      rs.l 1         ; tile pictures
-v_tbytes    rs.w 1         ; bytes per tile picture (depth x 32)
+v_tbytes    rs.w 1         ; bytes per tile picture (depth x S x S / 8)
+v_tsz       rs.w 1         ; tile size S (8, 16, 32, 64)
+v_tsh       rs.w 1         ; log2 S
+v_tline     rs.w 1         ; bytes per line of the scrolling picture
+v_tncol     rs.w 1         ; tiles across it
+v_tnrow     rs.w 1         ; tiles down it
+v_tring     rs.w 1         ; its ring size in bytes (one copy)
+v_tcell     rs.w 1         ; 1 when map cells are words
 v_tw        rs.w 1
 v_th        rs.w 1
 v_camx      rs.w 1         ; camera: map pixel at the top left of the screen
 v_camy      rs.w 1
-v_tx0       rs.w 1         ; tiles drawn in the scrolling picture: 22 x 18 from here
+v_tx0       rs.w 1         ; tiles drawn in the scrolling picture: NCOL x NROW from here
 v_ty0       rs.w 1
 v_tmode     rs.w 1         ; 1 while the tile world is on screen
 v_csplit    rs.l 1         ; copper moves at the HUD split (bitplane pointers, modulos, scroll)
 v_hudrow    rs.w 1         ; text row of the HUD
 v_sel       rs.w 1         ; tile the player places (the last one dug)
 v_digt      rs.w 1         ; frames spent digging v_digc
-v_digc      rs.w 1         ; map cell being dug, -1 = none
-v_inv       rs.w 32        ; tiles the player carries
+v_digc      rs.l 1         ; map cell being dug, -1 = none
+v_inv       rs.w 512       ; tiles the player carries
 V_SIZE      rs.b 0
 
 ; ============================================================================
@@ -398,8 +411,22 @@ init_display:
             add.l   a4,d1
             move.l  d1,v_tbuf(a5)
             move.l  T_BUFPL(a0),v_tbufpl(a5)
-            move.w  H_DEPTH(a4),d1
-            lsl.w   #5,d1
+            move.w  T_SIZE(a0),v_tsz(a5)
+            move.w  T_SHIFT(a0),d2
+            move.w  d2,v_tsh(a5)
+            move.w  T_LINE(a0),v_tline(a5)
+            move.w  T_NCOL(a0),v_tncol(a5)
+            move.w  T_NROW(a0),v_tnrow(a5)
+            move.w  T_RING+2(a0),v_tring(a5)
+            moveq   #0,d1
+            btst    #1,T_FLAGS+1(a0)
+            beq.s   .tc1
+            moveq   #1,d1
+.tc1        move.w  d1,v_tcell(a5)
+            move.w  H_DEPTH(a4),d1          ; depth x S x S / 8 bytes a tile
+            add.w   d2,d2
+            subq.w  #3,d2
+            lsl.w   d2,d1
             move.w  d1,v_tbytes(a5)
 .notile
             move.l  H_DISP(a4),d0
@@ -1422,17 +1449,21 @@ tiles_start:
             move.l  v_wmap(a5),a1
             move.w  v_tw(a5),d0
             mulu    v_th(a5),d0
+            move.w  v_tcell(a5),d1
+            lsl.l   d1,d0                   ; bytes
+            addq.l  #3,d0
+            lsr.l   #2,d0                   ; longs (both are long aligned)
             subq.l  #1,d0
-.cp         move.b  (a0)+,(a1)+
+.cp         move.l  (a0)+,(a1)+
             subq.l  #1,d0
             bpl.s   .cp
             lea     v_inv(a5),a0
-            moveq   #31,d0
+            move.w  #511,d0
 .ci         move.w  #0,(a0)+
             dbf     d0,.ci
             move.w  #0,v_sel(a5)
             move.w  #0,v_digt(a5)
-            move.w  #-1,v_digc(a5)
+            move.l  #-1,v_digc(a5)
             bsr     tiles_on
 .r          rts
 
@@ -1486,7 +1517,8 @@ tiles_off:  tst.w   v_tmode(a5)
 ; camera on the player, kept inside the map
 cam_follow: tst.w   v_tmode(a5)
             beq     .r
-            movem.l d0-d3,-(sp)
+            movem.l d0-d4,-(sp)
+            move.w  v_tsh(a5),d4
             moveq   #0,d0
             moveq   #0,d1
             move.w  H_PLAYER(a4),d2
@@ -1500,7 +1532,7 @@ cam_follow: tst.w   v_tmode(a5)
             bge.s   .x1
             moveq   #0,d0
 .x1         move.w  v_tw(a5),d3
-            lsl.w   #4,d3
+            lsl.w   d4,d3
             sub.w   #320,d3
             cmp.w   d3,d0
             ble.s   .x2
@@ -1509,32 +1541,33 @@ cam_follow: tst.w   v_tmode(a5)
             bge.s   .y1
             moveq   #0,d1
 .y1         move.w  v_th(a5),d3
-            lsl.w   #4,d3
+            lsl.w   d4,d3
             sub.w   #256,d3
             cmp.w   d3,d1
             ble.s   .y2
             move.w  d3,d1
 .y2         move.w  d0,v_camx(a5)
             move.w  d1,v_camy(a5)
-            movem.l (sp)+,d0-d3
+            movem.l (sp)+,d0-d4
 .r          rts
 
-; keeps the 22 x 18 tiles round the camera drawn: one new column / row per
-; tile moved, or everything after a jump (level start, an actor sent home)
+;  keeps the NCOL x NROW tiles round the camera drawn: one new column / row
+; per tile moved, or everything after a jump (level start, an actor sent home)
 cam_window: tst.w   v_tmode(a5)
             beq     .r
-            movem.l d0-d4,-(sp)
+            movem.l d0-d5,-(sp)
+            move.w  v_tsh(a5),d5
             move.w  v_camx(a5),d2           ; d2 / d3 = wanted top-left tile
-            lsr.w   #4,d2
+            lsr.w   d5,d2
             move.w  v_tw(a5),d0
-            sub.w   #22,d0
+            sub.w   v_tncol(a5),d0
             cmp.w   d0,d2
             ble.s   .a
             move.w  d0,d2
 .a          move.w  v_camy(a5),d3
-            lsr.w   #4,d3
+            lsr.w   d5,d3
             move.w  v_th(a5),d0
-            sub.w   #18,d0
+            sub.w   v_tnrow(a5),d0
             cmp.w   d0,d3
             ble.s   .b
             move.w  d0,d3
@@ -1559,7 +1592,8 @@ cam_window: tst.w   v_tmode(a5)
             bra.s   .rows
 .right      addq.w  #1,v_tx0(a5)            ; moved right: the new column is the last
             move.w  v_tx0(a5),d0
-            add.w   #21,d0
+            add.w   v_tncol(a5),d0
+            subq.w  #1,d0
             bsr     draw_col
 .rows       cmp.w   v_ty0(a5),d3            ; one row
             beq.s   .out
@@ -1570,85 +1604,155 @@ cam_window: tst.w   v_tmode(a5)
             bra.s   .out
 .down       addq.w  #1,v_ty0(a5)
             move.w  v_ty0(a5),d1
-            add.w   #17,d1
+            add.w   v_tnrow(a5),d1
+            subq.w  #1,d1
             bsr     draw_row
             bra.s   .out
 .all        move.w  d2,v_tx0(a5)            ; everything
             move.w  d3,v_ty0(a5)
             move.w  d3,d1
-            moveq   #17,d4
+            move.w  v_tnrow(a5),d4
+            subq.w  #1,d4
 .al         bsr     draw_row
             addq.w  #1,d1
             dbf     d4,.al
-.out        movem.l (sp)+,d0-d4
+.out        movem.l (sp)+,d0-d5
 .r          rts
 
-; d0 = map column: its 18 tiles in the picture
+; d0 = map column: its NROW tiles in the picture
 draw_col:   movem.l d1/d4,-(sp)
             move.w  v_ty0(a5),d1
-            moveq   #17,d4
+            move.w  v_tnrow(a5),d4
+            subq.w  #1,d4
 .c          bsr     draw_cell
             addq.w  #1,d1
             dbf     d4,.c
             movem.l (sp)+,d1/d4
             rts
 
-; d1 = map row: its 22 tiles in the picture
+; d1 = map row: its NCOL tiles in the picture
 draw_row:   movem.l d0/d4,-(sp)
             move.w  v_tx0(a5),d0
-            moveq   #21,d4
+            move.w  v_tncol(a5),d4
+            subq.w  #1,d4
 .c          bsr     draw_cell
             addq.w  #1,d0
             dbf     d4,.c
             movem.l (sp)+,d0/d4
             rts
 
-; d0 = column, d1 = row: draws that map tile into the scrolling picture
-draw_cell:  movem.l d0-d4/a0-a2,-(sp)
+; d0 = column, d1 = row -> d2 = map cell (long), d3 = its tile
+map_get:    moveq   #0,d2
             move.w  d1,d2
             mulu    v_tw(a5),d2
-            add.w   d0,d2                   ; map cell
+            moveq   #0,d3
+            move.w  d0,d3
+            add.l   d3,d2
+            move.l  a0,-(sp)
             move.l  v_wmap(a5),a0
             moveq   #0,d3
-            move.b  0(a0,d2.l),d3           ; tile
+            tst.w   v_tcell(a5)
+            bne.s   .w
+            move.b  0(a0,d2.l),d3
+            move.l  (sp)+,a0
+            rts
+.w          add.l   d2,a0
+            add.l   d2,a0
+            move.w  (a0),d3
+            move.l  (sp)+,a0
+            rts
+
+; map cell d2 (long) = tile d3
+map_put:    move.l  a0,-(sp)
+            move.l  v_wmap(a5),a0
+            tst.w   v_tcell(a5)
+            bne.s   .w
+            move.b  d3,0(a0,d2.l)
+            move.l  (sp)+,a0
+            rts
+.w          add.l   d2,a0
+            add.l   d2,a0
+            move.w  d3,(a0)
+            move.l  (sp)+,a0
+            rts
+
+; d0 = column, d1 = row: draws that map tile into the scrolling picture.
+; The picture is a ring of RING bytes per plane, kept twice (so the display
+; never has to wrap): map pixel (x, y) is at ((y x LINE + x / 8 + 2) mod RING)
+; and RING bytes further on.
+draw_cell:  movem.l d0-d7/a0-a3,-(sp)
+            bsr     map_get
             mulu    v_tbytes(a5),d3
             move.l  v_timg(a5),a0
             add.l   d3,a0                   ; its picture
-            move.w  d1,d3
-            mulu    #16*TILE_LINE,d3
-            move.w  d0,d4
-            addq.w  #1,d4
-            add.w   d4,d4
-            ext.l   d4
-            add.l   d4,d3
+            move.w  v_tsh(a5),d4
+            moveq   #0,d2
+            move.w  d1,d2
+            lsl.l   d4,d2                   ; row x S (fits a word: the map is < 32768 pixels)
+            mulu    v_tline(a5),d2
+            moveq   #0,d5
+            move.w  d0,d5
+            subq.w  #3,d4
+            lsl.l   d4,d5                   ; column x S / 8
+            add.l   d5,d2
+            addq.l  #2,d2
+            divu    v_tring(a5),d2
+            clr.w   d2
+            swap    d2                      ; d2 = offset in the ring
+            moveq   #0,d7
+            move.w  v_tring(a5),d7          ; d7 = RING (long)
             move.l  v_tbuf(a5),a1
-            add.l   d3,a1                   ; plane 0, top line
-            move.w  H_DEPTH(a4),d4
+            move.w  H_DEPTH(a4),d6
+            subq.w  #1,d6
+            move.w  v_tsz(a5),d0
+.pl         move.l  d2,d3
+            move.w  d0,d4
             subq.w  #1,d4
-.pl         move.l  a1,a2
-            moveq   #15,d3
-.ln         move.w  (a0)+,(a2)
-            lea     TILE_LINE(a2),a2
-            dbf     d3,.ln
+.ln         move.l  a1,a2
+            add.l   d3,a2
+            lea     0(a2,d7.l),a3           ; the second copy
+            cmp.w   #16,d0
+            beq.s   .w16
+            bgt.s   .big
+            move.b  (a0),(a2)               ; 8 x 8
+            move.b  (a0)+,(a3)
+            bra.s   .nx
+.w16        move.w  (a0),(a2)
+            move.w  (a0)+,(a3)
+            bra.s   .nx
+.big        cmp.w   #32,d0
+            bne.s   .w64
+            move.l  (a0),(a2)
+            move.l  (a0)+,(a3)
+            bra.s   .nx
+.w64        move.l  (a0),(a2)+
+            move.l  (a0)+,(a3)+
+            move.l  (a0),(a2)
+            move.l  (a0)+,(a3)
+.nx         add.w   v_tline(a5),d3
+            cmp.l   d7,d3
+            blt.s   .in
+            sub.l   d7,d3
+.in         dbf     d4,.ln
             add.l   v_tbufpl(a5),a1
-            dbf     d4,.pl
-            movem.l (sp)+,d0-d4/a0-a2
+            dbf     d6,.pl
+            movem.l (sp)+,d0-d7/a0-a3
             rts
 
 ; d0 = column, d1 = row: redraws that tile if it is in the picture
 redraw_cell:
-            move.w  d0,-(sp)
-            sub.w   v_tx0(a5),d0
-            cmp.w   #21,d0
-            move.w  (sp)+,d0
-            bhi.s   .r
-            move.w  d1,-(sp)
-            sub.w   v_ty0(a5),d1
-            cmp.w   #17,d1
-            move.w  (sp)+,d1
-            bhi.s   .r
+            move.w  d2,-(sp)
+            move.w  d0,d2
+            sub.w   v_tx0(a5),d2
+            cmp.w   v_tncol(a5),d2
+            bcc.s   .r
+            move.w  d1,d2
+            sub.w   v_ty0(a5),d2
+            cmp.w   v_tnrow(a5),d2
+            bcc.s   .r
             bsr     draw_cell
-.r          rts
+.r          move.w  (sp)+,d2
+            rts
 
 ; the copper moves at the HUD split: bitplane pointers and fine scroll for
 ; the camera (the picture starts HUD_LINES lines down the screen)
@@ -1667,10 +1771,18 @@ cop_scroll: tst.w   v_tmode(a5)
             moveq   #0,d3
             move.w  v_camy(a5),d3
             add.w   #HUD_LINES,d3
-            mulu    #TILE_LINE,d3
+            mulu    v_tline(a5),d3
             ext.l   d0
             add.l   d0,d3
-            add.l   v_tbuf(a5),d3
+            divu    v_tring(a5),d3          ; where the ring starts on screen
+            clr.w   d3
+            swap    d3
+            cmp.l   #8,d3                   ; the first bytes of copy 1 may be unwritten
+            bcc.s   .rs                     ; (a 32 / 64 wide tile line spills into copy 2):
+            moveq   #0,d4                   ; show copy 2 there
+            move.w  v_tring(a5),d4
+            add.l   d4,d3
+.rs         add.l   v_tbuf(a5),d3
             move.l  v_csplit(a5),a0
             move.w  H_DEPTH(a4),d4
             subq.w  #1,d4
@@ -1690,31 +1802,28 @@ cop_scroll: tst.w   v_tmode(a5)
 
 ; d0 = x, d1 = y (map pixels): Z clear when that point is in a solid tile
 ; (or off the map: the map's edges are walls)
-solid_px:   movem.l d0-d2/a0,-(sp)
+solid_px:   movem.l d0-d3/a0,-(sp)
             tst.w   d0
             bmi.s   .yes
             tst.w   d1
             bmi.s   .yes
-            asr.w   #4,d0
+            move.w  v_tsh(a5),d2
+            asr.w   d2,d0
             cmp.w   v_tw(a5),d0
             bge.s   .yes
-            asr.w   #4,d1
+            asr.w   d2,d1
             cmp.w   v_th(a5),d1
             bge.s   .yes
-            mulu    v_tw(a5),d1
-            add.w   d0,d1
-            move.l  v_wmap(a5),a0
-            moveq   #0,d2
-            move.b  0(a0,d1.l),d2
-            lsl.w   #3,d2
+            bsr     map_get
+            lsl.w   #3,d3
             move.l  v_tiles(a5),a0
-            btst    #0,T_PROPS+1(a0,d2.w)
+            btst    #0,T_PROPS+TP_FLAGS(a0,d3.w)
             bne.s   .yes
             moveq   #0,d2
             bra.s   .out
 .yes        moveq   #1,d2
 .out        tst.w   d2
-            movem.l (sp)+,d0-d2/a0
+            movem.l (sp)+,d0-d3/a0
             rts
 
 ; d0 = x, d1 = y for actor a2: Z clear when its box (A_BX0..A_BY1) would be
@@ -1767,7 +1876,9 @@ tile_hres:  movem.l d0-d1,-(sp)
             bne.s   .back
             tst.w   v_gnd(a5,d5.w)
             beq.s   .back
-            sub.w   #16,d1
+            cmp.w   #16,v_tsz(a5)           ; tiles up to 16 high: steps up one
+            bgt.s   .back
+            sub.w   v_tsz(a5),d1
             bsr     box_solid
             bne.s   .back
             move.w  d1,v_ay(a5,d5.w)        ; step up
@@ -1936,7 +2047,7 @@ tile_dig:   move.l  v_tiles(a5),a0
 .held       movem.l (sp)+,d0-d4/a0-a1
             moveq   #1,d0                   ; Z clear: fire is held
             rts
-.off        move.w  #-1,v_digc(a5)          ; fire let go: start again next time
+.off        move.l  #-1,v_digc(a5)          ; fire let go: start again next time
 .no         moveq   #0,d0
             rts
 .midx       move.w  v_ax(a5,d5.w),d0
@@ -1953,49 +2064,50 @@ tile_dig:   move.l  v_tiles(a5),a0
             rts
 
 ; d0 / d1 = map pixel -> d0 = column, d1 = row, d2 = cell; Z set when off the map
+; (d3 = the tile there)
 px_cell:    tst.w   d0
             bmi.s   .off
             tst.w   d1
             bmi.s   .off
-            asr.w   #4,d0
+            move.w  v_tsh(a5),d2
+            asr.w   d2,d0
             cmp.w   v_tw(a5),d0
             bge.s   .off
-            asr.w   #4,d1
+            asr.w   d2,d1
             cmp.w   v_th(a5),d1
             bge.s   .off
-            moveq   #0,d2
-            move.w  d1,d2
-            mulu    v_tw(a5),d2
-            add.w   d0,d2
-            moveq   #1,d3                   ; Z clear
+            bsr     map_get
+            move.w  #1,-(sp)                ; Z clear
+            tst.w   (sp)+
             rts
-.off        moveq   #0,d3
+.off        move.w  #0,-(sp)
+            tst.w   (sp)+
             rts
 
 ; digs at map pixel d0 / d1: Z clear when there was something to dig there
 dig_px:     movem.l d0-d4/a0-a1,-(sp)
-            bsr     px_cell
+            bsr     px_cell                 ; d3 = tile
             beq     .none
-            move.l  v_wmap(a5),a0
-            moveq   #0,d3
-            move.b  0(a0,d2.l),d3           ; d3 = tile
             move.w  d3,d4
             lsl.w   #3,d4
             move.l  v_tiles(a5),a1
             lea     T_PROPS(a1,d4.w),a1     ; a1 = its properties
-            btst    #1,TP_FLAGS+1(a1)
+            btst    #1,TP_FLAGS(a1)
             beq     .none
-            cmp.w   v_digc(a5),d2           ; a new tile: start digging it
+            cmp.l   v_digc(a5),d2           ; a new tile: start digging it
             beq.s   .same
-            move.w  d2,v_digc(a5)
+            move.l  d2,v_digc(a5)
             move.w  #0,v_digt(a5)
 .same       addq.w  #1,v_digt(a5)
             move.w  v_digt(a5),d4
             cmp.w   TP_HARD(a1),d4
             blt     .busy
-            move.b  TP_BECOMES(a1),0(a0,d2.l)   ; dug out
+            move.w  d3,-(sp)
+            move.w  TP_BECOMES(a1),d3       ; dug out
+            bsr     map_put
+            move.w  (sp)+,d3
             move.w  #0,v_digt(a5)
-            move.w  #-1,v_digc(a5)
+            move.l  #-1,v_digc(a5)
             bsr     redraw_cell
             move.w  d3,v_sel(a5)            ; carried
             move.w  d3,d4
@@ -2018,7 +2130,7 @@ dig_px:     movem.l d0-d4/a0-a1,-(sp)
             beq.s   .nosnd
             bsr     play_sfx
 .nosnd      bsr     draw_hud
-            btst    #2,TP_FLAGS+1(a1)       ; counts towards the level goal
+            btst    #2,TP_FLAGS(a1)         ; counts towards the level goal
             beq.s   .busy
             movem.l (sp)+,d0-d4/a0-a1
             movem.l d0-d7/a0-a3,-(sp)
@@ -2037,15 +2149,12 @@ dig_px:     movem.l d0-d4/a0-a1,-(sp)
 place_px:   movem.l d0-d4/a0-a1,-(sp)
             bsr     px_cell
             beq.s   .r
-            move.l  v_wmap(a5),a0
-            moveq   #0,d3
-            move.b  0(a0,d2.l),d3
             lsl.w   #3,d3
             move.l  v_tiles(a5),a1
-            btst    #0,T_PROPS+1(a1,d3.w)
+            btst    #0,T_PROPS+TP_FLAGS(a1,d3.w)
             bne.s   .r
             move.w  v_sel(a5),d3
-            move.b  d3,0(a0,d2.l)
+            bsr     map_put
             add.w   d3,d3
             lea     v_inv(a5),a0
             subq.w  #1,0(a0,d3.w)
@@ -2950,7 +3059,7 @@ build_grad:
             beq.s   .hi
             move.l  #$01060c00,(a0)+        ; BPLCON3: bank 0, high nibbles
 .hi         move.w  #$0180,(a0)+
-            bsr.s   .col
+            bsr     .col
             move.w  d2,(a0)+
             tst.w   d5
             beq.s   .nx
@@ -2983,8 +3092,12 @@ build_grad:
             move.w  #0,(a0)+
             addq.w  #2,d2
             dbf     d4,.sp
-            move.l  #$01080000|(TILE_LINE-42),(a0)+
-            move.l  #$010a0000|(TILE_LINE-42),(a0)+
+            move.w  v_tline(a5),d2          ; modulo: the picture's line less the 42 bytes fetched
+            sub.w   #42,d2
+            move.w  #$0108,(a0)+
+            move.w  d2,(a0)+
+            move.w  #$010a,(a0)+
+            move.w  d2,(a0)+
             move.l  #$01020000,(a0)+
             rts
 .col        move.w  (a1)+,d2                ; next table colour, or the fixed one

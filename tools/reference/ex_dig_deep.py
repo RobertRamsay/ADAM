@@ -18,6 +18,8 @@ def noise(x, y, s):
     return (v ^ (v >> 16)) & 0xffff
 
 def tex(base, dark, light, seed, dens=5):
+    import gen_examples as g
+    aga = g.AGA['on']
     px = []
     for y in range(16):
         for x in range(16):
@@ -25,6 +27,11 @@ def tex(base, dark, light, seed, dens=5):
             v = base
             if n < dens: v = dark
             elif n > 15 - dens // 2: v = light
+            if aga:
+                # A1200: soft in-between shades round the dark and light specks
+                if n == dens or n == dens + 1: v = g.dmix(dark, base, 0.5, x, y)
+                elif n == 15 - dens // 2 or n == 14 - dens // 2: v = g.dmix(base, light, 0.5, x, y)
+                elif n < dens and noise(x, y, seed + 99) % 3 == 0: v = g.dmix(dark, base, 0.25, x, y)
             px.append(v)
     return px
 
@@ -394,7 +401,7 @@ def dig_deep():
     p = g.make_project("Dig Deep", PAL, img, sprites, actors, rules, [0x1850b0, 0x60a8ff, 0xc8e8ff, 120],
                        hud_col=1, msg_col=11, sfx=sfx, win="ALL THE TREASURE! - PRESS FIRE", over="BURIED! - PRESS FIRE", songs=[tune])
     p.update(goal_on=True, goal=12, goal_label="GOLD", title_on=True, title1="DIG DEEP", title2="PRESS FIRE TO START")
-    p.update(tiles_on=True, tiles=tl, map_w=W, map_h=H, map=m, tile_dig=True)
+    p.update(tiles_on=True, tile_size=16, tiles=tl, map_w=W, map_h=H, map=m, tile_dig=True)
     # animations: walk, jump and fall, and the pickaxe on the With Fire joystick
     T = g.tf_shift
     walk = [("Miner step", miner_rows(1)), ("Miner pass", miner_rows(2)), ("Miner step 2", miner_rows(3)), ("Miner pass 2", miner_rows(2, bob=1))]

@@ -230,8 +230,8 @@ function ws_sprites_draw(_x1, _y1, _x2, _y2)
 
     // size: 16 x 24 is a hardware sprite; ADAM Pro goes up to 64 x 64 (a BOB)
     var _szh = "Size";
-    if (!pro_on()) { _szh = "Size  (Pro)"; }
-    else if (spr_is_big(_s)) { _szh = "Size  - drawn as a BOB"; }
+    if (spr_is_big(_s)) { _szh = "Size  - drawn as a BOB"; }
+    if (!pro_edition()) { _szh += "   (Lite: up to " + string(LITE_SPR_W) + " x " + string(LITE_SPR_H) + ")"; }
     ui_heading(_fx, _y, _szh);
     var _szw = floor((_fw - 12) / 2);
     var _wvals = [16, 32, 48, 64];
@@ -246,11 +246,16 @@ function ws_sprites_draw(_x1, _y1, _x2, _y2)
     {
         if (_hvals[hi] == _s.h) { _hcur = hi; }
     }
-    var _wnew = ui_dropdown("spr_w", _fx, _y + 18, _szw, 32, ["16 wide", "32 wide", "48 wide", "64 wide"], _wcur, "Sprite width|A hardware sprite is 16 x 24 pixels. In ADAM Pro a sprite can be 16, 32, 48 or 64 pixels wide; one bigger than 16 x 24 is drawn as a BOB with the nearest backdrop colours. Making it smaller cuts off the right-hand side.");
-    var _hnew = ui_dropdown("spr_h", _fx + _szw + 12, _y + 18, _szw, 32, ["16 high", "24 high", "32 high", "48 high", "64 high"], _hcur, "Sprite height|A hardware sprite is 16 x 24 pixels. In ADAM Pro a sprite can be 16, 24, 32, 48 or 64 pixels high; one bigger than 16 x 24 is drawn as a BOB. Making it smaller cuts off the bottom.");
+    var _wnew = ui_dropdown("spr_w", _fx, _y + 18, _szw, 32, ["16 wide", "32 wide", "48 wide", "64 wide"], _wcur, "Sprite width|A hardware sprite is 16 x 24 pixels. A sprite can be 16 or 32 pixels wide in ADAM Lite, up to 64 in ADAM Pro; one bigger than 16 x 24 is drawn as a BOB with the nearest backdrop colours. Making it smaller cuts off the right-hand side.");
+    var _hnew = ui_dropdown("spr_h", _fx + _szw + 12, _y + 18, _szw, 32, ["16 high", "24 high", "32 high", "48 high", "64 high"], _hcur, "Sprite height|A hardware sprite is 16 x 24 pixels. A sprite can be 16, 24 or 32 pixels high in ADAM Lite, up to 64 in ADAM Pro; one bigger than 16 x 24 is drawn as a BOB. Making it smaller cuts off the bottom.");
     if (_wnew != _wcur || _hnew != _hcur)
     {
-        if (feature_gate("Bigger sprites"))
+        // only growing past the limit is refused, so a Pro sprite opened in Lite can still be made smaller
+        if ((_wvals[_wnew] > lim_spr_w() && _wvals[_wnew] > _s.w) || (_hvals[_hnew] > lim_spr_h() && _hvals[_hnew] > _s.h))
+        {
+            lim_toast("Sprites and BOBs are up to " + string(lim_spr_w()) + " x " + string(lim_spr_h()), "up to 64 x 64");
+        }
+        else if (feature_gate("Bigger sprites"))
         {
             undo_mark("sprsize" + string(current_time));
             spr_resize(_s, _wvals[_wnew], _hvals[_hnew]);

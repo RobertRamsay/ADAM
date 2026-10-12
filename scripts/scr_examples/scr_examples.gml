@@ -3,13 +3,21 @@
 function examples_init()
 {
     global.EXAMPLES = [
-        { file : "gem_hunter.adam",  name : "Gem Hunter",  pro : false, desc : "Collect gems under a copper sunset while two ghosts hunt you." },
-        { file : "deep_dive.adam",   name : "Deep Dive",   pro : false, desc : "Swim for pearls on the sea bed, dodging jellyfish and a shark." },
-        { file : "star_catcher.adam", name : "Star Catcher", pro : false, desc : "Fly through an asteroid belt catching stars, chased by a UFO." },
-        { file : "dodge_ball.adam",  name : "Dodge Ball",  pro : false, desc : "Survive the neon arena as the bouncing balls get faster and faster." },
-        { file : "firefly_night.adam", name : "Firefly Night", pro : true, desc : "An owl catches a swarm of 12 fireflies - BOBs - while bats hunt it." },
-        { file : "dig_deep.adam",    name : "Dig Deep",    pro : true,  desc : "Dig through a scrolling 128 x 64 tile world for 12 gold, Terraria style, past slimes, bats and a mole." }
+        { file : "gem_hunter.adam", file_aga : "gem_hunter_a1200.adam",  name : "Gem Hunter",  pro : false, desc : "Collect gems under a copper sunset while two ghosts hunt you." },
+        { file : "deep_dive.adam", file_aga : "deep_dive_a1200.adam",   name : "Deep Dive",   pro : false, desc : "Swim for pearls on the sea bed, dodging jellyfish and a shark." },
+        { file : "star_catcher.adam", file_aga : "star_catcher_a1200.adam", name : "Star Catcher", pro : false, desc : "Fly through an asteroid belt catching stars, chased by a UFO." },
+        { file : "dodge_ball.adam", file_aga : "dodge_ball_a1200.adam",  name : "Dodge Ball",  pro : false, desc : "Survive the neon arena as the bouncing balls get faster and faster." },
+        { file : "firefly_night.adam", file_aga : "firefly_night_a1200.adam", name : "Firefly Night", pro : true, desc : "An owl catches a swarm of 12 fireflies - BOBs - while bats hunt it." },
+        { file : "dig_deep.adam", file_aga : "dig_deep_a1200.adam",    name : "Dig Deep",    pro : true,  desc : "Dig through a scrolling 128 x 64 tile world for 12 gold, Terraria style, past slimes, bats and a mole." }
     ];
+}
+
+/// The example's file for the machine picked: the A1200 has its own versions,
+/// with up to 128 colours so gradients are smooth instead of dithered
+function example_file(_e)
+{
+    if (machine_cur().id == "A1200") { return _e.file_aga; }
+    return _e.file;
 }
 
 function example_names()
@@ -44,7 +52,7 @@ function example_load(_i)
 function example_load_now(_i)
 {
     var _e = global.EXAMPLES[clamp(_i, 0, array_length(global.EXAMPLES) - 1)];
-    var _txt = file_read_text(working_directory + "examples/" + _e.file);
+    var _txt = file_read_text(working_directory + "examples/" + example_file(_e));
     if (_txt == "")
     {
         toast("The example file is missing (datafiles/examples)", 2);

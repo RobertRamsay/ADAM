@@ -59,6 +59,11 @@ function anim_dbl(_id)
 /// Opens sprite _i on the Sprites page to draw it
 function anim_edit_sprite(_i)
 {
+    if (_i >= spr_bank_size())
+    {
+        lim_toast("Sprite " + string(_i + 1) + " is past the sprite bank", "a bank of " + string(SPR_COUNT) + " sprites");
+        return;
+    }
     spr_sel = clamp(_i, 0, SPR_COUNT - 1);
     ws_set(WS_SPRITES);
 }
@@ -119,16 +124,126 @@ function anim_dir_of(_dx, _dy)
     return _tab[(_dy + 1) * 3 + (_dx + 1)];
 }
 
+/// Draws plan entry _k of an actor playing live in a square _w wide at (_x, _y).
+/// A direction without an entry of its own plays Walk, as the engine does.
+function anim_slot_preview(_plan, _k, _x, _y, _w, _cols, _alpha)
+{
+    if (is_undefined(_plan)) { return; }
+    var _kk = _k;
+    if (_kk >= array_length(_plan))
+    {
+        if (_kk >= ANIM_FIRE0) { return; }
+        _kk = 1;
+    }
+    var _e = _plan[_kk];
+    if (_e.mode == 3 && array_length(_plan) > ANIM_DIR0 + 2) { _e = _plan[ANIM_DIR0 + 2]; }    // stands facing right
+    anim_strip_preview(_e.frames, _e.rate, _e.mode, _e.flip, _x, _y, _w, _cols, _alpha);
+}
+
+/// Draws frames _frames playing live (rate, mode, turned round) in a square _w wide.
+/// Once replays after a short pause, so a preview never stops for good.
+function anim_strip_preview(_frames, _rate, _mode, _flip, _x, _y, _w, _cols, _alpha)
+{
+    var _n = array_length(_frames);
+    if (_n == 0) { return; }
+    var _bw = 8;
+    var _bh = 8;
+    for (var f = 0; f < _n; f++)
+    {
+        var _fs = proj.sprites[clamp(_frames[f], 0, SPR_COUNT - 1)];
+        _bw = max(_bw, _fs.w);
+        _bh = max(_bh, _fs.h);
+    }
+    var _ticks = current_time div 20;
+    var _md = _mode;
+    if (_md == 3) { _md = 0; }
+    if (_md == 1) { _ticks = _ticks mod (_n * max(2, _rate) + 30); }
+    var _fi = anim_frame_at({ frames : _frames, rate : _rate, mode : _md }, _ticks);
+    var _si = clamp(_frames[_fi], 0, SPR_COUNT - 1);
+    var _ps = proj.sprites[_si];
+    var _sc = (_w - 8) / max(_bw, _bh);
+    draw_sprite_amiga_flip(_si, _x + (_w - _ps.w * _sc) / 2, _y + (_w - _ps.h * _sc) / 2, _sc, _flip, _cols, _alpha);
+}
+
+/// Grid cell (-1..1, -1..1) of direction 0..7 (N NE E SE S SW W NW)
+function anim_dir_cell(_d)
+{
+    var _gx = [0, 1, 1, 1, 0, -1, -1, -1];
+    var _gy = [-1, -1, 0, 1, 1, 1, 0, -1];
+    return [_gx[_d], _gy[_d]];
+}
+
+/// Copies animation (frames, rate, mode) into entry _k of the selected actor - a drop
+/// from the animation library or from another joystick slot
+function anim_drop_into(_s, _k, _frames, _rate, _mode)
+{
+    if (_k < 0 || _k >= ANIM_COUNT || !anim_can_edit()) { return; }
+    if (_k >= ANIM_FIRE0 && !lim_fire())
+    {
+        lim_toast("The With Fire joystick is part of ADAM Pro", "Fire animations for the player");
+        return;
+    }
+    anim_begin_edit(_s, "animdrop" + string(current_time));
+    var _fr = [];
+    for (var f = 0; f < min(array_length(_frames), lim_frames()); f++) { array_push(_fr, _frames[f]); }
+    if (array_length(_frames) > lim_frames()) { lim_toast("Only the first " + string(lim_frames()) + " frames were dropped in - an animation has up to " + string(lim_frames()) + " frames", "up to " + string(ANIM_FRAMES)); }
+    _s.anims[_k].frames = _fr;
+    _s.anims[_k].rate = clamp(_rate, 2, 30);
+    var _m = _mode;
+    if (_m == 3) { _m = 0; }
+    _s.anims[_k].mode = clamp(_m, 0, 2);
+    anim_sel = _k;
+    anim_slot = 0;
+    anim_t0 = current_time;
+    var _ln = anim_long_names();
+    toast(_ln[_k] + ": " + string(array_length(_fr)) + " frames dropped in", 0);
+}
+
+/// Starts dragging an animation (frames, rate, mode, turned round) once the mouse
+/// has moved a little with the button held; _src = the joystick slot it came from (-1 = library)
+function anim_drag_arm(_frames, _rate, _mode, _flip, _cols, _label, _src)
+{
+    anim_drag_armed = true;
+    anim_drag_on = false;
+    anim_drag_x0 = ui_mx;
+    anim_drag_y0 = ui_my;
+    anim_drag_frames = _frames;
+    anim_drag_rate = _rate;
+    anim_drag_mode = _mode;
+    anim_drag_flip = _flip;
+    anim_drag_cols = _cols;
+    anim_drag_label = _label;
+    anim_drag_src = _src;
+}
+
+/// Marks entry _k as the drop target when an animation is dragged over (_x1,_y1)-(_x2,_y2)
+/// and draws the drop highlight
+function anim_drop_zone(_k, _x1, _y1, _x2, _y2)
+{
+    if (!anim_drag_on || _k == anim_drag_src) { return; }
+    if (point_in_rectangle(ui_mx, ui_my, _x1, _y1, _x2, _y2))
+    {
+        anim_drop_k = _k;
+        ui_rrect_line(_x1 - 3, _y1 - 3, _x2 + 3, _y2 + 3, 10, global.TH.accent, 1, 3);
+    }
+    else
+    {
+        ui_rrect_line(_x1 - 1, _y1 - 1, _x2 + 1, _y2 + 1, 9, global.TH.accent, 0.35 + 0.25 * sin(current_time / 120), 1);
+    }
+}
+
 /// One joystick, seen from above: _which 0 = Moving (Idle in the middle and the
 /// 8 directions round it), 1 = With Fire (Fire in the middle, its fire button
-/// lights up). Hovering a direction pushes the stick that way; clicking picks
-/// that animation. In Test it follows the keys or gamepad.
+/// lights up). Each is a square slot playing its animation live. Hovering a
+/// direction pushes the stick that way; clicking picks that animation; dragging
+/// copies it to another slot, and animations from the library can be dropped in.
+/// In Test it follows the keys or gamepad.
 function anim_joystick(_which, _x, _y, _size, _s, _plan, _cols, _in, _test_k)
 {
+    var _gap = 6;
+    var _cell = floor((_size - 4 * _gap) / 3);
     var _cx = _x + _size / 2;
     var _cy = _y + _size / 2;
-    var _r = _size * 0.36;                       // where the 8 directions sit
-    var _tr = max(12, floor(_size * 0.12));     // their size
     var _k0 = 0;                                 // the middle: Idle
     var _kd = ANIM_DIR0;                         // first direction
     if (_which == 1)
@@ -137,34 +252,52 @@ function anim_joystick(_which, _x, _y, _size, _s, _plan, _cols, _in, _test_k)
         _kd = ANIM_FIRE0 + 1;
     }
     var _lnames = anim_long_names();
+    var _locked = (_which == 1 && !lim_fire());      // ADAM Lite: the With Fire joystick is part of Pro
 
-    // the base plate and the gate the stick moves in
+    // the base plate
     ui_rrect(_x, _y + 3, _x + _size, _y + _size + 3, 18, c_black, c_black, 0.35);
     ui_rrect(_x, _y, _x + _size, _y + _size, 18, make_colour_rgb(58, 62, 72), make_colour_rgb(30, 32, 38), 1);
     ui_rrect_line(_x, _y, _x + _size, _y + _size, 18, global.TH.panel_edge, 0.8, 1);
-    draw_set_alpha(0.55);
-    draw_circle_colour(_cx, _cy, _r * 0.62, make_colour_rgb(18, 19, 23), make_colour_rgb(18, 19, 23), false);
-    draw_set_alpha(1);
 
     // which way the stick leans: the direction hovered, else the one picked, else Test
     var _push = -1;
     var _hot_any = false;
-    for (var d = 0; d < 8; d++)
+    for (var d = 0; d < 9; d++)
     {
-        var _ang = degtorad(d * 45);
-        var _dx = _cx + sin(_ang) * _r;
-        var _dy = _cy - cos(_ang) * _r;
-        var _k = _kd + d;
+        // d 0..7 = the directions, 8 = the middle
+        var _k = _k0;
+        var _gcx = 0;
+        var _gcy = 0;
+        if (d < 8)
+        {
+            _k = _kd + d;
+            var _gc = anim_dir_cell(d);
+            _gcx = _gc[0];
+            _gcy = _gc[1];
+        }
+        var _sx = _cx + _gcx * (_cell + _gap) - _cell / 2;
+        var _sy = _cy + _gcy * (_cell + _gap) - _cell / 2;
         var _id = "anim_dir_" + string(_k);
-        var _help = _lnames[_k] + "|Click to give this direction its own frames. Empty directions borrow from the others (turned round when 'Turn to face left' is on), or from Walk.";
-        if (_which == 1) { _help = _lnames[_k] + "|Plays while the player holds fire and pushes this way - digging, shooting, swinging. Empty: it borrows from the other Fire directions."; }
-        var _hot = ui_register(_id, _dx - _tr, _dy - _tr, _dx + _tr, _dy + _tr, _help);
-        if (_hot)
+        var _help = _lnames[_k] + "|Plays live here. Click to give this direction its own frames, drag it to copy it to another slot, or drop an animation from the library on it. Empty directions borrow from the others (turned round when 'Turn to face left' is on), or from Walk.";
+        if (_which == 1) { _help = _lnames[_k] + "|Plays while the player holds fire and pushes this way - digging, shooting, swinging. Drag to copy it, or drop an animation from the library on it. Empty: it borrows from the other Fire directions."; }
+        if (d == 8)
+        {
+            _id = "anim_mid_" + string(_which);
+            _help = "Idle|Plays while the actor stands still. Click to edit it, drag it to copy it, or drop an animation on it. Empty: it stands facing the way it last moved (with directions) or shows its sprite.";
+            if (_which == 1) { _help = "Fire|Plays while the player holds fire without pushing a direction. Click to edit it, or drop an animation on it. Empty: it uses a Fire direction, or the normal animation."; }
+        }
+        var _hot = ui_register(_id, _sx, _sy, _sx + _cell, _sy + _cell, _help);
+        if (_hot && d < 8 && !anim_drag_on)
         {
             _push = d;
             _hot_any = true;
         }
-        if (_hot && ui_pressed)
+        if (_hot && ui_pressed && _locked)
+        {
+            ui_take_click();
+            lim_toast("The With Fire joystick is part of ADAM Pro", "Fire animations for the player - digging, shooting, swinging");
+        }
+        else if (_hot && ui_pressed)
         {
             ui_take_click();
             if (anim_sel != _k)
@@ -173,22 +306,17 @@ function anim_joystick(_which, _x, _y, _size, _s, _plan, _cols, _in, _test_k)
                 anim_slot = 0;
                 anim_t0 = current_time;
             }
+            var _own0 = _s.anims[_k].frames;
+            if (array_length(_own0) > 0) { anim_drag_arm(_own0, _s.anims[_k].rate, _s.anims[_k].mode, false, _cols, _lnames[_k], _k); }
         }
-        // the direction: a little window with its first frame (faint when it borrows)
+        // the slot: a square window playing its animation (faint when it borrows)
         var _own = array_length(_s.anims[_k].frames);
         var _bg = make_colour_rgb(22, 24, 30);
         if (_hot) { _bg = make_colour_rgb(44, 48, 58); }
-        draw_circle_colour(_dx, _dy, _tr, _bg, _bg, false);
-        if (!is_undefined(_plan) && _k < array_length(_plan))
-        {
-            var _e = _plan[_k];
-            var _fi = clamp(_e.frames[0], 0, SPR_COUNT - 1);
-            var _ts = proj.sprites[_fi];
-            var _sc = (_tr * 1.4) / max(_ts.w, _ts.h);
-            var _a = 1;
-            if (_own == 0) { _a = 0.3; }
-            draw_sprite_amiga_flip(_fi, _dx - _ts.w * _sc / 2, _dy - _ts.h * _sc / 2, _sc, _e.flip, _cols, _a);
-        }
+        ui_rrect(_sx, _sy, _sx + _cell, _sy + _cell, 8, _bg, _bg, 1);
+        var _a = 1;
+        if (_own == 0) { _a = 0.3; }
+        anim_slot_preview(_plan, _k, _sx, _sy, _cell, _cols, _a);
         var _ring = global.TH.panel_edge;
         var _rw = 1;
         if (_own > 0) { _ring = global.TH.accent2; }
@@ -202,7 +330,17 @@ function anim_joystick(_which, _x, _y, _size, _s, _plan, _cols, _in, _test_k)
             _ring = c_white;
             _rw = 3;
         }
-        for (var w = 0; w < _rw; w++) { draw_circle_colour(_dx, _dy, _tr + w, _ring, _ring, true); }
+        ui_rrect_line(_sx - (_rw - 1), _sy - (_rw - 1), _sx + _cell + (_rw - 1), _sy + _cell + (_rw - 1), 8, _ring, 1, _rw);
+        if (d == 8)
+        {
+            var _mlab = "Idle";
+            if (_which == 1) { _mlab = "Fire"; }
+            if (_own > 0) { _mlab += " " + string(_own); }
+            var _mcol = global.TH.text_dim;
+            if (anim_sel == _k) { _mcol = global.TH.accent; }
+            ui_text(_sx + 4, _sy + _cell - 2, _mlab, _mcol, fa_left, fa_bottom, global.f_small, 1);
+        }
+        if (!_locked) { anim_drop_zone(_k, _sx, _sy, _sx + _cell, _sy + _cell); }
     }
     if (_push < 0 && anim_sel >= _kd && anim_sel < _kd + 8) { _push = anim_sel - _kd; }
     var _fire_lit = false;
@@ -215,13 +353,14 @@ function anim_joystick(_which, _x, _y, _size, _s, _plan, _cols, _in, _test_k)
     }
     if (_which == 1 && (_hot_any || (anim_sel >= ANIM_FIRE0))) { _fire_lit = true; }
 
-    // the stick: eases towards the way it is pushed
+    // the stick: a small knob in the middle slot's corner that leans the way it is pushed
     var _tx = 0;
     var _ty = 0;
     if (_push >= 0)
     {
-        _tx = sin(degtorad(_push * 45)) * _r * 0.42;
-        _ty = -cos(degtorad(_push * 45)) * _r * 0.42;
+        var _pc = anim_dir_cell(_push);
+        _tx = _pc[0] * _cell * 0.3;
+        _ty = _pc[1] * _cell * 0.3;
     }
     var _kn = anim_knob[_which];
     _kn[0] = lerp(_kn[0], _tx, 0.35);
@@ -229,45 +368,23 @@ function anim_joystick(_which, _x, _y, _size, _s, _plan, _cols, _in, _test_k)
     anim_knob[_which] = _kn;
     var _kx = _cx + _kn[0];
     var _ky = _cy + _kn[1];
-    var _kr = max(10, _size * 0.13);
+    var _kr = max(6, _cell * 0.13);
+    var _ka = 0.35;
+    if (_push >= 0) { _ka = 0.9; }
+    draw_set_alpha(_ka);
     draw_line_width_colour(_cx, _cy, _kx, _ky, _kr * 0.7, make_colour_rgb(20, 20, 24), make_colour_rgb(50, 50, 56));
-    draw_set_alpha(0.35);
-    draw_circle_colour(_kx + 2, _ky + 3, _kr, c_black, c_black, false);
-    draw_set_alpha(1);
     var _kc = make_colour_rgb(200, 40, 40);
     if (_which == 0) { _kc = make_colour_rgb(40, 40, 46); }
     draw_circle_colour(_kx, _ky, _kr, merge_colour(_kc, c_white, 0.25), merge_colour(_kc, c_black, 0.3), false);
     draw_circle_colour(_kx - _kr * 0.3, _ky - _kr * 0.3, _kr * 0.35, merge_colour(_kc, c_white, 0.6), _kc, false);
+    draw_set_alpha(1);
 
-    // the middle: Idle (or Fire with no direction) - click the stick itself
-    var _mid = _k0;
-    var _mhelp = "Idle|Plays while the actor stands still. Empty: it stands facing the way it last moved (with directions) or shows its sprite.";
-    if (_which == 1) { _mhelp = "Fire|Plays while the player holds fire without pushing a direction. Empty: it uses a Fire direction, or the normal animation."; }
-    var _mhot = ui_register("anim_mid_" + string(_which), _cx - _kr, _cy - _kr, _cx + _kr, _cy + _kr, _mhelp);
-    if (_mhot && ui_pressed)
-    {
-        ui_take_click();
-        if (anim_sel != _mid)
-        {
-            anim_sel = _mid;
-            anim_slot = 0;
-            anim_t0 = current_time;
-        }
-    }
-    var _mlab = "Idle";
-    if (_which == 1) { _mlab = "Fire"; }
-    if (array_length(_s.anims[_mid].frames) > 0) { _mlab += " " + string(array_length(_s.anims[_mid].frames)); }
-    var _mcol = global.TH.text_dim;
-    if (anim_sel == _mid) { _mcol = global.TH.accent; }
-    if (anim_test && _test_k == _mid) { _mcol = c_white; }
-    ui_text(_x + _size - 8, _y + _size - 8, _mlab, _mcol, fa_right, fa_bottom, global.f_small, 1);
-
-    // the fire button (top left of the Fire joystick): lights up when fire is held
+    // the fire button (beside the With Fire heading): lights up when fire is held
     if (_which == 1)
     {
-        var _bx = _x + _size * 0.16;
-        var _by = _y + _size * 0.16;
-        var _br = max(8, _size * 0.085);
+        var _br = 8;
+        var _bx = _x + _size - _br - 2;
+        var _by = _y - 12;
         var _bc = make_colour_rgb(110, 20, 20);
         if (_fire_lit)
         {
@@ -278,6 +395,11 @@ function anim_joystick(_which, _x, _y, _size, _s, _plan, _cols, _in, _test_k)
         }
         draw_circle_colour(_bx, _by, _br, merge_colour(_bc, c_white, 0.2), merge_colour(_bc, c_black, 0.35), false);
     }
+    if (_locked)
+    {
+        ui_rrect(_x, _y, _x + _size, _y + _size, 18, c_black, c_black, 0.55);
+        ui_text(_cx, _cy, "ADAM Pro", global.TH.text, fa_center, fa_middle, global.f_bold, 1);
+    }
 }
 
 function ws_animate_draw(_x1, _y1, _x2, _y2)
@@ -287,6 +409,7 @@ function ws_animate_draw(_x1, _y1, _x2, _y2)
     var _na = array_length(proj.actors);
     sel_actor = clamp(sel_actor, 0, max(0, _na - 1));
     var _alloc = actors_alloc_channels();
+    anim_drop_k = -1;           // set by a slot the dragged animation is over
 
     // ---------------- cast ----------------
     ui_panel(_x1, _y1, _x1 + _lw, _y2, "Actors");
@@ -354,6 +477,7 @@ function ws_animate_draw(_x1, _y1, _x2, _y2)
     var _s = proj.actors[sel_actor];
     var _cols = actor_cols_from(_alloc, sel_actor);
     anim_sel = clamp(anim_sel, 0, ANIM_COUNT - 1);
+    if (!lim_fire() && anim_sel >= ANIM_FIRE0) { anim_sel = 0; }
     var _names = anim_names();
     var _lnames = anim_long_names();
     var _gravity = (_s.role >= 6);
@@ -364,7 +488,9 @@ function ws_animate_draw(_x1, _y1, _x2, _y2)
     var _plan = anim_plan(_s);
     var _an = _s.anims[anim_sel];
     var _nf = array_length(_an.frames);
-    anim_slot = clamp(anim_slot, 0, min(_nf, ANIM_FRAMES - 1));
+    var _smax = min(_nf, lim_frames() - 1);
+    if (_nf > lim_frames()) { _smax = _nf - 1; }        // a Pro project in Lite: its extra frames can still be picked and removed
+    anim_slot = clamp(anim_slot, 0, _smax);
 
     // test mode: read the joystick, pick the animation as engine.s does
     var _in = [0, 0, false];
@@ -391,7 +517,7 @@ function ws_animate_draw(_x1, _y1, _x2, _y2)
         }
         // holding fire: the Fire animations, picked from the joystick direction
         var _fire_on = false;
-        if (!is_undefined(_plan)) { _fire_on = (_in[2] && array_length(_plan) > ANIM_FIRE0); }
+        if (!is_undefined(_plan)) { _fire_on = (_in[2] && lim_fire() && array_length(_plan) > ANIM_FIRE0); }
         if (_fire_on)
         {
             _k2 = ANIM_FIRE0;
@@ -410,7 +536,7 @@ function ws_animate_draw(_x1, _y1, _x2, _y2)
     // In air / Falling and the Test switch
     var _jx = _cx1 + 20;
     var _jy = _y1 + 52;
-    var _jsize = floor(min(170, (_y2 - _jy - 20 - 2 * 24 - 2 * 38 - 40) / 2));
+    var _jsize = floor(min(190, (_y2 - _jy - 20 - 2 * 24 - 2 * 38 - 40) / 2));
     _jsize = max(110, _jsize);
     ui_heading(_jx, _jy, "Moving");
     _jy += 20;
@@ -420,6 +546,7 @@ function ws_animate_draw(_x1, _y1, _x2, _y2)
     for (var fe = ANIM_FIRE0; fe < ANIM_COUNT; fe++) { _nfire += array_length(_s.anims[fe].frames); }
     var _fh = "With Fire";
     if (_s.role != 0 && _s.role != 6) { _fh = "With Fire (player only)"; }
+    if (!lim_fire()) { _fh = "With Fire  (ADAM Pro)"; }
     ui_heading(_jx, _jy, _fh);
     _jy += 20;
     anim_joystick(1, _jx, _jy, _jsize, _s, _plan, _cols, _in, _test_k);
@@ -437,6 +564,7 @@ function ws_animate_draw(_x1, _y1, _x2, _y2)
         var _sk = _side[sb];
         var _sl = _slab[sb];
         if (array_length(_s.anims[_sk].frames) > 0) { _sl += " " + string(array_length(_s.anims[_sk].frames)); }
+        anim_drop_zone(_sk, _jx + sb * (_bw3 + 4), _jy, _jx + sb * (_bw3 + 4) + _bw3, _jy + 30);
         if (ui_tab("anim_tab_" + string(_sk), _jx + sb * (_bw3 + 4), _jy, _bw3, 30, _sl, anim_sel == _sk, _shelp[sb]))
         {
             if (anim_sel != _sk)
@@ -564,20 +692,36 @@ function ws_animate_draw(_x1, _y1, _x2, _y2)
 
     // frame strip: up to 8 frames; the slot after the last one adds a frame
     var _sy = _py2 + 14;
-    ui_heading(_ax1, _sy, _lnames[anim_sel] + " frames  (" + string(_nf) + " / " + string(ANIM_FRAMES) + ")  -  click a frame, then a sprite in the bank");
+    ui_heading(_ax1, _sy, _lnames[anim_sel] + " frames  (" + string(_nf) + " / " + string(lim_frames()) + ")  -  click a frame, then a sprite in the bank");
+    var _lim = lim_frames();
     _sy += 20;
     var _cellw = min(64, floor((_cx2 - 20 - _ax1 - 7 * 8) / ANIM_FRAMES));
     for (var k = 0; k < ANIM_FRAMES; k++)
     {
         var _kx = _ax1 + k * (_cellw + 8);
         var _kid = "anim_slot_" + string(k);
-        if (k < _nf)
+        if (k >= _lim && k >= _nf)
+        {
+            // over the Lite limit: a locked slot
+            var _phot = ui_register(_kid, _kx, _sy, _kx + _cellw, _sy + _cellw, "ADAM Pro|Animations have up to " + string(_lim) + " frames in ADAM Lite and " + string(ANIM_FRAMES) + " in ADAM Pro.");
+            ui_rrect_line(_kx, _sy, _kx + _cellw, _sy + _cellw, 8, global.TH.panel_edge, 0.35, 1);
+            ui_text(_kx + _cellw / 2, _sy + _cellw / 2, "Pro", global.TH.text_faint, fa_center, fa_middle, global.f_small, 1);
+            if (_phot && ui_pressed)
+            {
+                ui_take_click();
+                lim_toast("An animation has up to " + string(_lim) + " frames", "up to " + string(ANIM_FRAMES));
+            }
+        }
+        else if (k < _nf)
         {
             var _khot = ui_register(_kid, _kx, _sy, _kx + _cellw, _sy + _cellw, "Frame " + string(k + 1) + "|Click to select it, then click a sprite in the bank to change it. Double-click to draw it on the Sprites page. Remove, move or clear it with the buttons below.");
             ui_rrect(_kx, _sy, _kx + _cellw, _sy + _cellw, 8, pal_col(0), pal_col(0), 1);
             var _ks = proj.sprites[clamp(_an.frames[k], 0, SPR_COUNT - 1)];
             var _ksc = (_cellw - 8) / max(_ks.w, _ks.h);
-            draw_sprite_amiga_cols(_an.frames[k], _kx + (_cellw - _ks.w * _ksc) / 2, _sy + (_cellw - _ks.h * _ksc) / 2, _ksc, _cols, 1);
+            var _fa = 1;
+            if (k >= _lim) { _fa = 0.35; }          // a Pro project in Lite: not played
+            draw_sprite_amiga_cols(_an.frames[k], _kx + (_cellw - _ks.w * _ksc) / 2, _sy + (_cellw - _ks.h * _ksc) / 2, _ksc, _cols, _fa);
+            if (k >= _lim) { ui_text(_kx + _cellw - 4, _sy + _cellw - 2, "Pro", global.TH.warn, fa_right, fa_bottom, global.f_small, 1); }
             ui_text(_kx + 5, _sy + 4, string(k + 1), global.TH.text_faint, fa_left, fa_top, global.f_small, 1);
             if (anim_slot == k) { ui_rrect_line(_kx - 2, _sy - 2, _kx + _cellw + 2, _sy + _cellw + 2, 9, global.TH.accent, 1, 2); }
             else { ui_rrect_line(_kx, _sy, _kx + _cellw, _sy + _cellw, 8, global.TH.panel_edge, 0.8, 1); }
@@ -706,6 +850,17 @@ function ws_animate_draw(_x1, _y1, _x2, _y2)
         }
         _oy += 58;
     }
+    // the bank of sprites (frames), or the library of animations ready to drag onto a slot
+    var _ltw = floor((_fw - 6) / 2);
+    if (ui_tab("anim_lib_tab_0", _fx, _oy, _ltw, 30, "Sprites", anim_lib_tab == 0, "Sprites|The sprite bank: click a sprite to put it in the selected frame.")) { anim_lib_tab = 0; }
+    if (ui_tab("anim_lib_tab_1", _fx + _ltw + 6, _oy, _ltw, 30, "Animations", anim_lib_tab == 1, "Animation library|Every animation your actors already have, playing live. Drag one onto a joystick slot (or Walk, In air, Falling) to copy it there.")) { anim_lib_tab = 1; }
+    _oy += 38;
+    if (anim_lib_tab == 1)
+    {
+        anim_library_draw(_rx2, _fx, _fw, _oy, _x2, _y2, _alloc);
+        anim_drag_update();
+        return;
+    }
     var _bank = spr_bank_size();
     var _gcols = 5;
     var _gcell = floor((_fw - (_gcols - 1) * 6) / _gcols);
@@ -760,19 +915,103 @@ function ws_animate_draw(_x1, _y1, _x2, _y2)
                     if (anim_slot < array_length(_cur)) { _cur[anim_slot] = b; }
                     else { array_push(_cur, b); }
                 }
-                else if (array_length(_cur) < ANIM_FRAMES)
+                else if (array_length(_cur) < lim_frames())
                 {
                     anim_begin_edit(_s, "animadd" + string(current_time));
                     array_push(_s.anims[anim_sel].frames, b);
                     anim_click_added = true;
-                    anim_slot = min(array_length(_s.anims[anim_sel].frames), ANIM_FRAMES - 1);
+                    anim_slot = min(array_length(_s.anims[anim_sel].frames), lim_frames() - 1);
                 }
                 else
                 {
-                    toast("An animation has up to " + string(ANIM_FRAMES) + " frames", 1);
+                    lim_toast("An animation has up to " + string(lim_frames()) + " frames", "up to " + string(ANIM_FRAMES));
                 }
             }
         }
     }
     ui_scroll_end("anim_bank", _rx2 + 6, _gtop, _x2 - 6, _y2 - 8, _gcontent);
+    anim_drag_update();
+}
+
+/// The animation library: every animation with frames of its own, of every actor,
+/// playing live. Press one and drag it onto a joystick slot to copy it there.
+function anim_library_draw(_rx2, _fx, _fw, _oy, _x2, _y2, _alloc)
+{
+    var _short = anim_names();
+    var _lnames = anim_long_names();
+    var _items = [];
+    for (var a = 0; a < array_length(proj.actors); a++)
+    {
+        var _ac = proj.actors[a];
+        for (var k = 0; k < ANIM_COUNT; k++)
+        {
+            if (array_length(_ac.anims[k].frames) > 0) { array_push(_items, [a, k]); }
+        }
+    }
+    if (array_length(_items) == 0)
+    {
+        ui_text(_fx, _oy + 10, "No animations yet - give an actor some frames and they show up here, ready to drag onto other slots and actors.", global.TH.text_dim, fa_left, fa_top, global.f_small, 1);
+        return;
+    }
+    var _gcols = 3;
+    var _gcell = floor((_fw - (_gcols - 1) * 8) / _gcols);
+    var _gh = _gcell + 30;
+    var _gtop = _oy;
+    var _gcontent = ceil(array_length(_items) / _gcols) * (_gh + 8) + 8;
+    var _goff = ui_scroll_begin("anim_lib", _rx2 + 6, _gtop, _x2 - 6, _y2 - 8, _gcontent);
+    for (var i = 0; i < array_length(_items); i++)
+    {
+        var _ai = _items[i][0];
+        var _ak = _items[i][1];
+        var _ac2 = proj.actors[_ai];
+        var _an = _ac2.anims[_ak];
+        var _gx = _fx + (i mod _gcols) * (_gcell + 8);
+        var _gy = _gtop + 4 + (i div _gcols) * (_gh + 8) - _goff;
+        if (_gy < _gtop - _gh || _gy > _y2) { continue; }
+        var _lid = "anim_lib_" + string(i);
+        var _label = _ac2.name + " " + _short[_ak];
+        if (_ak >= ANIM_FIRE0 + 1) { _label = _ac2.name + " Fire " + _short[_ak]; }
+        var _hot = ui_register(_lid, _gx, _gy, _gx + _gcell, _gy + _gh, _ac2.name + ": " + _lnames[_ak] + "|" + string(array_length(_an.frames)) + " frames. Drag it onto a joystick slot - of this actor or another - to copy it there (you can Undo).");
+        var _cols = actor_cols_from(_alloc, _ai);
+        var _bg = pal_col(0);
+        ui_rrect(_gx, _gy, _gx + _gcell, _gy + _gcell, 8, _bg, _bg, 1);
+        anim_strip_preview(_an.frames, _an.rate, _an.mode, false, _gx, _gy, _gcell, _cols, 1);
+        var _ea = 0.35;
+        if (_hot) { _ea = 1; }
+        ui_rrect_line(_gx, _gy, _gx + _gcell, _gy + _gcell, 8, global.TH.accent, _ea, 1);
+        ui_text(_gx + _gcell / 2, _gy + _gcell + 4, ui_text_fit(_label, global.f_small, _gcell + 6), global.TH.text_dim, fa_center, fa_top, global.f_small, 1);
+        if (_hot && ui_pressed)
+        {
+            ui_take_click();
+            anim_drag_arm(_an.frames, _an.rate, _an.mode, false, _cols, _label, -1);
+        }
+    }
+    ui_scroll_end("anim_lib", _rx2 + 6, _gtop, _x2 - 6, _y2 - 8, _gcontent);
+}
+
+/// Dragging an animation: starts once the mouse moves a few pixels, draws it playing
+/// under the mouse, and drops it on the slot it is let go over
+function anim_drag_update()
+{
+    if (!anim_drag_armed) { return; }
+    if (ui_held && !anim_drag_on && point_distance(ui_mx, ui_my, anim_drag_x0, anim_drag_y0) > 6) { anim_drag_on = true; }
+    if (anim_drag_on)
+    {
+        var _gw = 64;
+        var _gx = ui_mx + 12;
+        var _gy = ui_my + 12;
+        ui_rrect(_gx, _gy, _gx + _gw, _gy + _gw, 8, pal_col(0), pal_col(0), 0.9);
+        anim_strip_preview(anim_drag_frames, anim_drag_rate, anim_drag_mode, anim_drag_flip, _gx, _gy, _gw, anim_drag_cols, 1);
+        ui_rrect_line(_gx, _gy, _gx + _gw, _gy + _gw, 8, global.TH.accent, 1, 2);
+        ui_text(_gx, _gy + _gw + 4, anim_drag_label, global.TH.text, fa_left, fa_top, global.f_small, 1);
+    }
+    if (!ui_held)
+    {
+        if (anim_drag_on && anim_drop_k >= 0 && array_length(proj.actors) > 0)
+        {
+            anim_drop_into(proj.actors[sel_actor], anim_drop_k, anim_drag_frames, anim_drag_rate, anim_drag_mode);
+        }
+        anim_drag_armed = false;
+        anim_drag_on = false;
+    }
 }

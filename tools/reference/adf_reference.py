@@ -125,7 +125,8 @@ def build(proj, aga):
         bx0,bx1=(min(xs),max(xs)) if xs else (0,bw-1)
         by0,by1=(min(ys),max(ys)) if ys else (0,bh-1)
         bsize=(bh<<6)|(bw//16+1) if a.get('bob') else 0
-        ww,wh=(proj['tiles']['w']*16,proj['tiles']['h']*16) if proj.get('tiles') else (320,256)
+        ts=proj['tiles'].get('size',16) if proj.get('tiles') else 16
+        ww,wh=(proj['tiles']['w']*ts,proj['tiles']['h']*ts) if proj.get('tiles') else (320,256)
         blob+=struct.pack('>HHHHHHHHHHHL',min(a['x'],ww-bw),min(a['y'],wh-bh),a['role'],a['speed'],int(a['visible']),int(a['left']),int(a['up']),bx0,by0,bx1,by1,spr_offs[i])
         aflags=0                                       # A_AMODE bit 0: 8 directions, bit 1: Fire
         if plans[i] and dirs_on(a) and len(plans[i])>=12: aflags|=1
@@ -185,21 +186,28 @@ def build(proj, aga):
         for lv in g['levels']:
             for h in lv: blob.extend(struct.pack('>H',h))
     align(8)
-    # tile world (engine.s T_*): proj['tiles'] = dict(w, h, dig, tiles=[dict(name, px (256 colour
-    # indexes), solid, dig, hard, points, goal, sound (-1 none), becomes)], map=[w*h tile numbers])
+    # tile world (engine.s T_*): proj['tiles'] = dict(w, h, dig, size (8/16/32/64), tiles=[dict(name,
+    # px (size x size colour indexes), solid, dig, hard, points, goal, sound (-1 none), becomes)],
+    # map=[w*h tile numbers]). More than 256 tile types: map cells are words.
     off_tiles=0; tile_fix=None
     t=proj.get('tiles')
     if t:
         align(8)
         off_tiles=len(blob)
         nt=len(t['tiles'])
-        blob.extend(struct.pack('>HHHH',t['w'],t['h'],nt,1 if t.get('dig') else 0))
+        S=t.get('size',16); sh={8:3,16:4,32:5,64:6}[S]
+        ncol=320//S+2; nrow=256//S+2; tline=ncol*S//8; ring=nrow*S*tline
+        wcell=nt>256
+        blob.extend(struct.pack('>HHHH',t['w'],t['h'],nt,(1 if t.get('dig') else 0)|(2 if wcell else 0)))
         tile_fix=len(blob)
         blob.extend(b'\0'*20)                  # T_IMG T_MAP T_WMAP T_BUF T_BUFPL, filled in below
+        blob.extend(struct.pack('>HHHHHHL',S,sh,tline,ncol,nrow,0,ring))
         for td in t['tiles']:
             fl=(1 if td.get('solid') else 0)|(2 if td.get('dig') else 0)|(4 if td.get('goal') else 0)
             snd=td.get('sound',-1); snd=0xff if snd<0 else snd&7
-            blob.extend(struct.pack('>HHHBB',fl,max(1,td.get('hard',10)),td.get('points',0),snd,td.get('becomes',0)&0xff))
+            bec=td.get('becomes',0)
+            if bec>=nt: bec=0
+            blob.extend(struct.pack('>BBHHH',fl,snd,max(1,td.get('hard',10)),td.get('points',0),bec))
         for td in t['tiles']:
             nm=td['name'].upper().encode('ascii','replace')[:4]
             blob.extend(nm+b'\0'*(4-len(nm)))
@@ -207,14 +215,15 @@ def build(proj, aga):
         off_img=len(blob)
         for td in t['tiles']:
             for p in range(depth):
-                for y in range(16):
+                for y in range(S):
                     w=0
-                    for x in range(16):
-                        if (td['px'][y*16+x]>>p)&1: w|=0x8000>>x
-                    blob.extend(struct.pack('>H',w))
+                    for x in range(S):
+                        if (td['px'][y*S+x]>>p)&1: w|=1<<(S-1-x)
+                    blob.extend(w.to_bytes(S//8,'big'))
         align(8)
         off_map=len(blob)
-        blob.extend(bytes(t['map']))
+        if wcell: blob.extend(b''.join(struct.pack('>H',v) for v in t['map']))
+        else: blob.extend(bytes(t['map']))
         align(8)
         struct.pack_into('>LL',blob,tile_fix,off_img,off_map)
     # music table (engine.s M_*): proj['songs'] = list of MOD files as bytes (up to 4),
@@ -252,9 +261,9 @@ def build(proj, aga):
     bss=0
     if t:
         size_now=(len(blob)+7)//8*8
-        bufpl=((t['h']*16+16)*44+(t['w']+2)*2+64+7)//8*8
+        bufpl=(2*ring+8+7)//8*8                # the ring, kept twice
         off_wmap=size_now
-        off_buf=off_wmap+(t['w']*t['h']+7)//8*8
+        off_buf=off_wmap+(t['w']*t['h']*(2 if wcell else 1)+7)//8*8
         bss=off_buf+depth*bufpl-size_now
         struct.pack_into('>LLL',blob,tile_fix+8,off_wmap,off_buf,bufpl)
     proj['_need']=((len(blob)+7)//8*8)+bss if t else 0     # bytes needed from the data start

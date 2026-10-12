@@ -29,8 +29,8 @@ function tut_init()
         tut_step(WS_BACKDROP, "bd_solid", "Ground colours", "Mark the colours of your grass, floors and platforms as ground. Platform players, hoppers and fallers walk along the top of them - up and down every hill."),
         tut_step(WS_BACKDROP, "bd_tab_sky", "Copper sky", "The classic Amiga trick: the copper chip changes colour 0 on every line, painting a smooth sunset, sea or night sky behind your backdrop for free. Paint the sky areas in colour 0 to let it show."),
         // ---------- TILES ----------
-        tut_step(WS_TILES, "tile_on", "A tile world", "Switch this on and your game plays on a big map of 16 x 16 tiles - up to 128 across and 64 down - that scrolls every way as the player moves. Great for cave diggers and platformers."),
-        tut_step(WS_TILES, "tile_tab_1", "Tile set", "Draw up to 32 tiles: grass, dirt, stone, gold, brick... Each says if it is solid, if it can be dug, how long it takes and what it scores."),
+        tut_step(WS_TILES, "tile_on", "A tile world", "Switch this on and your game plays on a big map of tiles - up to 256 x 256 tiles (1024 x 1024 in ADAM Pro) - that scrolls every way as the player moves. Great for cave diggers and platformers."),
+        tut_step(WS_TILES, "tile_tab_1", "Tile set", "Pick a tile size (8 x 8 to 64 x 64) and draw up to 96 kinds of tile (512 in ADAM Pro): grass, dirt, stone, gold, brick... Each says if it is solid, if it can be dug, how long it takes and what it scores."),
         tut_step(WS_TILES, "tile_tab_0", "Map", "Paint the map with the tile picked on the left. Box fills a rectangle, Pick grabs a tile from the map. Drag actors to place them anywhere in the world."),
         tut_step(WS_TILES, "tile_dig", "Dig and place", "The player digs with fire + a direction and puts tiles back with fire on its own - just like Terraria. Load the Dig Deep example to try it."),
         // ---------- LEVELS ----------
@@ -54,11 +54,12 @@ function tut_init()
         tut_step(WS_ACTORS, "act_anim", "Animation", "Give an actor a second sprite and it flips between the two - a walk cycle, a flapping fin or a twinkling star. 'Only when moving' is perfect for walking."),
         // ---------- ANIMATE ----------
         tut_step(WS_ANIMATE, "anim_mid_0", "Two joysticks", "The Moving joystick: Idle in the middle (click the stick) and an animation for each of the 8 ways it can move - people walking every way, a ship that veers and holds its lean (set it to Once). Hover a direction and the stick pushes that way."),
-        tut_step(WS_ANIMATE, "anim_slot_0", "Frames", "Up to 8 frames each. Click a frame - or the + after the last one - then click sprites in the bank to fill it in."),
-        tut_step(WS_ANIMATE, "anim_bank_0", "The sprite bank", "All your sprites, ready to use as frames. Draw them on the Sprites page - there is room for 128."),
+        tut_step(WS_ANIMATE, "anim_slot_0", "Frames", "Up to 4 frames each (8 in ADAM Pro). Click a frame - or the + after the last one - then click sprites in the bank to fill it in."),
+        tut_step(WS_ANIMATE, "anim_bank_0", "The sprite bank", "All your sprites, ready to use as frames. Draw them on the Sprites page - there is room for 64 (128 in ADAM Pro)."),
         tut_step(WS_ANIMATE, "anim_rate", "Speed and style", "How long each frame stays on screen, and whether it loops, plays once or ping-pongs back and forth."),
         tut_step(WS_ANIMATE, "anim_mid_1", "With Fire", "The second joystick is for the player holding fire: Fire in the middle and fire + each direction - digging, shooting, swinging a sword. Its fire button lights up."),
         tut_step(WS_ANIMATE, "anim_tab_2", "In air and Falling", "Walk is used by any direction without frames of its own. In air and Falling play while a platform player, hopper or faller jumps and drops."),
+        tut_step(WS_ANIMATE, "anim_lib_tab_1", "Animation library", "Every animation your actors already have, playing live. Drag one onto any joystick slot - or onto Walk, In air or Falling - to copy it there. You can also drag one slot onto another."),
         tut_step(WS_ANIMATE, "anim_test", "Test it", "Switch Test on and drive the preview with the arrow keys, WASD or a gamepad, to see each animation as the Amiga will play it."),
         tut_step(WS_ANIMATE, "anim_flip", "Facing left", "Draw your frames facing right and switch this on: when the actor moves left, the Amiga shows them turned round."),
         // ---------- LOGIC ----------

@@ -8,11 +8,39 @@ function actor_names()
     return _n;
 }
 
+/// Names for sprite drop-downs: the bank, or all 128 when a Pro project opened in
+/// ADAM Lite uses sprites past the Lite bank (those are marked Pro)
 function sprite_names()
 {
     var _n = [];
-    for (var i = 0; i < spr_bank_size(); i++) { array_push(_n, string(i + 1) + ": " + proj.sprites[i].name); }
+    var _count = spr_bank_size();
+    if (_count < SPR_COUNT && spr_used_past(_count)) { _count = SPR_COUNT; }
+    for (var i = 0; i < _count; i++)
+    {
+        var _nm = string(i + 1) + ": " + proj.sprites[i].name;
+        if (i >= spr_bank_size()) { _nm += "  (Pro)"; }
+        array_push(_n, _nm);
+    }
     return _n;
+}
+
+/// True when an actor uses a sprite slot at or past _n (as its sprite, second frame or a frame)
+function spr_used_past(_n)
+{
+    for (var a = 0; a < array_length(proj.actors); a++)
+    {
+        var _ac = proj.actors[a];
+        if (_ac.sprite >= _n || _ac.anim_sprite >= _n) { return true; }
+        for (var k = 0; k < array_length(_ac.anims); k++)
+        {
+            var _fr = _ac.anims[k].frames;
+            for (var f = 0; f < array_length(_fr); f++)
+            {
+                if (_fr[f] >= _n) { return true; }
+            }
+        }
+    }
+    return false;
 }
 
 /// Colour key of a sprite design as the machine shows it
@@ -46,7 +74,7 @@ function bobs_max(_m, _depth)
 function actor_dims(_ac)
 {
     var _s = proj.sprites[clamp(_ac.sprite, 0, SPR_COUNT - 1)];
-    if (pro_on() && (_ac.bob || spr_is_big(_s))) { return [_s.w, _s.h]; }
+    if (pro_on() && (_ac.bob || spr_is_big(_s))) { return [min(_s.w, lim_spr_w()), min(_s.h, lim_spr_h())]; }   // Lite cuts big ones to 32 x 32
     return [SPR_W, SPR_H];
 }
 
@@ -62,18 +90,17 @@ function bobs_load()
         if (_bob[i])
         {
             var _s = proj.sprites[clamp(proj.actors[i].sprite, 0, SPR_COUNT - 1)];
-            _cyc += _s.h * (_s.w div 16 + 1) * 6;
+            _cyc += min(_s.h, lim_spr_h()) * (min(_s.w, lim_spr_w()) div 16 + 1) * 6;
         }
     }
     return _cyc / BOB_CYCLES_PER_PLANE;
 }
 
-/// How many actors go on the disk: 8 in ADAM Lite, up to 32 in ADAM Pro
+/// How many actors go on the disk: up to 12 in ADAM Lite, 32 in ADAM Pro
 function actors_on_disk()
 {
     if (proj.tiles_on) { return min(ACT_MAX_SPR, array_length(proj.actors)); }     // tile world: hardware sprites only
-    if (pro_on()) { return min(ACT_MAX_ALL, array_length(proj.actors)); }
-    return min(ACT_MAX_SPR, array_length(proj.actors));
+    return min(lim_actors(), array_length(proj.actors));
 }
 
 /// For each actor on the disk, true when it is drawn as a BOB (blitter object)
@@ -158,8 +185,7 @@ function ws_actors_draw(_x1, _y1, _x2, _y2)
     var _na = array_length(proj.actors);
     sel_actor = clamp(sel_actor, 0, max(0, _na - 1));
     var _alloc = actors_alloc_channels();
-    var _amax = ACT_MAX_SPR;
-    if (pro_on()) { _amax = ACT_MAX_ALL; }
+    var _amax = lim_actors();
 
     // ---------------- cast list ----------------
     ui_panel(_x1, _y1, _x1 + _lw, _y2, "Cast  (" + string(_na) + " / " + string(_amax) + ")");
@@ -209,8 +235,8 @@ function ws_actors_draw(_x1, _y1, _x2, _y2)
     var _bw = _lw - 32;
     var _st = BTN_ACCENT;
     if (_na >= _amax) { _st = BTN_GHOST; }
-    var _addhelp = "Add actor|Adds a new actor (up to 8 - the Amiga has 8 hardware sprites; more as BOBs in ADAM Pro). New actors start in the middle of the screen.";
-    if (pro_on()) { _addhelp = "Add actor|Adds a new actor, up to 32. The first 8 can be hardware sprites; the rest are BOBs, drawn by the blitter. New actors start in the middle of the screen."; }
+    var _addhelp = "Add actor|Adds a new actor, up to " + string(_amax) + ". The first 8 can be hardware sprites; the rest are BOBs, drawn by the blitter. New actors start in the middle of the screen.";
+    if (!pro_edition()) { _addhelp += " (ADAM Lite: 12 - the 8 hardware sprites, the rest BOBs; ADAM Pro: up to " + string(ACT_MAX_ALL) + ".)"; }
     if (ui_button("act_add", _x1 + 16, _by, _bw, 34, "Add actor", _addhelp, _st))
     {
         if (_na < _amax)
@@ -224,8 +250,7 @@ function ws_actors_draw(_x1, _y1, _x2, _y2)
         }
         else
         {
-            if (pro_on()) { toast("ADAM games can have up to " + string(ACT_MAX_ALL) + " actors", 1); }
-            else { toast("The Amiga has 8 hardware sprites - more actors (as BOBs) are part of ADAM Pro", 1); }
+            lim_toast("A game has up to " + string(_amax) + " actors", "up to " + string(ACT_MAX_ALL));
         }
     }
     if (ui_button("act_dup", _x1 + 16, _by + 42, _bw, 34, "Duplicate", "Duplicate|Makes a copy of the selected actor, slightly to the side.", BTN_NORMAL))
@@ -466,7 +491,7 @@ function ws_actors_draw(_x1, _y1, _x2, _y2)
         for (var ae = 0; ae < ANIM_COUNT; ae++) { _nfr += array_length(_s.anims[ae].frames); }
         ui_heading(_fx2, _y, "Animation");
         ui_text(_fx2, _y + 26, ui_text_fit("Made on the Animate page (" + string(_nfr) + " frames)", global.f_body, _fw2), global.TH.text_dim, fa_left, fa_middle, global.f_body, 1);
-        if (ui_button("act_goanim", _fx2, _y + 42, _fw2, 32, "Open the Animate page", "Animate page|Idle, walk, jump and fall animations of up to 8 frames each, for this actor.", BTN_NORMAL))
+        if (ui_button("act_goanim", _fx2, _y + 42, _fw2, 32, "Open the Animate page", "Animate page|Idle, walk, jump and fall animations (4 frames each in ADAM Lite, 8 in ADAM Pro), for this actor.", BTN_NORMAL))
         {
             ws_set(WS_ANIMATE);
         }

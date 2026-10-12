@@ -55,10 +55,10 @@ function palette_default()
     return _p;
 }
 
-/// Sprite bank slots: all 128, in ADAM Lite and ADAM Pro
+/// Sprite bank slots: 64 in ADAM Lite, 128 in ADAM Pro (lim_bank)
 function spr_bank_size()
 {
-    return SPR_COUNT;
+    return lim_bank();
 }
 
 function sprite_new(_name)
@@ -193,9 +193,11 @@ function anims_dirs_on(_ac)
     return false;
 }
 
-/// True when the actor has Fire animations (played while the player holds fire)
+/// True when the actor has Fire animations (played while the player holds fire).
+/// ADAM Lite has no With Fire joystick, so they are left out there.
 function anims_fire_used(_ac)
 {
+    if (!lim_fire()) { return false; }
     for (var i = ANIM_FIRE0; i < ANIM_COUNT; i++)
     {
         if (array_length(_ac.anims[i].frames) > 0) { return true; }
@@ -288,7 +290,17 @@ function anim_plan(_ac)
         for (var i = 0; i < ANIM_COUNT; i++)
         {
             var _src = _ac.anims[i];
-            if (array_length(_src.frames) > 0) { array_push(_e, { frames : _src.frames, rate : clamp(_src.rate, 2, 30), mode : clamp(_src.mode, 0, 2), flip : false }); }
+            if (array_length(_src.frames) > 0)
+            {
+                var _pf = _src.frames;
+                if (array_length(_pf) > lim_frames())
+                {
+                    // ADAM Lite plays the first 4 frames (as lite_trim writes them)
+                    _pf = [];
+                    for (var pf = 0; pf < lim_frames(); pf++) { array_push(_pf, _src.frames[pf]); }
+                }
+                array_push(_e, { frames : _pf, rate : clamp(_src.rate, 2, 30), mode : clamp(_src.mode, 0, 2), flip : false });
+            }
             else { array_push(_e, undefined); }
         }
         var _idle = _e[0];
@@ -464,7 +476,8 @@ function project_new()
         songs : [],                              // Phase 2 contract: 0..4 songs (Music page)
         level_song : array_create(LEVEL_MAX, -1), // Phase 2 contract: song per level, -1 = none
         tiles_on : false,                        // play on the tile map (Tiles page) instead of the backdrop
-        tiles : tiles_default(),                 // up to TILE_MAX tiles; 0 = air
+        tile_size : 16,                          // 8, 16, 32 or 64 pixels: every tile in the game
+        tiles : tiles_default(16),               // up to TILE_MAX tiles; 0 = air
         map_w : 64,
         map_h : 32,
         map : map_starter(64, 32),               // map_w x map_h tile numbers
@@ -693,6 +706,42 @@ function unpack_u8(_str, _n)
     return _arr;
 }
 
+/// Array of whole numbers 0-65535 -> base64 of the zlib-compressed 16-bit words
+/// (a map with more than 256 tile types)
+function pack_u16(_arr)
+{
+    var _n = array_length(_arr);
+    if (_n == 0) { return ""; }
+    var _b = buffer_create(_n * 2, buffer_fixed, 1);
+    for (var i = 0; i < _n; i++) { buffer_write(_b, buffer_u16, clamp(_arr[i], 0, 65535)); }
+    var _z = buffer_compress(_b, 0, _n * 2);
+    buffer_delete(_b);
+    var _s = buffer_base64_encode(_z, 0, buffer_get_size(_z));
+    buffer_delete(_z);
+    return _s;
+}
+
+/// The reverse of pack_u16: an array of exactly _n entries, or undefined
+function unpack_u16(_str, _n)
+{
+    if (!is_string(_str) || _str == "" || _n <= 0) { return undefined; }
+    var _z = buffer_base64_decode(_str);
+    if (!buffer_exists(_z)) { return undefined; }
+    var _b = buffer_decompress(_z);
+    buffer_delete(_z);
+    if (!buffer_exists(_b)) { return undefined; }
+    if (buffer_get_size(_b) != _n * 2)
+    {
+        buffer_delete(_b);
+        return undefined;
+    }
+    var _arr = array_create(_n, 0);
+    buffer_seek(_b, buffer_seek_start, 0);
+    for (var i = 0; i < _n; i++) { _arr[i] = buffer_read(_b, buffer_u16); }
+    buffer_delete(_b);
+    return _arr;
+}
+
 /// Shallow copy of a project (or part of one, as in an undo snapshot) with
 /// the big arrays packed. _src itself is not changed.
 function project_pack(_src)
@@ -729,7 +778,11 @@ function project_pack(_src)
     if (is_array(_src[$ "map"]))
     {
         variable_struct_remove(_out, "map");
-        _out.map_z = pack_u8(_src.map);
+        var _big = false;
+        var _lt0 = _src[$ "tiles"];
+        if (is_array(_lt0)) { _big = (array_length(_lt0) > 256); }
+        if (_big) { _out.map_z16 = pack_u16(_src.map); }      // more than 256 tile types: 16-bit cells
+        else { _out.map_z = pack_u8(_src.map); }
     }
     var _lt = _src[$ "tiles"];
     if (is_array(_lt))
@@ -826,6 +879,16 @@ function project_unpack(_raw)
         if (is_numeric(_mw) && is_numeric(_mh)) { _raw.map = unpack_u8(_mz, floor(_mw) * floor(_mh)); }
         variable_struct_remove(_raw, "map_z");
     }
+    var _mz16 = _raw[$ "map_z16"];
+    if (is_string(_mz16))
+    {
+        var _mw16 = _raw[$ "map_w"];
+        var _mh16 = _raw[$ "map_h"];
+        if (is_numeric(_mw16) && is_numeric(_mh16)) { _raw.map = unpack_u16(_mz16, floor(_mw16) * floor(_mh16)); }
+        variable_struct_remove(_raw, "map_z16");
+    }
+    var _tsz = 16;
+    if (is_numeric(_raw[$ "tile_size"])) { _tsz = tile_size_ok(_raw.tile_size); }
     var _lt = _raw[$ "tiles"];
     if (is_array(_lt))
     {
@@ -834,7 +897,7 @@ function project_unpack(_raw)
             var _tt = _lt[t];
             if (is_struct(_tt) && is_string(_tt[$ "pxz"]))
             {
-                _tt.px = unpack_u8(_tt.pxz, TILE_PX * TILE_PX);
+                _tt.px = unpack_u8(_tt.pxz, _tsz * _tsz);
                 variable_struct_remove(_tt, "pxz");
             }
         }
@@ -995,7 +1058,7 @@ function undo_keys(_ws)
         case WS_SOUND:    return ["sfx"];
         case WS_MUSIC:    return ["songs", "level_song"];
         case WS_ANIMATE:  return ["actors"];
-        case WS_TILES:    return ["tiles_on", "tiles", "map_w", "map_h", "map", "tile_dig", "actors"];
+        case WS_TILES:    return ["tiles_on", "tile_size", "tiles", "map_w", "map_h", "map", "tile_dig", "actors"];
     }
     return [];
 }

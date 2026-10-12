@@ -1,23 +1,73 @@
-/// ADAM - Tiles workspace: a tile set editor (up to 32 tiles of 16 x 16 in
-/// the backdrop colours) and a map editor for a tile world of up to
-/// 128 x 64 tiles that scrolls both ways behind the actors. The player can
-/// dig tiles (fire + a direction) and place them again (fire).
+/// ADAM - Tiles workspace: a tile set editor (tiles of 8 x 8, 16 x 16, 32 x 32
+/// or 64 x 64 pixels - one size per game - in the backdrop colours; up to 96
+/// in ADAM Lite and 512 in ADAM Pro) and a map editor for a tile world that
+/// scrolls both ways behind the actors (up to 256 x 256 tiles in Lite, 1024 x
+/// 1024 in Pro, and never more than 32640 pixels across). Memory is the real
+/// limit: the memory bar shows what the game needs. The player can dig tiles
+/// (fire + a direction) and place them again (fire).
 ///
 /// Tile 0 is always empty air: colour 0, so the copper sky shows through.
 /// Engine side: data block version 6, H_TILES / T_* / TP_* in engine.s.
 
-#macro TILE_MAX 32
-#macro TILE_PX 16
-#macro MAP_W_MIN 22
-#macro MAP_W_MAX 128
-#macro MAP_H_MIN 18
-#macro MAP_H_MAX 64
+#macro TILE_MAX 512             // tile types, ADAM Pro (lim_tiles)
+#macro MAP_MAX 1024             // map width / height in tiles, ADAM Pro (lim_map_w / lim_map_h)
+#macro WORLD_PX_MAX 32640       // the world is at most this many pixels across and down (engine words)
+#macro TILE_ATLAS_COLS 32       // tiles across the atlas surface
 
-function tile_new(_name)
+/// A tile size ADAM supports: 8, 16, 32 or 64 (anything else becomes 16)
+function tile_size_ok(_s)
+{
+    if (_s == 8 || _s == 16 || _s == 32 || _s == 64) { return _s; }
+    return 16;
+}
+
+/// The scrolling picture for tiles of _s pixels (engine.s T_*): shift = log2 S,
+/// ncol x nrow tiles, line bytes per line, ring bytes per plane (kept twice)
+function tile_geometry(_s)
+{
+    var _sh = 4;
+    if (_s == 8) { _sh = 3; }
+    if (_s == 32) { _sh = 5; }
+    if (_s == 64) { _sh = 6; }
+    var _nc = 320 div _s + 2;
+    var _nr = 256 div _s + 2;
+    var _line = _nc * _s div 8;
+    return { shift : _sh, ncol : _nc, nrow : _nr, line : _line, ring : _nr * _s * _line };
+}
+
+/// Smallest map in tiles: a screen and a bit (the engine's scrolling picture)
+function map_w_min(_s)
+{
+    return 320 div _s + 2;
+}
+
+function map_h_min(_s)
+{
+    return 256 div _s + 2;
+}
+
+/// Biggest map in tiles for this edition (_s = tile size)
+function map_w_max(_s)
+{
+    return min(lim_map_w(), WORLD_PX_MAX div _s);
+}
+
+function map_h_max(_s)
+{
+    return min(lim_map_h(), WORLD_PX_MAX div _s);
+}
+
+/// The tile size of the project (8, 16, 32 or 64)
+function tile_px()
+{
+    return proj.tile_size;
+}
+
+function tile_new(_name, _s)
 {
     return {
         name : _name,                       // up to 4 letters (shown on the HUD)
-        px : array_create(TILE_PX * TILE_PX, 0),
+        px : array_create(_s * _s, 0),      // _s x _s colour numbers
         solid : true,                       // actors stand on it and cannot walk through it
         dig : true,                         // the player can dig it
         hard : 12,                          // 50ths of a second of digging
@@ -31,7 +81,7 @@ function tile_new(_name)
 /// A small pattern helper for the starter tiles: _base with _dark / _light specks
 function tile_tex(_t, _base, _dark, _light, _seed)
 {
-    for (var i = 0; i < TILE_PX * TILE_PX; i++)
+    for (var i = 0; i < array_length(_t.px); i++)
     {
         var _h = ((i * 73 + _seed * 151) * 2654435761) mod 97;
         var _v = _base;
@@ -42,107 +92,133 @@ function tile_tex(_t, _base, _dark, _light, _seed)
     return _t;
 }
 
-/// 16 starter tiles in the default palette, so a new tile world can be painted at once
-function tiles_default()
+/// Pixels _px of a _from x _from tile as a _to x _to tile (nearest pixel)
+function tile_rescale_px(_px, _from, _to)
+{
+    var _out = array_create(_to * _to, 0);
+    for (var ty = 0; ty < _to; ty++)
+    {
+        for (var tx = 0; tx < _to; tx++)
+        {
+            _out[ty * _to + tx] = _px[(ty * _from div _to) * _from + (tx * _from div _to)];
+        }
+    }
+    return _out;
+}
+
+/// 16 starter tiles in the default palette, so a new tile world can be painted
+/// at once (drawn at 16 x 16, then made _s x _s)
+function tiles_default(_s)
 {
     var _t = [];
-    var _air = tile_new("AIR");
+    var _air = tile_new("AIR", 16);
     _air.solid = false;
     _air.dig = false;
     array_push(_t, _air);
-    var _g = tile_tex(tile_new("GRAS"), 11, 4, 12, 1);
+    var _g = tile_tex(tile_new("GRAS", 16), 11, 4, 12, 1);
     for (var gy = 0; gy < 4; gy++)
     {
-        for (var gx = 0; gx < TILE_PX; gx++)
+        for (var gx = 0; gx < 16; gx++)
         {
             var _gv = 9;
             if ((gx + gy) mod 3 == 0) { _gv = 10; }
             if (gy == 3) { _gv = 8; }
-            _g.px[gy * TILE_PX + gx] = _gv;
+            _g.px[gy * 16 + gx] = _gv;
         }
     }
     _g.sound = 3;
     array_push(_t, _g);
-    var _d = tile_tex(tile_new("DIRT"), 11, 4, 12, 2);
+    var _d = tile_tex(tile_new("DIRT", 16), 11, 4, 12, 2);
     _d.sound = 3;
     _d.becomes = 15;
     array_push(_t, _d);
-    var _s = tile_tex(tile_new("STON"), 15, 4, 1, 3);
-    _s.hard = 24;
-    _s.becomes = 15;
-    array_push(_t, _s);
-    var _sa = tile_tex(tile_new("SAND"), 12, 3, 14, 4);
+    var _st = tile_tex(tile_new("STON", 16), 15, 4, 1, 3);
+    _st.hard = 24;
+    _st.becomes = 15;
+    array_push(_t, _st);
+    var _sa = tile_tex(tile_new("SAND", 16), 12, 3, 14, 4);
     _sa.hard = 6;
     array_push(_t, _sa);
-    var _br = tile_new("BRIK");
-    for (var by = 0; by < TILE_PX; by++)
+    var _br = tile_new("BRIK", 16);
+    for (var by = 0; by < 16; by++)
     {
-        for (var bx = 0; bx < TILE_PX; bx++)
+        for (var bx = 0; bx < 16; bx++)
         {
             var _off = 0;
             if ((by div 4) mod 2 == 1) { _off = 4; }
             var _bv = 13;
             if (by mod 4 == 3 || (bx + _off) mod 8 == 7) { _bv = 15; }
-            _br.px[by * TILE_PX + bx] = _bv;
+            _br.px[by * 16 + bx] = _bv;
         }
     }
     _br.hard = 50;
     array_push(_t, _br);
-    var _w = tile_tex(tile_new("WOOD"), 11, 4, 12, 5);
+    var _w = tile_tex(tile_new("WOOD", 16), 11, 4, 12, 5);
     _w.solid = false;
     array_push(_t, _w);
-    var _l = tile_tex(tile_new("LEAF"), 9, 8, 10, 6);
+    var _l = tile_tex(tile_new("LEAF", 16), 9, 8, 10, 6);
     _l.solid = false;
     _l.hard = 3;
     array_push(_t, _l);
-    var _gold = tile_tex(tile_new("GOLD"), 15, 4, 14, 7);
+    var _gold = tile_tex(tile_new("GOLD", 16), 15, 4, 14, 7);
     _gold.hard = 30;
     _gold.points = 20;
     _gold.goal = true;
     _gold.sound = 0;
     _gold.becomes = 15;
     array_push(_t, _gold);
-    var _gem = tile_tex(tile_new("GEM"), 15, 4, 6, 8);
+    var _gem = tile_tex(tile_new("GEM", 16), 15, 4, 6, 8);
     _gem.hard = 40;
     _gem.points = 50;
     _gem.goal = true;
     _gem.sound = 0;
     _gem.becomes = 15;
     array_push(_t, _gem);
-    var _ice = tile_tex(tile_new("ICE"), 7, 6, 1, 9);
+    var _ice = tile_tex(tile_new("ICE", 16), 7, 6, 1, 9);
     _ice.hard = 16;
     array_push(_t, _ice);
-    var _wat = tile_tex(tile_new("WATR"), 2, 5, 6, 10);
+    var _wat = tile_tex(tile_new("WATR", 16), 2, 5, 6, 10);
     _wat.solid = false;
     _wat.dig = false;
     array_push(_t, _wat);
-    var _lava = tile_tex(tile_new("LAVA"), 13, 3, 14, 11);
+    var _lava = tile_tex(tile_new("LAVA", 16), 13, 3, 14, 11);
     _lava.solid = false;
     _lava.dig = false;
     array_push(_t, _lava);
-    var _coal = tile_tex(tile_new("COAL"), 15, 0, 4, 12);
+    var _coal = tile_tex(tile_new("COAL", 16), 15, 0, 4, 12);
     _coal.hard = 26;
     _coal.points = 2;
     _coal.becomes = 15;
     array_push(_t, _coal);
-    var _bed = tile_tex(tile_new("BEDR"), 4, 0, 15, 13);
+    var _bed = tile_tex(tile_new("BEDR", 16), 4, 0, 15, 13);
     _bed.dig = false;
     array_push(_t, _bed);
-    var _wall = tile_tex(tile_new("WALL"), 4, 0, 11, 14);
+    var _wall = tile_tex(tile_new("WALL", 16), 4, 0, 11, 14);
     _wall.solid = false;
     _wall.dig = false;
     array_push(_t, _wall);
+    if (_s != 16)
+    {
+        for (var k = 0; k < array_length(_t); k++) { _t[k].px = tile_rescale_px(_t[k].px, 16, _s); }
+    }
     return _t;
 }
 
-/// A tile from a loaded file, made safe
-function tile_from_loaded(_raw)
+/// A tile from a loaded file, made safe, _s x _s pixels (older files: 16 x 16)
+function tile_from_loaded(_raw, _s)
 {
-    var _t = struct_overlay(tile_new("TILE"), _raw);
+    var _t = struct_overlay(tile_new("TILE", _s), _raw);
     if (!is_string(_t.name)) { _t.name = "TILE"; }
     _t.name = string_upper(string_copy(_t.name, 1, 4));
-    if (!is_array(_t.px) || array_length(_t.px) != TILE_PX * TILE_PX) { _t.px = array_create(TILE_PX * TILE_PX, 0); }
-    for (var i = 0; i < TILE_PX * TILE_PX; i++)
+    if (!is_array(_t.px)) { _t.px = array_create(_s * _s, 0); }
+    if (array_length(_t.px) != _s * _s)
+    {
+        // a tile of another size (8, 16, 32 or 64): scaled; anything else starts empty
+        var _from = round(sqrt(array_length(_t.px)));
+        if (_from * _from == array_length(_t.px) && tile_size_ok(_from) == _from) { _t.px = tile_rescale_px(_t.px, _from, _s); }
+        else { _t.px = array_create(_s * _s, 0); }
+    }
+    for (var i = 0; i < _s * _s; i++)
     {
         if (!is_numeric(_t.px[i])) { _t.px[i] = 0; }
         _t.px[i] = clamp(floor(_t.px[i]), 0, PAL_MAX - 1);
@@ -161,16 +237,20 @@ function tile_from_loaded(_raw)
     return _t;
 }
 
-/// Checks the tile set and map of a loaded project (called by project_from_loaded)
+/// Checks the tile set and map of a loaded project (called by project_from_loaded).
+/// Keeps everything up to the ADAM Pro limits (a Lite build trims at build time).
 function tiles_fix(_p)
 {
+    if (!is_numeric(_p.tile_size)) { _p.tile_size = 16; }
+    _p.tile_size = tile_size_ok(_p.tile_size);
+    var _s = _p.tile_size;
     var _lt = _p.tiles;
     var _t = [];
     if (is_array(_lt))
     {
-        for (var i = 0; i < min(TILE_MAX, array_length(_lt)); i++) { array_push(_t, tile_from_loaded(_lt[i])); }
+        for (var i = 0; i < min(TILE_MAX, array_length(_lt)); i++) { array_push(_t, tile_from_loaded(_lt[i], _s)); }
     }
-    if (array_length(_t) == 0) { _t = tiles_default(); }
+    if (array_length(_t) == 0) { _t = tiles_default(_s); }
     _t[0].solid = false;                    // air is always air
     _t[0].dig = false;
     for (var k = 0; k < array_length(_t); k++)
@@ -180,10 +260,21 @@ function tiles_fix(_p)
     _p.tiles = _t;
     if (!is_numeric(_p.map_w)) { _p.map_w = 64; }
     if (!is_numeric(_p.map_h)) { _p.map_h = 32; }
-    _p.map_w = clamp(floor(_p.map_w), MAP_W_MIN, MAP_W_MAX);
-    _p.map_h = clamp(floor(_p.map_h), MAP_H_MIN, MAP_H_MAX);
-    var _n = _p.map_w * _p.map_h;
-    if (!is_array(_p.map) || array_length(_p.map) != _n) { _p.map = array_create(_n, 0); }
+    var _mw = clamp(floor(_p.map_w), map_w_min(_s), min(MAP_MAX, WORLD_PX_MAX div _s));
+    var _mh = clamp(floor(_p.map_h), map_h_min(_s), min(MAP_MAX, WORLD_PX_MAX div _s));
+    var _n = _mw * _mh;
+    if (!is_array(_p.map) || array_length(_p.map) != floor(_p.map_w) * floor(_p.map_h))
+    {
+        _p.map = array_create(_n, 0);
+        _p.map_w = _mw;
+        _p.map_h = _mh;
+    }
+    else
+    {
+        _p.map_w = floor(_p.map_w);
+        _p.map_h = floor(_p.map_h);
+        if (_mw != _p.map_w || _mh != _p.map_h) { map_resize(_p, _mw, _mh); }
+    }
     var _nt = array_length(_t);
     for (var c = 0; c < _n; c++)
     {
@@ -229,22 +320,58 @@ function map_resize(_p, _w, _h)
     _p.map = _nm;
 }
 
+/// Changes the tile size of the project: every tile is scaled (nearest pixel),
+/// the map keeps its tiles (so the world grows or shrinks in pixels, and the
+/// actors move with it), and the map is fitted to the new size's limits.
+function tile_set_size(_new)
+{
+    var _old = proj.tile_size;
+    _new = tile_size_ok(_new);
+    if (_new == _old) { return; }
+    for (var t = 0; t < array_length(proj.tiles); t++) { proj.tiles[t].px = tile_rescale_px(proj.tiles[t].px, _old, _new); }
+    proj.tile_size = _new;
+    var _mw = clamp(proj.map_w, map_w_min(_new), max(map_w_min(_new), min(MAP_MAX, WORLD_PX_MAX div _new)));
+    var _mh = clamp(proj.map_h, map_h_min(_new), max(map_h_min(_new), min(MAP_MAX, WORLD_PX_MAX div _new)));
+    if (_mw != proj.map_w || _mh != proj.map_h) { map_resize(proj, _mw, _mh); }
+    for (var a = 0; a < array_length(proj.actors) && proj.tiles_on; a++)
+    {
+        var _ac = proj.actors[a];
+        _ac.x = clamp(round(_ac.x * _new / _old), 0, proj.map_w * _new - SPR_W);
+        _ac.y = clamp(round(_ac.y * _new / _old), 0, proj.map_h * _new - SPR_H);
+    }
+    tile_camx = round(tile_camx * _new / _old);
+    tile_camy = round(tile_camy * _new / _old);
+    tiles_mark_all();
+}
+
 /// Width and height of the world actors move in: the screen, or the tile map
 function world_w()
 {
-    if (proj.tiles_on) { return proj.map_w * TILE_PX; }
+    if (proj.tiles_on) { return proj.map_w * proj.tile_size; }
     return BD_W;
 }
 
 function world_h()
 {
-    if (proj.tiles_on) { return proj.map_h * TILE_PX; }
+    if (proj.tiles_on) { return proj.map_h * proj.tile_size; }
     return BD_H;
 }
 
+/// Bytes the tile world takes on the Amiga at colour depth _depth: the tile
+/// pictures, the map (twice: as designed and as played), the scrolling picture
+function tiles_mem_bytes(_depth)
+{
+    var _s = proj.tile_size;
+    var _nt = array_length(proj.tiles);
+    var _cell = 1;
+    if (_nt > 256) { _cell = 2; }
+    return _nt * _depth * _s * _s div 8 + 2 * proj.map_w * proj.map_h * _cell + _depth * 2 * tile_geometry(_s).ring;
+}
+
 // ---------------------------------------------------------------------------
-// Pictures: an index surface with every tile side by side (the atlas) and the
-// whole map drawn from it, both coloured through the backdrop palette shader.
+// Pictures: an index surface with the tiles in a grid (the atlas, 32 across)
+// and a cached picture of the part of the map in view, both coloured through
+// the backdrop palette shader.
 // ---------------------------------------------------------------------------
 
 function tiles_mark_all()
@@ -253,26 +380,57 @@ function tiles_mark_all()
     tile_map_dirty = true;
 }
 
+/// Where tile _t is in the atlas
+function tile_atlas_x(_t)
+{
+    return (_t mod TILE_ATLAS_COLS) * proj.tile_size;
+}
+
+function tile_atlas_y(_t)
+{
+    return (_t div TILE_ATLAS_COLS) * proj.tile_size;
+}
+
 function tile_atlas_surface()
 {
-    var _aw = TILE_MAX * TILE_PX;
+    var _s = proj.tile_size;
+    var _aw = TILE_ATLAS_COLS * _s;
+    var _ah = max(1, ceil(array_length(proj.tiles) / TILE_ATLAS_COLS)) * _s;
+    if (surface_exists(tile_atlas_surf))
+    {
+        if (surface_get_width(tile_atlas_surf) != _aw || surface_get_height(tile_atlas_surf) != _ah)
+        {
+            surface_free(tile_atlas_surf);
+        }
+    }
     if (!surface_exists(tile_atlas_surf))
     {
-        tile_atlas_surf = surface_create(_aw, TILE_PX);
+        tile_atlas_surf = surface_create(_aw, _ah);
         tile_atlas_dirty = true;
     }
     if (tile_atlas_dirty)
     {
-        if (!buffer_exists(tile_atlas_buf)) { tile_atlas_buf = buffer_create(_aw * TILE_PX * 4, buffer_fixed, 1); }
-        buffer_fill(tile_atlas_buf, 0, buffer_u32, 0xff000000, _aw * TILE_PX * 4);
+        if (buffer_exists(tile_atlas_buf))
+        {
+            if (buffer_get_size(tile_atlas_buf) != _aw * _ah * 4)
+            {
+                buffer_delete(tile_atlas_buf);
+                tile_atlas_buf = -1;
+            }
+        }
+        if (!buffer_exists(tile_atlas_buf)) { tile_atlas_buf = buffer_create(_aw * _ah * 4, buffer_fixed, 1); }
+        buffer_fill(tile_atlas_buf, 0, buffer_u32, 0xff000000, _aw * _ah * 4);
         for (var t = 0; t < array_length(proj.tiles); t++)
         {
             var _px = proj.tiles[t].px;
-            for (var ty = 0; ty < TILE_PX; ty++)
+            var _ox = tile_atlas_x(t);
+            var _oy = tile_atlas_y(t);
+            for (var ty = 0; ty < _s; ty++)
             {
-                for (var tx = 0; tx < TILE_PX; tx++)
+                for (var tx = 0; tx < _s; tx++)
                 {
-                    buffer_poke(tile_atlas_buf, ((ty * _aw) + t * TILE_PX + tx) * 4, buffer_u32, 0xff000000 | _px[ty * TILE_PX + tx]);
+                    var _v = _px[ty * _s + tx];
+                    if (_v != 0) { buffer_poke(tile_atlas_buf, (((_oy + ty) * _aw) + _ox + tx) * 4, buffer_u32, 0xff000000 | _v); }
                 }
             }
         }
@@ -283,39 +441,78 @@ function tile_atlas_surface()
     return tile_atlas_surf;
 }
 
-/// Draws map cell (_c, _r) into the map surface (it must be the target)
-function tile_map_cell(_atlas, _c, _r)
+/// After drawing on tile _t: just that tile is put into the atlas again
+function tile_atlas_update(_t)
 {
-    var _t = proj.map[_r * proj.map_w + _c];
-    draw_surface_part(_atlas, _t * TILE_PX, 0, TILE_PX, TILE_PX, _c * TILE_PX, _r * TILE_PX);
+    if (!surface_exists(tile_atlas_surf) || tile_atlas_dirty)
+    {
+        tile_atlas_dirty = true;
+        return;
+    }
+    var _s = proj.tile_size;
+    var _tb = buffer_create(_s * _s * 4, buffer_fixed, 1);
+    var _px = proj.tiles[_t].px;
+    for (var i = 0; i < _s * _s; i++) { buffer_write(_tb, buffer_u32, 0xff000000 | _px[i]); }
+    var _ts = surface_create(_s, _s);
+    buffer_set_surface(_tb, _ts, 0);
+    buffer_delete(_tb);
+    surface_set_target(tile_atlas_surf);
+    gpu_set_blendenable(false);
+    draw_surface(_ts, tile_atlas_x(_t), tile_atlas_y(_t));
+    gpu_set_blendenable(true);
+    surface_reset_target();
+    surface_free(_ts);
+    tile_map_dirty = true;
 }
 
-function tile_map_surface()
+/// Draws map cell (_c, _r) into the view cache (it must be the target), whose
+/// top left is map pixel (tile_view_mx, tile_view_my)
+function tile_map_cell(_atlas, _c, _r)
+{
+    var _s = proj.tile_size;
+    var _t = proj.map[_r * proj.map_w + _c];
+    draw_surface_part(_atlas, tile_atlas_x(_t), tile_atlas_y(_t), _s, _s, _c * _s - tile_view_mx, _r * _s - tile_view_my);
+}
+
+/// The view cache: the map round map pixel (_mx, _my) .. + (_w, _h) as an index
+/// picture, starting on a tile edge and one tile bigger, so it is only redrawn
+/// when the view moves onto another tile or the map changes.
+function tile_view_surface(_mx, _my, _w, _h)
 {
     var _atlas = tile_atlas_surface();
-    var _mw = proj.map_w * TILE_PX;
-    var _mh = proj.map_h * TILE_PX;
+    var _ts = proj.tile_size;
+    _mx = (_mx div _ts) * _ts;
+    _my = (_my div _ts) * _ts;
+    _w = max(1, _w) + _ts;
+    _h = max(1, _h) + _ts;
     if (surface_exists(tile_map_surf))
     {
-        if (surface_get_width(tile_map_surf) != _mw || surface_get_height(tile_map_surf) != _mh)
-        {
-            surface_free(tile_map_surf);
-        }
+        if (surface_get_width(tile_map_surf) != _w || surface_get_height(tile_map_surf) != _h) { surface_free(tile_map_surf); }
     }
     if (!surface_exists(tile_map_surf))
     {
-        tile_map_surf = surface_create(_mw, _mh);
+        tile_map_surf = surface_create(_w, _h);
         tile_map_dirty = true;
     }
-    if (tile_map_dirty)
+    if (tile_map_dirty || _mx != tile_view_mx || _my != tile_view_my)
     {
+        tile_view_mx = _mx;
+        tile_view_my = _my;
+        var _s = proj.tile_size;
         surface_set_target(tile_map_surf);
         draw_clear_alpha(c_black, 1);
         gpu_set_blendenable(false);
         gpu_set_texfilter(false);
-        for (var r = 0; r < proj.map_h; r++)
+        var _c0 = max(0, _mx div _s);
+        var _r0 = max(0, _my div _s);
+        var _c1 = min(proj.map_w - 1, (_mx + _w - 1) div _s);
+        var _r1 = min(proj.map_h - 1, (_my + _h - 1) div _s);
+        for (var r = _r0; r <= _r1; r++)
         {
-            for (var c = 0; c < proj.map_w; c++) { tile_map_cell(_atlas, c, r); }
+            for (var c = _c0; c <= _c1; c++)
+            {
+                if (proj.map[r * proj.map_w + c] != 0) { tile_map_cell(_atlas, c, r); }
+            }
         }
         gpu_set_blendenable(true);
         gpu_set_texfilter(true);
@@ -325,7 +522,7 @@ function tile_map_surface()
     return tile_map_surf;
 }
 
-/// Sets map cell (_c, _r) to tile _t and redraws it
+/// Sets map cell (_c, _r) to tile _t and redraws it in the view cache
 function tile_map_set(_c, _r, _t)
 {
     if (_c < 0 || _r < 0 || _c >= proj.map_w || _r >= proj.map_h) { return; }
@@ -336,9 +533,11 @@ function tile_map_set(_c, _r, _t)
     if (surface_exists(tile_map_surf) && !tile_map_dirty)
     {
         var _atlas = tile_atlas_surface();
+        var _s = proj.tile_size;
         surface_set_target(tile_map_surf);
         gpu_set_blendenable(false);
         gpu_set_texfilter(false);
+        draw_rectangle_colour(_c * _s - tile_view_mx, _r * _s - tile_view_my, _c * _s - tile_view_mx + _s - 1, _r * _s - tile_view_my + _s - 1, c_black, c_black, c_black, c_black, false);
         tile_map_cell(_atlas, _c, _r);
         gpu_set_blendenable(true);
         gpu_set_texfilter(true);
@@ -350,11 +549,15 @@ function tile_map_set(_c, _r, _t)
 /// at screen (_x, _y) magnified _scale times, in the Amiga colours
 function tile_map_draw(_x, _y, _mx, _my, _w, _h, _scale)
 {
-    var _s = tile_map_surface();
+    var _fx = floor(_mx);
+    var _fy = floor(_my);
+    var _s = tile_view_surface(_fx, _fy, _w, _h);
+    var _ox = _fx - tile_view_mx;           // the view inside the cache
+    var _oy = _fy - tile_view_my;
     backdrop_shader_begin();
-    // the copper sky is fixed to the screen, so it follows the camera
-    backdrop_shader_sky(surface_get_height(_s), -_my);
-    draw_surface_part_ext(_s, _mx, _my, _w, _h, _x, _y, _scale, _scale, c_white, 1);
+    // the copper sky is fixed to the screen: the view's top line is line 0
+    backdrop_shader_sky(surface_get_height(_s), -_oy);
+    draw_surface_part_ext(_s, _ox, _oy, _w, _h, _x, _y, _scale, _scale, c_white, 1);
     backdrop_shader_end();
 }
 
@@ -362,9 +565,10 @@ function tile_map_draw(_x, _y, _mx, _my, _w, _h, _scale)
 function tile_draw(_t, _x, _y, _size)
 {
     var _a = tile_atlas_surface();
+    var _s = proj.tile_size;
     backdrop_shader_begin();
     backdrop_shader_sky(0, 120);   // air in a tile picture: one line of mid sky
-    draw_surface_part_ext(_a, _t * TILE_PX, 0, TILE_PX, TILE_PX, _x, _y, _size / TILE_PX, _size / TILE_PX, c_white, 1);
+    draw_surface_part_ext(_a, tile_atlas_x(_t), tile_atlas_y(_t), _s, _s, _x, _y, _size / _s, _size / _s, c_white, 1);
     backdrop_shader_end();
 }
 
@@ -379,16 +583,26 @@ function tiles_gfx_free()
 // The page
 // ---------------------------------------------------------------------------
 
-/// The grid of tiles to pick from. Returns the bottom y.
-function tiles_grid(_x, _y, _w, _id)
+/// The grid of tiles to pick from, scrolling in the box _y .. _y2. Returns the bottom y.
+function tiles_grid(_x, _y, _w, _y2, _id)
 {
     var _cols = 5;
     var _cell = floor((_w - (_cols - 1) * 6) / _cols);
     var _n = array_length(proj.tiles);
+    var _content = ceil(_n / _cols) * (_cell + 6) + 4;
+    var _boxh = min(_content, _y2 - _y);
+    if (_content > _boxh)
+    {
+        // room for the scroll bar
+        _cell = floor((_w - 14 - (_cols - 1) * 6) / _cols);
+        _content = ceil(_n / _cols) * (_cell + 6) + 4;
+    }
+    var _off = ui_scroll_begin(_id + "scroll", _x - 4, _y - 2, _x + _w + 4, _y + _boxh, _content);
     for (var i = 0; i < _n; i++)
     {
         var _gx = _x + (i mod _cols) * (_cell + 6);
-        var _gy = _y + (i div _cols) * (_cell + 6);
+        var _gy = _y + (i div _cols) * (_cell + 6) - _off;
+        if (_gy < _y - _cell || _gy > _y + _boxh) { continue; }
         var _t = proj.tiles[i];
         var _what = "";
         if (_t.solid) { _what += "solid"; }
@@ -399,6 +613,12 @@ function tiles_grid(_x, _y, _w, _id)
         ui_rrect(_gx, _gy, _gx + _cell, _gy + _cell, 6, pal_col(0), pal_col(0), 1);
         tile_draw(i, _gx + 3, _gy + 3, _cell - 6);
         if (i == 0) { ui_text(_gx + _cell / 2, _gy + _cell / 2, "air", global.TH.text_faint, fa_center, fa_middle, global.f_small, 1); }
+        if (i >= lim_tiles())
+        {
+            // a Pro project in Lite: this tile is air on the disk
+            ui_rrect(_gx, _gy, _gx + _cell, _gy + _cell, 6, c_black, c_black, 0.5);
+            ui_text(_gx + _cell / 2, _gy + _cell / 2, "Pro", global.TH.warn, fa_center, fa_middle, global.f_small, 1);
+        }
         if (tile_sel == i) { ui_rrect_line(_gx - 2, _gy - 2, _gx + _cell + 2, _gy + _cell + 2, 8, global.TH.accent, 1, 2); }
         else if (_hot) { ui_rrect_line(_gx - 1, _gy - 1, _gx + _cell + 1, _gy + _cell + 1, 7, global.TH.accent, 0.6, 1); }
         if (_hot && ui_pressed)
@@ -407,7 +627,8 @@ function tiles_grid(_x, _y, _w, _id)
             tile_sel = i;
         }
     }
-    return _y + ceil(_n / _cols) * (_cell + 6);
+    ui_scroll_end(_id + "scroll", _x - 4, _y - 2, _x + _w + 4, _y + _boxh, _content);
+    return _y + _boxh + 4;
 }
 
 function ws_tiles_draw(_x1, _y1, _x2, _y2)
@@ -419,26 +640,27 @@ function ws_tiles_draw(_x1, _y1, _x2, _y2)
     var _cx2 = _x2 - _rw - 12;
 
     // ---------------- left: the tiles, and the world settings ----------------
-    ui_panel(_x1, _y1, _x1 + _lw, _y2, "Tiles (" + string(array_length(proj.tiles)) + " / " + string(TILE_MAX) + ")");
-    var _ly = tiles_grid(_x1 + 16, _y1 + 54, _lw - 32, "tile_pick_") + 10;
+    ui_panel(_x1, _y1, _x1 + _lw, _y2, "Tiles (" + string(array_length(proj.tiles)) + " / " + string(lim_tiles()) + ")");
+    var _S = proj.tile_size;
+    var _ly = tiles_grid(_x1 + 16, _y1 + 54, _lw - 32, max(_y1 + 160, _y2 - 360), "tile_pick_") + 10;
     var _bw = floor((_lw - 32 - 8) / 2);
-    if (ui_button("tile_add", _x1 + 16, _ly, _bw, 30, "New tile", "New tile|Adds a tile (up to 32), starting as a copy of the one picked.", BTN_NORMAL))
+    if (ui_button("tile_add", _x1 + 16, _ly, _bw, 30, "New tile", "New tile|Adds a tile (up to " + string(lim_tiles()) + "), starting as a copy of the one picked.", BTN_NORMAL))
     {
-        if (array_length(proj.tiles) < TILE_MAX)
+        if (array_length(proj.tiles) < lim_tiles())
         {
             undo_mark("tileadd" + string(current_time));
-            var _nt = tile_from_loaded(json_parse(json_stringify(proj.tiles[tile_sel])));
+            var _nt = tile_from_loaded(json_parse(json_stringify(proj.tiles[tile_sel])), _S);
             if (tile_sel == 0)
             {
-                _nt = tile_new("NEW");
-                for (var q = 0; q < TILE_PX * TILE_PX; q++) { _nt.px[q] = 1; }
+                _nt = tile_new("NEW", _S);
+                for (var q = 0; q < _S * _S; q++) { _nt.px[q] = 1; }
             }
             else { _nt.name = string_copy(_nt.name, 1, 3) + "2"; }
             array_push(proj.tiles, _nt);
             tile_sel = array_length(proj.tiles) - 1;
             tile_atlas_dirty = true;
         }
-        else { toast("A tile set has up to " + string(TILE_MAX) + " tiles", 1); }
+        else { lim_toast("A tile set has up to " + string(lim_tiles()) + " tiles", string(TILE_MAX) + " tiles"); }
     }
     var _dst = BTN_DANGER;
     if (tile_sel == 0 || tile_sel != array_length(proj.tiles) - 1) { _dst = BTN_GHOST; }
@@ -461,7 +683,23 @@ function ws_tiles_draw(_x1, _y1, _x2, _y2)
             tiles_mark_all();
         }
     }
-    _ly += 46;
+    _ly += 40;
+    ui_heading(_x1 + 16, _ly, "Tile size (one size for the whole game)");
+    _ly += 18;
+    var _sizes = [8, 16, 32, 64];
+    var _scur = 1;
+    for (var si = 0; si < 4; si++)
+    {
+        if (_sizes[si] == _S) { _scur = si; }
+    }
+    var _snew = ui_dropdown("tile_size", _x1 + 16, _ly, _lw - 32, 30, ["8 x 8 pixels", "16 x 16 pixels", "32 x 32 pixels", "64 x 64 pixels"], _scur, "Tile size|Every tile in the game is this size. 8 x 8: fine detail and huge worlds; 16 x 16: the classic Amiga size; 32 x 32 and 64 x 64: big chunky blocks with lots of detail each (and more memory - watch the bar at the bottom). Changing it scales every tile; you can Undo it.");
+    if (_snew != _scur)
+    {
+        undo_mark_full("tilesz" + string(current_time));
+        tile_set_size(_sizes[_snew]);
+        _S = proj.tile_size;
+    }
+    _ly += 40;
     ui_heading(_x1 + 16, _ly, "Tile world");
     _ly += 20;
     var _on = ui_toggle("tile_on", _x1 + 16, _ly, "Use a tile world", proj.tiles_on, "Tile world|The game plays on this map instead of the backdrop: it scrolls left, right, up and down as the player moves, and actors stand on solid tiles. The backdrop is still used for the title, the level cards and the HUD strip at the top. Up to 8 actors, all hardware sprites.");
@@ -474,8 +712,8 @@ function ws_tiles_draw(_x1, _y1, _x2, _y2)
             // actors start near the top left of the map, inside it
             for (var a = 0; a < array_length(proj.actors); a++)
             {
-                proj.actors[a].x = clamp(proj.actors[a].x, 0, world_w() - 16);
-                proj.actors[a].y = clamp(proj.actors[a].y, 0, world_h() - 24);
+                proj.actors[a].x = clamp(proj.actors[a].x, 0, world_w() - SPR_W);
+                proj.actors[a].y = clamp(proj.actors[a].y, 0, world_h() - SPR_H);
             }
         }
         else
@@ -495,8 +733,16 @@ function ws_tiles_draw(_x1, _y1, _x2, _y2)
     ui_heading(_x1 + 16, _ly, "Map size (tiles)");
     _ly += 18;
     var _hw = floor((_lw - 32 - 8) / 2);
-    var _nw = ui_stepper("tile_mw", _x1 + 16, _ly, _hw, proj.map_w, MAP_W_MIN, MAP_W_MAX, "Map width|In tiles of 16 pixels: 22 to 128 (a screen is 20). Making it smaller cuts off the right-hand side.");
-    var _nh = ui_stepper("tile_mh", _x1 + 16 + _hw + 8, _ly, _hw, proj.map_h, MAP_H_MIN, MAP_H_MAX, "Map height|In tiles of 16 pixels: 18 to 64 (a screen is 16). Making it smaller cuts off the bottom.");
+    var _mwmax = map_w_max(_S);
+    if (proj.map_w > _mwmax) { _mwmax = proj.map_w; }      // a Pro project in Lite: never cut it here
+    var _mhmax = map_h_max(_S);
+    if (proj.map_h > _mhmax) { _mhmax = proj.map_h; }
+    var _prohelp = "";
+    if (!pro_edition()) { _prohelp = " ADAM Pro goes to " + string(min(MAP_MAX, WORLD_PX_MAX div _S)) + "."; }
+    var _mwhelp = "Map width|In tiles of " + string(_S) + " pixels: " + string(map_w_min(_S)) + " to " + string(map_w_max(_S)) + " (a screen is " + string(320 div _S) + "). Hold Shift for steps of 10. Making it smaller cuts off the right-hand side." + _prohelp;
+    var _mhhelp = "Map height|In tiles of " + string(_S) + " pixels: " + string(map_h_min(_S)) + " to " + string(map_h_max(_S)) + " (a screen is " + string(256 div _S) + "). Hold Shift for steps of 10. Making it smaller cuts off the bottom." + _prohelp;
+    var _nw = ui_stepper("tile_mw", _x1 + 16, _ly, _hw, proj.map_w, map_w_min(_S), _mwmax, _mwhelp);
+    var _nh = ui_stepper("tile_mh", _x1 + 16 + _hw + 8, _ly, _hw, proj.map_h, map_h_min(_S), _mhmax, _mhhelp);
     if (_nw != proj.map_w || _nh != proj.map_h)
     {
         undo_mark("tilesize");
@@ -504,12 +750,13 @@ function ws_tiles_draw(_x1, _y1, _x2, _y2)
         tile_map_dirty = true;
     }
     _ly += 40;
-    ui_text_wrap(_x1 + 16, _ly, string(proj.map_w * TILE_PX) + " x " + string(proj.map_h * TILE_PX) + " pixels - " + string(proj.map_w * proj.map_h) + " tiles", global.TH.text_faint, _lw - 32, global.f_small, 1);
+    var _mkb = ceil(tiles_mem_bytes(clamp(proj.depth, 1, machine_cur().max_depth)) / 1024);
+    ui_text_wrap(_x1 + 16, _ly, string(proj.map_w * _S) + " x " + string(proj.map_h * _S) + " pixels (" + string_format(proj.map_w * _S / 320, 0, 1) + " x " + string_format(proj.map_h * _S / 256, 0, 1) + " screens) - the tile world needs about " + string(_mkb) + " KB of chip RAM", global.TH.text_faint, _lw - 32, global.f_small, 1);
 
     // ---------------- centre: Tile set or Map ----------------
     ui_panel(_cx1, _y1, _cx2, _y2, "");
     var _tabs = ["Map", "Tile set"];
-    var _thelp = ["Map|Paint the world with tiles and drag actors to where they start.", "Tile set|Draw the tiles, 16 x 16 pixels in the backdrop colours, and say what each one does."];
+    var _thelp = ["Map|Paint the world with tiles and drag actors to where they start.", "Tile set|Draw the tiles, " + string(_S) + " x " + string(_S) + " pixels in the backdrop colours, and say what each one does."];
     for (var tb = 0; tb < 2; tb++)
     {
         if (ui_tab("tile_tab_" + string(tb), _cx1 + 16 + tb * 120, _y1 + 12, 114, 30, _tabs[tb], tile_page == tb, _thelp[tb])) { tile_page = tb; }
@@ -560,13 +807,11 @@ function ws_tiles_draw(_x1, _y1, _x2, _y2)
         ui_heading(_fx, _y, "Actual size");
         ui_inset(_fx, _y + 18, _fx + _fw, _y + 18 + 70, 8);
         var _ax = _fx + 10;
-        for (var sc = 1; sc <= 3; sc++)
-        {
-            ui_rrect(_ax - 2, _y + 26, _ax + TILE_PX * sc + 2, _y + 28 + TILE_PX * sc, 2, pal_col(0), pal_col(0), 1);
-            tile_draw(tile_sel, _ax, _y + 27, TILE_PX * sc);
-            _ax += TILE_PX * sc + 16;
-        }
-        // three in a row, to check how it tiles
+        // actual size (twice as big for small tiles), then three in a row to check how it tiles
+        var _shown = min(56, _S * max(1, 32 div _S));
+        ui_rrect(_ax - 2, _y + 26, _ax + _shown + 2, _y + 28 + _shown, 2, pal_col(0), pal_col(0), 1);
+        tile_draw(tile_sel, _ax, _y + 27, _shown);
+        _ax += _shown + 16;
         for (var rr = 0; rr < 3; rr++) { tile_draw(tile_sel, _ax + rr * 32, _y + 27, 32); }
     }
 }
@@ -575,25 +820,29 @@ function ws_tiles_draw(_x1, _y1, _x2, _y2)
 function tiles_set_editor(_x1, _y1, _x2, _y2)
 {
     var _t = proj.tiles[tile_sel];
+    var _S = proj.tile_size;
     var _ncol = pal_count();
     var _pcols = 16;
     var _pcell = min(26, floor((_x2 - _x1 - 40 - (_pcols - 1) * 4) / _pcols));
     var _prow = ceil(_ncol / _pcols);
     var _ph = _prow * (_pcell + 4) + 30;
     var _avail = min(_x2 - _x1 - 40, _y2 - _y1 - _ph - 80);
-    var _ps = max(8, floor(_avail / TILE_PX));
-    var _gw = _ps * TILE_PX;
+    var _ps = max(4, floor(_avail / _S));
+    var _gw = _ps * _S;
     var _gx = floor((_x1 + _x2 - _gw) / 2);
     var _gy = _y1 + 10;
     ui_rrect(_gx - 8, _gy - 8, _gx + _gw + 8, _gy + _gw + 8, 10, c_black, c_black, 0.35);
     tile_draw(tile_sel, _gx, _gy, _gw);
-    draw_set_alpha(0.14);
-    for (var gl = 0; gl <= TILE_PX; gl++)
+    if (_ps >= 6)
     {
-        draw_line_colour(_gx + gl * _ps, _gy, _gx + gl * _ps, _gy + _gw, c_white, c_white);
-        draw_line_colour(_gx, _gy + gl * _ps, _gx + _gw, _gy + gl * _ps, c_white, c_white);
+        draw_set_alpha(0.14);
+        for (var gl = 0; gl <= _S; gl++)
+        {
+            draw_line_colour(_gx + gl * _ps, _gy, _gx + gl * _ps, _gy + _gw, c_white, c_white);
+            draw_line_colour(_gx, _gy + gl * _ps, _gx + _gw, _gy + gl * _ps, c_white, c_white);
+        }
+        draw_set_alpha(1);
     }
-    draw_set_alpha(1);
     if (tile_sel == 0)
     {
         ui_text((_x1 + _x2) / 2, _gy + _gw / 2, "Air is always empty", global.TH.text_dim, fa_center, fa_middle, global.f_bold, 1);
@@ -601,8 +850,8 @@ function tiles_set_editor(_x1, _y1, _x2, _y2)
     var _hot = ui_register("tile_canvas", _gx, _gy, _gx + _gw - 1, _gy + _gw - 1, "Tile|Left-click draws with the colour picked below, right-click with colour 0 (see-through to the sky). The tile repeats across the map, so make its edges meet.");
     if (_hot && tile_sel > 0)
     {
-        var _hx = clamp(floor((ui_mx - _gx) / _ps), 0, TILE_PX - 1);
-        var _hy = clamp(floor((ui_my - _gy) / _ps), 0, TILE_PX - 1);
+        var _hx = clamp(floor((ui_mx - _gx) / _ps), 0, _S - 1);
+        var _hy = clamp(floor((ui_my - _gy) / _ps), 0, _S - 1);
         draw_rectangle_colour(_gx + _hx * _ps, _gy + _hy * _ps, _gx + _hx * _ps + _ps - 1, _gy + _hy * _ps + _ps - 1, c_white, c_white, c_white, c_white, true);
         if (ui_pressed || ui_rpressed)
         {
@@ -615,11 +864,11 @@ function tiles_set_editor(_x1, _y1, _x2, _y2)
             var _v = -1;
             if (ui_held) { _v = tile_pen; }
             if (ui_rheld) { _v = 0; }
-            if (_v >= 0 && _t.px[_hy * TILE_PX + _hx] != _v)
+            if (_v >= 0 && _t.px[_hy * _S + _hx] != _v)
             {
-                _t.px[_hy * TILE_PX + _hx] = _v;
+                _t.px[_hy * _S + _hx] = _v;
                 proj_dirty = true;
-                tile_atlas_dirty = true;
+                tile_atlas_update(tile_sel);
             }
         }
     }
@@ -639,20 +888,20 @@ function tiles_set_editor(_x1, _y1, _x2, _y2)
         if (ui_button("tile_op_" + string(o), _x1 + 20 + o * (_ow + 8), _by, _ow, 30, _ops[o], _ops[o] + "|Changes the whole tile. You can Undo it.", _st) && tile_sel > 0)
         {
             undo_mark("tileop" + string(current_time));
-            var _old = array_create(TILE_PX * TILE_PX, 0);
-            array_copy(_old, 0, _t.px, 0, TILE_PX * TILE_PX);
-            for (var p = 0; p < TILE_PX * TILE_PX; p++)
+            var _old = array_create(_S * _S, 0);
+            array_copy(_old, 0, _t.px, 0, _S * _S);
+            for (var p = 0; p < _S * _S; p++)
             {
-                var _ox = p mod TILE_PX;
-                var _oy = p div TILE_PX;
+                var _ox = p mod _S;
+                var _oy = p div _S;
                 var _nv = _old[p];
                 if (o == 0) { _nv = tile_pen; }
-                if (o == 1) { _nv = _old[_oy * TILE_PX + (TILE_PX - 1 - _ox)]; }
-                if (o == 2) { _nv = _old[(TILE_PX - 1 - _oy) * TILE_PX + _ox]; }
+                if (o == 1) { _nv = _old[_oy * _S + (_S - 1 - _ox)]; }
+                if (o == 2) { _nv = _old[(_S - 1 - _oy) * _S + _ox]; }
                 if (o == 3) { _nv = 0; }
                 _t.px[p] = _nv;
             }
-            tile_atlas_dirty = true;
+            tile_atlas_update(tile_sel);
         }
     }
 }
@@ -661,8 +910,9 @@ function tiles_set_editor(_x1, _y1, _x2, _y2)
 /// Ctrl: zoom), the middle button or Space + drag moves the view
 function tiles_map_editor(_x1, _y1, _x2, _y2)
 {
-    var _mw = proj.map_w * TILE_PX;
-    var _mh = proj.map_h * TILE_PX;
+    var _S = proj.tile_size;
+    var _mw = proj.map_w * _S;
+    var _mh = proj.map_h * _S;
     // tools
     var _tools = ["Paint", "Box", "Pick"];
     var _toolh = ["Paint|Left-click paints the picked tile, right-click paints air.", "Box|Drag a box to fill it with the picked tile (right-drag: air).", "Pick|Click a tile on the map to pick it."];
@@ -674,6 +924,17 @@ function tiles_map_editor(_x1, _y1, _x2, _y2)
     var _vy1 = _y1 + 4;
     var _vx2 = _x2 - 16;
     var _vy2 = _y2 - 40;
+    // zoom: 1/4 to 4; zooming out stops where the view would hold too many tiles to draw quickly
+    var _zooms = [0.25, 0.5, 1, 2, 3, 4];
+    var _zmin = 0;
+    while (_zmin < 3 && (((_vx2 - _vx1) / _zooms[_zmin] / _S) * ((_vy2 - _vy1) / _zooms[_zmin] / _S) > 12000 || (_vx2 - _vx1) / _zooms[_zmin] > 4000 || (_vy2 - _vy1) / _zooms[_zmin] > 4000)) { _zmin += 1; }
+    var _zi = 2;
+    for (var zq = 0; zq < 6; zq++)
+    {
+        if (_zooms[zq] == tile_zoom) { _zi = zq; }
+    }
+    _zi = max(_zi, _zmin);
+    tile_zoom = _zooms[_zi];
     var _sc = tile_zoom;
     var _vw = floor((_vx2 - _vx1) / _sc);              // map pixels shown
     var _vh = floor((_vy2 - _vy1) / _sc);
@@ -720,13 +981,13 @@ function tiles_map_editor(_x1, _y1, _x2, _y2)
     }
     var _help = "Map|Paint with the tile picked on the left (right-click: air). Drag an actor to move where it starts. Mouse wheel scrolls (Shift: sideways, Ctrl: zoom); drag with the middle button or Space held to move the view. The white box is the first screen the Amiga shows.";
     ui_register("tile_map", _dx, _dy, _dx + _vw * _sc, _dy + _vh * _sc, _help);
-    var _cellx = floor((ui_mx - _dx) / _sc + tile_camx) div TILE_PX;
-    var _celly = floor((ui_my - _dy) / _sc + tile_camy) div TILE_PX;
+    var _cellx = floor((ui_mx - _dx) / _sc + tile_camx) div _S;
+    var _celly = floor((ui_my - _dy) / _sc + tile_camy) div _S;
 
     // scrolling and zoom
     if (_inview && ui_wheel != 0)
     {
-        if (keyboard_check(vk_control)) { tile_zoom = clamp(tile_zoom + ui_wheel, 1, 4); }
+        if (keyboard_check(vk_control)) { tile_zoom = _zooms[clamp(_zi + sign(ui_wheel), _zmin, 5)]; }
         else if (keyboard_check(vk_shift)) { tile_camx -= ui_wheel * 48; }
         else { tile_camy -= ui_wheel * 48; }
         ui_wheel = 0;
@@ -778,13 +1039,17 @@ function tiles_map_editor(_x1, _y1, _x2, _y2)
     {
         if (_cellx >= 0 && _celly >= 0 && _cellx < proj.map_w && _celly < proj.map_h)
         {
-            var _hx = _dx + (_cellx * TILE_PX - tile_camx) * _sc;
-            var _hy = _dy + (_celly * TILE_PX - tile_camy) * _sc;
-            draw_rectangle_colour(_hx, _hy, _hx + TILE_PX * _sc - 1, _hy + TILE_PX * _sc - 1, c_white, c_white, c_white, c_white, true);
+            var _hx = _dx + (_cellx * _S - tile_camx) * _sc;
+            var _hy = _dy + (_celly * _S - tile_camy) * _sc;
+            draw_rectangle_colour(_hx, _hy, _hx + _S * _sc - 1, _hy + _S * _sc - 1, c_white, c_white, c_white, c_white, true);
             if (ui_pressed || ui_rpressed)
             {
                 ui_take_click();
                 if (tile_tool == 2) { tile_sel = proj.map[_celly * proj.map_w + _cellx]; }
+                else if (tile_sel >= lim_tiles() && !ui_rpressed)
+                {
+                    lim_toast("Tiles past " + string(lim_tiles()) + " are air on the disk", string(TILE_MAX) + " tiles");
+                }
                 else
                 {
                     undo_mark("tilepaint" + string(current_time));
@@ -815,23 +1080,25 @@ function tiles_map_editor(_x1, _y1, _x2, _y2)
         var _c1 = max(tile_box_c, _cellx);
         var _r0 = min(tile_box_r, _celly);
         var _r1 = max(tile_box_r, _celly);
-        var _bx1 = _dx + (_c0 * TILE_PX - tile_camx) * _sc;
-        var _by1 = _dy + (_r0 * TILE_PX - tile_camy) * _sc;
-        var _bx2 = _dx + ((_c1 + 1) * TILE_PX - tile_camx) * _sc;
-        var _by2 = _dy + ((_r1 + 1) * TILE_PX - tile_camy) * _sc;
+        var _bx1 = _dx + (_c0 * _S - tile_camx) * _sc;
+        var _by1 = _dy + (_r0 * _S - tile_camy) * _sc;
+        var _bx2 = _dx + ((_c1 + 1) * _S - tile_camx) * _sc;
+        var _by2 = _dy + ((_r1 + 1) * _S - tile_camy) * _sc;
         draw_rectangle_colour(_bx1, _by1, _bx2, _by2, global.TH.accent, global.TH.accent, global.TH.accent, global.TH.accent, true);
         if (!ui_held && !ui_rheld)
         {
             for (var br = max(0, _r0); br <= min(proj.map_h - 1, _r1); br++)
             {
-                for (var bc = max(0, _c0); bc <= min(proj.map_w - 1, _c1); bc++) { tile_map_set(bc, br, tile_paint_v); }
+                for (var bc = max(0, _c0); bc <= min(proj.map_w - 1, _c1); bc++) { proj.map[br * proj.map_w + bc] = tile_paint_v; }
             }
+            proj_dirty = true;
+            tile_map_dirty = true;
         }
     }
     if (!ui_held && !ui_rheld) { tile_painting = false; }
 
     // status line
-    var _st = "Map " + string(proj.map_w) + " x " + string(proj.map_h) + "  -  zoom " + string(tile_zoom) + "x";
+    var _st = "Map " + string(proj.map_w) + " x " + string(proj.map_h) + " tiles of " + string(_S) + " x " + string(_S) + "  -  zoom " + string(tile_zoom) + "x";
     if (_inview && _cellx >= 0 && _celly >= 0 && _cellx < proj.map_w && _celly < proj.map_h)
     {
         var _under = proj.map[_celly * proj.map_w + _cellx];

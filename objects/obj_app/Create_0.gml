@@ -191,7 +191,7 @@ tile_page = 0;              // 0 = Map, 1 = Tile set
 tile_sel = 1;               // tile picked
 tile_pen = 1;               // colour the tile editor draws with
 tile_tool = 0;              // map: 0 paint, 1 box, 2 pick
-tile_zoom = 2;
+tile_zoom = 2;              // map view: 0.25, 0.5, 1, 2, 3 or 4
 tile_camx = 0;              // map pixel at the top left of the map view
 tile_camy = 0;
 tile_drawing = false;       // a stroke on the tile editor
@@ -210,8 +210,10 @@ tile_drag_dy = 0;
 tile_atlas_surf = -1;       // index pictures of the tiles side by side
 tile_atlas_buf = -1;
 tile_atlas_dirty = true;
-tile_map_surf = -1;         // the whole map, drawn from the atlas
+tile_map_surf = -1;         // the part of the map in view, drawn from the atlas (a cache)
 tile_map_dirty = true;
+tile_view_mx = 0;           // map pixel at the top left of that cache
+tile_view_my = 0;
 
 // Animate page
 anim_sel = 0;               // 0 Idle, 1 Walk, 2 Jump, 3 Fall
@@ -229,6 +231,19 @@ anim_test_y = 0;
 anim_click_id = "";         // double-click: the control clicked last, and when
 anim_click_time = 0;
 anim_click_added = false;   // that click added a frame (a double-click takes it back)
+anim_lib_tab = 0;           // right panel: 0 the sprite bank, 1 the animation library
+anim_drag_armed = false;    // an animation was pressed: it is dragged once the mouse moves
+anim_drag_on = false;
+anim_drag_x0 = 0;
+anim_drag_y0 = 0;
+anim_drag_frames = [];      // what is dragged: frames, speed, how it plays, turned round, colours, name
+anim_drag_rate = 8;
+anim_drag_mode = 0;
+anim_drag_flip = false;
+anim_drag_cols = [0, 0, 0];
+anim_drag_label = "";
+anim_drag_src = -1;         // the joystick slot it came from (-1 = the library)
+anim_drop_k = -1;           // the slot it is over this frame (-1 = none)
 act_drag = false;
 act_camx = 0;                // tile world: the screen of the map the Actors stage shows
 act_camy = 0;

@@ -242,7 +242,31 @@ function adf_bob_dims(_p, _a)
 
 /// Builds the game data block. Returns { buf, size, warnings[], sound_bytes, plane_bytes }.
 /// _measure = true only sizes it (the memory bar): the backdrop planes are left blank.
+/// The game data block for project _p. ADAM Lite writes a copy trimmed to its
+/// limits (lite_trim): the project itself is not changed.
 function adam_data_block(_p, _measure = false)
+{
+    if (pro_edition()) { return adam_data_block_raw(_p, _measure); }
+    var _lwarn = [];
+    var _q = lite_trim(_p, _lwarn);
+    var _keep = proj;
+    proj = _q;                      // the helpers (actors_on_disk, anim_plan ...) read proj
+    var _r = undefined;
+    try
+    {
+        _r = adam_data_block_raw(_q, _measure);
+    }
+    catch (_err)
+    {
+        proj = _keep;
+        throw _err;
+    }
+    proj = _keep;
+    for (var i = 0; i < array_length(_lwarn); i++) { array_push(_r.warnings, _lwarn[i]); }
+    return _r;
+}
+
+function adam_data_block_raw(_p, _measure = false)
 {
     var _warn = [];
     var _m = machine_get(_p.machine);
@@ -251,8 +275,8 @@ function adam_data_block(_p, _measure = false)
     var _wh = BD_H;
     if (_p.tiles_on)
     {
-        _ww = _p.map_w * TILE_PX;
-        _wh = _p.map_h * TILE_PX;
+        _ww = _p.map_w * _p.tile_size;
+        _wh = _p.map_h * _p.tile_size;
     }
     var _ncol = 1 << _depth;
     var _acts = _p.actors;
@@ -629,14 +653,25 @@ function adam_data_block(_p, _measure = false)
         buf_align(_b, 8);
         _off_tiles = buffer_tell(_b);
         var _nt = array_length(_p.tiles);
+        var _ts = _p.tile_size;                         // 8, 16, 32 or 64
+        var _tg = tile_geometry(_ts);
+        var _wcell = (_nt > 256);                       // more than 256 tile types: map cells are words
         be16(_b, _p.map_w);
         be16(_b, _p.map_h);
         be16(_b, _nt);
         var _tf = 0;
         if (_p.tile_dig) { _tf = 1; }
+        if (_wcell) { _tf = _tf | 2; }
         be16(_b, _tf);
         _tile_fix = buffer_tell(_b);
         buf_zeros(_b, 20);              // T_IMG T_MAP T_WMAP T_BUF T_BUFPL, filled in below
+        be16(_b, _ts);                  // T_SIZE, T_SHIFT, T_LINE, T_NCOL, T_NROW, 0, T_RING
+        be16(_b, _tg.shift);
+        be16(_b, _tg.line);
+        be16(_b, _tg.ncol);
+        be16(_b, _tg.nrow);
+        be16(_b, 0);
+        be32(_b, _tg.ring);
         for (var ti = 0; ti < _nt; ti++)
         {
             var _td = _p.tiles[ti];
@@ -644,36 +679,55 @@ function adam_data_block(_p, _measure = false)
             if (_td.solid) { _fl = _fl | 1; }
             if (_td.dig) { _fl = _fl | 2; }
             if (_td.goal) { _fl = _fl | 4; }
-            be16(_b, _fl);
-            be16(_b, clamp(_td.hard, 1, 250));
-            be16(_b, clamp(_td.points, 0, 999));
             var _snd = 0xff;
             if (_td.sound >= 0) { _snd = _td.sound & 7; }
+            buffer_write(_b, buffer_u8, _fl);
             buffer_write(_b, buffer_u8, _snd);
-            buffer_write(_b, buffer_u8, clamp(_td.becomes, 0, _nt - 1));
+            be16(_b, clamp(_td.hard, 1, 250));
+            be16(_b, clamp(_td.points, 0, 999));
+            var _bec = _td.becomes;
+            if (_bec < 0 || _bec >= _nt) { _bec = 0; }
+            be16(_b, _bec);
         }
         for (var tn = 0; tn < _nt; tn++) { buf_fixed_text(_b, _p.tiles[tn].name, 5); buffer_seek(_b, buffer_seek_relative, -1); }
         buf_align(_b, 8);
         var _off_timg = buffer_tell(_b);
-        for (var tp = 0; tp < _nt; tp++)
+        if (_measure) { buf_zeros(_b, _nt * _depth * _ts * _ts div 8); }     // the memory bar only needs the size
+        for (var tp = 0; tp < _nt && !_measure; tp++)
         {
             var _tpx = _p.tiles[tp].px;
             for (var pl2 = 0; pl2 < _depth; pl2++)
             {
-                for (var ty = 0; ty < TILE_PX; ty++)
+                for (var ty = 0; ty < _ts; ty++)
                 {
-                    var _tw = 0;
-                    for (var tx = 0; tx < TILE_PX; tx++)
+                    for (var tb = 0; tb < _ts div 8; tb++)
                     {
-                        if (((_tpx[ty * TILE_PX + tx] >> pl2) & 1) != 0) { _tw = _tw | (0x8000 >> tx); }
+                        var _tw = 0;
+                        for (var tx = 0; tx < 8; tx++)
+                        {
+                            if (((_tpx[ty * _ts + tb * 8 + tx] >> pl2) & 1) != 0) { _tw = _tw | (0x80 >> tx); }
+                        }
+                        buffer_write(_b, buffer_u8, _tw);
                     }
-                    be16(_b, _tw);
                 }
             }
         }
         buf_align(_b, 8);
         var _off_tmap = buffer_tell(_b);
-        for (var mc = 0; mc < _p.map_w * _p.map_h; mc++) { buffer_write(_b, buffer_u8, clamp(_p.map[mc], 0, _nt - 1)); }
+        if (_measure)
+        {
+            var _cb = 1;
+            if (_wcell) { _cb = 2; }
+            buf_zeros(_b, _p.map_w * _p.map_h * _cb);
+        }
+        else if (_wcell)
+        {
+            for (var mc = 0; mc < _p.map_w * _p.map_h; mc++) { be16(_b, clamp(_p.map[mc], 0, _nt - 1)); }
+        }
+        else
+        {
+            for (var mc2 = 0; mc2 < _p.map_w * _p.map_h; mc2++) { buffer_write(_b, buffer_u8, clamp(_p.map[mc2], 0, _nt - 1)); }
+        }
         buf_align(_b, 8);
         poke32(_b, _tile_fix, _off_timg);
         poke32(_b, _tile_fix + 4, _off_tmap);
@@ -710,14 +764,16 @@ function adam_data_block(_p, _measure = false)
     var _size = buffer_tell(_b);
 
     // tile world: cleared memory after the data (not on the disk): the map as
-    // played, then the scrolling picture (engine.s: 44 bytes a line)
+    // played, then the scrolling picture - a ring kept twice (engine.s draw_cell)
     var _bss = 0;
     if (_p.tiles_on)
     {
         var _base = (_size + 7) & ~7;
-        var _bufpl = ((_p.map_h * 16 + 16) * 44 + (_p.map_w + 2) * 2 + 64 + 7) & ~7;
+        var _bufpl = (2 * tile_geometry(_p.tile_size).ring + 8 + 7) & ~7;
+        var _cellb = 1;
+        if (array_length(_p.tiles) > 256) { _cellb = 2; }
         var _off_wmap = _base;
-        var _off_tbuf = _off_wmap + ((_p.map_w * _p.map_h + 7) & ~7);
+        var _off_tbuf = _off_wmap + ((_p.map_w * _p.map_h * _cellb + 7) & ~7);
         _bss = _off_tbuf + _depth * _bufpl - _size;
         poke32(_b, _tile_fix + 8, _off_wmap);
         poke32(_b, _tile_fix + 12, _off_tbuf);
