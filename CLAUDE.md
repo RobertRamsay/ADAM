@@ -1,6 +1,6 @@
 # ADAM — Claude Code guide
 
-ADAM ("Amiga Developmental Machine") is a no-code Amiga game maker written in
+ADAM ("Amiga Dev and Art Machine") is a no-code Amiga game maker written in
 GameMaker (GML), by Bob / Polytricity Ltd. It is modelled on Bob's C64 No-Code
 tool (github.com/RobertRamsay/C64_NOCODE) and is a separate product from the
 older AMIGA_DEV_MACHINE_Git node editor.
@@ -45,7 +45,7 @@ One object, `obj_app`, draws everything in **Draw GUI** with an immediate-mode U
 | `scr_adf` | **Game data block + ADF writer**, FS-UAE launch/test-copy download. |
 | `scr_sfx` | Synth + WAV sample import, crunch (rate/bits), preview (exact Paula output). |
 | `scr_ws_*` | One script per page. `scr_ws_logic` also owns rule groups. |
-| `scr_examples`, `scr_intro`, `scr_tutorial` | Example loader, launch intro, tutorials. |
+| `scr_examples`, `scr_tutorial` | Example loader, tutorials. (There is no in-app intro; the YouTube intro is rendered by `tools/intro`.) |
 
 Project data (`proj`) is plain JSON-able structs/arrays; `.adam` files are `json_stringify(proj)`.
 
