@@ -21,6 +21,12 @@ if ($FsUae -ne "")
     if (-not (Test-Path "$FsUae\FS-UAE\Windows\x86-64\fs-uae.exe")) { throw "No FS-UAE\Windows\x86-64\fs-uae.exe in $FsUae" }
     if (Test-Path $fsdir) { throw "$fsdir is already there - remove it first" }
 }
+if (Get-Process | Where-Object { $_.ProcessName -match "^GameMaker" })
+{
+    "NOTE: GameMaker is open. It will see the project change while this builds and ask"
+    "      'Reload or Save?' - click Reload (the files are back as they were by then)."
+    "      Closing GameMaker first avoids the question."
+}
 $files = @("$repo\scripts\scr_licence\scr_licence.gml", "$repo\scripts\scr_adf\scr_adf.gml", "$repo\options\windows\options_windows.yy", "$repo\ADAM.yyp")
 $orig = @{}
 foreach ($f in $files) { $orig[$f] = [IO.File]::ReadAllBytes($f) }
