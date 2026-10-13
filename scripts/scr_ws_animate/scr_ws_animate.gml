@@ -178,11 +178,6 @@ function anim_dir_cell(_d)
 function anim_drop_into(_s, _k, _frames, _rate, _mode)
 {
     if (_k < 0 || _k >= ANIM_COUNT || !anim_can_edit()) { return; }
-    if (_k >= ANIM_FIRE0 && !lim_fire())
-    {
-        lim_toast("The With Fire joystick is part of ADAM Pro", "Fire animations for the player");
-        return;
-    }
     anim_begin_edit(_s, "animdrop" + string(current_time));
     var _fr = [];
     for (var f = 0; f < min(array_length(_frames), lim_frames()); f++) { array_push(_fr, _frames[f]); }
@@ -252,7 +247,6 @@ function anim_joystick(_which, _x, _y, _size, _s, _plan, _cols, _in, _test_k)
         _kd = ANIM_FIRE0 + 1;
     }
     var _lnames = anim_long_names();
-    var _locked = (_which == 1 && !lim_fire());      // ADAM Lite: the With Fire joystick is part of Pro
 
     // the base plate
     ui_rrect(_x, _y + 3, _x + _size, _y + _size + 3, 18, c_black, c_black, 0.35);
@@ -292,12 +286,7 @@ function anim_joystick(_which, _x, _y, _size, _s, _plan, _cols, _in, _test_k)
             _push = d;
             _hot_any = true;
         }
-        if (_hot && ui_pressed && _locked)
-        {
-            ui_take_click();
-            lim_toast("The With Fire joystick is part of ADAM Pro", "Fire animations for the player - digging, shooting, swinging");
-        }
-        else if (_hot && ui_pressed)
+        if (_hot && ui_pressed)
         {
             ui_take_click();
             if (anim_sel != _k)
@@ -477,7 +466,6 @@ function ws_animate_draw(_x1, _y1, _x2, _y2)
     var _s = proj.actors[sel_actor];
     var _cols = actor_cols_from(_alloc, sel_actor);
     anim_sel = clamp(anim_sel, 0, ANIM_COUNT - 1);
-    if (!lim_fire() && anim_sel >= ANIM_FIRE0) { anim_sel = 0; }
     var _names = anim_names();
     var _lnames = anim_long_names();
     var _gravity = (_s.role >= 6);
@@ -517,7 +505,7 @@ function ws_animate_draw(_x1, _y1, _x2, _y2)
         }
         // holding fire: the Fire animations, picked from the joystick direction
         var _fire_on = false;
-        if (!is_undefined(_plan)) { _fire_on = (_in[2] && lim_fire() && array_length(_plan) > ANIM_FIRE0); }
+        if (!is_undefined(_plan)) { _fire_on = (_in[2] && array_length(_plan) > ANIM_FIRE0); }
         if (_fire_on)
         {
             _k2 = ANIM_FIRE0;
@@ -546,7 +534,6 @@ function ws_animate_draw(_x1, _y1, _x2, _y2)
     for (var fe = ANIM_FIRE0; fe < ANIM_COUNT; fe++) { _nfire += array_length(_s.anims[fe].frames); }
     var _fh = "With Fire";
     if (_s.role != 0 && _s.role != 6) { _fh = "With Fire (player only)"; }
-    if (!lim_fire()) { _fh = "With Fire  (ADAM Pro)"; }
     ui_heading(_jx, _jy, _fh);
     _jy += 20;
     anim_joystick(1, _jx, _jy, _jsize, _s, _plan, _cols, _in, _test_k);

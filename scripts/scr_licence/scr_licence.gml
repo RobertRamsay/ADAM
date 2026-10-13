@@ -80,7 +80,7 @@ function lim_frames()
 /// True when the With Fire joystick (Fire animations) can be used
 function lim_fire()
 {
-    return pro_edition();
+    return true;
 }
 
 function lim_actors()
@@ -144,11 +144,10 @@ function lite_trim(_p, _warn)
     var _names = variable_struct_get_names(_p);
     for (var i = 0; i < array_length(_names); i++) { _q[$ _names[i]] = _p[$ _names[i]]; }
 
-    // actors: the first 12 (a tile world: 8), frames cut to 6, no Fire animations
+    // actors: the first 12 (a tile world: 8), frames cut to 6
     var _keepn = LITE_ACTORS;
     if (_p.tiles_on) { _keepn = ACT_MAX_TILE; }
     var _cut_frames = false;
-    var _cut_fire = false;
     var _acts = [];
     for (var a = 0; a < min(_keepn, array_length(_p.actors)); a++)
     {
@@ -162,12 +161,8 @@ function lite_trim(_p, _warn)
             var _sa = _src.anims[e];
             var _fr = [];
             var _nf = array_length(_sa.frames);
-            if (e >= ANIM_FIRE0 && _nf > 0) { _cut_fire = true; }
-            else
-            {
-                if (_nf > LITE_FRAMES) { _cut_frames = true; }
-                for (var f = 0; f < min(_nf, LITE_FRAMES); f++) { array_push(_fr, _sa.frames[f]); }
-            }
+            if (_nf > LITE_FRAMES) { _cut_frames = true; }
+            for (var f = 0; f < min(_nf, LITE_FRAMES); f++) { array_push(_fr, _sa.frames[f]); }
             array_push(_anims, { frames : _fr, rate : _sa.rate, mode : _sa.mode });
         }
         _ac.anims = _anims;
@@ -195,7 +190,6 @@ function lite_trim(_p, _warn)
         if (_dropped > 0) { array_push(_warn, string(_dropped) + " rules use actors that are not on the disk, so they are left out."); }
     }
     if (_cut_frames) { array_push(_warn, "Animations play their first " + string(LITE_FRAMES) + " frames in ADAM Lite - ADAM Pro plays up to " + string(ANIM_FRAMES) + "."); }
-    if (_cut_fire) { array_push(_warn, "Fire animations (the With Fire joystick) are part of ADAM Pro - the player keeps its normal animations."); }
 
     // sprites bigger than 32 x 32 are cut to 32 x 32
     var _cut_spr = false;

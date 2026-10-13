@@ -197,7 +197,7 @@ function anims_dirs_on(_ac)
 }
 
 /// True when the actor has Fire animations (played while the player holds fire).
-/// ADAM Lite has no With Fire joystick, so they are left out there.
+/// The With Fire joystick and its animations are available in Lite and Pro.
 function anims_fire_used(_ac)
 {
     if (!lim_fire()) { return false; }

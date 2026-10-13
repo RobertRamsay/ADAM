@@ -132,7 +132,6 @@ function about_pro_page(_tx1, _ty1, _tx2, _ty2, _a)
     var _intro = "ADAM Lite is free and includes: backdrops, copper skies, sprites and animations, BOBs, tile worlds, rules, levels, a custom HUD, sounds and music, on a real bootable disk. ADAM Pro adds extra example games and lessons to learn from and remix - they show an ADAM Pro label here - and raises the limits:\n\n" +
         "   HUD fonts:  5 built-in styles  ->  draw your own too\n" +
         "   Frames per animation:  6  ->  16\n" +
-        "   With Fire joystick (fire animations):  -  ->  yes\n" +
         "   Sprites and BOBs:  up to 32 x 32  ->  64 x 64\n" +
         "   Actors on the disk:  12 (8 sprites, the rest BOBs)  ->  32\n" +
         "   Sprite bank:  64  ->  128\n" +
