@@ -1844,6 +1844,7 @@ function music_editor(_ex1, _ey1, _ex2, _ey2, _song)
             var _dst_pitch = clamp(mus_ed_note_pitch + mus_ed_note_src[1] - _dst_row, 1, 36);
             if (_drums) { _dst_pitch = mus_ed_note_pitch; }
             var _dst = [_dst_step, _dst_row];
+            var _last_was = mus_ed_note_last;
             if (mus_ed_note_copy)
             {
                 // Ctrl-drag clone: only a ghost follows the mouse, nothing is
@@ -1894,6 +1895,13 @@ function music_editor(_ex1, _ey1, _ex2, _ey2, _song)
                     mus_ed_note_preview_pitch = _dst_pitch;
                     music_preview_note(mus_ed_note_inst, _dst_pitch, mus_ed_note_fx, mus_ed_note_fxp);
                 }
+            }
+            // Drums: play the hit each time the ghost lands on a new step or row
+            if (_drums && (mus_ed_note_last[0] != _last_was[0] || mus_ed_note_last[1] != _last_was[1]))
+            {
+                var _hit_row = mus_ed_note_src[1];
+                if (mus_ed_note_last[0] >= 0) { _hit_row = mus_ed_note_last[1]; }
+                music_preview_note(_rows[_hit_row], music_inst_root(_rows[_hit_row]));
             }
         }
         if (mus_ed_note_drag && !ui_held)
