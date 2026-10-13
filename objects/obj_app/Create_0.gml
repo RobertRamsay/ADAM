@@ -237,12 +237,11 @@ anim_t0 = 0;                // current_time the preview started
 anim_face_left = false;     // preview the frames turned round
 anim_knob = [[0, 0], [0, 0]];   // where each joystick's stick is drawn (it eases towards the way it is pushed)
 anim_test = false;          // drive the preview with arrow keys / WASD / gamepad
+anim_test_source = 0;       // 0 = keyboard, 1 = gamepad
 anim_test_entry = -1;       // animation the test is playing
 anim_test_t0 = 0;           // current_time it started
 anim_test_dir = 2;          // 8 directions: last way it moved (0 N .. 7 NW)
 anim_test_face = false;     // last moved left
-anim_test_x = 0;            // where the test actor has drifted to in the preview
-anim_test_y = 0;
 anim_click_id = "";         // double-click: the control clicked last, and when
 anim_click_time = 0;
 anim_click_added = false;   // that click added a frame (a double-click takes it back)

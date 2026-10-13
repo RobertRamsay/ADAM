@@ -87,15 +87,15 @@ function draw_sprite_amiga_flip(_i, _x, _y, _scale, _flip, _cols, _alpha)
     gpu_set_texfilter(true);
 }
 
-/// Joystick for the test mode: arrow keys, WASD or any gamepad (stick or d-pad);
-/// fire is Space, Ctrl or the gamepad's A button.
+/// Input for test mode: keyboard (arrows / WASD) or any gamepad (stick / d-pad).
+/// Fire is Space / Ctrl on keyboard, or A on a gamepad.
 /// Returns [dx, dy, fire] with -1, 0 or 1 each and fire true / false.
-function anim_test_input()
+function anim_test_input(_source)
 {
     var _dx = 0;
     var _dy = 0;
     var _fire = false;
-    if (ui_focus == "")
+    if (_source == 0 && ui_focus == "")
     {
         if (keyboard_check(vk_space) || keyboard_check(vk_control)) { _fire = true; }
         if (keyboard_check(vk_left) || keyboard_check(ord("A"))) { _dx -= 1; }
@@ -103,16 +103,19 @@ function anim_test_input()
         if (keyboard_check(vk_up) || keyboard_check(ord("W"))) { _dy -= 1; }
         if (keyboard_check(vk_down) || keyboard_check(ord("S"))) { _dy += 1; }
     }
-    for (var g = 0; g < 12; g++)
+    if (_source == 1)
     {
-        if (!gamepad_is_connected(g)) { continue; }
-        var _ax = gamepad_axis_value(g, gp_axislh);
-        var _ay = gamepad_axis_value(g, gp_axislv);
-        if (_ax < -0.4 || gamepad_button_check(g, gp_padl)) { _dx -= 1; }
-        if (_ax > 0.4 || gamepad_button_check(g, gp_padr)) { _dx += 1; }
-        if (_ay < -0.4 || gamepad_button_check(g, gp_padu)) { _dy -= 1; }
-        if (_ay > 0.4 || gamepad_button_check(g, gp_padd)) { _dy += 1; }
-        if (gamepad_button_check(g, gp_face1)) { _fire = true; }
+        for (var g = 0; g < 12; g++)
+        {
+            if (!gamepad_is_connected(g)) { continue; }
+            var _ax = gamepad_axis_value(g, gp_axislh);
+            var _ay = gamepad_axis_value(g, gp_axislv);
+            if (_ax < -0.4 || gamepad_button_check(g, gp_padl)) { _dx -= 1; }
+            if (_ax > 0.4 || gamepad_button_check(g, gp_padr)) { _dx += 1; }
+            if (_ay < -0.4 || gamepad_button_check(g, gp_padu)) { _dy -= 1; }
+            if (_ay > 0.4 || gamepad_button_check(g, gp_padd)) { _dy += 1; }
+            if (gamepad_button_check(g, gp_face1)) { _fire = true; }
+        }
     }
     return [clamp(_dx, -1, 1), clamp(_dy, -1, 1), _fire];
 }
@@ -235,6 +238,7 @@ function anim_drop_zone(_k, _x1, _y1, _x2, _y2)
 /// In Test it follows the keys or gamepad.
 function anim_joystick(_which, _x, _y, _size, _s, _plan, _cols, _in, _test_k)
 {
+    var _locked = !anim_can_edit();
     var _gap = 6;
     var _cell = floor((_size - 4 * _gap) / 3);
     var _cx = _x + _size / 2;
@@ -486,7 +490,7 @@ function ws_animate_draw(_x1, _y1, _x2, _y2)
     var _test_flip = false;
     if (anim_test)
     {
-        _in = anim_test_input();
+        _in = anim_test_input(anim_test_source);
         var _k2 = 0;
         if (_in[0] != 0 || _in[1] != 0)
         {
@@ -500,8 +504,6 @@ function ws_animate_draw(_x1, _y1, _x2, _y2)
             }
             if (_in[0] < 0) { anim_test_face = true; }
             if (_in[0] > 0) { anim_test_face = false; }
-            anim_test_x += _in[0] * 1.5;
-            anim_test_y += _in[1] * 1.5;
         }
         // holding fire: the Fire animations, picked from the joystick direction
         var _fire_on = false;
@@ -572,13 +574,20 @@ function ws_animate_draw(_x1, _y1, _x2, _y2)
     var _tst = BTN_NORMAL;
     if (anim_test) { _tst = BTN_ON; }
     var _tlab = "Test";
-    if (anim_test) { _tlab = "Testing - click to stop"; }
-    if (ui_button("anim_test", _jx, _jy, _colw, 32, _tlab, "Test|Drive the actor with the arrow keys, WASD or a gamepad (fire: Space, Ctrl or the A button). The joysticks move with you and the preview plays what the Amiga will play.", _tst))
+    if (anim_test) { _tlab = "Stop"; }
+    var _test_btnw = floor((_colw - 4) / 2);
+    if (ui_button("anim_test", _jx, _jy, _test_btnw, 32, _tlab, "Test|Drive the animation preview with the selected input. The preview stays in place while its animation changes.", _tst))
     {
         anim_test = !anim_test;
         anim_test_entry = -1;
-        anim_test_x = 0;
-        anim_test_y = 0;
+    }
+    var _input_names = ["Keys", "Gamepad"];
+    var _input_help = "Test input|Choose keyboard controls (Arrows / WASD, fire Space / Ctrl) or a connected gamepad (D-pad / stick, fire A).";
+    var _input_new = ui_dropdown("anim_test_source", _jx + _test_btnw + 4, _jy, _colw - _test_btnw - 4, 32, _input_names, anim_test_source, _input_help);
+    if (_input_new != anim_test_source)
+    {
+        anim_test_source = clamp(_input_new, 0, 1);
+        anim_test_entry = -1;
     }
     var _ax1 = _jx + _colw + 20;               // the preview, frames and controls go right of the joysticks
 
@@ -591,7 +600,9 @@ function ws_animate_draw(_x1, _y1, _x2, _y2)
     // preview: what the Amiga will play
     ui_inset(_vx1, _py1, _cx2 - 20, _py2, 10);
     ui_rrect(_vx1 + 6, _py1 + 6, _cx2 - 26, _py2 - 6, 8, pal_col(0), pal_col(0), 1);
-    ui_register("anim_preview", _vx1, _py1, _cx2 - 20, _py2, "Preview|Plays the animation at the real Amiga speed (50 frames a second), in the colours the actor really gets. Switch on Test to drive it with the arrow keys, WASD or a gamepad.");
+    var _input_desc = "Arrows / WASD; fire: Space / Ctrl";
+    if (anim_test_source == 1) { _input_desc = "D-pad / stick; fire: A"; }
+    ui_register("anim_preview", _vx1, _py1, _cx2 - 20, _py2, "Preview|Plays the animation at the real Amiga speed (50 frames a second), in the colours the actor really gets. Switch on Test and choose Keys or Gamepad to change the directional animation in place.");
     var _note = "";
     if (is_undefined(_plan))
     {
@@ -643,24 +654,11 @@ function ws_animate_draw(_x1, _y1, _x2, _y2)
         if (anim_test) { _sc = max(1, floor(_sc * 0.6)); }
         var _dx = floor((_vx1 + _cx2 - 20 - _bw * _sc) / 2);
         var _dy = floor((_py1 + _py2 - 20 - _bh * _sc) / 2);
-        if (anim_test)
-        {
-            // the actor drifts round the box as it moves (and wraps at the edges)
-            var _rx = (_cx2 - 20 - _vx1 - 20 - _bw * _sc) / 2;
-            var _ryy = (_py2 - _py1 - 40 - _bh * _sc) / 2;
-            if (anim_test_x > _rx) { anim_test_x = -_rx; }
-            if (anim_test_x < -_rx) { anim_test_x = _rx; }
-            if (anim_test_y > _ryy) { anim_test_y = -_ryy; }
-            if (anim_test_y < -_ryy) { anim_test_y = _ryy; }
-            _dx += floor(anim_test_x);
-            _dy += floor(anim_test_y);
-        }
         draw_sprite_amiga_flip(_psi2, _dx, _dy, _sc, _flip, _cols, 1);
         if (anim_test)
         {
-            _note = "Test: " + _lnames[_test_k] + "   -   arrow keys, WASD or gamepad";
+            _note = "Test: " + _lnames[_test_k] + "   -   " + _input_desc;
             if (_gravity && !_dirs_on) { _note += " (up = in air, down = falling)"; }
-            _note += ", fire = Space / Ctrl / A";
         }
         else if (_nf == 0)
         {
@@ -673,6 +671,7 @@ function ws_animate_draw(_x1, _y1, _x2, _y2)
             _note = _lnames[anim_sel] + ":  frame " + string(_fi + 1) + " of " + string(array_length(_pe.frames)) + "   -   sprite " + string(_psi2 + 1) + ": " + _ps.name;
         }
     }
+    if (!anim_test) { _note += "   |   Test: " + _input_desc; }
     // the note wraps upwards from the bottom of the preview, clear of the Facing left switch
     var _show_face = (_s.anim_flip && !_dirs_on && !anim_test && anim_sel < ANIM_BASIC);
     var _nw = _cx2 - 26 - 12 - (_vx1 + 16);
