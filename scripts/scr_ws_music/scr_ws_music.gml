@@ -72,11 +72,16 @@ function music_preview_loop(_lp, _what)
 }
 
 /// Hear one note of an instrument (not while a song is playing)
-function music_preview_note(_inst, _note)
+function music_preview_note(_inst, _note, _fx = 0, _param = 0)
 {
     if (mus_playing && mus_play_what == "song") { return; }
     var _l = loop_new("Note", 1, _inst);
     _l.notes[0] = clamp(_note, 1, 36);
+    if (_fx > 0)
+    {
+        _l.fx[0] = clamp(_fx, 0, 4);
+        _l.fxp[0] = clamp(_param, 0, 255);
+    }
     var _ms = song_to_modsong(music_loop_song(_l, 125, 0));
     music_preview_start(_ms, true, 0, 0, "note");
 }
@@ -1007,6 +1012,8 @@ function music_editor(_ex1, _ey1, _ex2, _ey2, _song)
         {
             _lp.notes[s2] = 0;
             _lp.arps[s2] = 0;
+            _lp.fx[s2] = 0;
+            _lp.fxp[s2] = 0;
         }
     }
     if (ui_button("mus_ed_close", _ex2 - 92, _hy, 80, 30, "Close", "Close the editor|Back to the level music settings. Double-click any bar to edit again.", BTN_GHOST))
@@ -1025,7 +1032,8 @@ function music_editor(_ex1, _ey1, _ex2, _ey2, _song)
     var _gx2 = _ex2 - 10;
     var _gy1 = _ey1 + 62;
     var _gy2 = _ey2 - 8;
-    if (!_drums) { _gy2 -= 36; }
+    if (!_drums) { _gy2 -= 88; }
+    else { _gy2 -= 58; }
     if (_gy2 - _gy1 < 30) { return; }
     var _lab = 92;
     var _cw = max(14, min(48, floor((_gx2 - _gx1 - _lab - 16) / MUS_STEPS)));
@@ -1047,7 +1055,7 @@ function music_editor(_ex1, _ey1, _ex2, _ey2, _song)
     var _off = ui_scroll_begin(_sid, _gx1, _gy1, _gx2, _gy2, _content);
     var _sx = _gx1 + _lab;
     var _sx2 = _sx + _cw * MUS_STEPS;
-    ui_register("mus_ed_grid", _sx, _gy1, _sx2, _gy2, "Notes|Each column is a 16th-note step of the bar. Click a square to put a note there, click it again to take it away. Drag to paint, right-click to rub out.");
+    ui_register("mus_ed_grid", _sx, _gy1, _sx2, _gy2, "Notes|Each column is a 16th-note step of the bar. Click an empty square to add a note. Drag an existing note to move it; hold Shift to transpose it and hear it. Click a note to remove it; right-click to rub it out.");
     var _hr = -1;
     var _hs = -1;
     if (ui_hit(_sx, _gy1, _sx2, _gy2))
@@ -1111,6 +1119,7 @@ function music_editor(_ex1, _ey1, _ex2, _ey2, _song)
 
     if (_hr >= 0)
     {
+        mus_ed_fx_step = _hs;
         var _rv2 = _rows[_hr];
         var _on2 = false;
         if (_drums) { _on2 = (_lp.notes[_hs] > 0 && _lp.insts[_hs] == _rv2); }
@@ -1118,20 +1127,84 @@ function music_editor(_ex1, _ey1, _ex2, _ey2, _song)
         if (ui_pressed)
         {
             ui_take_click();
+            mus_ed_tag = "musstep" + string(current_time);
             mus_ed_mode = 1;
             if (_on2) { mus_ed_mode = 0; }
-            mus_ed_painting = true;
-            mus_ed_tag = "musstep" + string(current_time);
-            music_ed_apply(_song, _li, _hs, _rv2, _drums, mus_ed_mode);
-            if (mus_ed_mode == 1)
+            if (!_drums && _on2)
             {
-                if (_drums) { music_preview_note(_rv2, music_inst_root(_rv2)); }
-                else { music_preview_note(_lp.inst, _rv2); }
+                mus_ed_note_drag = true;
+                mus_ed_note_src = [_hs, _hr];
+                mus_ed_note_pitch = _lp.notes[_hs];
+                mus_ed_note_inst = _lp.insts[_hs];
+                mus_ed_note_fx = _lp.fx[_hs];
+                mus_ed_note_fxp = _lp.fxp[_hs];
+                mus_ed_note_arp = _lp.arps[_hs];
+                mus_ed_note_moved = false;
+                mus_ed_note_last = [-1, -1];
+            }
+            else
+            {
+                mus_ed_painting = true;
+                music_ed_apply(_song, _li, _hs, _rv2, _drums, mus_ed_mode);
+                if (mus_ed_mode == 1)
+                {
+                    if (_drums) { music_preview_note(_rv2, music_inst_root(_rv2)); }
+                    else { music_preview_note(_lp.inst, _rv2, _lp.fx[_hs], _lp.fxp[_hs]); }
+                }
             }
         }
-        else
+        if (mus_ed_note_drag && ui_held && !_drums && _hr >= 0 && _hs >= 0)
         {
-            if (mus_ed_painting && ui_held) { music_ed_apply(_song, _li, _hs, _rv2, _drums, mus_ed_mode); }
+            var _dst_step = _hs;
+            var _dst_row = _hr;
+            var _dst_pitch = mus_ed_note_pitch;
+            if (keyboard_check(vk_shift)) { _dst_pitch = clamp(mus_ed_note_pitch + mus_ed_note_src[1] - _dst_row, 1, 36); }
+            var _dst = [_dst_step, _dst_row];
+            if (_dst_step != mus_ed_note_src[0] || _dst_pitch != mus_ed_note_pitch || mus_ed_note_moved)
+            {
+                if (_lp.notes[_dst_step] == 0 || _dst_step == mus_ed_note_src[0] || _dst_step == mus_ed_note_last[0])
+                {
+                    if (!mus_ed_note_moved) { music_loop_edit_begin(_song, _li, mus_ed_tag); }
+                    else { music_touch(); }
+                    if (mus_ed_note_last[0] >= 0 && mus_ed_note_last[0] != _dst_step && _lp.notes[mus_ed_note_last[0]] > 0)
+                    {
+                        _lp.notes[mus_ed_note_last[0]] = 0;
+                        _lp.insts[mus_ed_note_last[0]] = _lp.inst;
+                        _lp.fx[mus_ed_note_last[0]] = 0;
+                        _lp.fxp[mus_ed_note_last[0]] = 0;
+                        _lp.arps[mus_ed_note_last[0]] = 0;
+                    }
+                    _lp.notes[mus_ed_note_src[0]] = 0;
+                    _lp.insts[mus_ed_note_src[0]] = _lp.inst;
+                    _lp.fx[mus_ed_note_src[0]] = 0;
+                    _lp.fxp[mus_ed_note_src[0]] = 0;
+                    _lp.arps[mus_ed_note_src[0]] = 0;
+                    _lp.notes[_dst_step] = _dst_pitch;
+                    _lp.insts[_dst_step] = mus_ed_note_inst;
+                    _lp.fx[_dst_step] = mus_ed_note_fx;
+                    _lp.fxp[_dst_step] = mus_ed_note_fxp;
+                    _lp.arps[_dst_step] = mus_ed_note_arp;
+                    mus_ed_note_last = _dst;
+                    mus_ed_note_moved = true;
+                    music_preview_note(mus_ed_note_inst, _dst_pitch, mus_ed_note_fx, mus_ed_note_fxp);
+                }
+            }
+        }
+        if (mus_ed_note_drag && !ui_held)
+        {
+            if (!mus_ed_note_moved)
+            {
+                music_loop_edit_begin(_song, _li, mus_ed_tag);
+                _lp.notes[mus_ed_note_src[0]] = 0;
+                _lp.arps[mus_ed_note_src[0]] = 0;
+                _lp.fx[mus_ed_note_src[0]] = 0;
+                _lp.fxp[mus_ed_note_src[0]] = 0;
+            }
+            mus_ed_note_drag = false;
+        }
+        if (mus_ed_painting && ui_held && _hr >= 0 && _hs >= 0)
+        {
+            if (_drums || !_on2) { music_ed_apply(_song, _li, _hs, _rv2, _drums, 1); }
         }
         if (ui_rpressed)
         {
@@ -1143,10 +1216,86 @@ function music_editor(_ex1, _ey1, _ex2, _ey2, _song)
             music_loop_edit_begin(_song, _li, mus_ed_tag);
             _lp.notes[_hs] = 0;
             _lp.arps[_hs] = 0;
+            _lp.fx[_hs] = 0;
+            _lp.fxp[_hs] = 0;
         }
     }
     if (!ui_held) { mus_ed_painting = false; }
     if (!ui_rheld) { mus_ed_rclear = false; }
+
+    // ---------- chord and tracker effect rows ----------
+    var _effect_names = ["--", "Up", "Down", "To", "Vib"];
+    var _effect_help = [
+        "No tracker effect.",
+        "ProTracker 1xx: bend pitch up. The low byte is the slide speed.",
+        "ProTracker 2xx: bend pitch down. The low byte is the slide speed.",
+        "ProTracker 3xx: slide this note to its pitch. The low byte is the speed.",
+        "ProTracker 4xy: vibrato. x is speed, y is depth."
+    ];
+    var _fx_y = _gy2 + 2;
+    if (!_drums) { _fx_y = _gy2 + 30; }
+    ui_text(_gx1 + 6, _fx_y + 12, "FX", global.TH.text_dim, fa_left, fa_middle, global.f_small, 1);
+    for (var fx_step = 0; fx_step < MUS_STEPS; fx_step++)
+    {
+        var _fx_x = _sx + fx_step * _cw + 1;
+        var _fx_kind = clamp(_lp.fx[fx_step], 0, 4);
+        var _fx_style = BTN_GHOST;
+        if (_fx_kind > 0) { _fx_style = BTN_ON; }
+        var _fx_tip = "Step " + string(fx_step + 1) + " effect|" + _effect_help[_fx_kind] + " Click to cycle effect; right-click to clear.";
+        if (ui_button("mus_fx_" + string(fx_step), _fx_x, _fx_y, _cw - 2, 24, _effect_names[_fx_kind], _fx_tip, _fx_style))
+        {
+            music_loop_edit_begin(_song, _li, "musfx" + string(current_time));
+            mus_ed_fx_step = fx_step;
+            _fx_kind = (_fx_kind + 1) mod array_length(_effect_names);
+            _lp.fx[fx_step] = _fx_kind;
+            if (_fx_kind == 1 || _fx_kind == 2) { _lp.fxp[fx_step] = 0x20; }
+            if (_fx_kind == 3) { _lp.fxp[fx_step] = 0x30; }
+            if (_fx_kind == 4) { _lp.fxp[fx_step] = 0x47; }
+            if (_fx_kind == 0) { _lp.fxp[fx_step] = 0; }
+        }
+        if (ui_rpressed && _lp.fx[fx_step] > 0 && ui_hit(_fx_x, _fx_y, _fx_x + _cw - 2, _fx_y + 24))
+        {
+            music_loop_edit_begin(_song, _li, "musfxclear" + string(current_time));
+            _lp.fx[fx_step] = 0;
+            _lp.fxp[fx_step] = 0;
+        }
+    }
+
+    // ---------- selected effect parameter ----------
+    var _param_y = _gy2 + 57;
+    if (_drums) { _param_y = _gy2 + 29; }
+    var _param_step = clamp(mus_ed_fx_step, 0, MUS_STEPS - 1);
+    var _param_fx = _lp.fx[_param_step];
+    if (_param_fx > 0)
+    {
+        ui_text(_gx1 + 6, _param_y + 13, "Step " + string(_param_step + 1), global.TH.text_dim, fa_left, fa_middle, global.f_small, 1);
+        if (_param_fx == 4)
+        {
+            var _vib_spd = (_lp.fxp[_param_step] >> 4) & 15;
+            var _vib_dep = _lp.fxp[_param_step] & 15;
+            if (_vib_spd < 1) { _vib_spd = 4; }
+            if (_vib_dep < 1) { _vib_dep = 7; }
+            ui_text(_sx, _param_y + 13, "Speed", global.TH.text_dim, fa_left, fa_middle, global.f_small, 1);
+            var _nvs = ui_stepper("mus_fx_vspeed", _sx + 42, _param_y, 74, _vib_spd, 1, 15, "Vibrato speed|ProTracker 4xy: x controls how quickly the pitch oscillates.");
+            ui_text(_sx + 122, _param_y + 13, "Depth", global.TH.text_dim, fa_left, fa_middle, global.f_small, 1);
+            var _nvd = ui_stepper("mus_fx_vdepth", _sx + 166, _param_y, 74, _vib_dep, 1, 15, "Vibrato depth|ProTracker 4xy: y controls how far the pitch bends.");
+            if (_nvs != _vib_spd || _nvd != _vib_dep)
+            {
+                music_loop_edit_begin(_song, _li, "musfxparam" + string(_param_step));
+                _lp.fxp[_param_step] = (_nvs << 4) | _nvd;
+            }
+        }
+        else
+        {
+            var _speed = max(1, _lp.fxp[_param_step] & 255);
+            var _nsp = ui_stepper("mus_fx_speed", _sx + 56, _param_y, 100, _speed, 1, 255, "Effect speed|ProTracker 1xx / 2xx / 3xx: the low byte sets how many period units the pitch changes per tick. Use the same To effect on successive notes for a progressive slide.");
+            if (_nsp != _speed)
+            {
+                music_loop_edit_begin(_song, _li, "musfxparam" + string(_param_step));
+                _lp.fxp[_param_step] = _nsp;
+            }
+        }
+    }
 
     // ---------- chord row ----------
     if (!_drums)

@@ -6,7 +6,7 @@
 ///   bars  : song length in bars (1..128)
 ///   lanes : 4 arrays (one per Paula channel) of MUS_BAR_MAX entries,
 ///           each an index into arr.loops, or -1 for an empty bar
-///   loops : the song's 1-bar loops = { name, cat, lib, inst, notes, insts, arps }
+///   loops : the song's 1-bar loops = { name, cat, lib, inst, notes, insts, arps, fx, fxp }
 ///           cat   : 0 drums, 1 bass, 2 chords, 3 lead, 4 fx
 ///           lib   : built-in library loop it was copied from, -1 = edited (user loop)
 ///           inst  : instrument new notes use
@@ -133,7 +133,9 @@ function loop_new(_name, _cat, _inst)
         inst : _inst,
         notes : array_create(MUS_STEPS, 0),
         insts : array_create(MUS_STEPS, _inst),
-        arps : array_create(MUS_STEPS, 0)
+        arps : array_create(MUS_STEPS, 0),
+        fx : array_create(MUS_STEPS, 0),
+        fxp : array_create(MUS_STEPS, 0)
     };
 }
 
@@ -172,6 +174,8 @@ function loop_copy(_l)
     array_copy(_c.notes, 0, _l.notes, 0, MUS_STEPS);
     array_copy(_c.insts, 0, _l.insts, 0, MUS_STEPS);
     array_copy(_c.arps, 0, _l.arps, 0, MUS_STEPS);
+    array_copy(_c.fx, 0, _l.fx, 0, MUS_STEPS);
+    array_copy(_c.fxp, 0, _l.fxp, 0, MUS_STEPS);
     return _c;
 }
 
@@ -254,12 +258,16 @@ function loop_from_loaded(_raw)
     var _n = _raw[$ "notes"];
     var _i = _raw[$ "insts"];
     var _a = _raw[$ "arps"];
+    var _fx = _raw[$ "fx"];
+    var _fxp = _raw[$ "fxp"];
     for (var s = 0; s < MUS_STEPS; s++)
     {
         if (is_array(_n) && s < array_length(_n) && is_numeric(_n[s])) { _l.notes[s] = clamp(floor(_n[s]), 0, 36); }
         _l.insts[s] = _l.inst;
         if (is_array(_i) && s < array_length(_i) && music_inst_valid(_i[s])) { _l.insts[s] = floor(_i[s]); }
         if (is_array(_a) && s < array_length(_a) && is_numeric(_a[s])) { _l.arps[s] = clamp(floor(_a[s]), 0, 255); }
+        if (is_array(_fx) && s < array_length(_fx) && is_numeric(_fx[s])) { _l.fx[s] = clamp(floor(_fx[s]), 0, 4); }
+        if (is_array(_fxp) && s < array_length(_fxp) && is_numeric(_fxp[s])) { _l.fxp[s] = clamp(floor(_fxp[s]), 0, 255); }
     }
     return _l;
 }
@@ -788,6 +796,12 @@ function song_to_modsong(_song)
                             _cell.param = _arp;
                         }
                     }
+                    if (_lp.fx[st] > 0)
+                    {
+                        if (_cell.effect != 0 || _cell.param != 0) { array_push(mus_warnings, "Tracker effect replaced a chord or swing effect on step " + string(st + 1) + "."); }
+                        _cell.effect = _lp.fx[st];
+                        _cell.param = _lp.fxp[st];
+                    }
                 }
             }
         }
@@ -966,7 +980,7 @@ function music_player_new(_ms, _once, _ord, _row)
     {
         array_push(_pl.ch, {
             on : false, smp : 0, data : [], len : 0, pos : 0, inc : 0, vol : 0,
-            period : 428, base : 428, fx : 0, prm : 0, porta_to : 0, porta_spd : 0,
+            period : 428, base : 428, fx : 0, prm : 0, porta_to : 0, porta_spd : 0, vib_phase : 0,
             ls : 0, ll : 0, dnote : 0, dtick : -1
         });
     }
@@ -1061,6 +1075,7 @@ function music_player_row(_pl)
             if (_fx == 3 || _fx == 5)
             {
                 _ch.porta_to = _per;
+                if (_ch.smp <= 0) { music_trigger(_pl, _ch, _per); }
             }
             else
             {
@@ -1143,6 +1158,14 @@ function music_player_effects(_pl)
                 break;
             case 3:
                 music_porta(_ch);
+                break;
+            case 4:
+                var _vib_speed = _prm >> 4;
+                var _vib_depth = _prm & 15;
+                if (_vib_speed == 0) { _vib_speed = 4; }
+                if (_vib_depth == 0) { _vib_depth = 7; }
+                _ch.vib_phase = (_ch.vib_phase + _vib_speed * 4) mod 64;
+                _ch.period = clamp(_ch.base + sin(_ch.vib_phase * 360 / 64) * _vib_depth * 2, 113, 856);
                 break;
             case 5:
                 music_porta(_ch);
