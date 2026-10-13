@@ -431,7 +431,7 @@ function music_library_panel(_x1, _y1, _x2, _y2)
     var _ly1 = _y1 + 58 + ceil(6 / _ncol) * 34;
     var _tip = "Click a loop to hear it. Click or drag on the timeline to paint it in, right-click to rub out, double-click a bar to edit its notes.";
     draw_set_font(global.f_small);
-    var _ly2 = _y2 - ceil(ui_sh_ext(_tip, _x2 - _x1 - 32)) - 24;
+    var _ly2 = _y2 - 72;
     var _items = music_lib_items(mus_cat);
     var _ih = 40;
     var _content = array_length(_items) * (_ih + 4) + 4;
@@ -492,7 +492,18 @@ function music_library_panel(_x1, _y1, _x2, _y2)
         ui_text_wrap(_x1 + 20, _ly1 + 10, "Loops you change in the editor show up here. Double-click a bar on the timeline to edit its loop.", global.TH.text_faint, _x2 - _x1 - 40, global.f_small, 1);
     }
     ui_scroll_end("mus_lib", _x1 + 8, _ly1, _x2 - 8, _ly2, _content);
-    ui_text_wrap(_x1 + 16, _ly2 + 10, _tip, global.TH.text_faint, _x2 - _x1 - 32, global.f_small, 1);
+    if (mus_edit >= 0)
+    {
+        var _help_y = _y2 - 66;
+        ui_rrect(_x1 + 10, _help_y, _x2 - 10, _y2 - 8, 7, global.TH.btn_top, global.TH.panel_bot, 0.9);
+        ui_text(_x1 + 20, _help_y + 11, "NOTE SHORTCUTS", global.TH.text_faint, fa_left, fa_middle, global.f_small, 1);
+        ui_text(_x1 + 20, _help_y + 28, "Shift: move pitch   Alt: audition", global.TH.text_dim, fa_left, fa_middle, global.f_small, 1);
+        ui_text(_x1 + 20, _help_y + 45, "Drag note edge: glide to pitch", global.TH.text_dim, fa_left, fa_middle, global.f_small, 1);
+    }
+    else
+    {
+        ui_text_wrap(_x1 + 16, _y2 - 42, _tip, global.TH.text_faint, _x2 - _x1 - 32, global.f_small, 1);
+    }
 }
 
 function music_toolbar(_cx1, _y1, _x2, _song)
@@ -1024,19 +1035,53 @@ function music_editor(_ex1, _ey1, _ex2, _ey2, _song)
     var _tip = "Used in " + string(_uses) + " bar";
     if (_uses != 1) { _tip += "s"; }
     if (_drums) { _tip += "  -  one hit per step: click to add or remove, drag to paint, right-click to rub out."; }
-    else { _tip += "  -  one note per step: click to place, click again to remove, right-click to rub out. Chords play as ProTracker arpeggios."; }
+    else { _tip += "  -  one note per step: click to place, drag to move; drag its right edge toward a later pitch to glide. Chords play as ProTracker arpeggios."; }
     ui_text(_ex1 + 14, _hy + 44, ui_text_fit(_tip, global.f_small, _ex2 - _ex1 - 28), global.TH.text_faint, fa_left, fa_middle, global.f_small, 1);
+
+    var _res_x = _ex2 - 112;
+    var _res_y = _ey1 + 58;
+    var _res_label = "Snap 1/" + string(mus_ed_resolution);
+    var _res_tip = "Grid snap|Choose 4, 8, 16 or 32 trigger positions across the bar. The maximum-resolution pattern remains ProTracker-compatible.";
+    if (!_drums && ui_button("mus_ed_resolution", _res_x, _res_y, 100, 24, _res_label, _res_tip, BTN_GHOST))
+    {
+        if (!pro_gate("Music grid snap"))
+        {
+            mus_ed_resolution = 16;
+        }
+        else
+        {
+            var _snap_values = [4, 8, 16, 32];
+            var _snap_idx = 0;
+            for (var si = 0; si < array_length(_snap_values); si++)
+            {
+                if (_snap_values[si] == mus_ed_resolution) { _snap_idx = si; }
+            }
+            mus_ed_resolution = _snap_values[(_snap_idx + 1) mod array_length(_snap_values)];
+        }
+    }
 
     // ---------- grid ----------
     var _gx1 = _ex1 + 10;
     var _gx2 = _ex2 - 10;
-    var _gy1 = _ey1 + 62;
+    var _gy1 = _ey1 + 88;
     var _gy2 = _ey2 - 8;
     if (!_drums) { _gy2 -= 88; }
     else { _gy2 -= 58; }
     if (_gy2 - _gy1 < 30) { return; }
     var _lab = 92;
-    var _cw = max(14, min(48, floor((_gx2 - _gx1 - _lab - 16) / MUS_STEPS)));
+    var _view_steps = MUS_STEPS;
+    var _step_stride = 1;
+    if (!_drums)
+    {
+        _view_steps = mus_ed_resolution;
+        _step_stride = MUS_STEPS div _view_steps;
+    }
+    else
+    {
+        _view_steps = 16;
+        _step_stride = 2;
+    }
+    var _cw = max(14, floor((_gx2 - _gx1 - _lab - 16) / _view_steps));
     var _rows = [];
     var _rh = 16;
     if (_drums)
@@ -1054,15 +1099,17 @@ function music_editor(_ex1, _ey1, _ex2, _ey2, _song)
     var _content = _nr * _rh;
     var _off = ui_scroll_begin(_sid, _gx1, _gy1, _gx2, _gy2, _content);
     var _sx = _gx1 + _lab;
-    var _sx2 = _sx + _cw * MUS_STEPS;
-    ui_register("mus_ed_grid", _sx, _gy1, _sx2, _gy2, "Notes|Each column is a 16th-note step of the bar. Click an empty square to add a note. Drag an existing note to move it; hold Shift to transpose it and hear it. Click a note to remove it; right-click to rub it out.");
+    var _sx2 = _sx + _cw * _view_steps;
+    var _grid_note = "Snap is 1/" + string(_view_steps) + " note across each bar.";
+    ui_register("mus_ed_grid", _sx, _gy1, _sx2, _gy2, "Notes|" + _grid_note + " Click an empty square to add a note. Drag an existing note to move it. Click a note to remove it; right-click to rub it out.");
     var _hr = -1;
     var _hs = -1;
     if (ui_hit(_sx, _gy1, _sx2, _gy2))
     {
         _hr = floor((ui_my - _gy1 + _off) / _rh);
-        _hs = floor((ui_mx - _sx) / _cw);
-        if (_hr < 0 || _hr >= _nr || _hs < 0 || _hs >= MUS_STEPS)
+        var _view_step = floor((ui_mx - _sx) / _cw);
+        _hs = _view_step * _step_stride;
+        if (_hr < 0 || _hr >= _nr || _view_step < 0 || _view_step >= _view_steps)
         {
             _hr = -1;
             _hs = -1;
@@ -1072,7 +1119,7 @@ function music_editor(_ex1, _ey1, _ex2, _ey2, _song)
     if (mus_playing && mus_play_what != "note")
     {
         var _pos = music_preview_pos();
-        if (!is_undefined(_pos)) { _play_step = _pos[1] mod MUS_STEPS; }
+        if (!is_undefined(_pos)) { _play_step = floor((_pos[1] mod MUS_STEPS) / _step_stride); }
     }
     for (var r = 0; r < _nr; r++)
     {
@@ -1092,14 +1139,16 @@ function music_editor(_ex1, _ey1, _ex2, _ey2, _song)
         if (!_drums && (_rv - 1) mod 12 == 0) { _lc = global.TH.text; }
         if (_black) { _lc = global.TH.text_faint; }
         ui_text(_gx1 + 6, _ry + _rh * 0.5, ui_text_fit(_lname, global.f_small, _lab - 12), _lc, fa_left, fa_middle, global.f_small, 1);
-        for (var st = 0; st < MUS_STEPS; st++)
+        for (var st = 0; st < _view_steps; st++)
         {
             var _cx = _sx + st * _cw;
+            var _data_step = st * _step_stride;
             var _on = false;
-            if (_drums) { _on = (_lp.notes[st] > 0 && _lp.insts[st] == _rv); }
-            else { _on = (_lp.notes[st] == _rv); }
+            if (_drums) { _on = (_lp.notes[_data_step] > 0 && _lp.insts[_data_step] == _rv); }
+            else { _on = (_lp.notes[_data_step] == _rv); }
             var _ba = 0.10;
-            if ((st div 4) mod 2 == 1) { _ba = 0.05; }
+            var _beat_cells = max(1, _view_steps div 4);
+            if ((st div _beat_cells) mod 2 == 1) { _ba = 0.05; }
             if (_black) { _ba *= 0.5; }
             if (st == _play_step) { _ba += 0.12; }
             draw_set_alpha(_ba);
@@ -1109,13 +1158,78 @@ function music_editor(_ex1, _ey1, _ex2, _ey2, _song)
             {
                 ui_rrect(_cx + 2, _ry + 2, _cx + _cw - 2, _ry + _rh - 2, 4, merge_colour(_col, c_white, 0.15), _col, 1);
             }
-            if (r == _hr && st == _hs)
+            if (r == _hr && _data_step == _hs)
             {
                 ui_rrect_line(_cx + 1, _ry + 1, _cx + _cw - 1, _ry + _rh - 1, 4, global.TH.accent, 0.9, 1);
             }
         }
     }
+    if (!_drums)
+    {
+        for (var _glide_target = 1; _glide_target < MUS_STEPS; _glide_target++)
+        {
+            if (_lp.notes[_glide_target] <= 0 || _lp.fx[_glide_target] != 3) { continue; }
+            var _glide_src = _glide_target - 1;
+            while (_glide_src >= 0 && _lp.notes[_glide_src] <= 0) { _glide_src -= 1; }
+            if (_glide_src < 0) { continue; }
+            var _line_x1 = _sx + (_glide_src div _step_stride) * _cw + _cw - 2;
+            var _line_x2 = _sx + (_glide_target div _step_stride) * _cw + 2;
+            var _line_y1 = _gy1 + (36 - _lp.notes[_glide_src]) * _rh - _off + _rh * 0.5;
+            var _line_y2 = _gy1 + (36 - _lp.notes[_glide_target]) * _rh - _off + _rh * 0.5;
+            draw_line_width_colour(_line_x1, _line_y1, _line_x2, _line_y2, 2, global.TH.accent, global.TH.accent);
+            draw_circle_colour(_line_x2, _line_y2, 3, global.TH.accent, global.TH.accent, false);
+        }
+    }
+    if (mus_ed_note_glide && ui_held && _hr >= 0 && _hs >= 0 && _hs > mus_ed_note_src[0])
+    {
+        mus_ed_note_glide_end = [_hs, _hr];
+        var _src_x = _sx + (mus_ed_note_src[0] div _step_stride) * _cw + _cw - 2;
+        var _src_y = _gy1 + mus_ed_note_src[1] * _rh - _off + _rh * 0.5;
+        var _dst_x = _sx + (_hs div _step_stride) * _cw + 2;
+        var _dst_y = _gy1 + _hr * _rh - _off + _rh * 0.5;
+        draw_line_width_colour(_src_x, _src_y, _dst_x, _dst_y, 3, global.TH.accent, global.TH.accent);
+        draw_circle_colour(_dst_x, _dst_y, 4, global.TH.accent, global.TH.accent, false);
+    }
     ui_scroll_end(_sid, _gx1, _gy1, _gx2, _gy2, _content);
+
+    // Alt-hover auditions each existing note cell once, until the pointer leaves it.
+    var _alt_note_on = false;
+    if (keyboard_check(vk_alt) && _hr >= 0 && _hs >= 0)
+    {
+        var _alt_row_value = _rows[_hr];
+        var _alt_pitch = _lp.notes[_hs];
+        var _alt_inst = _lp.insts[_hs];
+        if (_drums)
+        {
+            _alt_note_on = (_alt_pitch > 0 && _alt_inst == _alt_row_value);
+            _alt_pitch = music_inst_root(_alt_row_value);
+            _alt_inst = _alt_row_value;
+        }
+        else
+        {
+            _alt_note_on = (_alt_pitch == _alt_row_value);
+        }
+        if (_alt_note_on)
+        {
+            if (_hs != mus_ed_alt_preview_step || _hr != mus_ed_alt_preview_row)
+            {
+                if (_drums) { music_preview_note(_alt_inst, _alt_pitch); }
+                else { music_preview_note(_alt_inst, _alt_pitch, _lp.fx[_hs], _lp.fxp[_hs]); }
+            }
+            mus_ed_alt_preview_step = _hs;
+            mus_ed_alt_preview_row = _hr;
+        }
+        else
+        {
+            mus_ed_alt_preview_step = -1;
+            mus_ed_alt_preview_row = -1;
+        }
+    }
+    else
+    {
+        mus_ed_alt_preview_step = -1;
+        mus_ed_alt_preview_row = -1;
+    }
 
     if (_hr >= 0)
     {
@@ -1141,6 +1255,10 @@ function music_editor(_ex1, _ey1, _ex2, _ey2, _song)
                 mus_ed_note_arp = _lp.arps[_hs];
                 mus_ed_note_moved = false;
                 mus_ed_note_last = [-1, -1];
+                mus_ed_note_preview_pitch = mus_ed_note_pitch;
+                var _note_cell_x = _sx + (_hs div _step_stride) * _cw;
+                mus_ed_note_glide = (ui_mx >= _note_cell_x + _cw - 6);
+                mus_ed_note_glide_end = [-1, -1];
             }
             else
             {
@@ -1153,7 +1271,7 @@ function music_editor(_ex1, _ey1, _ex2, _ey2, _song)
                 }
             }
         }
-        if (mus_ed_note_drag && ui_held && !_drums && _hr >= 0 && _hs >= 0)
+        if (mus_ed_note_drag && !mus_ed_note_glide && ui_held && !_drums && _hr >= 0 && _hs >= 0)
         {
             var _dst_step = _hs;
             var _dst_row = _hr;
@@ -1186,13 +1304,40 @@ function music_editor(_ex1, _ey1, _ex2, _ey2, _song)
                     _lp.arps[_dst_step] = mus_ed_note_arp;
                     mus_ed_note_last = _dst;
                     mus_ed_note_moved = true;
-                    music_preview_note(mus_ed_note_inst, _dst_pitch, mus_ed_note_fx, mus_ed_note_fxp);
+                    if (_dst_pitch != mus_ed_note_preview_pitch)
+                    {
+                        mus_ed_note_preview_pitch = _dst_pitch;
+                        music_preview_note(mus_ed_note_inst, _dst_pitch, mus_ed_note_fx, mus_ed_note_fxp);
+                    }
                 }
             }
         }
         if (mus_ed_note_drag && !ui_held)
         {
-            if (!mus_ed_note_moved)
+            if (mus_ed_note_glide)
+            {
+                var _glide_step = mus_ed_note_glide_end[0];
+                var _glide_row = mus_ed_note_glide_end[1];
+                if (_glide_step > mus_ed_note_src[0] && _glide_row >= 0 && (_lp.notes[_glide_step] == 0 || _lp.notes[_glide_step] == _rows[_glide_row]))
+                {
+                    var _glide_pitch = _rows[_glide_row];
+                    var _period_delta = abs(global.MUS_PERIODS[mus_ed_note_pitch] - global.MUS_PERIODS[_glide_pitch]);
+                    var _glide_ticks = max(1, floor(_song.speed * 0.5));
+                    var _glide_speed = clamp(floor(_period_delta / max(1, _glide_ticks * (_glide_step - mus_ed_note_src[0]))), 1, 255);
+                    music_loop_edit_begin(_song, _li, mus_ed_tag);
+                    if (_lp.notes[_glide_step] == 0)
+                    {
+                        _lp.notes[_glide_step] = _glide_pitch;
+                        _lp.insts[_glide_step] = mus_ed_note_inst;
+                        _lp.arps[_glide_step] = 0;
+                    }
+                    _lp.fx[_glide_step] = 3;
+                    _lp.fxp[_glide_step] = _glide_speed;
+                    mus_ed_fx_step = _glide_step;
+                    mus_ed_note_moved = true;
+                }
+            }
+            else if (!mus_ed_note_moved)
             {
                 music_loop_edit_begin(_song, _li, mus_ed_tag);
                 _lp.notes[mus_ed_note_src[0]] = 0;
@@ -1201,6 +1346,8 @@ function music_editor(_ex1, _ey1, _ex2, _ey2, _song)
                 _lp.fxp[mus_ed_note_src[0]] = 0;
             }
             mus_ed_note_drag = false;
+            mus_ed_note_glide = false;
+            mus_ed_note_glide_end = [-1, -1];
         }
         if (mus_ed_painting && ui_held && _hr >= 0 && _hs >= 0)
         {
@@ -1235,13 +1382,15 @@ function music_editor(_ex1, _ey1, _ex2, _ey2, _song)
     var _fx_y = _gy2 + 2;
     if (!_drums) { _fx_y = _gy2 + 30; }
     ui_text(_gx1 + 6, _fx_y + 12, "FX", global.TH.text_dim, fa_left, fa_middle, global.f_small, 1);
-    for (var fx_step = 0; fx_step < MUS_STEPS; fx_step++)
+    for (var fx_col = 0; fx_col < _view_steps; fx_col++)
     {
-        var _fx_x = _sx + fx_step * _cw + 1;
+        var fx_step = fx_col * _step_stride;
+        var _fx_x = _sx + fx_col * _cw + 1;
         var _fx_kind = clamp(_lp.fx[fx_step], 0, 4);
         var _fx_style = BTN_GHOST;
         if (_fx_kind > 0) { _fx_style = BTN_ON; }
         var _fx_tip = "Step " + string(fx_step + 1) + " effect|" + _effect_help[_fx_kind] + " Click to cycle effect; right-click to clear.";
+        if (ui_hit(_fx_x, _fx_y, _fx_x + _cw - 2, _fx_y + 24)) { mus_ed_fx_step = fx_step; }
         if (ui_button("mus_fx_" + string(fx_step), _fx_x, _fx_y, _cw - 2, 24, _effect_names[_fx_kind], _fx_tip, _fx_style))
         {
             music_loop_edit_begin(_song, _li, "musfx" + string(current_time));
@@ -1268,17 +1417,21 @@ function music_editor(_ex1, _ey1, _ex2, _ey2, _song)
     var _param_fx = _lp.fx[_param_step];
     if (_param_fx > 0)
     {
-        ui_text(_gx1 + 6, _param_y + 13, "Step " + string(_param_step + 1), global.TH.text_dim, fa_left, fa_middle, global.f_small, 1);
+        var _param_w = 190;
+        if (_param_fx == 4) { _param_w = 252; }
+        var _param_cx = _sx + (_param_step div _step_stride) * _cw + _cw * 0.5;
+        var _param_x = clamp(_param_cx - _param_w * 0.5, _ex1 + 12, _ex2 - 12 - _param_w);
+        ui_text(_param_x, _param_y + 13, "Step " + string(_param_step + 1), global.TH.text_dim, fa_left, fa_middle, global.f_small, 1);
         if (_param_fx == 4)
         {
             var _vib_spd = (_lp.fxp[_param_step] >> 4) & 15;
             var _vib_dep = _lp.fxp[_param_step] & 15;
             if (_vib_spd < 1) { _vib_spd = 4; }
             if (_vib_dep < 1) { _vib_dep = 7; }
-            ui_text(_sx, _param_y + 13, "Speed", global.TH.text_dim, fa_left, fa_middle, global.f_small, 1);
-            var _nvs = ui_stepper("mus_fx_vspeed", _sx + 42, _param_y, 74, _vib_spd, 1, 15, "Vibrato speed|ProTracker 4xy: x controls how quickly the pitch oscillates.");
-            ui_text(_sx + 122, _param_y + 13, "Depth", global.TH.text_dim, fa_left, fa_middle, global.f_small, 1);
-            var _nvd = ui_stepper("mus_fx_vdepth", _sx + 166, _param_y, 74, _vib_dep, 1, 15, "Vibrato depth|ProTracker 4xy: y controls how far the pitch bends.");
+            ui_text(_param_x + 44, _param_y + 13, "Speed", global.TH.text_dim, fa_left, fa_middle, global.f_small, 1);
+            var _nvs = ui_stepper("mus_fx_vspeed", _param_x + 82, _param_y, 64, _vib_spd, 1, 15, "Vibrato speed|ProTracker 4xy: x controls how quickly the pitch oscillates.");
+            ui_text(_param_x + 148, _param_y + 13, "Depth", global.TH.text_dim, fa_left, fa_middle, global.f_small, 1);
+            var _nvd = ui_stepper("mus_fx_vdepth", _param_x + 188, _param_y, 64, _vib_dep, 1, 15, "Vibrato depth|ProTracker 4xy: y controls how far the pitch bends.");
             if (_nvs != _vib_spd || _nvd != _vib_dep)
             {
                 music_loop_edit_begin(_song, _li, "musfxparam" + string(_param_step));
@@ -1288,7 +1441,8 @@ function music_editor(_ex1, _ey1, _ex2, _ey2, _song)
         else
         {
             var _speed = max(1, _lp.fxp[_param_step] & 255);
-            var _nsp = ui_stepper("mus_fx_speed", _sx + 56, _param_y, 100, _speed, 1, 255, "Effect speed|ProTracker 1xx / 2xx / 3xx: the low byte sets how many period units the pitch changes per tick. Use the same To effect on successive notes for a progressive slide.");
+            ui_text(_param_x + 48, _param_y + 13, "Speed", global.TH.text_dim, fa_left, fa_middle, global.f_small, 1);
+            var _nsp = ui_stepper("mus_fx_speed", _param_x + 88, _param_y, 100, _speed, 1, 255, "Effect speed|ProTracker 1xx / 2xx / 3xx: the low byte sets how many period units the pitch changes per tick. Use the same To effect on successive notes for a progressive slide.");
             if (_nsp != _speed)
             {
                 music_loop_edit_begin(_song, _li, "musfxparam" + string(_param_step));
@@ -1303,8 +1457,9 @@ function music_editor(_ex1, _ey1, _ex2, _ey2, _song)
         var _cy = _gy2 + 6;
         ui_text(_gx1 + 6, _cy + 13, "Chord", global.TH.text_dim, fa_left, fa_middle, global.f_small, 1);
         var _codes = global.MUS_CHORD_CODES;
-        for (var st2 = 0; st2 < MUS_STEPS; st2++)
+        for (var chord_col = 0; chord_col < _view_steps; chord_col++)
         {
+            var st2 = chord_col * _step_stride;
             var _code = _lp.arps[st2];
             var _idx = -1;
             for (var k = 0; k < array_length(_codes); k++)
@@ -1315,7 +1470,7 @@ function music_editor(_ex1, _ey1, _ex2, _ey2, _song)
             if (_idx >= 0) { _clab = global.MUS_CHORD_NAMES[_idx]; }
             var _cst = BTN_GHOST;
             if (_code != 0) { _cst = BTN_ON; }
-            var _bx = _sx + st2 * _cw + 1;
+            var _bx = _sx + chord_col * _cw + 1;
             if (ui_button("mus_chord_" + string(st2), _bx, _cy, _cw - 2, 26, _clab, "Chord|Click to turn this step's note into a chord: minor, major, 7th, sus or octave. The Amiga plays it as a fast ProTracker arpeggio on this one channel, and it keeps going on the empty steps after it. Right-click for no chord.", _cst))
             {
                 music_loop_edit_begin(_song, _li, "muschord" + string(current_time));

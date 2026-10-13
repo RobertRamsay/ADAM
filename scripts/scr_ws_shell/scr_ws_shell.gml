@@ -262,7 +262,7 @@ function shortcuts_step()
     var _ctrl = keyboard_check(vk_control);
     if (_ctrl && keyboard_check_pressed(ord("Z"))) { undo_do(); }
     if (_ctrl && keyboard_check_pressed(ord("Y"))) { redo_do(); }
-    if (_ctrl && keyboard_check_pressed(ord("S"))) { home_save(false); }
+    if (_ctrl && keyboard_check_pressed(ord("S")) && !(ws == WS_ANIMATE && anim_test)) { home_save(false); }
     if (_ctrl && keyboard_check_pressed(ord("B"))) { build_ws_build(false); }
     if (keyboard_check_pressed(vk_f5)) { build_ws_build(true); }
     if (_ctrl && (keyboard_check_pressed(187) || keyboard_check_pressed(vk_add))) { ui_scale_step(1); }

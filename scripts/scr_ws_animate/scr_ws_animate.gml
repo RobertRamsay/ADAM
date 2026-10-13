@@ -97,13 +97,11 @@ function anim_test_input(_source)
     var _fire = false;
     if (_source == 0 && ui_focus == "")
     {
-        // Ctrl+S belongs to the editor's Save shortcut, not test movement/fire.
-        var _save_chord = keyboard_check(vk_control) && keyboard_check(ord("S"));
-        if (!_save_chord && (keyboard_check(vk_space) || keyboard_check(vk_control))) { _fire = true; }
+        if (keyboard_check(vk_space) || keyboard_check(vk_control)) { _fire = true; }
         if (keyboard_check(vk_left) || keyboard_check(ord("A"))) { _dx -= 1; }
         if (keyboard_check(vk_right) || keyboard_check(ord("D"))) { _dx += 1; }
         if (keyboard_check(vk_up) || keyboard_check(ord("W"))) { _dy -= 1; }
-        if (!_save_chord && (keyboard_check(vk_down) || keyboard_check(ord("S")))) { _dy += 1; }
+        if (keyboard_check(vk_down) || keyboard_check(ord("S"))) { _dy += 1; }
     }
     if (_source == 1)
     {
@@ -139,13 +137,26 @@ function anim_test_input(_source)
 /// Direction 0..7 (N NE E SE S SW W NW) of a move, as engine.s dir_tab
 function anim_dir_of(_dx, _dy)
 {
-    var _tab = [7, 0, 1, 6, 0, 2, 5, 4, 3];
-    return _tab[(_dy + 1) * 3 + (_dx + 1)];
+    if (_dy < 0)
+    {
+        if (_dx < 0) { return 7; }
+        if (_dx > 0) { return 1; }
+        return 0;
+    }
+    if (_dy > 0)
+    {
+        if (_dx < 0) { return 5; }
+        if (_dx > 0) { return 3; }
+        return 4;
+    }
+    if (_dx < 0) { return 6; }
+    if (_dx > 0) { return 2; }
+    return 0;
 }
 
 /// Draws plan entry _k of an actor playing live in a square _w wide at (_x, _y).
 /// A direction without an entry of its own plays Walk, as the engine does.
-function anim_slot_preview(_plan, _k, _x, _y, _w, _cols, _alpha)
+function anim_slot_preview(_plan, _k, _x, _y, _w, _cols, _alpha, _ticks, _face_dir, _replay_once)
 {
     if (is_undefined(_plan)) { return; }
     var _kk = _k;
@@ -155,13 +166,17 @@ function anim_slot_preview(_plan, _k, _x, _y, _w, _cols, _alpha)
         _kk = 1;
     }
     var _e = _plan[_kk];
-    if (_e.mode == 3 && array_length(_plan) > ANIM_DIR0 + 2) { _e = _plan[ANIM_DIR0 + 2]; }    // stands facing right
-    anim_strip_preview(_e.frames, _e.rate, _e.mode, _e.flip, _x, _y, _w, _cols, _alpha);
+    if (_e.mode == 3 && array_length(_plan) > ANIM_DIR0 + _face_dir)
+    {
+        _e = _plan[ANIM_DIR0 + _face_dir];
+        _ticks = 0;
+    }
+    anim_strip_preview(_e.frames, _e.rate, _e.mode, _e.flip, _x, _y, _w, _cols, _alpha, _ticks, _replay_once);
 }
 
 /// Draws frames _frames playing live (rate, mode, turned round) in a square _w wide.
 /// Once replays after a short pause, so a preview never stops for good.
-function anim_strip_preview(_frames, _rate, _mode, _flip, _x, _y, _w, _cols, _alpha)
+function anim_strip_preview(_frames, _rate, _mode, _flip, _x, _y, _w, _cols, _alpha, _ticks, _replay_once)
 {
     var _n = array_length(_frames);
     if (_n == 0) { return; }
@@ -173,10 +188,9 @@ function anim_strip_preview(_frames, _rate, _mode, _flip, _x, _y, _w, _cols, _al
         _bw = max(_bw, _fs.w);
         _bh = max(_bh, _fs.h);
     }
-    var _ticks = current_time div 20;
     var _md = _mode;
     if (_md == 3) { _md = 0; }
-    if (_md == 1) { _ticks = _ticks mod (_n * max(2, _rate) + 30); }
+    if (_md == 1 && _replay_once) { _ticks = _ticks mod (_n * max(2, _rate) + 30); }
     var _fi = anim_frame_at({ frames : _frames, rate : _rate, mode : _md }, _ticks);
     var _si = clamp(_frames[_fi], 0, SPR_COUNT - 1);
     var _ps = proj.sprites[_si];
@@ -266,6 +280,14 @@ function anim_joystick(_which, _x, _y, _size, _s, _plan, _cols, _in, _test_k)
         _k0 = ANIM_FIRE0;
         _kd = ANIM_FIRE0 + 1;
     }
+    var _test_dir_k = -1;
+    if (anim_test && (_in[0] != 0 || _in[1] != 0))
+    {
+        if ((_which == 0 && !_in[2]) || (_which == 1 && _in[2]))
+        {
+            _test_dir_k = _kd + anim_dir_of(_in[0], _in[1]);
+        }
+    }
     var _lnames = anim_long_names();
 
     // the base plate
@@ -273,7 +295,7 @@ function anim_joystick(_which, _x, _y, _size, _s, _plan, _cols, _in, _test_k)
     ui_rrect(_x, _y, _x + _size, _y + _size, 18, make_colour_rgb(58, 62, 72), make_colour_rgb(30, 32, 38), 1);
     ui_rrect_line(_x, _y, _x + _size, _y + _size, 18, global.TH.panel_edge, 0.8, 1);
 
-    // which way the stick leans: the direction hovered, else the one picked, else Test
+    // Track hover for the fire indicator; Test highlighting follows the live input below.
     var _hot_any = false;
     for (var d = 0; d < 9; d++)
     {
@@ -320,11 +342,35 @@ function anim_joystick(_which, _x, _y, _size, _s, _plan, _cols, _in, _test_k)
         var _own = array_length(_s.anims[_k].frames);
         var _bg = make_colour_rgb(22, 24, 30);
         if (_hot) { _bg = make_colour_rgb(44, 48, 58); }
-        if (anim_test && _test_k == _k) { _bg = merge_colour(_bg, global.TH.accent, 0.32); }
+        var _test_active = (anim_test && (_test_k == _k || _test_dir_k == _k));
+        if (_test_active) { _bg = merge_colour(_bg, global.TH.accent, 0.32); }
         ui_rrect(_sx, _sy, _sx + _cell, _sy + _cell, 8, _bg, _bg, 1);
         var _a = 1;
         if (_own == 0) { _a = 0.3; }
-        anim_slot_preview(_plan, _k, _sx, _sy, _cell, _cols, _a);
+        if (_test_active) { _a = 1; }
+        if (is_undefined(_plan))
+        {
+            if (_test_active)
+            {
+                var _base_si = clamp(_s.sprite, 0, SPR_COUNT - 1);
+                var _base_sprite = proj.sprites[_base_si];
+                var _base_sc = (_cell - 8) / max(_base_sprite.w, _base_sprite.h);
+                draw_sprite_amiga_flip(_base_si, _sx + (_cell - _base_sprite.w * _base_sc) / 2, _sy + (_cell - _base_sprite.h * _base_sc) / 2, _base_sc, false, _cols, 1);
+            }
+        }
+        else
+        {
+            var _slot_k = _k;
+            var _slot_ticks = current_time div 20;
+            var _slot_face = 2;
+            if (_test_active)
+            {
+                _slot_k = _test_k;
+                _slot_ticks = (current_time - anim_test_t0) div 20;
+                _slot_face = anim_test_dir;
+            }
+            anim_slot_preview(_plan, _slot_k, _sx, _sy, _cell, _cols, _a, _slot_ticks, _slot_face, !_test_active);
+        }
         var _ring = global.TH.panel_edge;
         var _rw = 1;
         if (_own > 0) { _ring = global.TH.accent2; }
@@ -333,7 +379,7 @@ function anim_joystick(_which, _x, _y, _size, _s, _plan, _cols, _in, _test_k)
             _ring = global.TH.accent;
             _rw = 3;
         }
-        if (anim_test && _test_k == _k)
+        if (_test_active)
         {
             _ring = c_white;
             _rw = 3;
@@ -464,6 +510,27 @@ function ws_animate_draw(_x1, _y1, _x2, _y2)
     // ---------------- centre: two joysticks, preview, frames ----------------
     ui_panel(_cx1, _y1, _cx2, _y2, ui_text_fit("Animate " + _s.name, global.f_title, _cx2 - _cx1 - 32));
     var _plan = anim_plan(_s);
+    var _preview_bw = 16;
+    var _preview_bh = 16;
+    if (is_undefined(_plan))
+    {
+        var _base_preview = proj.sprites[clamp(_s.sprite, 0, SPR_COUNT - 1)];
+        _preview_bw = max(_preview_bw, _base_preview.w);
+        _preview_bh = max(_preview_bh, _base_preview.h);
+    }
+    else
+    {
+        for (var ap = 0; ap < array_length(_plan); ap++)
+        {
+            var _frames = _plan[ap].frames;
+            for (var af = 0; af < array_length(_frames); af++)
+            {
+                var _preview_sprite = proj.sprites[clamp(_frames[af], 0, SPR_COUNT - 1)];
+                _preview_bw = max(_preview_bw, _preview_sprite.w);
+                _preview_bh = max(_preview_bh, _preview_sprite.h);
+            }
+        }
+    }
     var _an = _s.anims[anim_sel];
     var _nf = array_length(_an.frames);
     var _smax = min(_nf, lim_frames() - 1);
@@ -568,14 +635,14 @@ function ws_animate_draw(_x1, _y1, _x2, _y2)
         anim_test_entry = -1;
     }
     var _input_names = ["Keys", "Gamepad"];
-    var _input_help = "Test input|Choose keyboard controls (Arrows / WASD, fire Space / Ctrl) or a connected gamepad (D-pad / stick, fire A). Ctrl+S saves the project and is ignored as test input.";
+    var _input_help = "Test input|Choose keyboard controls (Arrows / WASD, fire Space / Ctrl) or a connected gamepad (D-pad / stick, fire A).";
     var _input_new = ui_dropdown("anim_test_source", _jx + _test_btnw + 4, _jy, _colw - _test_btnw - 4, 32, _input_names, anim_test_source, _input_help);
     if (_input_new != anim_test_source)
     {
         anim_test_source = clamp(_input_new, 0, 1);
         anim_test_entry = -1;
     }
-    var _input_keys = "Move: arrows or WASD\nFire: Space / Ctrl  (Ctrl+S saves)";
+    var _input_keys = "Move: arrows or WASD\nFire: Space / Ctrl";
     if (anim_test_source == 1) { _input_keys = "Move: D-pad or left stick\nFire: A"; }
     draw_set_font(global.f_small);
     ui_text_wrap(_jx, _jy + 38, _input_keys, global.TH.text_dim, _colw, global.f_small, 1);
@@ -586,6 +653,7 @@ function ws_animate_draw(_x1, _y1, _x2, _y2)
     var _ctrl_h = 132;
     var _py2 = _y2 - 20 - _strip_h - _ctrl_h;
     var _vx1 = _ax1;
+    var _preview_sc = max(1, floor(min((_cx2 - 20 - _vx1 - 40) / _preview_bw, (_py2 - _py1 - 50) / _preview_bh)));
 
     // preview: what the Amiga will play
     ui_inset(_vx1, _py1, _cx2 - 20, _py2, 10);
@@ -596,15 +664,13 @@ function ws_animate_draw(_x1, _y1, _x2, _y2)
     {
         _note = "One frame - pick sprites from the bank on the right to animate it";
         var _bs = proj.sprites[clamp(_s.sprite, 0, SPR_COUNT - 1)];
-        var _bsc = max(1, floor(min((_cx2 - 20 - _vx1 - 40) / _bs.w, (_py2 - _py1 - 50) / _bs.h)));
-        draw_sprite_amiga_flip(_s.sprite, floor((_vx1 + _cx2 - 20 - _bs.w * _bsc) / 2), floor((_py1 + _py2 - 20 - _bs.h * _bsc) / 2), _bsc, _test_flip, _cols, 1);
+        draw_sprite_amiga_flip(_s.sprite, floor((_vx1 + _cx2 - 20 - _bs.w * _preview_sc) / 2), floor((_py1 + _py2 - 20 - _bs.h * _preview_sc) / 2), _preview_sc, _test_flip, _cols, 1);
     }
     else if (_test_k >= array_length(_plan))
     {
         _note = "No Fire animations yet - pick sprites from the bank to add some (until then the player keeps its normal animation)";
         var _fs = proj.sprites[clamp(_s.sprite, 0, SPR_COUNT - 1)];
-        var _fsc = max(1, floor(min((_cx2 - 20 - _vx1 - 40) / _fs.w, (_py2 - _py1 - 50) / _fs.h)));
-        draw_sprite_amiga_cols(_s.sprite, floor((_vx1 + _cx2 - 20 - _fs.w * _fsc) / 2), floor((_py1 + _py2 - 20 - _fs.h * _fsc) / 2), _fsc, _cols, 0.35);
+        draw_sprite_amiga_cols(_s.sprite, floor((_vx1 + _cx2 - 20 - _fs.w * _preview_sc) / 2), floor((_py1 + _py2 - 20 - _fs.h * _preview_sc) / 2), _preview_sc, _cols, 0.35);
     }
     else
     {
@@ -630,19 +696,9 @@ function ws_animate_draw(_x1, _y1, _x2, _y2)
         }
         var _psi2 = clamp(_pe.frames[_fi], 0, SPR_COUNT - 1);
         var _ps = proj.sprites[_psi2];
-        var _bw = 16;
-        var _bh = 16;
-        for (var q2 = 0; q2 < array_length(_pe.frames); q2++)
-        {
-            var _qs = proj.sprites[clamp(_pe.frames[q2], 0, SPR_COUNT - 1)];
-            _bw = max(_bw, _qs.w);
-            _bh = max(_bh, _qs.h);
-        }
-        var _sc = max(1, floor(min((_cx2 - 20 - _vx1 - 40) / _bw, (_py2 - _py1 - 50) / _bh)));
-        if (anim_test) { _sc = max(1, floor(_sc * 0.6)); }
-        var _dx = floor((_vx1 + _cx2 - 20 - _bw * _sc) / 2);
-        var _dy = floor((_py1 + _py2 - 20 - _bh * _sc) / 2);
-        draw_sprite_amiga_flip(_psi2, _dx, _dy, _sc, _flip, _cols, 1);
+        var _draw_x = floor((_vx1 + _cx2 - 20 - _ps.w * _preview_sc) / 2);
+        var _draw_y = floor((_py1 + _py2 - 20 - _ps.h * _preview_sc) / 2);
+        draw_sprite_amiga_flip(_psi2, _draw_x, _draw_y, _preview_sc, _flip, _cols, 1);
         if (anim_test)
         {
             _note = "Test: " + _lnames[_test_k];
@@ -981,7 +1037,7 @@ function anim_library_draw(_rx2, _fx, _fw, _oy, _x2, _y2, _alloc)
         var _cols = actor_cols_from(_alloc, _ai);
         var _bg = pal_col(0);
         ui_rrect(_gx, _gy, _gx + _gcell, _gy + _gcell, 8, _bg, _bg, 1);
-        anim_strip_preview(_an.frames, _an.rate, _an.mode, false, _gx, _gy, _gcell, _cols, 1);
+        anim_strip_preview(_an.frames, _an.rate, _an.mode, false, _gx, _gy, _gcell, _cols, 1, current_time div 20, true);
         var _ea = 0.35;
         if (_hot) { _ea = 1; }
         ui_rrect_line(_gx, _gy, _gx + _gcell, _gy + _gcell, 8, global.TH.accent, _ea, 1);
@@ -1007,7 +1063,7 @@ function anim_drag_update()
         var _gx = ui_mx + 12;
         var _gy = ui_my + 12;
         ui_rrect(_gx, _gy, _gx + _gw, _gy + _gw, 8, pal_col(0), pal_col(0), 0.9);
-        anim_strip_preview(anim_drag_frames, anim_drag_rate, anim_drag_mode, anim_drag_flip, _gx, _gy, _gw, anim_drag_cols, 1);
+        anim_strip_preview(anim_drag_frames, anim_drag_rate, anim_drag_mode, anim_drag_flip, _gx, _gy, _gw, anim_drag_cols, 1, current_time div 20, true);
         ui_rrect_line(_gx, _gy, _gx + _gw, _gy + _gw, 8, global.TH.accent, 1, 2);
         ui_text(_gx, _gy + _gw + 4, anim_drag_label, global.TH.text, fa_left, fa_top, global.f_small, 1);
     }

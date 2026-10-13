@@ -26,7 +26,7 @@
 
 #macro MUS_SONG_MAX 4
 #macro MUS_LANES 4
-#macro MUS_STEPS 16
+#macro MUS_STEPS 32
 #macro MUS_BAR_MAX 128
 #macro MUS_LOOP_MAX 64
 #macro MUS_RATE 22050
@@ -144,13 +144,13 @@ function mus_lib_drums(_name, _pat)
 {
     var _l = loop_new(_name, 0, 0);
     var _keys = "KSHOTC";
-    for (var i = 0; i < MUS_STEPS; i++)
+    for (var i = 0; i < string_length(_pat); i++)
     {
         var _k = string_pos(string_char_at(_pat, i + 1), _keys);
         if (_k > 0)
         {
-            _l.notes[i] = MUS_ROOT;
-            _l.insts[i] = _k - 1;
+            _l.notes[i * 2] = MUS_ROOT;
+            _l.insts[i * 2] = _k - 1;
         }
     }
     return _l;
@@ -159,10 +159,10 @@ function mus_lib_drums(_name, _pat)
 function mus_lib_tone(_name, _cat, _inst, _notes, _chords)
 {
     var _l = loop_new(_name, _cat, _inst);
-    for (var i = 0; i < MUS_STEPS; i++)
+    for (var i = 0; i < array_length(_notes); i++)
     {
-        _l.notes[i] = _notes[i];
-        _l.arps[i] = _chords[i];
+        _l.notes[i * 2] = _notes[i];
+        if (i < array_length(_chords)) { _l.arps[i * 2] = _chords[i]; }
     }
     return _l;
 }
@@ -260,14 +260,18 @@ function loop_from_loaded(_raw)
     var _a = _raw[$ "arps"];
     var _fx = _raw[$ "fx"];
     var _fxp = _raw[$ "fxp"];
+    var _legacy = is_array(_n) && array_length(_n) <= 16;
     for (var s = 0; s < MUS_STEPS; s++)
     {
-        if (is_array(_n) && s < array_length(_n) && is_numeric(_n[s])) { _l.notes[s] = clamp(floor(_n[s]), 0, 36); }
         _l.insts[s] = _l.inst;
-        if (is_array(_i) && s < array_length(_i) && music_inst_valid(_i[s])) { _l.insts[s] = floor(_i[s]); }
-        if (is_array(_a) && s < array_length(_a) && is_numeric(_a[s])) { _l.arps[s] = clamp(floor(_a[s]), 0, 255); }
-        if (is_array(_fx) && s < array_length(_fx) && is_numeric(_fx[s])) { _l.fx[s] = clamp(floor(_fx[s]), 0, 4); }
-        if (is_array(_fxp) && s < array_length(_fxp) && is_numeric(_fxp[s])) { _l.fxp[s] = clamp(floor(_fxp[s]), 0, 255); }
+        if (_legacy && (s mod 2) == 1) { continue; }
+        var _src_step = s;
+        if (_legacy) { _src_step = s div 2; }
+        if (is_array(_n) && _src_step < array_length(_n) && is_numeric(_n[_src_step])) { _l.notes[s] = clamp(floor(_n[_src_step]), 0, 36); }
+        if (is_array(_i) && _src_step < array_length(_i) && music_inst_valid(_i[_src_step])) { _l.insts[s] = floor(_i[_src_step]); }
+        if (is_array(_a) && _src_step < array_length(_a) && is_numeric(_a[_src_step])) { _l.arps[s] = clamp(floor(_a[_src_step]), 0, 255); }
+        if (is_array(_fx) && _src_step < array_length(_fx) && is_numeric(_fx[_src_step])) { _l.fx[s] = clamp(floor(_fx[_src_step]), 0, 4); }
+        if (is_array(_fxp) && _src_step < array_length(_fxp) && is_numeric(_fxp[_src_step])) { _l.fxp[s] = clamp(floor(_fxp[_src_step]), 0, 255); }
     }
     return _l;
 }
@@ -644,7 +648,7 @@ function music_chunks(_song)
     var _b = 0;
     while (_b < _bars)
     {
-        var _e = min(_b + 4, _bars);
+        var _e = min(_b + 2, _bars);
         if (_b < _lb) { _e = min(_e, _lb); }
         array_push(_out, [_b, _e - _b]);
         _b = _e;
@@ -711,7 +715,7 @@ function song_to_modsong(_song)
     var _map = {};
     var _nsmp = 0;
     var _dropped = 0;
-    var _speed = clamp(_song.speed, 1, 31);
+    var _speed = clamp(floor(_song.speed * 0.5), 1, 31);
     var _swing = clamp(round(_song.swing * _speed / 100), 0, _speed - 1);
     var _chunks = music_chunks(_song);
     var _nc = array_length(_chunks);
@@ -774,7 +778,7 @@ function song_to_modsong(_song)
                         _cell.note = clamp(_nt, 1, 36);
                         _cell.sample = _sn;
                         _arp = _lp.arps[st];
-                        if (_swing > 0 && (st mod 2) == 1)
+                        if (_swing > 0 && (st mod 4) == 2)
                         {
                             _cell.effect = 14;
                             _cell.param = 0xd0 | _swing;
@@ -820,6 +824,7 @@ function song_to_modsong(_song)
             if (_rows < 64) { music_put_fx(_pat[_rows - 1], 13, 0, 3); }
         }
         var _txt = music_pattern_key(_pat);
+        if (_txt == "") { _txt = "empty"; }
         var _pi = _keys[$ _txt];
         if (is_undefined(_pi))
         {
