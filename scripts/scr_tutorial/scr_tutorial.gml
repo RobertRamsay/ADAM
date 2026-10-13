@@ -75,7 +75,7 @@ function tut_init()
         tut_step(WS_LOGIC, "logic_addgroup", "Groups", "Keep related rules together in named groups, like 'Hoppers hit the hero'. Collapse a group to tidy the list, or switch it off to test your game without those rules."),
         tut_step(WS_LOGIC, "logic_tpl_0", "Quick recipes", "Not sure where to start? These buttons add complete, ready-made rules for the most common game ideas."),
         // ---------- SOUND ----------
-        tut_step(WS_SOUND, "snd_slot_0", "Eight sound effects", "Your game has 8 sound slots. Pick one to edit it, or press Play to hear it."),
+        tut_step(WS_SOUND, "snd_slot_0", "Your sounds", "Your game starts with 8 sounds. Pick one to edit it, or press Play to hear it. + Sound adds more (ADAM Pro: up to 64), + Folder keeps them tidy."),
         tut_step(WS_SOUND, "snd_preset_0", "Start from a preset", "The quickest way to a good sound: pick a preset like Coin or Explosion, then tweak it."),
         tut_step(WS_SOUND, "snd_wave", "Waveform", "The basic tone: soft triangle, buzzy sawtooth, classic square or crunchy noise."),
         tut_step(WS_SOUND, "snd_sweep", "Pitch slide", "Make the pitch rise or fall. Falling slides sound like lasers, rising slides like coins and power-ups."),

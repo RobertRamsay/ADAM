@@ -1239,7 +1239,7 @@ function music_editor(_ex1, _ey1, _ex2, _ey2, _song)
             array_push(_names, music_inst_name(_ids[i]));
             if (_ids[i] == _lp.inst) { _cur = i; }
         }
-        var _ni = ui_dropdown("mus_ed_inst", _hx, _hy, 190, 30, _names, _cur, "Instrument|The sound this loop plays: a built-in chip-synth instrument, or one of your 8 sounds from the Sound page (synth or sample).");
+        var _ni = ui_dropdown("mus_ed_inst", _hx, _hy, 190, 30, _names, _cur, "Instrument|The sound this loop plays: a built-in chip-synth instrument, or one of your sounds from the Sound page (synth, sample or patch), listed by folder.");
         if (_ni != _cur)
         {
             music_loop_edit_begin(_song, _li, "museinst" + string(current_time));
@@ -1250,13 +1250,21 @@ function music_editor(_ex1, _ey1, _ex2, _ey2, _song)
         _hx += 198;
         if (_lp.inst < MUS_INST_USER)
         {
-            var _slot = clamp(snd_sel, 0, min(8, array_length(proj.sfx)) - 1);
-            var _ed_tip = "Edit sound|Copies " + music_inst_name(_lp.inst) + " into Sound " + string(_slot + 1) + " on the Sound page (the sound selected there), so you can change it. This loop then plays Sound " + string(_slot + 1) + ".";
+            // a new sound when there is room, else the one selected on the Sound page
+            var _slot = array_length(proj.sfx);
+            var _adds = (_slot < lim_sounds());
+            if (!_adds) { _slot = clamp(snd_sel, 0, lim_sounds() - 1); }
+            var _ed_tip = "Edit sound|Copies " + music_inst_name(_lp.inst) + " into a new sound on the Sound page, so you can change it. This loop then plays that sound.";
+            if (!_adds) { _ed_tip = "Edit sound|Copies " + music_inst_name(_lp.inst) + " into Sound " + string(_slot + 1) + " on the Sound page (the sound selected there - there is no room for another), so you can change it. This loop then plays Sound " + string(_slot + 1) + "."; }
             if (ui_button("mus_ed_inst_edit", _hx, _hy, 96, 30, "Edit sound", _ed_tip, BTN_GHOST))
             {
-                var _body = "Copy " + music_inst_name(_lp.inst) + " into Sound " + string(_slot + 1) + "? It replaces " + proj.sfx[_slot].name
-                    + ", so rules and loops that use Sound " + string(_slot + 1) + " play the new sound. This loop then plays Sound " + string(_slot + 1)
-                    + " - change it on the Sound page. You can Undo this.";
+                var _body = "Copy " + music_inst_name(_lp.inst) + " into a new sound, Sound " + string(_slot + 1) + "? This loop then plays it - change it on the Sound page. You can Undo this.";
+                if (!_adds)
+                {
+                    _body = "Copy " + music_inst_name(_lp.inst) + " into Sound " + string(_slot + 1) + "? It replaces " + proj.sfx[_slot].name
+                        + ", so rules and loops that use Sound " + string(_slot + 1) + " play the new sound. This loop then plays Sound " + string(_slot + 1)
+                        + " - change it on the Sound page. You can Undo this.";
+                }
                 confirm_open("Edit this instrument?", _body, "Copy to Sound " + string(_slot + 1), "Cancel", false, music_inst_to_sound, { song : mus_song, loop : _li, inst : _lp.inst, slot : _slot });
             }
             _hx += 104;
@@ -2237,9 +2245,11 @@ function music_inst_to_sound(_arg)
     if (_arg.song < 0 || _arg.song >= array_length(proj.songs)) { return; }
     var _song = proj.songs[_arg.song];
     if (_song.kind != 0 || _arg.loop < 0 || _arg.loop >= array_length(_song.arr.loops)) { return; }
-    if (_arg.slot < 0 || _arg.slot >= array_length(proj.sfx)) { return; }
+    if (_arg.slot < 0 || _arg.slot > array_length(proj.sfx) || _arg.slot >= SFX_MAX) { return; }
     undo_mark_full("musinstedit" + string(current_time));
-    proj.sfx[_arg.slot] = music_inst_sfx(_arg.inst);
+    if (_arg.slot == array_length(proj.sfx)) { array_push(proj.sfx, music_inst_sfx(_arg.inst)); }
+    else { proj.sfx[_arg.slot] = music_inst_sfx(_arg.inst); }
+    snd_sel = _arg.slot;
     var _lp = _song.arr.loops[_arg.loop];
     var _uid = MUS_INST_USER + _arg.slot;
     _lp.inst = _uid;

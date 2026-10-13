@@ -290,7 +290,11 @@ snd_cache_count = 0;
 snd_patch_tab = 0;                    // Patch editor tab: 0 Osc, 1 Filter, 2 Amp, 3 Mod, 4 FX
 snd_patch_osc = 0;                    // oscillator shown on the Osc tab
 snd_patch_content_h = 0;              // height of the tab's settings last frame (scroll region)
-snd_patch_last = array_create(8, 0);  // last render of each patch sound, kept while a slider is dragged
+snd_patch_last = array_create(SFX_MAX, 0);  // last render of each patch sound, kept while a slider is dragged
+snd_drag = -1;                        // Sound page: sound pressed in the list (dragged onto a folder), -1 = none
+snd_drag_y0 = 0;
+snd_dragging = false;
+snd_ungrouped_open = true;            // the "No folder" header is open
 
 // music (Phase 2 Track B)
 mus_song = 0;                // song being edited

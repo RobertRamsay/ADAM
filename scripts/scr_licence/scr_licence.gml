@@ -70,6 +70,13 @@ function pro_gate(_what)
 #macro LITE_TILES 96            // tile types in a tile set (Pro: TILE_MAX = 512)
 #macro LITE_MAP_W 256           // tile map size in tiles (Pro: MAP_MAX = 1024 x 1024); memory is the real limit
 #macro LITE_MAP_H 256
+#macro LITE_SOUNDS 8            // sounds (Sound page slots; Pro: SFX_MAX = 64)
+
+function lim_sounds()
+{
+    if (pro_edition()) { return SFX_MAX; }
+    return LITE_SOUNDS;
+}
 
 function lim_frames()
 {
@@ -190,6 +197,16 @@ function lite_trim(_p, _warn)
         if (_dropped > 0) { array_push(_warn, string(_dropped) + " rules use actors that are not on the disk, so they are left out."); }
     }
     if (_cut_frames) { array_push(_warn, "Animations play their first " + string(LITE_FRAMES) + " frames in ADAM Lite - ADAM Pro plays up to " + string(ANIM_FRAMES) + "."); }
+    // sounds after the 8th are silent (sfx_used_on_disk leaves them off)
+    if (array_length(_p.sfx) > LITE_SOUNDS)
+    {
+        var _far_snd = false;
+        for (var su = 0; su < array_length(_p.sfx); su++)
+        {
+            if (su >= LITE_SOUNDS && sfx_ref_count(_p, su, true) > 0) { _far_snd = true; }
+        }
+        if (_far_snd) { array_push(_warn, "ADAM Lite plays sounds 1 to " + string(LITE_SOUNDS) + " - rules and tiles that play a later sound are silent. ADAM Pro has up to " + string(SFX_MAX) + " sounds."); }
+    }
 
     // sprites bigger than 32 x 32 are cut to 32 x 32
     var _cut_spr = false;

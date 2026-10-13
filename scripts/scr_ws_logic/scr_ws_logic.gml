@@ -62,11 +62,10 @@ function logic_add_template(_t)
     toast("Rules added in a new group - check the actors are the ones you meant", 0);
 }
 
+/// The sound picker list ({ ids, names }, Sound page order with folders)
 function sfx_names()
 {
-    var _n = [];
-    for (var i = 0; i < 8; i++) { array_push(_n, string(i + 1) + ": " + proj.sfx[i].name); }
-    return _n;
+    return sfx_pick_list(false);
 }
 
 /// Name of song _i for rule sentences, or "(no song)" when it does not exist
@@ -141,7 +140,7 @@ function logic_do_phrase(_d, _names, _na)
     {
         case 0: _s += "add " + string(_d.value) + " to the score"; break;
         case 1: _s += "lose a life"; break;
-        case 2: _s += "play sound '" + proj.sfx[clamp(_d.value, 0, 7)].name + "'"; break;
+        case 2: _s += "play sound '" + proj.sfx[clamp(_d.value, 0, array_length(proj.sfx) - 1)].name + "'"; break;
         case 3: _s += "flash the screen"; break;
         case 4: _s += "send " + _tn + " back to its start"; break;
         case 5: _s += "move " + _tn + " to a random spot"; break;
@@ -418,10 +417,11 @@ function logic_do_row(_d, _rid, _x, _y, _pill, _anames, _snames, _xr)
     }
     if (_act == 2)
     {
-        set_val(_d, "value", ui_dropdown(_rid + "_snd", _dx, _dy, 180, 30, _snames, clamp(_d.value, 0, 7), "Sound|Which of your 8 sound effects to play. Design them on the Sound page."), _rid + "snd");
+        var _si = ui_dropdown(_rid + "_snd", _dx, _dy, 180, 30, _snames.names, sfx_pick_index(_snames, _d.value), "Sound|Which of your sounds to play (listed by folder). Design them on the Sound page.");
+        set_val(_d, "value", _snames.ids[_si], _rid + "snd");
         if (ui_button(_rid + "_play", _dx + 188, _dy, 60, 30, "Play", "Preview|Plays this sound so you can hear it.", BTN_GHOST))
         {
-            sfx_preview_play(proj.sfx[clamp(_d.value, 0, 7)]);
+            sfx_preview_play(proj.sfx[clamp(_d.value, 0, array_length(proj.sfx) - 1)]);
         }
     }
     if (_act == 14)

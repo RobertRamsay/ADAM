@@ -135,6 +135,7 @@ function about_pro_page(_tx1, _ty1, _tx2, _ty2, _a)
         "   Sprites and BOBs:  up to 32 x 32  ->  64 x 64\n" +
         "   Actors on the disk:  12 (8 sprites, the rest BOBs)  ->  32\n" +
         "   Sprite bank:  64  ->  128\n" +
+        "   Sounds:  " + string(LITE_SOUNDS) + "  ->  " + string(SFX_MAX) + " (in folders; only the sounds a game plays go on the disk)\n" +
         "   Tile types / map:  96, up to 256 x 256 tiles  ->  512, up to 1024 x 1024 tiles\n" +
         "   (tiles 8 x 8 to 64 x 64 in both; memory is the real limit - see the bar at the bottom)";
     ui_text_wrap(_x, _y, _intro, global.TH.text, _w, global.f_body, _a);

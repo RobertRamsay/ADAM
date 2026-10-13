@@ -1,6 +1,8 @@
 /// ADAM - project data model, example game, save/load, undo, settings
 
 #macro SPR_COUNT 128           // sprite bank slots in every project (ADAM Lite and Pro)
+#macro SFX_MAX 64              // sounds in a project (ADAM Pro; Lite plays the first LITE_SOUNDS)
+#macro SFX_START 8             // sounds in a new project
 #macro SPR_W 16
 #macro SPR_H 24
 #macro BD_W 320
@@ -435,8 +437,123 @@ function sfx_new(_name)
         smp : "", smp_rate : 0, smp_len : 0, smp_file : "",
         rate : 11025, bits : 8, gain : 100, trim_a : 0, trim_b : 1000,
         sample_loop : false, loop_a : 0, loop_b : 1000,
-        patch : patch_new()                      // kind 2: the Patch synth's settings (scr_patch)
+        patch : patch_new(),                     // kind 2: the Patch synth's settings (scr_patch)
+        group : -1                               // Sound page folder (proj.sound_groups), -1 = none
     };
+}
+
+/// How many places play sound _k: rules (DO and AND DO lines), tiles and
+/// (when _music) Music page loops that use it as an instrument
+function sfx_ref_count(_p, _k, _music)
+{
+    var _n = 0;
+    for (var r = 0; r < array_length(_p.rules); r++)
+    {
+        var _ru = _p.rules[r];
+        if (_ru.act == 2 && _ru.value == _k) { _n += 1; }
+        for (var m = 0; m < array_length(_ru.more); m++)
+        {
+            if (_ru.more[m].act == 2 && _ru.more[m].value == _k) { _n += 1; }
+        }
+    }
+    for (var t = 0; t < array_length(_p.tiles); t++)
+    {
+        if (_p.tiles[t].sound == _k) { _n += 1; }
+    }
+    if (_music) { _n += sfx_music_uses(_p, _k); }
+    return _n;
+}
+
+/// Music page loops that play sound _k as their instrument
+function sfx_music_uses(_p, _k)
+{
+    var _n = 0;
+    var _id = MUS_INST_USER + _k;
+    for (var s = 0; s < array_length(_p.songs); s++)
+    {
+        var _song = _p.songs[s];
+        if (_song.kind != 0) { continue; }
+        for (var l = 0; l < array_length(_song.arr.loops); l++)
+        {
+            var _lp = _song.arr.loops[l];
+            var _hit = (_lp.inst == _id);
+            for (var st = 0; st < array_length(_lp.insts); st++)
+            {
+                if (_lp.insts[st] == _id) { _hit = true; }
+            }
+            if (_hit) { _n += 1; }
+        }
+    }
+    return _n;
+}
+
+/// Renumbers sound references after sound _k is removed (_k itself must be unused)
+/// or after a new sound is put in at _k (_shift = +1)
+function sfx_refs_shift(_p, _k, _shift)
+{
+    for (var r = 0; r < array_length(_p.rules); r++)
+    {
+        var _ru = _p.rules[r];
+        if (_ru.act == 2 && _ru.value >= _k) { _ru.value += _shift; }
+        for (var m = 0; m < array_length(_ru.more); m++)
+        {
+            if (_ru.more[m].act == 2 && _ru.more[m].value >= _k) { _ru.more[m].value += _shift; }
+        }
+    }
+    for (var t = 0; t < array_length(_p.tiles); t++)
+    {
+        if (_p.tiles[t].sound >= _k) { _p.tiles[t].sound += _shift; }
+    }
+    for (var s = 0; s < array_length(_p.songs); s++)
+    {
+        var _song = _p.songs[s];
+        if (_song.kind != 0) { continue; }
+        for (var l = 0; l < array_length(_song.arr.loops); l++)
+        {
+            var _lp = _song.arr.loops[l];
+            if (_lp.inst >= MUS_INST_USER + _k) { _lp.inst += _shift; }
+            for (var st = 0; st < array_length(_lp.insts); st++)
+            {
+                if (_lp.insts[st] >= MUS_INST_USER + _k) { _lp.insts[st] += _shift; }
+            }
+        }
+    }
+}
+
+/// Sounds in Sound page order: those in no folder, then each folder in turn.
+/// Returns { ids, names } for the sound pickers on other pages.
+function sfx_pick_list(_with_none)
+{
+    var _ids = [];
+    var _names = [];
+    if (_with_none) { array_push(_ids, -1); array_push(_names, "(none)"); }
+    var _ng = array_length(proj.sound_groups);
+    for (var g = -1; g < _ng; g++)
+    {
+        var _gname = "";
+        if (g >= 0) { _gname = proj.sound_groups[g].name + " / "; }
+        for (var i = 0; i < array_length(proj.sfx); i++)
+        {
+            var _sg = proj.sfx[i].group;
+            if (_sg < 0 || _sg >= _ng) { _sg = -1; }
+            if (_sg != g) { continue; }
+            array_push(_ids, i);
+            var _nm = _gname + string(i + 1) + ": " + proj.sfx[i].name;
+            if (i >= lim_sounds()) { _nm += "  (Pro)"; }
+            array_push(_names, _nm);
+        }
+    }
+    return { ids : _ids, names : _names };
+}
+
+/// The picker index of sound _k in a sfx_pick_list
+function sfx_pick_index(_list, _k)
+{
+    for (var i = 0; i < array_length(_list.ids); i++)
+    {
+        if (_list.ids[i] == _k) { return i; }
+    }
+    return 0;
 }
 
 function sfx_apply_preset(_s, _p)
@@ -475,7 +592,8 @@ function project_new()
         actors : [],
         rules : [],
         groups : [],
-        sfx : [],
+        sfx : [],                                // 1..SFX_MAX sounds (Sound page)
+        sound_groups : [],                       // Sound page folders: { name, open }
         lives : 3,
         show_score : true,
         show_lives : true,
@@ -512,7 +630,7 @@ function project_new()
         tools : [],                              // space bar menu tools (Tools tab), [] = none
         ui : ui_new()                            // ADAM Pro custom HUD (UI page)
     };
-    for (var i = 0; i < 8; i++)
+    for (var i = 0; i < SFX_START; i++)
     {
         var _s = sfx_new(global.SFX_PRESET_NAMES[i]);
         sfx_apply_preset(_s, i);
@@ -575,14 +693,40 @@ function project_from_loaded(_raw)
     }
     _p.sprites = _sprites;
 
+    // sounds: as many as the file has (1..SFX_MAX), and the Sound page folders
     var _lf = _raw[$ "sfx"];
-    for (var j = 0; j < 8; j++)
+    var _nsfx = array_length(_sfx);
+    if (is_array(_lf) && array_length(_lf) > 0) { _nsfx = clamp(array_length(_lf), 1, SFX_MAX); }
+    var _gl = _raw[$ "sound_groups"];
+    var _sgroups = [];
+    if (is_array(_gl))
     {
-        var _f = _sfx[j];
+        for (var g = 0; g < min(array_length(_gl), SFX_MAX); g++)
+        {
+            var _sg = { name : "Folder " + string(g + 1), open : true };
+            if (is_struct(_gl[g]))
+            {
+                if (is_string(_gl[g][$ "name"])) { _sg.name = string_copy(_gl[g].name, 1, 24); }
+                if (is_numeric(_gl[g][$ "open"])) { _sg.open = (_gl[g].open != 0); }
+            }
+            array_push(_sgroups, _sg);
+        }
+    }
+    _p.sound_groups = _sgroups;
+    var _sfx_out = [];
+    for (var j = 0; j < _nsfx; j++)
+    {
+        var _f = sfx_new("Sound " + string(j + 1));
+        if (j < array_length(_sfx)) { _f = _sfx[j]; }
         if (is_array(_lf) && j < array_length(_lf)) { struct_overlay(_f, _lf[j]); }
         _f.patch = patch_from_loaded(_f.patch);
+        if (!is_numeric(_f.group)) { _f.group = -1; }
+        _f.group = clamp(floor(_f.group), -1, array_length(_sgroups) - 1);
+        if (!is_numeric(_f.kind)) { _f.kind = 0; }
+        _f.kind = clamp(floor(_f.kind), 0, 2);
+        array_push(_sfx_out, _f);
     }
-    _p.sfx = _sfx;
+    _p.sfx = _sfx_out;
 
     var _acts = [];
     var _la = _raw[$ "actors"];
@@ -1101,6 +1245,7 @@ function project_after_change()
     proj.depth = clamp(proj.depth, 1, machine_cur().max_depth);
     bd_sel = clamp(bd_sel, 0, pal_count() - 1);
     sel_actor = clamp(sel_actor, 0, max(0, array_length(proj.actors) - 1));
+    snd_sel = clamp(snd_sel, 0, array_length(proj.sfx) - 1);
     build_listing = [];
 }
 
@@ -1121,7 +1266,7 @@ function undo_keys(_ws)
         case WS_SPRITES:  return ["sprites"];
         case WS_ACTORS:   return ["actors", "rules"];
         case WS_LOGIC:    return ["rules", "groups"];
-        case WS_SOUND:    return ["sfx"];
+        case WS_SOUND:    return ["sfx", "sound_groups"];
         case WS_MUSIC:    return ["songs", "level_song"];
         case WS_ANIMATE:  return ["actors"];
         case WS_TILES:    return ["tiles_on", "tile_size", "tiles", "map_w", "map_h", "map", "tile_dig", "tools", "actors"];

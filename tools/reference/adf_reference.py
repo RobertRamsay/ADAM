@@ -139,8 +139,9 @@ def build(proj, aga):
     off_rules=len(blob)
     for r in rules:
         more=r.get('more',[])[:4]          # AND DO lines: R_NAND, then 8 bytes each (engine.s AND_SIZE)
-        blob+=struct.pack('>HHHHHHHH',r['when'],r['a'],r['b'],r['n'],r['act'],r['target'],r['value'],len(more))
-        for m in more: blob+=struct.pack('>HHHH',m['act'],m['target'],m['value'],0)
+        sv=lambda d: max(0,min(len(proj['sfx'])-1,d['value'])) if d['act']==2 else d['value']   # sound: below the count
+        blob+=struct.pack('>HHHHHHHH',r['when'],r['a'],r['b'],r['n'],r['act'],r['target'],sv(r),len(more))
+        for m in more: blob+=struct.pack('>HHHH',m['act'],m['target'],sv(m),0)
     align(8)
     off_sprcol=len(blob)
     for pair in range(4):
@@ -153,10 +154,19 @@ def build(proj, aga):
         o=len(blob); blob.extend(s.upper().encode('ascii','replace')[:40]+b'\0'); return o
     off_over=text(proj['over']); off_win=text(proj['win'])
     align(8)
-    # sounds
+    # sounds: a table entry for every sound (up to 64), but only the sounds a rule
+    # or a dug tile plays take chip RAM (scr_adf sfx_used_on_disk); the rest are length 0
+    nsnd=max(1,min(64,len(proj['sfx'])))
+    used=[False]*nsnd
+    for r in rules:
+        for d in [r]+r.get('more',[])[:4]:
+            if d['act']==2: used[max(0,min(nsnd-1,d['value']))]=True
+    if proj.get('tiles'):
+        for td in proj['tiles']['tiles']:
+            if td.get('sound',-1)>=0: used[max(0,min(nsnd-1,td['sound']))]=True
     sfx_entries=[]
-    samples=[]
-    for s in proj['sfx']:
+    for k,s in enumerate(proj['sfx'][:nsnd]):
+        if not used[k]: sfx_entries.append((0,0)); continue
         align(8)
         o=len(blob); data=render_sfx(s)
         if len(data)%2: data+=b'\0'
@@ -208,7 +218,7 @@ def build(proj, aga):
         blob.extend(struct.pack('>HHHHHHL',S,sh,tline,ncol,nrow,len(tools),ring))
         for td in t['tiles']:
             fl=(1 if td.get('solid') else 0)|(2 if td.get('dig') else 0)|(4 if td.get('goal') else 0)|(8 if td.get('ladder') else 0)
-            snd=td.get('sound',-1); snd=0xff if snd<0 else snd&7
+            snd=td.get('sound',-1); snd=0xff if snd<0 else max(0,min(nsnd-1,snd))
             bec=td.get('becomes',0)
             if bec>=nt: bec=0
             blob.extend(struct.pack('>BBHHH',fl,snd,max(1,td.get('hard',10)),td.get('points',0),bec))

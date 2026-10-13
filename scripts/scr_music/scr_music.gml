@@ -194,7 +194,7 @@ function music_inst_valid(_id)
 {
     if (!is_numeric(_id)) { return false; }
     if (_id >= 0 && _id < array_length(global.MUS_INST)) { return true; }
-    if (_id >= MUS_INST_USER && _id < MUS_INST_USER + 8) { return true; }
+    if (_id >= MUS_INST_USER && _id < MUS_INST_USER + SFX_MAX) { return true; }
     return false;
 }
 
@@ -203,7 +203,12 @@ function music_inst_name(_id)
     if (_id >= MUS_INST_USER)
     {
         var _k = _id - MUS_INST_USER;
-        if (_k >= 0 && _k < array_length(proj.sfx)) { return "Sound " + string(_k + 1) + ": " + proj.sfx[_k].name; }
+        if (_k >= 0 && _k < array_length(proj.sfx))
+        {
+            var _sg = proj.sfx[_k].group;
+            if (_sg >= 0 && _sg < array_length(proj.sound_groups)) { return proj.sound_groups[_sg].name + " / " + string(_k + 1) + ": " + proj.sfx[_k].name; }
+            return "Sound " + string(_k + 1) + ": " + proj.sfx[_k].name;
+        }
         return "Sound";
     }
     if (_id >= 0 && _id < array_length(global.MUS_INST)) { return global.MUS_INST[_id].name; }
@@ -215,7 +220,9 @@ function music_inst_ids()
 {
     var _out = [];
     for (var i = 0; i < array_length(global.MUS_INST); i++) { array_push(_out, i); }
-    for (var k = 0; k < 8; k++) { array_push(_out, MUS_INST_USER + k); }
+    // the project's sounds, in Sound page order (by folder)
+    var _sl = sfx_pick_list(false);
+    for (var k = 0; k < array_length(_sl.ids); k++) { array_push(_out, MUS_INST_USER + _sl.ids[k]); }
     return _out;
 }
 

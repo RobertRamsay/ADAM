@@ -68,15 +68,41 @@ function buf_zeros(_b, _n)
 
 /// Text in a fixed-size, zero-padded field (upper case, font characters only)
 /// A DO line on the disk: act, target, value (6 bytes) - a rule's DO or one of its AND DO lines
-function adf_do_line(_b, _d, _ncol)
+function adf_do_line(_b, _d, _ncol, _nsnd)
 {
     var _val = _d.value;
     if (_d.act == 8) { _val = clamp(_val, 0, _ncol - 1); }
-    if (_d.act == 2) { _val = clamp(_val, 0, 7); }
+    if (_d.act == 2) { _val = clamp(_val, 0, _nsnd - 1); }
     if (_d.act == 18) { _val = clamp(_val, 0, ADF_SONGS_MAX - 1); }
     be16(_b, clamp(_d.act, 0, 22));
     be16(_b, clamp(_d.target, 0, ACT_MAX_ALL - 1));
     be16(_b, clamp(_val, 0, 65535));
+}
+
+/// Which sounds go on the disk: those a written rule (DO or AND DO line) or a
+/// dug tile plays. ADAM Lite plays only its first lim_sounds() (the rest are silent).
+function sfx_used_on_disk(_p, _rules)
+{
+    var _n = clamp(array_length(_p.sfx), 1, SFX_MAX);
+    var _used = array_create(_n, false);
+    for (var r = 0; r < array_length(_rules); r++)
+    {
+        var _ru = _rules[r];
+        if (_ru.act == 2) { _used[clamp(_ru.value, 0, _n - 1)] = true; }
+        for (var m = 0; m < min(array_length(_ru.more), RULE_DOS_MAX - 1); m++)
+        {
+            if (_ru.more[m].act == 2) { _used[clamp(_ru.more[m].value, 0, _n - 1)] = true; }
+        }
+    }
+    if (_p.tiles_on)
+    {
+        for (var t = 0; t < array_length(_p.tiles); t++)
+        {
+            if (_p.tiles[t].sound >= 0) { _used[clamp(_p.tiles[t].sound, 0, _n - 1)] = true; }
+        }
+    }
+    for (var k = lim_sounds(); k < _n; k++) { _used[k] = false; }
+    return _used;
 }
 
 function buf_fixed_text(_b, _s, _n)
@@ -315,6 +341,8 @@ function adam_data_block_raw(_p, _measure = false)
         array_push(_rules, _rr);
     }
     var _nr = array_length(_rules);
+    var _nsnd = clamp(array_length(_p.sfx), 1, SFX_MAX);
+    var _snd_used = sfx_used_on_disk(_p, _rules);
     var _b = buffer_create(262144, buffer_grow, 1);
     buf_zeros(_b, ADF_HDR);
     buf_align(_b, 8);
@@ -550,11 +578,11 @@ function adam_data_block_raw(_p, _measure = false)
         be16(_b, clamp(_ru.a, 0, ACT_MAX_ALL - 1));
         be16(_b, clamp(_ru.b, 0, ACT_MAX_ALL - 1));
         be16(_b, clamp(_ru.n, 1, 65535));
-        adf_do_line(_b, _ru, _ncol);
+        adf_do_line(_b, _ru, _ncol, _nsnd);
         be16(_b, _nand);
         for (var rm2 = 0; rm2 < _nand; rm2++)
         {
-            adf_do_line(_b, _ru.more[rm2], _ncol);
+            adf_do_line(_b, _ru.more[rm2], _ncol, _nsnd);
             be16(_b, 0);
         }
     }
@@ -574,13 +602,15 @@ function adam_data_block_raw(_p, _measure = false)
     buf_text(_b, _p.win_text);
     buf_align(_b, 8);
 
-    // sound samples, then their table
-    var _snd_off = array_create(8, 0);
-    var _snd_len = array_create(8, 0);
-    var _snd_per = array_create(8, 0);
+    // sound samples, then their table: one entry per sound (engine play_sfx),
+    // but only sounds a rule or a tile plays take chip RAM - the rest are length 0
+    var _snd_off = array_create(_nsnd, 0);
+    var _snd_len = array_create(_nsnd, 0);
+    var _snd_per = array_create(_nsnd, 0);
     var _snd_bytes = 0;
-    for (var s = 0; s < 8; s++)
+    for (var s = 0; s < _nsnd; s++)
     {
+        if (!_snd_used[s]) { continue; }
         buf_align(_b, 8);
         _snd_off[s] = buffer_tell(_b);
         var _r = sfx_render_ex(_p.sfx[s], true);
@@ -592,7 +622,7 @@ function adam_data_block_raw(_p, _measure = false)
     }
     buf_align(_b, 8);
     var _off_sfx = buffer_tell(_b);
-    for (var s2 = 0; s2 < 8; s2++)
+    for (var s2 = 0; s2 < _nsnd; s2++)
     {
         be32(_b, _snd_off[s2]);
         be16(_b, _snd_len[s2]);
@@ -704,7 +734,7 @@ function adam_data_block_raw(_p, _measure = false)
             if (_td.goal) { _fl = _fl | 4; }
             if (_td.ladder) { _fl = _fl | 8; }
             var _snd = 0xff;
-            if (_td.sound >= 0) { _snd = _td.sound & 7; }
+            if (_td.sound >= 0) { _snd = clamp(_td.sound, 0, _nsnd - 1); }
             buffer_write(_b, buffer_u8, _fl);
             buffer_write(_b, buffer_u8, _snd);
             be16(_b, clamp(_td.hard, 1, 250));
@@ -1740,5 +1770,5 @@ function build_make_listing()
     }
     array_push(build_listing, "; ---------------------------------------------------------------");
     array_push(build_listing, "; game data appended after data_start for '" + proj.name + "'");
-    array_push(build_listing, ";   machine " + machine_cur().name + ", " + string(pal_count()) + " colours, " + string(array_length(proj.actors)) + " actors, " + string(array_length(proj.rules)) + " rules, 8 sounds");
+    array_push(build_listing, ";   machine " + machine_cur().name + ", " + string(pal_count()) + " colours, " + string(array_length(proj.actors)) + " actors, " + string(array_length(proj.rules)) + " rules, " + string(array_length(proj.sfx)) + " sounds");
 }

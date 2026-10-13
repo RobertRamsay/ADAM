@@ -44,7 +44,7 @@ H_PAL       equ 32         ; offset: palette, (1<<depth) longs $00RRGGBB
 H_PLANES    equ 36         ; offset: pristine backdrop, depth * 10240 bytes
 H_ACTORS    equ 40         ; offset: actor records
 H_RULES     equ 44         ; offset: rule records
-H_SFX       equ 48         ; offset: 8 sound entries
+H_SFX       equ 48         ; offset: sound entries (one per sound, up to 64; length 0 = not on the disk)
 H_TOVER     equ 52         ; offset: game over text (0 terminated)
 H_TWIN      equ 56         ; offset: win text (0 terminated)
 H_SPRCOL    equ 60         ; offset: 4 sprite pairs x 3 longs $00RRGGBB
@@ -105,7 +105,7 @@ TL_NAME     equ 4          ; 8 bytes, 0 ends it early
 TL_SIZE     equ 12
 TP_FLAGS    equ 0          ; byte: bit 0 solid, bit 1 can be dug, bit 2 counts towards the level goal,
                            ; bit 3 ladder (a platform player climbs it)
-TP_SOUND    equ 1          ; byte: sound 0..7, $ff = none
+TP_SOUND    equ 1          ; byte: sound 0..63, $ff = none
 TP_HARD     equ 2          ; frames of digging it takes
 TP_POINTS   equ 4          ; score for digging it
 TP_BECOMES  equ 6          ; the tile left behind when it is dug
@@ -3793,7 +3793,7 @@ act_addlife:
 .z          bra     draw_hud
 
 act_sound:  move.w  R_VAL(a3),d0
-            and.w   #7,d0
+            and.w   #63,d0
             bra     play_sfx
 
 act_flash:  move.w  #16,v_flash(a5)
@@ -4306,12 +4306,13 @@ level_music:
 .out        movem.l (sp)+,d0-d1/a0
             rts
 
-; d0 = sound 0..7. With no music it plays on channel (sound AND 3), as it
+; d0 = sound 0..63 (ADAM writes a table entry for every sound and keeps rule
+; and tile values below the count). With no music it plays on channel (sound AND 3), as it
 ; always did; while a song plays ptplayer picks the channel that disturbs
 ; the music least. The channel goes back to the music when the sound ends.
 play_sfx:
             movem.l d0-d1/a0-a1,-(sp)
-            and.w   #7,d0
+            and.w   #63,d0
             move.l  H_SFX(a4),d1
             lea     0(a4,d1.l),a0
             move.w  d0,d1

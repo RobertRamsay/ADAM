@@ -271,7 +271,7 @@ function tile_from_loaded(_raw, _s)
     if (!is_numeric(_t.points)) { _t.points = 0; }
     _t.points = clamp(floor(_t.points), 0, 999);
     if (!is_numeric(_t.sound)) { _t.sound = -1; }
-    _t.sound = clamp(floor(_t.sound), -1, 7);
+    _t.sound = clamp(floor(_t.sound), -1, SFX_MAX - 1);
     if (!is_numeric(_t.becomes)) { _t.becomes = 0; }
     _t.becomes = clamp(floor(_t.becomes), 0, TILE_MAX - 1);
     return _t;
@@ -847,9 +847,9 @@ function ws_tiles_draw(_x1, _y1, _x2, _y2)
     set_val(_t, "points", ui_stepper("tile_pts", _fx + _half + 12, _y + 18, _half, _t.points, 0, 999, "Points|Added to the score when it is dug."), "tilepts");
     _y += 62;
     ui_heading(_fx, _y, "Sound when dug");
-    var _sn = ["(none)"];
-    for (var s = 0; s < 8; s++) { array_push(_sn, string(s + 1) + ": " + proj.sfx[s].name); }
-    set_val(_t, "sound", ui_dropdown("tile_snd", _fx, _y + 18, _fw, 30, _sn, _t.sound + 1, "Sound|Plays when the tile is dug out. Make sounds on the Sound page.") - 1, "tilesnd");
+    var _sn = sfx_pick_list(true);
+    var _tsi = ui_dropdown("tile_snd", _fx, _y + 18, _fw, 30, _sn.names, sfx_pick_index(_sn, _t.sound), "Sound|Plays when the tile is dug out (listed by folder). Make sounds on the Sound page.");
+    set_val(_t, "sound", _sn.ids[_tsi], "tilesnd");
     _y += 58;
     ui_heading(_fx, _y, "Leaves behind");
     var _tn = [];
