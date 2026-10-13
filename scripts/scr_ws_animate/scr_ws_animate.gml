@@ -680,8 +680,14 @@ function ws_animate_draw(_x1, _y1, _x2, _y2)
             _note = _lnames[anim_sel] + ":  frame " + string(_fi + 1) + " of " + string(array_length(_pe.frames)) + "   -   sprite " + string(_psi2 + 1) + ": " + _ps.name;
         }
     }
-    ui_text(_vx1 + 16, _py2 - 22, ui_text_fit(_note, global.f_small, _cx2 - _vx1 - 200), global.TH.text_dim, fa_left, fa_middle, global.f_small, 1);
-    if (_s.anim_flip && !_dirs_on && !anim_test && anim_sel < ANIM_BASIC)
+    // the note wraps upwards from the bottom of the preview, clear of the Facing left switch
+    var _show_face = (_s.anim_flip && !_dirs_on && !anim_test && anim_sel < ANIM_BASIC);
+    var _nw = _cx2 - 26 - 12 - (_vx1 + 16);
+    if (_show_face) { _nw = _cx2 - 170 - 12 - (_vx1 + 16); }
+    draw_set_font(global.f_small);
+    var _nh = ui_sh_ext(_note, _nw);
+    ui_text_wrap(_vx1 + 16, _py2 - 14 - _nh, _note, global.TH.text_dim, _nw, global.f_small, 1);
+    if (_show_face)
     {
         anim_face_left = ui_toggle("anim_faceleft", _cx2 - 170, _py2 - 34, "Facing left", anim_face_left, "Facing left|Shows the frames turned round, as the actor looks while it moves left.");
     }
@@ -692,7 +698,14 @@ function ws_animate_draw(_x1, _y1, _x2, _y2)
 
     // frame strip: up to 8 frames; the slot after the last one adds a frame
     var _sy = _py2 + 14;
-    ui_heading(_ax1, _sy, _lnames[anim_sel] + " frames  (" + string(_nf) + " / " + string(lim_frames()) + ")  -  click a frame, then a sprite in the bank");
+    var _fhw = _cx2 - 20 - _ax1;
+    var _fhd = string_upper(_lnames[anim_sel] + " frames  (" + string(_nf) + " / " + string(lim_frames()) + ")  -  click a frame, then a sprite in the bank");
+    draw_set_font(global.f_small);
+    if (ui_sw(_fhd) > _fhw)
+    {
+        _fhd = string_upper(_lnames[anim_sel] + " frames  (" + string(_nf) + " / " + string(lim_frames()) + ")  -  click a frame, then a sprite");
+    }
+    ui_heading(_ax1, _sy, ui_text_fit(_fhd, global.f_small, _fhw));
     var _lim = lim_frames();
     _sy += 20;
     var _cellw = min(64, floor((_cx2 - 20 - _ax1 - 7 * 8) / ANIM_FRAMES));
@@ -802,7 +815,7 @@ function ws_animate_draw(_x1, _y1, _x2, _y2)
     }
     _st = BTN_NORMAL;
     if (!_sel_real) { _st = BTN_GHOST; }
-    if (ui_button("anim_remove", _ax1 + 2 * (_bw4 + 8), _ky, _bw4, 32, "Remove frame", "Remove frame|Takes the selected frame out of this animation. You can Undo this.", _st))
+    if (ui_button("anim_remove", _ax1 + 2 * (_bw4 + 8), _ky, _bw4, 32, "Remove", "Remove frame|Takes the selected frame out of this animation. You can Undo this.", _st))
     {
         if (_sel_real && anim_can_edit())
         {
@@ -950,7 +963,7 @@ function anim_library_draw(_rx2, _fx, _fw, _oy, _x2, _y2, _alloc)
     }
     if (array_length(_items) == 0)
     {
-        ui_text(_fx, _oy + 10, "No animations yet - give an actor some frames and they show up here, ready to drag onto other slots and actors.", global.TH.text_dim, fa_left, fa_top, global.f_small, 1);
+        ui_text_wrap(_fx, _oy + 10, "No animations yet - give an actor some frames and they show up here, ready to drag onto other slots and actors.", global.TH.text_dim, _fw, global.f_small, 1);
         return;
     }
     var _gcols = 3;

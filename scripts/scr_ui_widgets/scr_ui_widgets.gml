@@ -243,7 +243,8 @@ function ui_tab(_id, _x, _y, _w, _h, _label, _selected, _help)
     }
     var _tc = merge_colour(global.TH.text_dim, global.TH.text, max(_a, _sa));
     if (_selected) { _tc = c_white; }
-    ui_text(_x + _w * 0.5, _y + _h * 0.5, _label, _tc, fa_center, fa_middle, global.f_bold, 1);
+    var _lab = ui_text_fit(_label, global.f_bold, _w - 10);
+    ui_text(_x + _w * 0.5, _y + _h * 0.5, _lab, _tc, fa_center, fa_middle, global.f_bold, 1);
     if (_hot && ui_pressed)
     {
         ui_take_click();
@@ -401,7 +402,21 @@ function ui_textfield(_id, _x, _y, _w, _h, _value, _maxlen, _help)
             ui_rrect_line(_x, _y, _x + _w, _y + _h, 8, global.TH.accent, 0.4, 1);
         }
     }
-    var _shown = ui_text_fit(_v, global.f_body, _w - 20);
+    // while typing, show the end of the text (where the caret is) rather than cutting it off
+    var _shown = "";
+    if (ui_focus == _id)
+    {
+        draw_set_font(global.f_body);
+        _shown = _v;
+        while (string_length(_shown) > 1 && ui_sw(_shown) > _w - 20)
+        {
+            _shown = string_delete(_shown, 1, 1);
+        }
+    }
+    else
+    {
+        _shown = ui_text_fit(_v, global.f_body, _w - 20);
+    }
     ui_text(_x + 10, _y + _h * 0.5, _shown, global.TH.text, fa_left, fa_middle, global.f_body, 1);
     if (ui_focus == _id && (current_time div 500) mod 2 == 0)
     {
@@ -584,7 +599,32 @@ function ui_popup_draw(_gw, _gh)
     }
     if (_y + _h > _gh - 10)
     {
-        _y = max(10, ui_popup_anchor_y - _h - 4);
+        // no room below: open above, or (a long list) on the roomier side, shortened to fit - it scrolls
+        var _below = _gh - 10 - _y;
+        var _above = ui_popup_anchor_y - 4 - 10;
+        if (_h <= _above)
+        {
+            _y = ui_popup_anchor_y - 4 - _h;
+        }
+        else
+        {
+            if (ui_popup_kind == 0)
+            {
+                if (_above > _below)
+                {
+                    _h = max(64, _above);
+                    _y = ui_popup_anchor_y - 4 - _h;
+                }
+                else
+                {
+                    _h = max(64, _below);
+                }
+            }
+            else
+            {
+                _y = max(10, ui_popup_anchor_y - _h - 4);
+            }
+        }
     }
     if (_x + _w > _gw - 10)
     {
@@ -637,7 +677,7 @@ function ui_popup_draw(_gw, _gh)
                     ui_rrect(_x + 4, _iy, _x + _w - 4, _iy + 26, 7, global.TH.btn_hot_top, global.TH.btn_hot_bot, 1);
                 }
             }
-            ui_text(_x + 14, _iy + 13, ui_text_fit(ui_popup_opts[i], global.f_body, _w - 24), global.TH.text, fa_left, fa_middle, global.f_body, 1);
+            ui_text(_x + 14, _iy + 13, ui_text_fit(ui_popup_opts[i], global.f_body, _w - 28), global.TH.text, fa_left, fa_middle, global.f_body, 1);
             if (_hot && ui_pressed)
             {
                 ui_popup_result_id = ui_popup_id;

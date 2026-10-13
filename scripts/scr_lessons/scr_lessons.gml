@@ -383,7 +383,7 @@ function lesson_draw(_gw, _gh)
     if (!_on_page) { _body = "This step is on the " + ws_name(_st.tab) + " page."; }
     draw_set_font(global.f_body);
     var _bh = ui_sh_ext(_body, _cw - 48);
-    var _ch = 128 + _bh;
+    var _ch = 140 + _bh;     // body ends 16 px above the buttons
     var _cx = _gw - _cw - 20;
     if (!is_undefined(_r))
     {
@@ -442,6 +442,7 @@ function lesson_draw(_gw, _gh)
             lesson_go(les_index - 1);
         }
     }
+    draw_set_font(global.f_bold);
     var _qw = ceil(ui_sw("Stop lesson")) + 28;
     if (ui_button("les_quit", _cx + 24, _by, _qw, 32, "Stop lesson", "Stop the lesson|Your project stays as it is. Start the lesson again from Learn ADAM at the top right.", BTN_GHOST))
     {

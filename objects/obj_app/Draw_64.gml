@@ -29,7 +29,6 @@ draw_topbar(gui_w);
 ui_status_bar(gui_w, gui_h);
 ui_popup_draw(gui_w, gui_h);
 about_draw(gui_w, gui_h);
-ui_help_draw(gui_w, gui_h);
 toasts_draw(gui_w, gui_h);
 tut_offer_draw(gui_w, gui_h);
 update_card_draw(gui_w, gui_h);
@@ -38,6 +37,9 @@ lesson_draw(gui_w, gui_h);
 whatsnew_draw(gui_w, gui_h);
 machine_pick_draw(gui_w, gui_h);
 confirm_draw(gui_w, gui_h);
+// last, so a help bubble is never hidden under the corner cards or panels
+// (and the controls on those cards and panels get their bubbles too)
+ui_help_draw(gui_w, gui_h);
 ui_frame_end();
 if (_shot) { dev_shots_end(); }
 

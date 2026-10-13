@@ -44,7 +44,7 @@ function confirm_draw(_gw, _gh)
     ui_panel(_x1, _y1, _x2, _y2, "");
 
     draw_boing(_x1 + 24, _y1 + 24, 30, _a);
-    ui_text(_x1 + 66, _y1 + 24 + 15, confirm_title, c_white, fa_left, fa_middle, global.f_title, _a);
+    ui_text(_x1 + 66, _y1 + 24 + 15, ui_text_fit(confirm_title, global.f_title, _w - 66 - 24), c_white, fa_left, fa_middle, global.f_title, _a);
     if (_bh > 0)
     {
         ui_text_wrap(_x1 + 24, _y1 + 24 + 34 + 14, confirm_body, global.TH.text, _tw, global.f_body, _a);

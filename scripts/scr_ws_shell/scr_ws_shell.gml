@@ -157,15 +157,40 @@ function draw_topbar(_gw)
     var _tw = 96;
     var _tx = _mx + _mw + 18;
     var _avail = _gw - _tx - _right;
-    if (_avail < _tw * _nt) { _tw = max(56, floor(_avail / _nt)); }
-    ui_rrect(_tx - 6, 11, _tx + _tw * _nt + 6, 49, 19, global.TH.inset_top, global.TH.inset_bot, 0.8);
+    // each tab 96 wide when there is room; otherwise sized to its label plus an
+    // even share of the space, so "Backdrop" and "Animate" are not cut short
+    var _tws = array_create(_nt, _tw);
+    if (_avail < _tw * _nt)
+    {
+        draw_set_font(global.f_bold);
+        var _lsum = 0;
+        for (var t0 = 0; t0 < _nt; t0++)
+        {
+            _tws[t0] = ceil(ui_sw(ws_name(_tabs[t0])));
+            _lsum += _tws[t0];
+        }
+        var _pad = floor((_avail - _lsum) / _nt);
+        if (_pad >= 14)
+        {
+            for (var t1 = 0; t1 < _nt; t1++) { _tws[t1] += _pad; }
+        }
+        else
+        {
+            for (var t2 = 0; t2 < _nt; t2++) { _tws[t2] = max(56, floor(_avail / _nt)); }
+        }
+    }
+    var _tsum = 0;
+    for (var t3 = 0; t3 < _nt; t3++) { _tsum += _tws[t3]; }
+    ui_rrect(_tx - 6, 11, _tx + _tsum + 6, 49, 19, global.TH.inset_top, global.TH.inset_bot, 0.8);
+    var _tabx = _tx;
     for (var i = 0; i < _nt; i++)
     {
         var _w = _tabs[i];
-        if (ui_tab("tab_" + string(_w), _tx + i * _tw, 14, _tw - 2, 32, ui_text_fit(ws_name(_w), global.f_bold, _tw - 10), ws == _w, ws_help(_w)))
+        if (ui_tab("tab_" + string(_w), _tabx, 14, _tws[i] - 2, 32, ui_text_fit(ws_name(_w), global.f_bold, _tws[i] - 10), ws == _w, ws_help(_w)))
         {
             ws_set(_w);
         }
+        _tabx += _tws[i];
     }
 
     var _rx = _gw - 14;

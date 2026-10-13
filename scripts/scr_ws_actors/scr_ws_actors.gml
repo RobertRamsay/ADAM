@@ -423,7 +423,13 @@ function ws_actors_draw(_x1, _y1, _x2, _y2)
         return;
     }
     var _s = proj.actors[sel_actor];
-    var _y = _y1 + 56;
+    // scrolls when the window is too short for every setting (last frame's height, kept in ui_scroll)
+    var _sy1 = _y1 + 46;
+    var _sy2 = _y2 - 6;
+    var _sh = ds_map_find_value(ui_scroll, "act_props_h");
+    if (is_undefined(_sh)) { _sh = 0; }
+    var _soff = ui_scroll_begin("act_props", _px + 4, _sy1, _x2 - 4, _sy2, _sh);
+    var _y = _y1 + 56 - _soff;
     ui_heading(_fx2, _y, "Name");
     set_val(_s, "name", ui_textfield("act_name", _fx2, _y + 18, _fw2, 32, _s.name, 20, "Actor name|Used in the Logic page so your rules read nicely, e.g. 'Hero touches Ghost'."), "actname");
     _y += 62;
@@ -526,6 +532,7 @@ function ws_actors_draw(_x1, _y1, _x2, _y2)
         if (feature_gate("BOBs")) { set_val(_s, "bob", _bobv, "actbob"); }
     }
     _y += 34;
+    var _yend = _y;
 
     // hardware sprite channel
     var _hw = false;
@@ -548,6 +555,7 @@ function ws_actors_draw(_x1, _y1, _x2, _y2)
         var _bh = max(48, ceil(ui_sh_ext(_bmsg, _fw2 - 20)) + 14);
         ui_rrect(_fx2, _y + 18, _fx2 + _fw2, _y + 18 + _bh, 8, global.TH.inset_top, global.TH.inset_bot, 0.8);
         ui_text_wrap(_fx2 + 10, _y + 24, _bmsg, global.TH.text_dim, _fw2 - 20, global.f_small, 1);
+        _yend = _y + 18 + _bh;
     }
     if (_hw)
     {
@@ -570,7 +578,10 @@ function ws_actors_draw(_x1, _y1, _x2, _y2)
         var _mc = global.TH.text_dim;
         if (_kind == 1) { _mc = global.TH.warn; }
         ui_text_wrap(_fx2 + 10, _y + 24, _msg, _mc, _fw2 - 20, global.f_small, 1);
+        _yend = _y + 18 + _mh;
     }
+    ds_map_replace(ui_scroll, "act_props_h", _yend + _soff - _sy1 + 12);
+    ui_scroll_end("act_props", _px + 4, _sy1, _x2 - 4, _sy2, _sh);
 }
 
 /// Colours for actor _i from an allocation result

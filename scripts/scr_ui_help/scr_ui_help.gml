@@ -54,6 +54,8 @@ function ui_help_draw(_gw, _gh)
     {
         _by = _r[3] + 40;
         if (_by + _bh > _gh - 50) { _by = _r[1] - 40 - _bh; }
+        // a tall, wide control (a whole panel) has room neither below nor above: keep it on screen
+        _by = clamp(_by, 8, _gh - 8 - _bh);
     }
 
     var _sx = _r[2] + 3;
@@ -83,7 +85,7 @@ function ui_help_draw(_gw, _gh)
     ui_rrect(_bx, _by, _bx + _bw, _by + _bh, 12, global.TH.btn_top, global.TH.panel_bot, 0.97 * _a);
     ui_rrect_line(_bx, _by, _bx + _bw, _by + _bh, 12, _col, 0.8 * _a, 1);
     ui_rrect(_bx, _by, _bx + 5, _by + _bh, 3, global.TH.accent, global.TH.accent_dark, _a);
-    ui_text(_bx + 16, _by + 12, help_last_title, c_white, fa_left, fa_top, global.f_bold, _a);
+    ui_text(_bx + 16, _by + 12, ui_text_fit(help_last_title, global.f_bold, _bw - 28), c_white, fa_left, fa_top, global.f_bold, _a);
     ui_text_wrap(_bx + 16, _by + 36, help_last_body, global.TH.text_dim, _bw - 28, global.f_body, _a);
 }
 
@@ -120,6 +122,17 @@ function toast(_text, _kind)
 function toasts_draw(_gw, _gh)
 {
     var _y = _gh - 50;
+    // stack above a card in the bottom-right corner (tour offer, new version, lesson),
+    // which is drawn later and would hide the toast
+    var _cards = [tut_offer_rect, update_card_rect, les_card_rect];
+    for (var c = 0; c < array_length(_cards); c++)
+    {
+        var _rc = _cards[c];
+        if (_rc[2] > _gw * 0.5 && _rc[1] - 4 < _y)
+        {
+            _y = _rc[1] - 4;
+        }
+    }
     var _dt = delta_time / 1000000;
     for (var i = array_length(toasts) - 1; i >= 0; i--)
     {
@@ -131,8 +144,9 @@ function toasts_draw(_gw, _gh)
             continue;
         }
         _t.a = lerp(_t.a, min(1, _t.life * 2), 0.25);
+        var _txt = ui_text_fit(_t.text, global.f_bold, _gw - 40 - 48);
         draw_set_font(global.f_bold);
-        var _w = ui_sw(_t.text) + 48;
+        var _w = ui_sw(_txt) + 48;
         var _h = 40;
         var _x = _gw - 20 - _w;
         _y -= _h + 8;
@@ -145,7 +159,7 @@ function toasts_draw(_gw, _gh)
         draw_set_alpha(_t.a);
         draw_circle_colour(_x + 18, _y + _h * 0.5, 5, _c, _c, false);
         draw_set_alpha(1);
-        ui_text(_x + 32, _y + _h * 0.5, _t.text, global.TH.text, fa_left, fa_middle, global.f_bold, _t.a);
+        ui_text(_x + 32, _y + _h * 0.5, _txt, global.TH.text, fa_left, fa_middle, global.f_bold, _t.a);
     }
 }
 

@@ -94,7 +94,12 @@ function ui_menu_button(_id, _x, _y, _w, _h, _label, _options, _help, _style)
         ui_popup_kind = 0;
         ui_popup_x = _x;
         ui_popup_y = _y + _h + 4;
-        ui_popup_w = max(_w, 520);
+        // wide enough for the longest option (text inset + scrollbar gutter), so the
+        // example descriptions are not cut short; ui_popup_draw keeps it on screen
+        draw_set_font(global.f_body);
+        var _ow = 0;
+        for (var o = 0; o < array_length(_options); o++) { _ow = max(_ow, ui_sw(_options[o])); }
+        ui_popup_w = max(_w, 520, ceil(_ow) + 40);
         ui_popup_opts = _options;
         ui_popup_index = -1;
         ui_popup_anchor_y = _y;

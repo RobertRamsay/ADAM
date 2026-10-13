@@ -804,7 +804,8 @@ function ws_tiles_draw(_x1, _y1, _x2, _y2)
     var _thelp = ["Map|Paint the world with tiles and drag actors to where they start.", "Tile set|Draw the tiles, " + string(_S) + " x " + string(_S) + " pixels in the backdrop colours, and say what each one does.", "Tools|The player's tools: space opens a menu in the game to pick one (a pickaxe, a hammer, a ladder...) and fire uses it."];
     for (var tb = 0; tb < 3; tb++)
     {
-        if (ui_tab("tile_tab_" + string(tb), _cx1 + 16 + tb * 120, _y1 + 12, 114, 30, _tabs[tb], tile_page == tb, _thelp[tb])) { tile_page = tb; }
+        // 106 apart: at 1280 wide the Map tab's Paint / Box / Pick tabs start 30 px after Tools
+        if (ui_tab("tile_tab_" + string(tb), _cx1 + 16 + tb * 106, _y1 + 12, 100, 30, _tabs[tb], tile_page == tb, _thelp[tb])) { tile_page = tb; }
     }
     if (tile_page == 1) { tiles_set_editor(_cx1, _y1 + 50, _cx2, _y2); }
     else
@@ -881,12 +882,12 @@ function tiles_tools_editor(_x1, _y1, _x2, _y2)
         ui_text_wrap(_fx, _y, "Dig and place is off (left panel), so the game has no tools.", global.TH.warn, _fw, global.f_body, 1);
         _y += 30;
     }
-    var _acts = ["Dig (pickaxe)", "Build with the tile carried (hammer)", "Put a tile where the player stands", "Weapon (sword)"];
+    var _acts = ["Dig (pickaxe)", "Build (hammer)", "Put a tile here", "Weapon (sword)"];
     var _tn = [];
     for (var k = 0; k < array_length(proj.tiles); k++) { array_push(_tn, string(k) + ": " + proj.tiles[k].name); }
     var _nw = 130;
     var _aw = min(300, floor((_fw - _nw - 50) / 2));
-    var _tw = _fw - _nw - _aw - 50 - 16;
+    var _tw = _fw - _nw - _aw - 50 - 24;              // 8 px gaps between the columns and before the X button
     ui_heading(_fx, _y, "Name");
     ui_heading(_fx + _nw + 8, _y, "Fire does");
     ui_heading(_fx + _nw + _aw + 16, _y, "Tile it puts down / weapon reach");
@@ -901,7 +902,7 @@ function tiles_tools_editor(_x1, _y1, _x2, _y2)
         set_val(_t, "act", ui_dropdown(_id + "act", _fx + _nw + 8, _y, _aw, 30, _acts, _t.act, "Fire does|Dig: fire digs the way the player faces (or fire + a direction digs that way), held down. Build: fire puts the tile carried (the last one dug) where fire points, or in front. Put a tile: fire puts the tile picked here where the player stands - a ladder part to climb out of a hole, a torch on the wall. Weapon: fire swings it (Fire animation, no direction) and strikes what is within reach - make rules WHEN 'Player strikes actor'."), "toolact" + string(i));
         if (_t.act == 3)
         {
-            var _rw = floor((_tw - 8) / 2);
+            var _rw = min(120, floor((_tw - 8) / 2));
             set_val(_t, "reach", ui_stepper(_id + "reach", _fx + _nw + _aw + 16, _y, _rw, _t.reach, 4, 64, "Reach|How far in front of the player the weapon strikes, in pixels (a sword 20, a spear 36). Hold Shift for steps of 10."), "toolreach" + string(i));
             set_val(_t, "auto", ui_toggle(_id + "auto", _fx + _nw + _aw + 24 + _rw, _y + 4, "Auto", _t.auto, "Auto attack|While this weapon is in use it swings by itself whenever an actor with a WHEN 'Player strikes actor' rule comes within reach - in front or behind (the player turns round). Fire still swings it too."), "toolauto" + string(i));
         }

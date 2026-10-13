@@ -407,12 +407,12 @@ function logic_rule_card(_r, i, _cx, _cy, _cw, _anames, _snames, _gnames)
         case 9:
             set_val(_r, "a", ui_dropdown(_rid + "_a", _wx, _wy, 150, 30, _anames, _r.a, "Which actor|While this actor is on the screen the rule fires every few seconds - a bell that rings only when you can see it, a waterfall you hear as you pass. Off the screen it waits, then fires a second after it comes back into view."), _rid + "a");
             ui_text(_wx + 158, _wy + 15, "in view, every", global.TH.text_dim, fa_left, fa_middle, global.f_body, 1);
-            set_val(_r, "n", ui_stepper(_rid + "_n", _wx + 272, _wy, 110, clamp(_r.n, 1, 60), 1, 60, "Seconds|How many seconds between each time, while it is in view."), _rid + "n");
-            ui_text(_wx + 390, _wy + 15, "s", global.TH.text_dim, fa_left, fa_middle, global.f_body, 1);
+            set_val(_r, "n", ui_stepper(_rid + "_n", _wx + 246, _wy, 110, clamp(_r.n, 1, 60), 1, 60, "Seconds|How many seconds between each time, while it is in view."), _rid + "n");
+            ui_text(_wx + 364, _wy + 15, "s", global.TH.text_dim, fa_left, fa_middle, global.f_body, 1);
             break;
         case 10:
             ui_text(_wx, _wy + 15, "the player strikes", global.TH.text_dim, fa_left, fa_middle, global.f_body, 1);
-            set_val(_r, "b", ui_dropdown(_rid + "_b", _wx + 140, _wy, 150, 30, _anames, _r.b, "Which actor|Fires when the player's weapon (a Weapon tool - Tiles page, Tools tab) reaches this actor. Auto weapons swing by themselves only at actors that have a rule like this."), _rid + "b");
+            set_val(_r, "b", ui_dropdown(_rid + "_b", _wx + 110, _wy, 150, 30, _anames, _r.b, "Which actor|Fires when the player's weapon (a Weapon tool - Tiles page, Tools tab) reaches this actor. Auto weapons swing by themselves only at actors that have a rule like this."), _rid + "b");
             break;
         case 3:
             set_val(_r, "n", ui_stepper(_rid + "_n", _wx, _wy, 150, _r.n, 1, 9999, "Score target|The rule fires once when the score reaches this number. Hold Shift for steps of 10."), _rid + "n");
@@ -680,7 +680,7 @@ function ws_logic_draw(_x1, _y1, _x2, _y2)
                     if (_np >= 0 && group_inside(_np, _g)) { toast("A group cannot go inside itself or a group inside it", 1); }
                     else { _gact = _g; _gop = "par"; _gpar = _np; }
                 }
-                _bx -= 70;
+                _bx -= 80;      // toggle (44) + gap + "On" (17) + gap, clear of the In: drop-down
                 set_val(_gr, "enabled", ui_toggle(_gid + "_on", _bx, _y + 10, "On", _gr.enabled, "Group on / off|Switch a group off to leave its rules - and the groups inside it - out of the game while you test. They are kept, just not built."), _gid + "on");
             }
             _y += _hdrh + 10;

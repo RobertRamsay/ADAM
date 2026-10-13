@@ -731,7 +731,10 @@ function music_timeline(_tx1, _ty1, _tx2, _song, _lane_h)
         var _bx = _gx1 + vb * _bw;
         if (_bx >= _gx2) { break; }
         var _lab = string(_b + 1);
-        ui_text(_bx + 5, _ty1 + 13, _lab, global.TH.text_dim, fa_left, fa_middle, global.f_small, 1);
+        // the loop bar's number sits right of the green loop flag, so the flag never covers it
+        var _lx = _bx + 5;
+        if (!_imported && _b == _song.loop_bar) { _lx = _bx + 18; }
+        ui_text(_lx, _ty1 + 13, _lab, global.TH.text_dim, fa_left, fa_middle, global.f_small, 1);
         draw_set_alpha(0.25);
         draw_line_colour(_bx, _ty1 + 4, _bx, _gy2, global.TH.text_faint, global.TH.text_faint);
         draw_set_alpha(1);

@@ -221,7 +221,8 @@ function machine_pick_draw(_gw, _gh)
         var _ry = _cy + 84;
         for (var r = 0; r < array_length(_labels); r++)
         {
-            ui_text(_x + 22, _ry, _labels[r], global.TH.text_faint, fa_left, fa_top, global.f_small, _a);
+            // the small label sits 2 px lower so it shares the value's baseline
+            ui_text(_x + 22, _ry + 2, _labels[r], global.TH.text_faint, fa_left, fa_top, global.f_small, _a);
             ui_text(_x + 120, _ry, ui_text_fit(_vals[r], global.f_body, _cw - 140), global.TH.text, fa_left, fa_top, global.f_body, _a);
             _ry += 34;
         }

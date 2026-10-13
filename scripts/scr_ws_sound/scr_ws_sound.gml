@@ -87,10 +87,10 @@ function ws_sound_draw(_x1, _y1, _x2, _y2)
         ui_text(_fx, _y + 13, _lab[e], global.TH.text_dim, fa_left, fa_middle, global.f_small, 1);
         set_val(_s, _keys[e], ui_slider("snd_" + _keys[e], _fx + 70, _y, _colw - 110, _s[$ _keys[e]], 0, 15, _ehelp[e]), "snd" + _keys[e]);
         ui_text(_fx + _colw, _y + 13, string(_s[$ _keys[e]]), global.TH.text, fa_right, fa_middle, global.f_bold, 1);
-        _y += 34;
+        _y += 32;
     }
     _y += 10;
-    if (ui_button("snd_preview", _fx, _y, _colw, 44, "Play sound", "Play|Hear the sound exactly as the Amiga will play it - ADAM turns it into an 8-bit sample for Paula.", BTN_ACCENT))
+    if (ui_button("snd_preview", _fx, _y, _colw, 40, "Play sound", "Play|Hear the sound exactly as the Amiga will play it - ADAM turns it into an 8-bit sample for Paula.", BTN_ACCENT))
     {
         sfx_preview_play(_s);
     }
@@ -150,7 +150,7 @@ function ws_sound_draw(_x1, _y1, _x2, _y2)
         }
     }
     _py += 3 * 42 + 10;
-    ui_text_wrap(_gx, _py, "ADAM turns synth sounds into 8-bit samples (about 11 kHz, up to 1.5 seconds) stored in chip RAM. Sounds play on Paula channel 1 to 4 (sound number 1 and 5 share channel 1, and so on).", global.TH.text_faint, _gw, global.f_small, 1);
+    ui_text_wrap(_gx, _py, "ADAM turns synth sounds into 8-bit samples (about 11 kHz, up to 1.5 seconds, or 3 with a filter sweep) stored in chip RAM. Sounds play on Paula channel 1 to 4 (sound number 1 and 5 share channel 1, and so on).", global.TH.text_faint, _gw, global.f_small, 1);
 }
 
 /// Sample controls (Sound page when the sound is a sample)

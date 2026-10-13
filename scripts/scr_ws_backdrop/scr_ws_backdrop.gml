@@ -421,7 +421,19 @@ function ws_backdrop_draw(_x1, _y1, _x2, _y2)
         backdrop_sky_panel(_fx, _y1 + 56, _fw, _y2);
         return;
     }
-    var _y = _y1 + 56;
+    // the paint tools scroll when the window is too short to show them all
+    var _pn0 = pal_count();
+    var _pcols0 = 8;
+    if (_pn0 > 32) { _pcols0 = 16; }
+    var _pcell0 = floor((_fw - (_pcols0 - 1) * 4) / _pcols0);
+    var _tools_h = 6 + 120;
+    if (bd_tool == 6) { _tools_h += 86; }
+    else { _tools_h += 112; }
+    _tools_h += 28 + ceil(_pn0 / _pcols0) * (_pcell0 + 4) + 10 + 20 + 94 + 34 + 18 + 42 + 42 + 32;
+    if (proj.levels_on) { _tools_h += 32; }
+    _tools_h += 24 + 8;
+    var _toff = ui_scroll_begin("bd_tools", _px + 6, _y1 + 50, _x2 - 6, _y2 - 8, _tools_h);
+    var _y = _y1 + 56 - _toff;
     var _names = ["Brush", "Line", "Box", "Fill", "Text", "Pick"];
     var _thelp = ["Brush|Paint freehand. Right-click paints colour 0.",
                   "Line|Drag to draw a straight line with the brush.",
@@ -449,9 +461,9 @@ function ws_backdrop_draw(_x1, _y1, _x2, _y2)
     if (bd_tool == 6)
     {
         ui_heading(_fx, _y, "Gradient to");
-        bd_grad_to = ui_colour_drop("bd_grad_to", _fx, _y + 18, floor(_fw / 2) - 6, 28, clamp(bd_grad_to, 0, pal_count() - 1), "Gradient to|The colour the gradient ends with. It starts with the selected colour.");
-        bd_grad_range = ui_toggle("bd_grad_range", _fx + floor(_fw / 2) + 6, _y + 20, "Colours between", bd_grad_range, "Colours in between|On: the gradient steps through every palette colour between the two, like a Deluxe Paint range - put your shades next to each other in the palette. Off: it dithers straight from one colour to the other.");
-        _y += 60;
+        bd_grad_to = ui_colour_drop("bd_grad_to", _fx, _y + 18, _fw, 28, clamp(bd_grad_to, 0, pal_count() - 1), "Gradient to|The colour the gradient ends with. It starts with the selected colour.");
+        bd_grad_range = ui_toggle("bd_grad_range", _fx, _y + 54, "Colours between", bd_grad_range, "Colours in between|On: the gradient steps through every palette colour between the two, like a Deluxe Paint range - put your shades next to each other in the palette. Off: it dithers straight from one colour to the other.");
+        _y += 86;
     }
     else
     {
@@ -551,6 +563,7 @@ function ws_backdrop_draw(_x1, _y1, _x2, _y2)
         _y += 32;
         bd_show_hills = ui_toggle("bd_hills", _fx, _y, "Show level hills", bd_show_hills, "Show hills|Draws the hills of the level selected on the Levels page over the backdrop, as the game will.");
     }
+    ui_scroll_end("bd_tools", _px + 6, _y1 + 50, _x2 - 6, _y2 - 8, _tools_h);
 }
 
 /// Copper sky settings (right panel, "Copper sky" tab)

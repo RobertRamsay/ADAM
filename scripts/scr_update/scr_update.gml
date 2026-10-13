@@ -95,7 +95,7 @@ function update_card_draw(_gw, _gh)
     ui_force_input = true;
     ui_panel(_x1, _y1, _x2, _y2, "");
     draw_boing(_x1 + 20, _y1 + 20, 26, _a);
-    ui_text(_x1 + 56, _y1 + 33, "ADAM " + update_latest + " is out", c_white, fa_left, fa_middle, global.f_title, _a);
+    ui_text(_x1 + 56, _y1 + 33, ui_text_fit("ADAM " + update_latest + " is out", global.f_title, _w - 56 - 20), c_white, fa_left, fa_middle, global.f_title, _a);
     ui_text_wrap(_x1 + 20, _y1 + 20 + 26 + 8, _body, global.TH.text, _w - 40, global.f_body, _a);
     var _by = _y2 - 18 - 34;
     var _close = false;

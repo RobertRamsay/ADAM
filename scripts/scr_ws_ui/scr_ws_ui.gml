@@ -703,7 +703,12 @@ function ui_frame_editor(_x1, _y1, _x2, _y2)
     if (!ui_held && !ui_rheld) { ui_drawing = false; }
     var _px2 = _gx + _gw + 24;
     ui_heading(_px2, _y1, "Colour " + string(ui_pen));
-    ui_pen = clamp(ui_palette_grid("ui_frame_pal", _px2, _y1 + 18, max(8, min(_pcell, floor((_x2 - _px2 - 7 * 4) / 8))), 8, ui_pen, "Colour|The backdrop colour to draw with."), 0, _ncol - 1);
+    // 8 across, or 16 across for the A1200's bigger palettes (128 colours 8 across ran far below the panel)
+    var _fc = 8;
+    if (_ncol > 32) { _fc = 16; }
+    var _frows = ceil(_ncol / _fc);
+    var _fcell = min(_pcell, floor((_x2 - _px2 - (_fc - 1) * 4) / _fc), floor((_y2 - _y1 - 18 + 4) / _frows) - 4);
+    ui_pen = clamp(ui_palette_grid("ui_frame_pal", _px2, _y1 + 18, max(8, _fcell), _fc, ui_pen, "Colour|The backdrop colour to draw with."), 0, _ncol - 1);
 }
 
 /// The font: a grid of the 64 characters, and the picked one magnified to draw on
@@ -736,7 +741,7 @@ function ui_font_editor(_x1, _y1, _x2, _y2)
         }
     }
     var _ex = _x1 + 16 * (_cs + 2) + 24;
-    var _ps = max(6, floor(min(_x2 - _ex, _y2 - _y1 - 10) / 8));
+    var _ps = max(6, floor(min(_x2 - _ex, _y2 - _y1 - 30) / 8));     // room for the line of help below it
     ui_rrect(_ex - 4, _y1 - 4, _ex + 8 * _ps + 4, _y1 + 8 * _ps + 4, 6, make_colour_rgb(22, 24, 30), make_colour_rgb(22, 24, 30), 1);
     for (var i2 = 0; i2 < 8; i2++)
     {

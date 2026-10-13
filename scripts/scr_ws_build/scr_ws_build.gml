@@ -165,13 +165,41 @@ function ws_build_draw(_x1, _y1, _x2, _y2)
         else { array_push(_items, "Nothing finishes a level - add a 'Count towards the level goal' rule"); array_push(_kinds, 1); }
     }
     if (proj.show_lives && !_lose) { array_push(_items, "Lives are shown but no rule takes a life away"); array_push(_kinds, 1); }
+
+    // long checklist lines wrap instead of being cut short; the column scrolls
+    // when it is taller than the panel (a 760-high window, a long checklist)
+    draw_set_font(global.f_body);
+    var _ih = [];
+    var _content = 12 + 22;
+    for (var k0 = 0; k0 < array_length(_items); k0++)
+    {
+        var _ihk = 28;
+        if (ui_sw(_items[k0]) > _fw - 34) { _ihk = max(28, ceil(ui_sh_ext(_items[k0], _fw - 34)) + 10); }
+        array_push(_ih, _ihk);
+        _content += _ihk;
+    }
+    _content += 10 + 54 + 62 + 60 + 132 + 68 + 20 + 34 + 16 + 12;
+    var _sx1 = _x1 + 2;
+    var _sy1 = _y1 + 46;
+    var _sx2 = _x1 + _lw - 2;
+    var _sy2 = _y2 - 8;
+    var _soff = ui_scroll_begin("build_left", _sx1, _sy1, _sx2, _sy2, _content);
+    _y = _sy1 + 12 - _soff;
+
     ui_heading(_fx, _y, "Checklist");
     _y += 22;
     for (var k = 0; k < array_length(_items); k++)
     {
         draw_check(_fx + 10, _y + 11, _kinds[k]);
-        ui_text(_fx + 30, _y + 11, ui_text_fit(_items[k], global.f_body, _fw - 34), global.TH.text, fa_left, fa_middle, global.f_body, 1);
-        _y += 28;
+        if (_ih[k] > 28)
+        {
+            ui_text_wrap(_fx + 30, _y + 2, _items[k], global.TH.text, _fw - 34, global.f_body, 1);
+        }
+        else
+        {
+            ui_text(_fx + 30, _y + 11, ui_text_fit(_items[k], global.f_body, _fw - 34), global.TH.text, fa_left, fa_middle, global.f_body, 1);
+        }
+        _y += _ih[k];
     }
     _y += 10;
 
@@ -217,8 +245,8 @@ function ws_build_draw(_x1, _y1, _x2, _y2)
         var _scol = global.TH.text_dim;
         if (_src == "")
         {
-            _src = "(not found - Get FS-UAE and install it, or Find it)";
-            if (os_type == os_macosx) { _src = "(not found - Get FS-UAE, put it in Applications)"; }
+            _src = "(not found - Get FS-UAE, or Find it)";
+            if (os_type == os_macosx) { _src = "(not found - Get it, put in Applications)"; }
             if (ADAM_DEV_TOOLS) { _src = "(not found - Get test copy, or Find your own)"; }
             _scol = global.TH.warn;
         }
@@ -326,6 +354,7 @@ function ws_build_draw(_x1, _y1, _x2, _y2)
     {
         ui_text(_fx + 12, _y + 13, "Build to see the memory map", global.TH.text_faint, fa_left, fa_middle, global.f_small, 1);
     }
+    ui_scroll_end("build_left", _sx1, _sy1, _sx2, _sy2, _content);
 
     // ---------------- log / listing ----------------
     var _rx = _x1 + _lw + 12;
