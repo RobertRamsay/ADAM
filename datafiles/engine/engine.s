@@ -97,9 +97,10 @@ T_NTOOL     equ 38         ; tools in the space bar menu, 0 = none (fire + direc
 T_RING      equ 40         ; long: NROW x S x LINE - the picture is a ring this big, kept twice
 T_PROPS     equ 44         ; NT x 8 bytes (TP_*), then NT x 4 bytes of names for the HUD,
                            ; then NTOOL x 12 bytes of tools (TL_*)
-TL_ACT      equ 0          ; what fire does: 0 dig (pickaxe), 1 build with the tile carried (hammer),
-                           ; 2 put tile TL_TILE where the player stands (ladder, torch)
-TL_TILE     equ 2
+TL_ACT      equ 0          ; byte: flags - bit 0 = Auto (a weapon swings by itself at whatever it may strike)
+                           ; byte +1: what fire does: 0 dig (pickaxe), 1 build with the tile carried (hammer),
+                           ; 2 put tile TL_TILE where the player stands (ladder, torch), 3 weapon (sword)
+TL_TILE     equ 2          ; the tile it puts down; a weapon: its reach in pixels
 TL_NAME     equ 4          ; 8 bytes, 0 ends it early
 TL_SIZE     equ 12
 TP_FLAGS    equ 0          ; byte: bit 0 solid, bit 1 can be dug, bit 2 counts towards the level goal,
@@ -203,6 +204,8 @@ HOP_JUMP    equ 52         ; hopper jump speed (+8 per speed step)
 HOP_GRAVITY equ 2
 SAFE_TIME   equ 150        ; 3 seconds of flashing immunity
 MOMENT      equ 25         ; 'show for a moment' = half a second
+SWING_TIME  equ 14         ; a weapon swing lasts this many frames
+SWING_COOL  equ 22         ; and the next can start this many frames after it began
 
 ; ---------------- engine variables (offsets from V) ----------------
 ; Per-actor state is one ACTV_SIZE record per actor, starting at V. a5 =
@@ -305,6 +308,10 @@ v_tool      rs.w 1         ; tool in use (T_NTOOL > 0)
 v_menu      rs.w 1         ; 1 while the tool menu is open (the game waits)
 v_msel      rs.w 1         ; tool picked in the menu
 v_fwait     rs.w 1         ; 1 = fire chose a tool: it does nothing until let go
+v_swing     rs.w 1         ; frames of the player's weapon swing left (Fire animation)
+v_swcool    rs.w 1         ; frames until the weapon can swing again
+v_struck    rs.l 1         ; bit per actor the player's weapon struck this frame (WHEN 10)
+v_sbox      rs.w 4         ; the swing's reach: left, right, top, bottom (map pixels)
 V_SIZE      rs.b 0
 
 ; ============================================================================
@@ -900,6 +907,7 @@ frame:
             bsr     flash_tick              ; copper edits first, while the copper is idle
             addq.w  #1,v_anim(a5)
             move.l  #0,v_jumped(a5)
+            move.l  #0,v_struck(a5)
             bsr     read_joy
             bsr     read_key
             bsr     tool_menu               ; space bar: the tool menu - the game waits while it is open
@@ -1130,6 +1138,7 @@ move_actors:
 
 .player     tst.w   v_tmode(a5)             ; tile world: fire digs / places instead of moving
             beq.s   .pmv
+            bsr     weapon_tick
             bsr     tile_dig
             bne     .next
 .pmv        move.w  v_spd(a5,d5.w),d1
@@ -1228,6 +1237,7 @@ move_actors:
 
 .platform  tst.w   v_tmode(a5)             ; tile world: fire digs / places instead of walking
             beq.s   .plmv
+            bsr     weapon_tick
             bsr     tile_dig
             bne     .pphys
 .plmv       move.w  v_spd(a5,d5.w),d1      ; walk left / right
@@ -1426,7 +1436,11 @@ place_sprites:
             moveq   #0,d7
 .loop       move.w  d7,d5
             lsl.w   #ACTV_SHIFT,d5
-            move.w  v_ax(a5,d5.w),d0        ; which way it faces
+            tst.w   v_swing(a5)             ; the player swinging: it keeps facing the way it struck
+            beq.s   .fc
+            cmp.w   H_PLAYER(a4),d7
+            beq.s   .faced
+.fc         move.w  v_ax(a5,d5.w),d0        ; which way it faces
             cmp.w   v_px(a5,d5.w),d0
             beq.s   .faced
             blt.s   .fleft
@@ -1445,12 +1459,20 @@ place_sprites:
 .anim       move.l  A_ANIM(a2),d1
             beq     .frame                  ; one frame
             btst    #1,A_AMODE+1(a2)        ; Fire animations: the player holding fire
-            beq.s   .nofire
+            beq     .nofire
             cmp.w   H_PLAYER(a4),d7
-            bne.s   .nofire
-            move.w  v_joy(a5),d3
+            bne     .nofire
+            tst.w   v_swing(a5)             ; a weapon swing: Fire on its own, the way it faces
+            beq.s   .nsw
+            moveq   #12,d2
+            bra     .got
+.nsw        move.w  v_joy(a5),d3
             btst    #4,d3
-            beq.s   .nofire
+            beq     .nofire
+            bsr     tool_kind               ; d4 = the tool in use (-1 = no tools)
+            move.w  d0,d4
+            cmp.w   #3,d0                   ; a weapon shows only its swing
+            beq     .nofire
             moveq   #1,d0                   ; joystick -> 3 x (up 0, level 1, down 2) + (left 0, centre 1, right 2)
             btst    #0,d3
             beq.s   .fd1
@@ -1470,8 +1492,14 @@ place_sprites:
             move.w  #0,v_face(a5,d5.w)
 .fd4        moveq   #12,d2                  ; Fire, no direction
             cmp.w   #4,d0
-            beq     .got
-            lea     dir_tab(pc),a0
+            bne.s   .fdir
+            tst.w   d4                      ; tools: fire on its own works the way it faces (Fire + E / W);
+            bmi     .got                    ; Fire on its own is the weapon's swing
+            moveq   #5,d0
+            tst.w   v_face(a5,d5.w)
+            beq.s   .fdir
+            moveq   #3,d0
+.fdir       lea     dir_tab(pc),a0
             moveq   #0,d2
             move.b  0(a0,d0.w),d2
             move.w  d2,v_dir(a5,d5.w)
@@ -1672,6 +1700,8 @@ tiles_start:
             move.w  #0,v_tool(a5)
             move.w  #0,v_menu(a5)
             move.w  #0,v_fwait(a5)
+            move.w  #0,v_swing(a5)
+            move.w  #0,v_swcool(a5)
             move.w  #0,v_digt(a5)
             move.l  #-1,v_digc(a5)
             bsr     tiles_on
@@ -2224,9 +2254,14 @@ tile_dig:   move.l  v_tiles(a5),a0
             tst.w   T_NTOOL(a0)
             beq     .nt
             bsr     tool_rec                ; tools: fire uses the one picked with space
-            move.w  TL_ACT(a1),d3
-            beq.s   .pick
-            move.w  v_joyprev(a5),d4        ; build / put: once per press
+            moveq   #0,d3
+            move.b  TL_ACT+1(a1),d3
+            beq     .pick
+            cmp.w   #3,d3                   ; a weapon: weapon_tick swings it, the player keeps moving
+            bne.s   .nw
+            movem.l (sp)+,d0-d4/a0-a1
+            bra     .off
+.nw         move.w  v_joyprev(a5),d4        ; build / put: once per press
             btst    #4,d4
             bne     .held
             cmp.w   #2,d3
@@ -2873,7 +2908,7 @@ run_rules:
             lea     v_latch(a5),a2
             add.w   d5,a2                   ; a2 = this rule's latch
             move.w  R_WHEN(a3),d0
-            beq.s   .touch
+            beq     .touch
             cmp.w   #1,d0
             beq     .fire
             cmp.w   #2,d0
@@ -2883,9 +2918,36 @@ run_rules:
             cmp.w   #4,d0
             beq     .lives
             cmp.w   #6,d0
-            beq.s   .jump
+            beq     .jump
             cmp.w   #8,d0
             beq.s   .hold
+            cmp.w   #9,d0
+            beq     .inview
+            cmp.w   #10,d0
+            beq     .strike
+            bra     .next
+
+.strike     move.l  v_struck(a5),d0         ; the player's weapon struck actor b this frame
+            move.w  R_B(a3),d1
+            btst    d1,d0
+            beq     .next
+            bsr     fire_action
+            bra     .next
+
+.inview     tst.w   v_sectick(a5)           ; every N seconds while actor a is on the screen
+            beq     .next
+            move.w  R_A(a3),d0
+            bsr     on_screen
+            bne.s   .iv
+            move.w  R_N(a3),(a2)            ; out of view: ring a second after it comes back
+            subq.w  #1,(a2)
+            bra     .next
+.iv         addq.w  #1,(a2)
+            move.w  (a2),d0
+            cmp.w   R_N(a3),d0
+            blt     .next
+            move.w  #0,(a2)
+            bsr     fire_action
             bra     .next
 
 .hold       move.w  v_joy(a5),d0            ; fire held (stick centred) for N tenths of a second:
@@ -4024,6 +4086,214 @@ hud_digging:
             btst    #0,T_FLAGS+1(a0)
             move.l  (sp)+,a0
 .r          rts
+
+; d0 = actor -> Z clear (d0 = 1) when it is shown and on the screen (a tile world: inside
+; the camera's view; one screen: whenever it is shown)
+on_screen:  movem.l d1-d2/a0,-(sp)
+            cmp.w   H_NACT(a4),d0
+            bhs     .no
+            move.l  H_ACTORS(a4),d1
+            lea     0(a4,d1.l),a0
+            move.w  d0,d1
+            mulu    #ACT_SIZE,d1
+            add.l   d1,a0
+            lsl.w   #ACTV_SHIFT,d0
+            tst.w   v_vis(a5,d0.w)
+            beq.s   .no
+            move.w  A_FROM(a0),d1
+            cmp.w   v_level(a5),d1
+            bgt.s   .no
+            tst.w   v_tmode(a5)
+            beq.s   .yes
+            move.w  v_ax(a5,d0.w),d1        ; its right edge left of the view?
+            add.w   A_BX1(a0),d1
+            cmp.w   v_camx(a5),d1
+            blt.s   .no
+            move.w  v_camx(a5),d2           ; its left edge right of it?
+            add.w   #320,d2
+            move.w  v_ax(a5,d0.w),d1
+            add.w   A_BX0(a0),d1
+            cmp.w   d2,d1
+            bge.s   .no
+            move.w  v_ay(a5,d0.w),d1        ; above it?
+            add.w   A_BY1(a0),d1
+            cmp.w   v_camy(a5),d1
+            blt.s   .no
+            move.w  v_camy(a5),d2           ; below it?
+            add.w   #256,d2
+            sub.w   v_hudlines(a5),d2
+            move.w  v_ay(a5,d0.w),d1
+            add.w   A_BY0(a0),d1
+            cmp.w   d2,d1
+            bge.s   .no
+.yes        moveq   #1,d0
+            bra.s   .out
+.no         moveq   #0,d0
+.out        movem.l (sp)+,d1-d2/a0
+            tst.w   d0
+            rts
+
+; -> d0 = what the tool in use does (TL_ACT), -1 = no tools
+tool_kind:  moveq   #-1,d0
+            tst.w   v_tmode(a5)
+            beq.s   .r
+            movem.l d4/a0-a1,-(sp)
+            move.l  v_tiles(a5),a0
+            tst.w   T_NTOOL(a0)
+            beq.s   .x
+            bsr     tool_rec
+            moveq   #0,d0
+            move.b  TL_ACT+1(a1),d0
+.x          movem.l (sp)+,d4/a0-a1
+.r          rts
+
+; the player's weapon (a tool that does 3): fire swings it (fire + left / right: that
+; way), or with Auto it swings by itself when something a WHEN 10 rule strikes is in
+; reach, turning to face it. A swing marks what it reaches in v_struck. d5 / d7 / a2 = actor
+weapon_tick:
+            cmp.w   H_PLAYER(a4),d7
+            bne     .r
+            tst.w   v_swcool(a5)
+            beq.s   .c0
+            subq.w  #1,v_swcool(a5)
+.c0         tst.w   v_swing(a5)
+            beq.s   .s0
+            subq.w  #1,v_swing(a5)
+.s0         tst.w   v_tmode(a5)
+            beq     .r
+            movem.l d0-d4/a0-a1,-(sp)
+            move.l  v_tiles(a5),a0
+            btst    #0,T_FLAGS+1(a0)
+            beq     .out
+            tst.w   T_NTOOL(a0)
+            beq     .out
+            bsr     tool_rec
+            cmp.b   #3,TL_ACT+1(a1)
+            bne     .out
+            tst.w   v_swcool(a5)
+            bne     .out
+            move.w  v_joy(a5),d0
+            btst    #4,d0
+            beq.s   .auto
+            move.w  v_joyprev(a5),d1
+            btst    #4,d1
+            bne.s   .auto                   ; still held from the last swing
+            btst    #2,d0
+            beq.s   .f1
+            move.w  #1,v_face(a5,d5.w)
+.f1         btst    #3,d0
+            beq.s   .go
+            move.w  #0,v_face(a5,d5.w)
+            bra.s   .go
+.auto       btst    #0,TL_ACT(a1)
+            beq     .out
+            bsr     strike_mask
+            tst.l   d2
+            beq     .out
+            move.w  v_face(a5,d5.w),d1      ; in front first, then behind
+            bsr     strike_test
+            bne.s   .go
+            eor.w   #1,d1
+            bsr     strike_test
+            beq     .out
+            move.w  d1,v_face(a5,d5.w)
+.go         move.w  #SWING_TIME,v_swing(a5)
+            move.w  #SWING_COOL,v_swcool(a5)
+            move.w  v_face(a5,d5.w),d1
+            moveq   #-1,d2
+            bsr     strike_test
+            or.l    d0,v_struck(a5)
+.out        movem.l (sp)+,d0-d4/a0-a1
+.r          rts
+
+; -> d2 = bit per actor some WHEN 10 rule strikes (Auto only swings at those)
+strike_mask:
+            movem.l d0-d1/a0,-(sp)
+            moveq   #0,d2
+            move.w  H_NRULE(a4),d1
+            beq.s   .r
+            move.l  H_RULES(a4),d0
+            lea     0(a4,d0.l),a0
+            subq.w  #1,d1
+.l          cmp.w   #10,R_WHEN(a0)
+            bne.s   .n
+            move.w  R_B(a0),d0
+            bset    d0,d2
+.n          lea     RULE_SIZE(a0),a0
+            dbf     d1,.l
+.r          movem.l (sp)+,d0-d1/a0
+            rts
+
+; what the player's weapon reaches: d1 = 0 right / 1 left, d2 = actors to try (bit each),
+; d5 / a2 = the player, a1 = the weapon -> d0 = bits of the actors it reaches (Z set: none)
+strike_test:
+            movem.l d1-d7/a0,-(sp)
+            moveq   #0,d0
+            move.w  v_ax(a5,d5.w),d3
+            add.w   A_BX0(a2),d3            ; the player's left
+            move.w  v_ax(a5,d5.w),d4
+            add.w   A_BX1(a2),d4            ; and right
+            move.w  d3,d6
+            add.w   d4,d6
+            asr.w   #1,d6                   ; its middle
+            tst.w   d1
+            bne.s   .lf
+            move.w  d6,d3                   ; right: the middle .. the right + reach
+            add.w   TL_TILE(a1),d4
+            bra.s   .yy
+.lf         sub.w   TL_TILE(a1),d3          ; left: the left - reach .. the middle
+            move.w  d6,d4
+.yy         move.w  d3,v_sbox(a5)
+            move.w  d4,v_sbox+2(a5)
+            move.w  v_ay(a5,d5.w),d3        ; from the reach above its head (the swing's arc)
+            add.w   A_BY0(a2),d3
+            sub.w   TL_TILE(a1),d3
+            move.w  d3,v_sbox+4(a5)
+            move.w  v_ay(a5,d5.w),d3
+            add.w   A_BY1(a2),d3
+            move.w  d3,v_sbox+6(a5)
+            move.w  d5,d7                   ; the player
+            move.l  H_ACTORS(a4),d3
+            lea     0(a4,d3.l),a0
+            moveq   #0,d6
+.j          cmp.w   H_NACT(a4),d6
+            bge.s   .done
+            cmp.w   #32,d6
+            bge.s   .done
+            btst    d6,d2
+            beq.s   .nx
+            move.w  d6,d5
+            lsl.w   #ACTV_SHIFT,d5
+            cmp.w   d7,d5
+            beq.s   .nx
+            tst.w   v_vis(a5,d5.w)
+            beq.s   .nx
+            move.w  A_FROM(a0),d3
+            cmp.w   v_level(a5),d3
+            bgt.s   .nx
+            move.w  v_ax(a5,d5.w),d3
+            add.w   A_BX0(a0),d3
+            cmp.w   v_sbox+2(a5),d3
+            bgt.s   .nx
+            move.w  v_ax(a5,d5.w),d3
+            add.w   A_BX1(a0),d3
+            cmp.w   v_sbox(a5),d3
+            blt.s   .nx
+            move.w  v_ay(a5,d5.w),d3
+            add.w   A_BY0(a0),d3
+            cmp.w   v_sbox+6(a5),d3
+            bgt.s   .nx
+            move.w  v_ay(a5,d5.w),d3
+            add.w   A_BY1(a0),d3
+            cmp.w   v_sbox+4(a5),d3
+            blt.s   .nx
+            bset    d6,d0
+.nx         lea     ACT_SIZE(a0),a0
+            addq.w  #1,d6
+            bra.s   .j
+.done       movem.l (sp)+,d1-d7/a0
+            tst.l   d0
+            rts
 
 ; Z clear in a tile world with tools (the space bar menu)
 hud_tools:  tst.w   v_tmode(a5)

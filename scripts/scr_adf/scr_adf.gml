@@ -525,7 +525,7 @@ function adam_data_block_raw(_p, _measure = false)
         if (_ru.act == 8) { _val = clamp(_val, 0, _ncol - 1); }
         if (_ru.act == 2) { _val = clamp(_val, 0, 7); }
         if (_ru.act == 18) { _val = clamp(_val, 0, ADF_SONGS_MAX - 1); }
-        be16(_b, clamp(_ru.when, 0, 8));
+        be16(_b, clamp(_ru.when, 0, 10));
         be16(_b, clamp(_ru.a, 0, ACT_MAX_ALL - 1));
         be16(_b, clamp(_ru.b, 0, ACT_MAX_ALL - 1));
         be16(_b, clamp(_ru.n, 1, 65535));
@@ -695,7 +695,13 @@ function adam_data_block_raw(_p, _measure = false)
             var _tl = _p.tools[tt];
             var _ttile = _tl.tile;
             if (_ttile < 0 || _ttile >= _nt) { _ttile = 0; }
-            be16(_b, clamp(_tl.act, 0, 2));
+            var _tact = clamp(_tl.act, 0, 3);
+            if (_tact == 3)                             // a weapon: Auto in the flags byte, its reach for the tile
+            {
+                if (_tl.auto) { _tact = _tact | 0x100; }
+                _ttile = clamp(_tl.reach, 4, 64);
+            }
+            be16(_b, _tact);
             be16(_b, _ttile);
             buf_fixed_text(_b, _tl.name, 9);
             buffer_seek(_b, buffer_seek_relative, -1);

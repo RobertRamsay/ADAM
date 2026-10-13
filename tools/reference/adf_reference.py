@@ -217,7 +217,9 @@ def build(proj, aga):
             tt=tl.get('tile',0)
             if tt<0 or tt>=nt: tt=0
             nm=tl['name'].upper().encode('ascii','replace')[:8]
-            blob.extend(struct.pack('>HH',max(0,min(2,tl.get('act',0))),tt)+nm+b'\0'*(8-len(nm)))
+            act=max(0,min(3,tl.get('act',0)))
+            if act==3: tt=max(4,min(64,tl.get('reach',20))); act|=0x100 if tl.get('auto') else 0
+            blob.extend(struct.pack('>HH',act,tt)+nm+b'\0'*(8-len(nm)))
         align(8)
         off_img=len(blob)
         for td in t['tiles']:

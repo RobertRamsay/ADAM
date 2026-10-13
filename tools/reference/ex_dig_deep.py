@@ -291,10 +291,38 @@ def miner_rows(legs=0, arm=None, bob=0):
     if arm == "high":        # pick hitting the roof
         for y in range(0, 6): dot(11, y, '1')
         for x in range(8, 14): dot(x, 0, '3')
+    if arm == "sword up":    # sword raised behind the head
+        for y in range(1, 8): dot(13, y, '3')
+        dot(12, 8, '1'); dot(13, 8, '1'); dot(14, 8, '1'); dot(13, 9, '1')
+    if arm == "sword fwd":   # sword thrust out in front
+        for x in range(13, 16): dot(x, 10, '3')
+        dot(12, 9, '1'); dot(12, 10, '1'); dot(12, 11, '1')
+    if arm == "sword low":   # the slash follows through, low
+        dot(12, 11, '1'); dot(13, 11, '1')
+        for k in range(3): dot(13 + k, 12 + k, '3')
     rows = ["".join(r) for r in rows]
     if bob:
         rows = rows[bob:] + ["................"] * bob
     return rows
+
+def bell_rows(sw=0):
+    # a little bell hung from a wooden post; sw = -1 / 0 / 1 swings it
+    rows = [['.'] * 16 for _ in range(24)]
+    def dot(x, y, c):
+        if 0 <= x < 16 and 0 <= y < 24: rows[y][x] = c
+    for y in range(2, 24): dot(2, y, '1'); dot(3, y, '1')          # the post
+    for x in range(1, 14): dot(x, 2, '1')                          # the beam
+    dot(4, 3, '1'); dot(5, 3, '1'); dot(4, 4, '1')                 # its brace
+    for x in range(0, 6): dot(x, 23, '1')                          # its foot
+    cx = 10
+    dot(cx, 3, '2'); dot(cx, 4, '2')                               # its hook
+    for y, w in ((5, 1), (6, 2), (7, 2), (8, 2), (9, 3), (10, 3)):  # the bell, leaning with the swing
+        c = cx + int(round(sw * (y - 4) / 3))
+        for x in range(c - w, c + w + 1): dot(x, y, '3')
+    c = cx + sw * 2
+    dot(c - 1, 6, '1')                                             # a glint
+    dot(c + sw, 11, '2')                                           # the clapper
+    return ["".join(r) for r in rows]
 
 SLIME = ["................"] * 12 + [
     ".....222222.....",
@@ -377,34 +405,42 @@ def dig_deep():
     sprites = [("Miner", "dd_miner", [0xf0c090, 0x3050c0, 0xffd030]),
                ("Slime", "dd_slime", [0x40d040, 0x1a5a1a, 0xd0ffd0]),
                ("Bat", "dd_bat", [0xd04040, 0x2a1030, 0x8a5aa0]),
-               ("Mole", "dd_mole", [0x6a4a3a, 0xffffff, 0xff9080])]
+               ("Mole", "dd_mole", [0x6a4a3a, 0xffffff, 0xff9080]),
+               ("Bell", "dd_bell", [0xf0c090, 0x3050c0, 0xffd030])]     # the miner's colours: it shares his sprite pair
     art.A['dd_miner'] = miner_rows()
     art.A['dd_slime'] = SLIME
     art.A['dd_bat'] = BAT
     art.A['dd_mole'] = MOLE
+    art.A['dd_bell'] = bell_rows()
     start_y = hs[8] * 16 - 20
     actors = [g.actor("Miner", 0, 6, 2, 8 * 16, start_y),
               g.actor("Slime 1", 1, 7, 1, 52 * 16, hs[52] * 16 - 24),
               g.actor("Slime 2", 1, 7, 1, 84 * 16, hs[84] * 16 - 24, left=True),
               g.actor("Bat 1", 2, 1, 1, 40 * 16, 30 * 16),
               g.actor("Bat 2", 2, 1, 1, 70 * 16, 44 * 16, left=True, up=True),
-              g.actor("Mole", 3, 2, 1, 60 * 16, 38 * 16)]
+              g.actor("Mole", 3, 2, 1, 60 * 16, 38 * 16),
+              g.actor("Bell", 4, 5, 1, 30 * 16, hs[30] * 16 - 24)]
     for a in actors[1:3]:
         a['anim_sprite'] = -1
     R = g.R
-    rules = [R(when=0, a=0, b=1, act=1), R(when=0, a=0, b=1, act=4, target=0), R(when=0, a=0, b=1, act=16, target=0), R(when=0, a=0, b=1, act=2, value=6),
+    # the sword (Auto): striking a baddie scores, thwacks and sends it back where it came from.
+    # These come first, so a baddie struck as it touches the miner is gone before the touch counts
+    strike = []
+    for b in range(1, 6):
+        strike += [R(when=10, b=b, act=0, value=25), R(when=10, b=b, act=2, value=5), R(when=10, b=b, act=4, target=b)]
+    rules = strike + [R(when=0, a=0, b=1, act=1), R(when=0, a=0, b=1, act=4, target=0), R(when=0, a=0, b=1, act=16, target=0), R(when=0, a=0, b=1, act=2, value=6),
              R(when=0, a=0, b=2, act=1), R(when=0, a=0, b=2, act=4, target=0), R(when=0, a=0, b=2, act=16, target=0), R(when=0, a=0, b=2, act=2, value=6),
              R(when=0, a=0, b=3, act=1), R(when=0, a=0, b=3, act=4, target=0), R(when=0, a=0, b=3, act=16, target=0), R(when=0, a=0, b=3, act=2, value=6),
              R(when=0, a=0, b=4, act=1), R(when=0, a=0, b=4, act=4, target=0), R(when=0, a=0, b=4, act=16, target=0), R(when=0, a=0, b=4, act=2, value=6),
              R(when=0, a=0, b=5, act=1), R(when=0, a=0, b=5, act=4, target=0), R(when=0, a=0, b=5, act=16, target=0), R(when=0, a=0, b=5, act=2, value=6),
              R(when=6, a=0, act=2, value=3),
              R(when=4, act=9),
-             # the wind gusts through the caves now and again, and chimes ring far off
+             # the wind gusts through the caves now and again
              R(when=2, n=11, act=2, value=1),
              R(when=2, n=26, act=2, value=1),
-             R(when=2, n=7, act=2, value=2),
-             R(when=2, n=19, act=2, value=7),
-             R(when=2, n=31, act=2, value=2)]
+             # the bell on its post chimes - only while it is on the screen
+             R(when=9, a=6, n=3, act=2, value=2),
+             R(when=9, a=6, n=5, act=2, value=7)]
     sfx = g.sfx_list({0: dict(name="Treasure", wave=2, pitch=84, sweep=12, len=8, atk=0, dec=5, sus=0, rel=5),
                       3: dict(name="Dig", wave=3, pitch=26, sweep=-2, len=3, atk=0, dec=3, sus=0, rel=2),
                       4: dict(name="Clink", wave=2, pitch=70, sweep=-6, len=3, atk=0, dec=3, sus=0, rel=3),
@@ -413,14 +449,15 @@ def dig_deep():
                       # the wind has channel 2 to itself, the chimes ring on 3 and 4
                       1: dict(name="Wind", wave=3, pitch=230, sweep=0, len=70, atk=11, dec=12, sus=10, rel=10, filt=4, fspeed=2, fdepth=11),
                       2: dict(name="Chime", wave=0, pitch=100, sweep=0, len=2, atk=0, dec=10, sus=0, rel=10),
-                      7: dict(name="Chime 2", wave=0, pitch=133, sweep=0, len=2, atk=0, dec=10, sus=0, rel=10)})
+                      7: dict(name="Chime 2", wave=0, pitch=133, sweep=0, len=2, atk=0, dec=10, sus=0, rel=10),
+                      5: dict(name="Thwack", wave=3, pitch=40, sweep=-3, len=3, atk=0, dec=4, sus=0, rel=3)})
     p = g.make_project("Dig Deep", PAL, img, sprites, actors, rules, [0x1850b0, 0x60a8ff, 0xc8e8ff, 120],
                        hud_col=1, msg_col=11, sfx=sfx, win="ALL THE TREASURE! - PRESS FIRE", over="BURIED! - PRESS FIRE", songs=[])
     p.update(goal_on=True, goal=12, goal_label="GOLD", title_on=True, title1="DIG DEEP", title2="PRESS FIRE TO START")
     p.update(tiles_on=True, tile_size=16, tiles=tl, map_w=W, map_h=H, map=m, tile_dig=True)
     # space opens the tool menu: the pickaxe digs, the hammer builds with the tile carried,
     # ladder parts to climb out of holes and torches to light the way
-    p['tools'] = [dict(name="PICK", act=0, tile=0), dict(name="HAMMER", act=1, tile=0),
+    p['tools'] = [dict(name="PICK", act=0, tile=0), dict(name="SWORD", act=3, tile=0, reach=20, auto=True), dict(name="HAMMER", act=1, tile=0),
                   dict(name="LADDER", act=2, tile=LADDER), dict(name="TORCH", act=2, tile=TORCH)]
     # ADAM Pro: a stone HUD panel, bold lettering with shadows: score, gold, the tile carried, lives
     g.dress_ui(p, "Stone", 1, 2, [(1, "SCORE ", 1, 0, 0xffffff, 0x161626, 5), (3, "", 17, 0, 0xffcc22, 0x161626, 0),
@@ -434,17 +471,19 @@ def dig_deep():
         1: (walk, 5, 0),
         2: ([("Miner leap", miner_rows(1)), ("Miner leap 2", miner_rows(3))], 6, 1),
         3: ([("Miner drop", miner_rows(2)), ("Miner drop 2", miner_rows(2, bob=1))], 6, 0),
-        12: ([("Miner pick up", miner_rows(0, "up")), ("Miner pick fwd", miner_rows(0, "fwd"))], 6, 0),
-        15: ([("Miner pick up", None), ("Miner pick fwd", None), ("Miner pick fwd 2", miner_rows(0, "fwd", 1))], 5, 0),
+        15: ([("Miner pick up", miner_rows(0, "up")), ("Miner pick fwd", miner_rows(0, "fwd")), ("Miner pick fwd 2", miner_rows(0, "fwd", 1))], 5, 0),
         17: ([("Miner pick up", None), ("Miner pick down", miner_rows(0, "down")), ("Miner pick down 2", miner_rows(0, "down", 1))], 5, 0),
-        13: ([("Miner pick up", None), ("Miner pick high", miner_rows(0, "high")), ("Miner pick high 2", miner_rows(0, "high", 1))], 5, 0)}),
+        13: ([("Miner pick up", None), ("Miner pick high", miner_rows(0, "high")), ("Miner pick high 2", miner_rows(0, "high", 1))], 5, 0),
+        # Fire on its own: the sword's swing (the pickaxe uses Fire + the way he faces)
+        12: ([("Miner sword up", miner_rows(0, "sword up")), ("Miner sword fwd", miner_rows(0, "sword fwd")), ("Miner sword low", miner_rows(0, "sword low"))], 5, 1)}),
         1: dict(anims={0: ([1, ("Slime wobble", T(SLIME, dy=1)), ("Slime squash", SLIME_SQ)], 10, 2),
                        2: ([1, ("Slime stretch", T(SLIME, dy=-1)), ("Slime stretch 2", T(SLIME, dy=-2))], 4, 1)}),
         2: dict(anims={0: ([1, ("Slime wobble", None), ("Slime squash", None)], 10, 2),
                        2: ([1, ("Slime stretch", None), ("Slime stretch 2", None)], 4, 1)}),
         3: dict(anims={0: ([2, ("Bat flap", BAT2), ("Bat glide", T(BAT, dy=1)), ("Bat flap 2", T(BAT2, dy=1))], 5, 0)}),
         4: dict(anims={0: ([2, ("Bat flap", None), ("Bat glide", None), ("Bat flap 2", None)], 5, 0)}),
-        5: dict(flip=True, anims={0: ([3, ("Mole dig", T(MOLE, dx=1)), ("Mole dig 2", T(MOLE, dy=1))], 8, 0)})}
+        5: dict(flip=True, anims={0: ([3, ("Mole dig", T(MOLE, dx=1)), ("Mole dig 2", T(MOLE, dy=1))], 8, 0)}),
+        6: dict(anims={0: ([("Bell swing", bell_rows(-1)), 4, ("Bell swing 2", bell_rows(1))], 10, 2)})}
     for a in actors[1:3]:
         a['anim_sprite'] = 4
     g.animate(p, "dd", spec)

@@ -14,7 +14,7 @@
 function project_defs_init()
 {
     global.ROLE_NAMES = ["Player (joystick)", "Bouncer (diagonal)", "Patrol left-right", "Patrol up-down", "Chaser (follows player)", "Still (does not move)", "Platform player (walks + jumps)", "Hopper (jumps left and right)", "Faller (drops onto the ground)"];
-    global.WHEN_NAMES = ["Actor touches actor", "Fire button is pressed", "Every few seconds", "Score reaches", "Lives run out", "The game starts", "Actor jumps", "A level starts", "Fire is held (stick still)"];
+    global.WHEN_NAMES = ["Actor touches actor", "Fire button is pressed", "Every few seconds", "Score reaches", "Lives run out", "The game starts", "Actor jumps", "A level starts", "Fire is held (stick still)", "Actor is in view", "Player strikes actor"];
     global.DO_NAMES   = ["Add to score", "Lose a life", "Play a sound", "Flash the screen", "Send actor back to start",
                          "Move actor to a random spot", "Hide actor", "Show actor", "Change background colour",
                          "Game over", "You win!", "Speed up actor", "Slow down actor", "Add a life", "Move actor to another actor",
@@ -399,7 +399,7 @@ function actor_preview_sprite(_ac)
 
 function rule_new()
 {
-    return { when : 0, a : 0, b : 1, n : 1, act : 0, target : 0, value : 10, group : -1 };      // n: seconds / score / tenths held; value: points / sound / colour / actor / song / tile
+    return { when : 0, a : 0, b : 1, n : 1, act : 0, target : 0, value : 10, group : -1 };      // n: seconds / score / tenths held / seconds in view; value: points / sound / colour / actor / song / tile
 }
 
 function sfx_new(_name)

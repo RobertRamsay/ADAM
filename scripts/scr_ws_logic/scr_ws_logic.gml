@@ -112,6 +112,8 @@ function logic_sentence(_r)
         case 6: _s += _an + " jumps"; break;
         case 7: _s += "a level starts"; break;
         case 8: _s += "fire is held for " + string_format(_r.n / 10, 0, 1) + " seconds with the stick still"; break;
+        case 9: _s += _an + " is in view (every " + string(_r.n) + " seconds)"; break;
+        case 10: _s += "the player strikes " + _bn; break;
     }
     var _tn = "?";
     if (_r.target < _na) { _tn = _names[_r.target]; }
@@ -401,6 +403,16 @@ function logic_rule_card(_r, i, _cx, _cy, _cw, _anames, _snames, _gnames)
             ui_text(_wx, _wy + 15, "for", global.TH.text_dim, fa_left, fa_middle, global.f_body, 1);
             set_val(_r, "n", ui_stepper(_rid + "_n", _wx + 34, _wy, 120, clamp(_r.n, 1, 100), 1, 100, "Hold time|How long fire is held, in tenths of a second (10 = one second), with the joystick left alone. Fires once per hold - hold again for another. Great for 'hold fire to build a ladder part'."), _rid + "n");
             ui_text(_wx + 162, _wy + 15, "tenths of a second", global.TH.text_dim, fa_left, fa_middle, global.f_body, 1);
+            break;
+        case 9:
+            set_val(_r, "a", ui_dropdown(_rid + "_a", _wx, _wy, 150, 30, _anames, _r.a, "Which actor|While this actor is on the screen the rule fires every few seconds - a bell that rings only when you can see it, a waterfall you hear as you pass. Off the screen it waits, then fires a second after it comes back into view."), _rid + "a");
+            ui_text(_wx + 158, _wy + 15, "in view, every", global.TH.text_dim, fa_left, fa_middle, global.f_body, 1);
+            set_val(_r, "n", ui_stepper(_rid + "_n", _wx + 272, _wy, 110, clamp(_r.n, 1, 60), 1, 60, "Seconds|How many seconds between each time, while it is in view."), _rid + "n");
+            ui_text(_wx + 390, _wy + 15, "s", global.TH.text_dim, fa_left, fa_middle, global.f_body, 1);
+            break;
+        case 10:
+            ui_text(_wx, _wy + 15, "the player strikes", global.TH.text_dim, fa_left, fa_middle, global.f_body, 1);
+            set_val(_r, "b", ui_dropdown(_rid + "_b", _wx + 140, _wy, 150, 30, _anames, _r.b, "Which actor|Fires when the player's weapon (a Weapon tool - Tiles page, Tools tab) reaches this actor. Auto weapons swing by themselves only at actors that have a rule like this."), _rid + "b");
             break;
         case 3:
             set_val(_r, "n", ui_stepper(_rid + "_n", _wx, _wy, 150, _r.n, 1, 9999, "Score target|The rule fires once when the score reaches this number. Hold Shift for steps of 10."), _rid + "n");
