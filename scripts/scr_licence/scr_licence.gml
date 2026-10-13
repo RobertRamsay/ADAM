@@ -3,7 +3,7 @@
 /// ADAM Lite is free; ADAM Pro is a separate paid download on itch.io. Both
 /// come from this one project: set ADAM_PRO below and build each one
 /// (ADAM_..._LITE and ADAM_..._PRO, see docs/RELEASE.md).
-/// Both editions have the same features (Bob, Oct 2026); ADAM Pro adds extra
+/// Both editions have the HUD editor; drawing a custom font is Pro-only. Pro adds extra
 /// example games and lessons and higher limits (lim_* below). pro_edition() / pro_gate() decide those;
 /// pro_on() and feature_gate() are the old feature switches, now always on -
 /// the one place to make a feature Pro-only again.
@@ -58,7 +58,7 @@ function pro_gate(_what)
 
 // ---------------------------------------------------------------------------
 // Lite and Pro limits (Bob, Oct 2026): ADAM Lite has every feature with a
-// smaller ceiling; ADAM Pro raises it. A Pro project opened in Lite keeps
+// smaller ceiling; ADAM Pro raises it and adds custom font drawing. A Pro project opened in Lite keeps
 // all its data - the editor shows what is over the Lite limit and the disk
 // gets a trimmed copy (lite_trim, with a warning on the Build page).
 // ---------------------------------------------------------------------------
@@ -227,15 +227,16 @@ function lite_trim(_p, _warn)
     _q.sprites = _sprs;
     if (_cut_spr) { array_push(_warn, "Sprites and BOBs are up to " + string(LITE_SPR_W) + " x " + string(LITE_SPR_H) + " in ADAM Lite, so bigger ones are cut to that size - ADAM Pro draws them up to 64 x 64."); }
 
-    // the custom HUD (UI page) is ADAM Pro: the standard HUD instead
-    if (_p.ui.on)
+    // Keep the HUD in Lite; custom fonts use ADAM on the disk.
+    // Copy only the UI struct so the original project keeps its custom font.
+    if (_p.ui.font_style == 5)
     {
         var _uq = {};
         var _un = variable_struct_get_names(_p.ui);
         for (var uk = 0; uk < array_length(_un); uk++) { _uq[$ _un[uk]] = _p.ui[$ _un[uk]]; }
-        _uq.on = false;
+        _uq.font_style = 0;
         _q.ui = _uq;
-        array_push(_warn, "The custom HUD (UI page) is part of ADAM Pro - the game uses the standard HUD.");
+        array_push(_warn, "Custom fonts are part of ADAM Pro - the game uses the ADAM font and keeps your custom HUD.");
     }
 
     // tile world: 96 tile types, a map up to 256 x 256 tiles

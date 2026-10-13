@@ -1,4 +1,4 @@
-/// ADAM - UI page (ADAM Pro): a custom HUD for the game - a panel strip at the
+/// ADAM - UI page (Lite and Pro): a custom HUD for the game - a panel strip at the
 /// top or bottom of the screen (1 to 6 text rows), drawn with a 9-slice frame
 /// (24 x 24 pixels: corners, edges and a fill that repeats), a font style (or
 /// a font drawn here) and the fields: score, lives, goal, the tile carried,
@@ -29,7 +29,7 @@ function ui_field_types()
 function ui_new()
 {
     return {
-        on : false,                         // use the custom HUD (ADAM Pro)
+        on : false,                         // use the custom HUD
         bottom : false,                     // the panel at the bottom (a tile world always has it at the top)
         rows : 1,                           // text rows, 8 lines each
         frame_on : true,                    // draw the 9-slice frame
@@ -398,127 +398,118 @@ function ws_ui_draw(_x1, _y1, _x2, _y2)
     var _fx = _x1 + 16;
     var _fw = _lw - 32;
     var _y = _y1 + 54;
-    if (!_pro)
+    var _on = ui_toggle("ui_on", _fx, _y, "Use a custom HUD", _u.on, "Custom HUD|Replaces the standard one-line HUD with your own panel, font and fields. Switch it off to go back to the standard HUD (your design is kept).");
+    if (_on != _u.on)
     {
-        ui_text_wrap(_fx, _y, "The UI editor is part of ADAM Pro: dress your game's HUD with a framed panel (metal, wood, stone, neon, parchment or your own), a font style or a font you draw, and fields placed where you like - each with its own colour and shadow.\n\nThe Dig Deep and Firefly Night examples in ADAM Pro show it off.", global.TH.text_dim, _fw, global.f_body, 1);
-        if (ADAM_PRO_URL != "")
+        undo_mark("uion" + string(current_time));
+        if (_on) { ui_switch_on(); }
+        else { _u.on = false; }
+    }
+    _y += 36;
+    var _half = floor((_fw - 8) / 2);
+    ui_heading(_fx, _y, "Where");
+    ui_heading(_fx + _half + 8, _y, "Height (rows)");
+    var _pos = 0;
+    if (_u.bottom) { _pos = 1; }
+    var _np = ui_dropdown("ui_pos", _fx, _y + 18, _half, 30, ["Top", "Bottom"], _pos, "Where|The panel's place on the screen. A tile world always has it at the top (the map scrolls below it).");
+    if (_np != _pos) { set_val(_u, "bottom", (_np == 1), "uipos"); }
+    set_val(_u, "rows", ui_stepper("ui_rows", _fx + _half + 8, _y + 18, _half, _u.rows, 1, UI_ROWS_MAX, "Height|Text rows of 8 lines: 1 is a slim strip, 2 room for a frame round one line of text, up to 6. Fields on rows below the panel are not shown."), "uirows");
+    if (_u.bottom && proj.tiles_on) { ui_text(_fx, _y + 52, "Tile world: shown at the top", global.TH.warn, fa_left, fa_top, global.f_small, 1); }
+    _y += 76;                               // room for that line (20 px) above the toggle
+    set_val(_u, "frame_on", ui_toggle("ui_frame_on", _fx, _y, "Panel frame", _u.frame_on, "Panel frame|Draws the 9-slice frame: corners, edges and a fill that stretch to the panel's size. Off: the backdrop shows behind the text."), "uiframeon");
+    _y += 32;
+    ui_heading(_fx, _y, "Frame style");
+    var _styles = ui_frame_styles();
+    var _si = -1;
+    for (var s = 0; s < array_length(_styles); s++)
+    {
+        if (_styles[s] == _u.style) { _si = s; }
+    }
+    var _snames = [];
+    for (var s2 = 0; s2 < array_length(_styles); s2++) { array_push(_snames, _styles[s2]); }
+    var _shown = _si;
+    if (_si < 0)
+    {
+        array_push(_snames, "Custom (drawn)");
+        _shown = array_length(_snames) - 1;
+    }
+    var _ns = ui_dropdown("ui_style", _fx, _y + 18, _fw, 30, _snames, _shown, "Frame style|A ready-made frame in your game's colours (the nearest backdrop colours). Then draw on it below to make it your own.");
+    if (_ns != _shown && _ns < array_length(_styles))
+    {
+        undo_mark("uistyle" + string(current_time));
+        _u.style = _styles[_ns];
+        _u.frame = ui_frame_preset(_u.style);
+    }
+    _y += 58;
+    ui_heading(_fx, _y, "Font");
+    var _font_names = ui_font_styles();
+    if (!_pro) { _font_names[5] = "Custom (Pro)"; }
+    var _nfs = ui_dropdown("ui_font", _fx, _y + 18, _fw, 30, _font_names, _u.font_style, "Font|The letters the HUD uses (and the game's messages). Custom (Pro): draw your own on the Font tab below.");
+    if (_nfs != _u.font_style && (_nfs != 5 || pro_gate("Drawing your own font")))
+    {
+        undo_mark("uifont" + string(current_time));
+        if (_nfs == 5 && array_length(_u.font) != 512) { _u.font = ui_font_bytes(_u); }
+        _u.font_style = _nfs;
+    }
+    _y += 58;
+    ui_heading(_fx, _y, "Fields (" + string(_nf) + ")");
+    _y += 18;
+    var _types = ui_field_types();
+    var _listh = max(60, _y2 - 60 - _y);
+    var _rowh = 30;
+    var _content = _nf * _rowh + 4;
+    var _off = ui_scroll_begin("ui_fields", _fx - 4, _y, _fx + _fw + 4, _y + _listh, _content);
+    for (var f = 0; f < _nf; f++)
+    {
+        var _fy = _y + f * _rowh - _off;
+        if (_fy < _y - _rowh || _fy > _y + _listh) { continue; }
+        var _fd = _u.fields[f];
+        var _hot = ui_register("ui_field_" + string(f), _fx, _fy, _fx + _fw, _fy + _rowh - 4, "Field|Click to change it on the right, or drag it on the preview.");
+        if (ui_sel_field == f) { ui_rrect(_fx, _fy, _fx + _fw, _fy + _rowh - 4, 6, global.TH.accent, global.TH.accent_dark, 0.9); }
+        else if (_hot) { ui_rrect(_fx, _fy, _fx + _fw, _fy + _rowh - 4, 6, global.TH.btn_hot_top, global.TH.btn_hot_bot, 0.6); }
+        ui_rrect(_fx + 6, _fy + 6, _fx + 20, _fy + _rowh - 10, 3, pal_col(_fd.colour), pal_col(_fd.colour), 1);
+        var _ft = _types[_fd.type];
+        if (_fd.label != "") { _ft += ": " + _fd.label; }
+        ui_text(_fx + 28, _fy + (_rowh - 4) / 2, ui_text_fit(_ft, global.f_small, _fw - 36), global.TH.text, fa_left, fa_middle, global.f_small, 1);
+        if (_hot && ui_pressed)
         {
-            if (ui_button("ui_getpro", _fx, _y2 - 52, _fw, 36, "Get ADAM Pro", "Get ADAM Pro|Opens the ADAM Pro page on itch.io in your web browser.", BTN_ACCENT)) { url_open(ADAM_PRO_URL); }
+            ui_take_click();
+            ui_sel_field = f;
         }
     }
-    else
+    ui_scroll_end("ui_fields", _fx - 4, _y, _fx + _fw + 4, _y + _listh, _content);
+    var _add = ui_menu_button("ui_add", _fx, _y2 - 46, floor((_fw - 8) / 2), 32, "+ Field", _types, "Add a field|Score, lives, the level goal, the tile the player carries, the level number, or a line of text.", BTN_NORMAL);
+    if (_add >= 0 && _nf < 16)
     {
-        var _on = ui_toggle("ui_on", _fx, _y, "Use a custom HUD", _u.on, "Custom HUD|Replaces the standard one-line HUD with your own panel, font and fields. Switch it off to go back to the standard HUD (your design is kept).");
-        if (_on != _u.on)
+        undo_mark("uiadd" + string(current_time));
+        var _nfd = ui_field_new(_add);
+        _nfd.colour = clamp(proj.hud_colour, 1, max(1, pal_count() - 1));
+        if (_add == 0) { _nfd.label = "TEXT"; }
+        if (_add == 1) { _nfd.label = "SCORE "; }
+        if (_add == 2)
         {
-            undo_mark("uion" + string(current_time));
-            if (_on) { ui_switch_on(); }
-            else { _u.on = false; }
+            _nfd.label = "LIVES ";
+            _nfd.digits = 1;
         }
-        _y += 36;
-        var _half = floor((_fw - 8) / 2);
-        ui_heading(_fx, _y, "Where");
-        ui_heading(_fx + _half + 8, _y, "Height (rows)");
-        var _pos = 0;
-        if (_u.bottom) { _pos = 1; }
-        var _np = ui_dropdown("ui_pos", _fx, _y + 18, _half, 30, ["Top", "Bottom"], _pos, "Where|The panel's place on the screen. A tile world always has it at the top (the map scrolls below it).");
-        if (_np != _pos) { set_val(_u, "bottom", (_np == 1), "uipos"); }
-        set_val(_u, "rows", ui_stepper("ui_rows", _fx + _half + 8, _y + 18, _half, _u.rows, 1, UI_ROWS_MAX, "Height|Text rows of 8 lines: 1 is a slim strip, 2 room for a frame round one line of text, up to 6. Fields on rows below the panel are not shown."), "uirows");
-        if (_u.bottom && proj.tiles_on) { ui_text(_fx, _y + 52, "Tile world: shown at the top", global.TH.warn, fa_left, fa_top, global.f_small, 1); }
-        _y += 76;                               // room for that line (20 px) above the toggle
-        set_val(_u, "frame_on", ui_toggle("ui_frame_on", _fx, _y, "Panel frame", _u.frame_on, "Panel frame|Draws the 9-slice frame: corners, edges and a fill that stretch to the panel's size. Off: the backdrop shows behind the text."), "uiframeon");
-        _y += 32;
-        ui_heading(_fx, _y, "Frame style");
-        var _styles = ui_frame_styles();
-        var _si = -1;
-        for (var s = 0; s < array_length(_styles); s++)
+        if (_add == 5)
         {
-            if (_styles[s] == _u.style) { _si = s; }
+            _nfd.label = "LEVEL ";
+            _nfd.digits = 2;
         }
-        var _snames = [];
-        for (var s2 = 0; s2 < array_length(_styles); s2++) { array_push(_snames, _styles[s2]); }
-        var _shown = _si;
-        if (_si < 0)
-        {
-            array_push(_snames, "Custom (drawn)");
-            _shown = array_length(_snames) - 1;
-        }
-        var _ns = ui_dropdown("ui_style", _fx, _y + 18, _fw, 30, _snames, _shown, "Frame style|A ready-made frame in your game's colours (the nearest backdrop colours). Then draw on it below to make it your own.");
-        if (_ns != _shown && _ns < array_length(_styles))
-        {
-            undo_mark("uistyle" + string(current_time));
-            _u.style = _styles[_ns];
-            _u.frame = ui_frame_preset(_u.style);
-        }
-        _y += 58;
-        ui_heading(_fx, _y, "Font");
-        var _nfs = ui_dropdown("ui_font", _fx, _y + 18, _fw, 30, ui_font_styles(), _u.font_style, "Font|The letters the HUD uses (and the game's messages). Custom: draw your own on the Font tab below.");
-        if (_nfs != _u.font_style)
-        {
-            undo_mark("uifont" + string(current_time));
-            if (_nfs == 5 && array_length(_u.font) != 512) { _u.font = ui_font_bytes(_u); }
-            _u.font_style = _nfs;
-        }
-        _y += 58;
-        ui_heading(_fx, _y, "Fields (" + string(_nf) + ")");
-        _y += 18;
-        var _types = ui_field_types();
-        var _listh = max(60, _y2 - 60 - _y);
-        var _rowh = 30;
-        var _content = _nf * _rowh + 4;
-        var _off = ui_scroll_begin("ui_fields", _fx - 4, _y, _fx + _fw + 4, _y + _listh, _content);
-        for (var f = 0; f < _nf; f++)
-        {
-            var _fy = _y + f * _rowh - _off;
-            if (_fy < _y - _rowh || _fy > _y + _listh) { continue; }
-            var _fd = _u.fields[f];
-            var _hot = ui_register("ui_field_" + string(f), _fx, _fy, _fx + _fw, _fy + _rowh - 4, "Field|Click to change it on the right, or drag it on the preview.");
-            if (ui_sel_field == f) { ui_rrect(_fx, _fy, _fx + _fw, _fy + _rowh - 4, 6, global.TH.accent, global.TH.accent_dark, 0.9); }
-            else if (_hot) { ui_rrect(_fx, _fy, _fx + _fw, _fy + _rowh - 4, 6, global.TH.btn_hot_top, global.TH.btn_hot_bot, 0.6); }
-            ui_rrect(_fx + 6, _fy + 6, _fx + 20, _fy + _rowh - 10, 3, pal_col(_fd.colour), pal_col(_fd.colour), 1);
-            var _ft = _types[_fd.type];
-            if (_fd.label != "") { _ft += ": " + _fd.label; }
-            ui_text(_fx + 28, _fy + (_rowh - 4) / 2, ui_text_fit(_ft, global.f_small, _fw - 36), global.TH.text, fa_left, fa_middle, global.f_small, 1);
-            if (_hot && ui_pressed)
-            {
-                ui_take_click();
-                ui_sel_field = f;
-            }
-        }
-        ui_scroll_end("ui_fields", _fx - 4, _y, _fx + _fw + 4, _y + _listh, _content);
-        var _add = ui_menu_button("ui_add", _fx, _y2 - 46, floor((_fw - 8) / 2), 32, "+ Field", _types, "Add a field|Score, lives, the level goal, the tile the player carries, the level number, or a line of text.", BTN_NORMAL);
-        if (_add >= 0 && _nf < 16)
-        {
-            undo_mark("uiadd" + string(current_time));
-            var _nfd = ui_field_new(_add);
-            _nfd.colour = clamp(proj.hud_colour, 1, max(1, pal_count() - 1));
-            if (_add == 0) { _nfd.label = "TEXT"; }
-            if (_add == 1) { _nfd.label = "SCORE "; }
-            if (_add == 2)
-            {
-                _nfd.label = "LIVES ";
-                _nfd.digits = 1;
-            }
-            if (_add == 5)
-            {
-                _nfd.label = "LEVEL ";
-                _nfd.digits = 2;
-            }
-            _nfd.row = min(_u.rows - 1, 0);
-            array_push(_u.fields, _nfd);
-            ui_sel_field = array_length(_u.fields) - 1;
-        }
-        var _dst = BTN_DANGER;
-        if (_nf == 0) { _dst = BTN_GHOST; }
-        if (ui_button("ui_del", _fx + floor((_fw - 8) / 2) + 8, _y2 - 46, floor((_fw - 8) / 2), 32, "Remove", "Remove field|Takes the picked field off the HUD. You can Undo this.", _dst) && _nf > 0)
-        {
-            undo_mark("uidel" + string(current_time));
-            array_delete(_u.fields, ui_sel_field, 1);
-            ui_sel_field = max(0, ui_sel_field - 1);
-        }
-        _nf = array_length(_u.fields);          // a field was just added or removed
-        ui_sel_field = clamp(ui_sel_field, 0, max(0, _nf - 1));
+        _nfd.row = min(_u.rows - 1, 0);
+        array_push(_u.fields, _nfd);
+        ui_sel_field = array_length(_u.fields) - 1;
     }
+    var _dst = BTN_DANGER;
+    if (_nf == 0) { _dst = BTN_GHOST; }
+    if (ui_button("ui_del", _fx + floor((_fw - 8) / 2) + 8, _y2 - 46, floor((_fw - 8) / 2), 32, "Remove", "Remove field|Takes the picked field off the HUD. You can Undo this.", _dst) && _nf > 0)
+    {
+        undo_mark("uidel" + string(current_time));
+        array_delete(_u.fields, ui_sel_field, 1);
+        ui_sel_field = max(0, ui_sel_field - 1);
+    }
+    _nf = array_length(_u.fields);          // a field was just added or removed
+    ui_sel_field = clamp(ui_sel_field, 0, max(0, _nf - 1));
 
     // ---------------- centre: the preview, then the frame / font editors ----------------
     ui_panel(_cx1, _y1, _cx2, _y2, "Preview");
@@ -534,7 +525,7 @@ function ws_ui_draw(_x1, _y1, _x2, _y2)
     backdrop_shader_end();
     var _r0 = ui_row0(_u);
     ui_register("ui_preview", _vx, _vy, _vx + BD_W * _sc, _vy + BD_H * _sc, "Preview|The game screen with your HUD, using sample values. Drag a field to move it (it snaps to the 8 x 8 text grid).");
-    if (_pro && _u.on)
+    if (_u.on)
     {
         // the panel's outline, and the fields: click to pick, drag to move
         draw_set_alpha(0.5);
@@ -577,18 +568,26 @@ function ws_ui_draw(_x1, _y1, _x2, _y2)
 
     // editors: the frame (24 x 24, 9-slice) or the font
     var _ey = _vy + BD_H * _sc + 18;
-    if (_pro && _u.on)
+    if (_u.on)
     {
         var _etabs = ["Panel frame", "Font"];
+        if (!_pro) { _etabs[1] = "Font (Pro)"; }
         var _ehelp = ["Panel frame|Draw the frame: the 3 x 3 squares of 8 x 8 pixels are the corners, the edges (repeated along the panel) and the fill (repeated inside). Right-click: see-through.", "Font|Draw the letters: pick a character, then draw it. The first change makes the font Custom."];
         for (var et = 0; et < 2; et++)
         {
-            if (ui_tab("ui_etab_" + string(et), _cx1 + 16 + et * 130, _ey, 124, 30, _etabs[et], ui_edit_tab == et, _ehelp[et])) { ui_edit_tab = et; }
+            if (ui_tab("ui_etab_" + string(et), _cx1 + 16 + et * 130, _ey, 124, 30, _etabs[et], ui_edit_tab == et, _ehelp[et]))
+            {
+                if (et == 0 || pro_gate("Drawing your own font")) { ui_edit_tab = et; }
+            }
         }
         _ey += 40;
         var _eh = _y2 - 16 - _ey;
         if (ui_edit_tab == 0) { ui_frame_editor(_cx1 + 16, _ey, _cx2 - 16, _ey + _eh); }
-        else { ui_font_editor(_cx1 + 16, _ey, _cx2 - 16, _ey + _eh); }
+        else if (_pro) { ui_font_editor(_cx1 + 16, _ey, _cx2 - 16, _ey + _eh); }
+        else
+        {
+            ui_text_wrap(_cx1 + 16, _ey, "Drawing your own font comes with ADAM Pro. Choose a built-in font on the left, or use the Panel frame tab to draw your frame.", global.TH.text_dim, _cx2 - _cx1 - 32, global.f_body, 1);
+        }
     }
 
     // ---------------- right: the picked field ----------------
@@ -597,11 +596,10 @@ function ws_ui_draw(_x1, _y1, _x2, _y2)
     var _gx = _rx + 20;
     var _gw = _rw - 40;
     var _gy = _y1 + 56;
-    if (!_pro || !_u.on || _nf == 0)
+    if (!_u.on || _nf == 0)
     {
         var _msg = "Add a field on the left.";
         if (!_u.on) { _msg = "Switch on 'Use a custom HUD' on the left to design your own."; }
-        if (!_pro) { _msg = "ADAM Pro"; }
         ui_text_wrap(_gx, _gy, _msg, global.TH.text_dim, _gw, global.f_body, 1);
         return;
     }

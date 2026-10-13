@@ -63,7 +63,7 @@ function tut_init()
         tut_step(WS_ANIMATE, "anim_test", "Test it", "Switch Test on and drive the preview with the arrow keys, WASD or a gamepad, to see each animation as the Amiga will play it."),
         tut_step(WS_ANIMATE, "anim_flip", "Facing left", "Draw your frames facing right and switch this on: when the actor moves left, the Amiga shows them turned round."),
         // ---------- UI ----------
-        tut_step(WS_UI, "ui_on", "Your own HUD", "ADAM Pro: switch on a custom HUD - a framed panel at the top or bottom of the screen, with the score, lives, goal and more where you want them."),
+        tut_step(WS_UI, "ui_on", "Your own HUD", "Switch on a custom HUD - a framed panel at the top or bottom of the screen, with the score, lives, goal and more where you want them."),
         tut_step(WS_UI, "ui_style", "Panel frame", "Pick a ready-made frame - metal, wood, stone, neon, parchment - in your game's colours, then draw on it in the Panel frame editor below the preview."),
         tut_step(WS_UI, "ui_font", "Font", "A font style for the HUD and the game's messages, or Custom to draw your own letters."),
         tut_step(WS_UI, "ui_preview", "Fields", "Drag the fields round the preview. Pick one to change what it shows, its label, colour and shadow on the right."),
