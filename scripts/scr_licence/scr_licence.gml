@@ -14,7 +14,25 @@
 /// True when this is the ADAM Pro build (the extra example games and lessons)
 function pro_edition()
 {
+    if (ADAM_DEV_TOOLS) { return global.pro_preview == 1; }
     return ADAM_PRO == 1;
+}
+
+/// Dev tool (ADAM_DEV_TOOLS): Shift+F12 switches the editor between Lite and
+/// Pro, to check the limits and extras without rebuilding. Public builds keep ADAM_PRO.
+function pro_preview_toggle()
+{
+    if (!ADAM_DEV_TOOLS) { return; }
+    if (global.pro_preview == 1)
+    {
+        global.pro_preview = 0;
+        toast("Dev: acting as ADAM Lite (Shift+F12 for Pro)", 0);
+    }
+    else
+    {
+        global.pro_preview = 1;
+        toast("Dev: acting as ADAM Pro (Shift+F12 for Lite)", 0);
+    }
 }
 
 /// True when the editing features may be used: every edition

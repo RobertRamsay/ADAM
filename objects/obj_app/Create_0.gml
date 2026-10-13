@@ -27,6 +27,7 @@ wsave_h = -1;
 wsave_timer = 0;
 global.UI_SCALE_NAMES = ["Auto (fits your screen)", "100%", "125%", "150%", "175%", "200%", "250%", "300%"];
 global.UI_SCALE_VALUES = [0, 1, 1.25, 1.5, 1.75, 2, 2.5, 3];
+global.pro_preview = ADAM_PRO;  // edition the editor acts as; Shift+F12 flips it in dev builds (pro_preview_toggle)
 
 // ---------- systems ----------
 theme_init();

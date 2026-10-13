@@ -60,6 +60,10 @@ if (keyboard_check_pressed(vk_f11))
 {
     window_set_fullscreen(!window_get_fullscreen());
 }
+if (keyboard_check_pressed(vk_f12) && keyboard_check(vk_shift))
+{
+    pro_preview_toggle();
+}
 
 // step right back while another window (FS-UAE) has the focus, so the
 // emulator gets the CPU and GPU instead of ADAM redrawing at full speed
