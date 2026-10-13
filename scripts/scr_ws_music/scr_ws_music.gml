@@ -1347,6 +1347,9 @@ function music_editor(_ex1, _ey1, _ex2, _ey2, _song)
     {
         _snap_stride = 2;
     }
+    // New notes last one snap step (drums keep the default length)
+    var _new_len = 0;
+    if (!_drums) { _new_len = _snap_stride; }
     var _cw = max(6, (_gx2 - _gx1 - _lab - 16) / MUS_STEPS);
     var _rows = [];
     var _rh = 16;
@@ -1373,7 +1376,7 @@ function music_editor(_ex1, _ey1, _ex2, _ey2, _song)
         _off = clamp(_off, 0, max(0, _content - (_gy2 - _gy1)));
         ds_map_replace(ui_scroll, _sid, _off);
     }
-    var _grid_note = "Snap controls placement only. Shift-drag a note's right edge to resize; Ctrl+D deselects.";
+    var _grid_note = "Snap sets where new notes go and how long they last. Shift-drag a note's right edge to resize; Ctrl+D deselects.";
     ui_register("mus_ed_grid", _sx, _gy1, _sx2, _gy2, "Notes|" + _grid_note + " Ctrl-drag a box to select touched notes, Ctrl+C to copy, Ctrl+V to paste at the mouse. Paste replaces occupied time slots. Drag a note to move it or its circle to connect a bend.");
     var _hr = -1;
     var _hs = -1;
@@ -1505,6 +1508,25 @@ function music_editor(_ex1, _ey1, _ex2, _ey2, _song)
         if (!_drums && (_rv - 1) mod 12 == 0) { _lc = global.TH.text; }
         if (_black) { _lc = global.TH.text_faint; }
         ui_text(_gx1 + 6, _ry + _rh * 0.5, ui_text_fit(_lname, global.f_small, _lab - 12), _lc, fa_left, fa_middle, global.f_small, 1);
+        // Cells and grid lines first, so long notes are drawn over them
+        var _beat_cells = max(1, _view_steps div 4);
+        for (var _gst = 0; _gst < _view_steps; _gst++)
+        {
+            var _gcx = _sx + _gst * _cw;
+            var _ba = 0.10;
+            if ((_gst div _beat_cells) mod 2 == 1) { _ba = 0.05; }
+            if (_black) { _ba *= 0.5; }
+            if (_gst == _play_step) { _ba += 0.12; }
+            draw_set_alpha(_ba);
+            draw_rectangle_colour(_gcx + 1, _ry + 1, _gcx + _cw - 1, _ry + _rh - 1, c_white, c_white, c_white, c_white, false);
+            // Beat lines brightest, snap lines clear, other steps faint
+            var _la = 0.06;
+            if (_gst mod _snap_stride == 0) { _la = 0.30; }
+            if (_gst mod _beat_cells == 0) { _la = 0.55; }
+            draw_set_alpha(_la);
+            draw_line_colour(_gcx, _ry, _gcx, _ry + _rh, c_white, c_white);
+            draw_set_alpha(1);
+        }
         for (var st = 0; st < _view_steps; st++)
         {
             var _cx = _sx + st * _cw;
@@ -1512,20 +1534,6 @@ function music_editor(_ex1, _ey1, _ex2, _ey2, _song)
             var _on = false;
             if (_drums) { _on = (_lp.notes[_data_step] > 0 && _lp.insts[_data_step] == _rv); }
             else { _on = (_lp.notes[_data_step] == _rv); }
-            var _ba = 0.10;
-            var _beat_cells = max(1, _view_steps div 4);
-            if ((st div _beat_cells) mod 2 == 1) { _ba = 0.05; }
-            if (_black) { _ba *= 0.5; }
-            if (st == _play_step) { _ba += 0.12; }
-            draw_set_alpha(_ba);
-            draw_rectangle_colour(_cx + 1, _ry + 1, _cx + _cw - 1, _ry + _rh - 1, c_white, c_white, c_white, c_white, false);
-            draw_set_alpha(1);
-            if (st mod _snap_stride == 0)
-            {
-                draw_set_alpha(0.16);
-                draw_line_colour(_cx, _ry, _cx, _ry + _rh, c_white, c_white);
-                draw_set_alpha(1);
-            }
             if (_on)
             {
                 var _note_w = music_note_length(_lp, _data_step) * _cw;
@@ -1570,10 +1578,6 @@ function music_editor(_ex1, _ey1, _ex2, _ey2, _song)
                 draw_circle_colour(_cx + 2, _ry + _rh * 0.5, 4, _glide_col, _glide_col, false);
                 _glide_target_hot = (_glide_drop_step == _data_step && _glide_drop_row == r);
             }
-            if (r == _hr && _data_step == _hs)
-            {
-                ui_rrect_line(_cx + 1, _ry + 1, _cx + _cw - 1, _ry + _rh - 1, 4, global.TH.accent, 0.9, 1);
-            }
             if (_glide_target_hot)
             {
                 var _flash_alpha = 0.55 + 0.45 * abs(sin(current_time / 120));
@@ -1583,6 +1587,30 @@ function music_editor(_ex1, _ey1, _ex2, _ey2, _song)
                 ui_rrect_line(_cx + 1, _ry + 1, _cx + _cw - 1, _ry + _rh - 1, 4, _glide_col, _flash_alpha, 2);
             }
         }
+    }
+    // Hover outline: the note under the mouse, or the note a click would place
+    if (_hr >= 0 && _hs >= 0 && !mus_ed_note_drag && !_select_this_frame && mus_ed_resize_step < 0)
+    {
+        var _hov_len = 0;
+        var _hov_on = false;
+        if (_drums) { _hov_on = (_lp.notes[_hs] > 0 && _lp.insts[_hs] == _rows[_hr]); }
+        else { _hov_on = (_lp.notes[_hs] == _rows[_hr]); }
+        if (_hov_on) { _hov_len = music_note_length(_lp, _hs); }
+        else
+        {
+            _hov_len = _new_len;
+            if (_hov_len <= 0) { _hov_len = 2; }
+            _hov_len = min(_hov_len, MUS_STEPS - _hs);
+        }
+        var _hov_x = _sx + (_hs div _step_stride) * _cw;
+        var _hov_y = _gy1 + _hr * _rh - _off;
+        if (!_hov_on)
+        {
+            draw_set_alpha(0.18);
+            draw_rectangle_colour(_hov_x + 2, _hov_y + 2, _hov_x + _hov_len * _cw - 2, _hov_y + _rh - 2, global.TH.accent, global.TH.accent, global.TH.accent, global.TH.accent, false);
+            draw_set_alpha(1);
+        }
+        ui_rrect_line(_hov_x + 1, _hov_y + 1, _hov_x + _hov_len * _cw - 1, _hov_y + _rh - 1, 4, global.TH.accent, 0.9, 1);
     }
     if (!_drums)
     {
@@ -1739,7 +1767,7 @@ function music_editor(_ex1, _ey1, _ex2, _ey2, _song)
             {
                 mus_ed_selected = array_create(MUS_STEPS, false);
                 mus_ed_painting = true;
-                music_ed_apply(_song, _li, _hs, _rv2, _drums, mus_ed_mode);
+                music_ed_apply(_song, _li, _hs, _rv2, _drums, mus_ed_mode, _new_len);
                 if (mus_ed_mode == 1)
                 {
                     if (_drums) { music_preview_note(_rv2, music_inst_root(_rv2)); }
@@ -1822,7 +1850,7 @@ function music_editor(_ex1, _ey1, _ex2, _ey2, _song)
         }
         if (mus_ed_painting && !mus_ed_note_drag && !mus_ed_note_glide && ui_held && _hr >= 0 && _hs >= 0)
         {
-            if (_drums || !_on2) { music_ed_apply(_song, _li, _hs, _rv2, _drums, 1); }
+            if (_drums || !_on2) { music_ed_apply(_song, _li, _hs, _rv2, _drums, 1, _new_len); }
         }
         if (ui_rpressed && !mus_ed_note_drag)
         {
@@ -2049,7 +2077,8 @@ function music_editor(_ex1, _ey1, _ex2, _ey2, _song)
 }
 
 /// Puts (mode 1) or removes (mode 0) a note at a step of the open loop
-function music_ed_apply(_song, _li, _st, _rv, _drums, _mode)
+/// _length: steps a new note lasts (0 = the default); existing notes keep theirs
+function music_ed_apply(_song, _li, _st, _rv, _drums, _mode, _length)
 {
     var _lp = _song.arr.loops[_li];
     if (_mode == 1)
@@ -2064,7 +2093,7 @@ function music_ed_apply(_song, _li, _st, _rv, _drums, _mode)
         if (_lp.notes[_st] == _note && _lp.insts[_st] == _inst) { return; }
         music_loop_edit_begin(_song, _li, mus_ed_tag);
         _lp.notes[_st] = _note;
-        _lp.lengths[_st] = 0;
+        _lp.lengths[_st] = clamp(_length, 0, MUS_STEPS - _st);
         _lp.insts[_st] = _inst;
     }
     else
