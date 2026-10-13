@@ -45,6 +45,9 @@ ui_my = 0;
 ui_pressed = false;
 ui_pressed_raw = false;
 ui_held = false;
+ui_repeat_id = "";
+ui_repeat_next = 0;
+ui_repeat_seen = false;
 ui_released = false;
 ui_rpressed = false;
 ui_rheld = false;
@@ -272,6 +275,15 @@ snd_sel = 0;
 preview_sound = -1;
 preview_buffer = -1;
 preview_inst = -1;
+preview_source = {};
+preview_render = {};
+preview_duration = 0;
+preview_loop_start = 0;
+preview_loop_end = 0;
+preview_note_end = 0;
+snd_jam_note = -1;
+snd_jam_key = -1;
+snd_jam_mouse = false;
 snd_cache = {};
 snd_cache_count = 0;
 
@@ -308,6 +320,10 @@ mus_ed_painting = false;
 mus_ed_rclear = false;
 mus_ed_tag = "";
 mus_ed_note_drag = false;
+mus_ed_note_copy = false;
+mus_ed_note_group = false;
+mus_ed_resize_step = -1;
+mus_ed_resize_changed = false;
 mus_ed_note_glide = false;
 mus_ed_note_glide_end = [-1, -1];
 mus_ed_note_src = [-1, -1];
@@ -325,6 +341,12 @@ mus_ed_fx_step = 0;
 mus_ed_fx_drag = false;
 mus_ed_fx_src = -1;
 mus_ed_fx_end = -1;
+mus_ed_selected = array_create(MUS_STEPS, false);
+mus_ed_select_drag = false;
+mus_ed_select_start = [0, 0];
+mus_ed_select_end = [0, 0];
+mus_ed_select_ref = {};
+mus_ed_clip = { notes : [], drums : false };
 mus_ed_resolution = 16;
 mus_rev = 0;                 // bumped on every music edit
 mus_warnings = [];
@@ -453,6 +475,10 @@ if (ADAM_DEV_TOOLS) { mod_selftest(); }
 if (ADAM_DEV_TOOLS) { music_glide_selftest(); }
 if (ADAM_DEV_TOOLS) { music_scope_selftest(); }
 if (ADAM_DEV_TOOLS) { music_library_effect_selftest(); }
+if (ADAM_DEV_TOOLS) { music_notes_clipboard_selftest(); }
+if (ADAM_DEV_TOOLS) { sfx_preview_selftest(); }
+if (ADAM_DEV_TOOLS) { music_sample_loop_volume_selftest(); }
+if (ADAM_DEV_TOOLS) { music_sampler_controls_selftest(); }
 
 // lessons: every step check() runs once on a new project and each example (IDE Output window)
 if (ADAM_DEV_TOOLS) { lessons_selftest(); }

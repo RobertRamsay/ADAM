@@ -433,7 +433,8 @@ function sfx_new(_name)
         wave : 2, pitch : 60, sweep : 0, len : 10, atk : 0, dec : 8, sus : 0, rel : 6,
         filt : 0, fspeed : 0, fdepth : 0,        // low-pass filter 1..15 (0 off), its sweep speed and depth
         smp : "", smp_rate : 0, smp_len : 0, smp_file : "",
-        rate : 11025, bits : 8, gain : 100, trim_a : 0, trim_b : 1000
+        rate : 11025, bits : 8, gain : 100, trim_a : 0, trim_b : 1000,
+        sample_loop : false, loop_a : 0, loop_b : 1000
     };
 }
 

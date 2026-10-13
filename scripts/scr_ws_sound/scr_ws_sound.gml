@@ -26,6 +26,7 @@ function ws_sound_draw(_x1, _y1, _x2, _y2)
         }
         if (_hot && ui_pressed)
         {
+            if (mus_playing && (mus_play_what == "sound" || mus_play_what == "sound_note")) { sfx_preview_stop(); }
             snd_sel = i;
             ui_take_click();
         }
@@ -49,6 +50,7 @@ function ws_sound_draw(_x1, _y1, _x2, _y2)
     if (ui_button("snd_kind_0", _fx, _y + 18, _kw, 32, "Synth", "Synth sound|Built from a waveform, pitch slide and envelope. Tiny in memory.", _k0)) { set_val(_s, "kind", 0, "sndkind" + string(current_time)); }
     if (ui_button("snd_kind_1", _fx + _kw + 8, _y + 18, _kw, 32, "Sample", "Sampled sound|Import a WAV - a voice, a drum hit, a real explosion - then crunch it down for Paula with the rate and bit settings.", _k1)) { set_val(_s, "kind", 1, "sndkind" + string(current_time)); }
     _y += 62;
+    if (keyboard_check_pressed(vk_space) && ui_focus == "" && ui_can_input() && !keyboard_check(vk_control)) { sfx_preview_play(_s); }
     if (_s.kind == 1)
     {
         sound_sample_panel(_s, _fx, _y, _colw, _cx1, _x2, _y1, _y2);
@@ -129,6 +131,12 @@ function ws_sound_draw(_x1, _y1, _x2, _y2)
     draw_line_width_colour(_px1, _top, _px2, _sus, 3, global.TH.accent, global.TH.accent);
     draw_line_width_colour(_px2, _sus, _px3, _sus, 3, global.TH.accent, global.TH.accent);
     draw_line_width_colour(_px3, _sus, _px4, _base, 3, global.TH.accent, global.TH.accent);
+    var _progress = sfx_preview_progress(_s, sfx_render_ex(_s));
+    if (_progress >= 0)
+    {
+        var _marker_x = lerp(_px0, _px4, _progress);
+        draw_line_width_colour(_marker_x, _gy + 8, _marker_x, _base, 2, global.TH.warn, global.TH.warn);
+    }
     ui_text((_px0 + _px1) / 2, _base + 2, "A", global.TH.text_faint, fa_center, fa_top, global.f_small, 1);
     ui_text((_px1 + _px2) / 2, _base + 2, "D", global.TH.text_faint, fa_center, fa_top, global.f_small, 1);
     ui_text((_px2 + _px3) / 2, _base + 2, "S", global.TH.text_faint, fa_center, fa_top, global.f_small, 1);
@@ -154,9 +162,90 @@ function ws_sound_draw(_x1, _y1, _x2, _y2)
 }
 
 /// Sample controls (Sound page when the sound is a sample)
+function sound_sample_keyboard(_s, _px, _py, _width, _height)
+{
+    var _keys = ["Z", "S", "X", "D", "C", "V", "G", "B", "H", "N", "J", "M", "Q", "2", "W", "3", "E", "R", "5", "T", "6", "Y", "7", "U", "I", "9", "O", "0", "P"];
+    var _white = [0, 2, 4, 5, 7, 9, 11];
+    var _black = [1, 3, 6, 8, 10];
+    var _black_after = [0, 1, 3, 4, 5];
+    var _white_width = _width / 17;
+    var _black_width = _white_width * 0.62;
+    var _black_height = _height * 0.60;
+    var _hit_note = -1;
+    var _active = -1;
+    if (mus_playing && mus_play_what == "sound_note" && preview_source == _s) { _active = snd_jam_note; }
+    for (var _octave = 0; _octave < 3; _octave++)
+    {
+        for (var _key = 0; _key < 7; _key++)
+        {
+            var _offset = _octave * 12 + _white[_key];
+            if (_offset >= array_length(_keys)) { continue; }
+            var _note = 1 + _offset;
+            var _key_x = _px + (_octave * 7 + _key) * _white_width;
+            var _colour = make_colour_rgb(228, 232, 238);
+            if (_active == _note) { _colour = merge_colour(_colour, global.TH.accent, 0.55); }
+            ui_rrect(_key_x + 1, _py, _key_x + _white_width - 1, _py + _height, 3, _colour, _colour, 1);
+            ui_rrect_line(_key_x + 1, _py, _key_x + _white_width - 1, _py + _height, 3, c_black, 0.75, 1);
+            ui_text(_key_x + _white_width * 0.5, _py + _height - 24, _keys[_offset], c_black, fa_center, fa_middle, global.f_bold, 1);
+            ui_text(_key_x + _white_width * 0.5, _py + _height - 9, music_note_name(_note), c_black, fa_center, fa_middle, global.f_small, 1);
+            if (ui_register("snd_piano_" + string(_note), _key_x, _py, _key_x + _white_width, _py + _height, music_note_name(_note) + "|Click or press " + _keys[_offset] + " to play this sample here. Q is natural speed; Z-M plays the lower octave and Q-P plays upwards, with number keys for sharps. Looping notes sustain while held.")) { _hit_note = _note; }
+        }
+    }
+    for (var _octave = 0; _octave < 3; _octave++)
+    {
+        for (var _key = 0; _key < 5; _key++)
+        {
+            var _offset = _octave * 12 + _black[_key];
+            if (_offset >= array_length(_keys)) { continue; }
+            var _note = 1 + _offset;
+            var _key_x = _px + (_octave * 7 + _black_after[_key] + 1) * _white_width - _black_width * 0.5;
+            var _colour = global.TH.panel_bot;
+            if (_active == _note) { _colour = global.TH.accent; }
+            ui_rrect(_key_x, _py, _key_x + _black_width, _py + _black_height, 3, _colour, _colour, 1);
+            ui_text(_key_x + _black_width * 0.5, _py + _black_height - 12, _keys[_offset], c_white, fa_center, fa_middle, global.f_small, 1);
+            if (ui_register("snd_piano_" + string(_note), _key_x, _py, _key_x + _black_width, _py + _black_height, music_note_name(_note) + "|Click or press " + _keys[_offset] + " to play this sample here.")) { _hit_note = _note; }
+        }
+    }
+    var _play_note = -1;
+    var _play_key = -1;
+    var _mouse = false;
+    if (ui_focus == "" && ui_can_input() && !keyboard_check(vk_control) && !keyboard_check(vk_alt))
+    {
+        for (var _key = 0; _key < array_length(_keys); _key++)
+        {
+            if (keyboard_check_pressed(ord(_keys[_key]))) { _play_note = 1 + _key; _play_key = ord(_keys[_key]); }
+        }
+    }
+    if (_hit_note >= 0 && (ui_pressed || (snd_jam_mouse && ui_held && _hit_note != snd_jam_note)))
+    {
+        ui_take_click();
+        ui_focus = "";
+        _play_note = _hit_note;
+        _play_key = -1;
+        _mouse = true;
+    }
+    if (_play_note >= 0)
+    {
+        sfx_preview_note(_s, _play_note);
+        snd_jam_note = _play_note;
+        snd_jam_key = _play_key;
+        snd_jam_mouse = _mouse;
+    }
+    if (mus_playing && mus_play_what == "sound_note")
+    {
+        var _released = (snd_jam_mouse && !ui_held);
+        if (snd_jam_key >= 0 && !keyboard_check(snd_jam_key)) { _released = true; }
+        if (preview_loop_end > preview_loop_start)
+        {
+            if (_released) { sfx_preview_stop(); }
+        }
+        else if ((get_timer() - mus_play_t0) / 1000000 >= preview_note_end) { sfx_preview_stop(); }
+    }
+}
+
 function sound_sample_panel(_s, _fx, _y, _colw, _cx1, _x2, _y1, _y2)
 {
-    if (ui_button("snd_import", _fx, _y, _colw, 38, "Import WAV...", "Import sample|Loads a .WAV file (8, 16, 24 or 32-bit, mono or stereo, any rate). Up to 5 seconds are kept; stereo is mixed to mono.", BTN_ACCENT))
+    if (ui_button("snd_import", _fx, _y, _colw, 38, "Import WAV...", "Import sample|Loads a .WAV file (8, 16, 24 or 32-bit, mono or stereo, any rate). Up to 10 seconds are kept; stereo is mixed to mono.", BTN_ACCENT))
     {
         var _f = get_open_filename("WAV sound|*.wav", "");
         if (_f != "")
@@ -221,9 +310,14 @@ function sound_sample_panel(_s, _fx, _y, _colw, _cx1, _x2, _y1, _y2)
     set_val(_s, "trim_b", ui_slider("snd_trim_b", _fx + _half + 12, _y + 18, _half, _s.trim_b, 10, 1000, "Trim end|Cuts the end off. Shorter samples use less chip RAM."), "sndtrimb");
     if (_s.trim_b <= _s.trim_a + 5) { _s.trim_b = min(1000, _s.trim_a + 10); }
     _y += 58;
-    if (ui_button("snd_preview", _fx, _y, _colw, 44, "Play sound", "Play|Hear the sample exactly as the Amiga will play it, after rate and bit crunch.", BTN_ACCENT))
+    var _playing_loop = (mus_playing && (mus_play_what == "sound" || mus_play_what == "sound_note") && preview_source == _s);
+    if (preview_inst != -1 && preview_source == _s && audio_is_playing(preview_inst)) { _playing_loop = true; }
+    var _play_label = "Play sound";
+    if (_playing_loop) { _play_label = "Stop sound"; }
+    if (ui_button("snd_preview", _fx, _y, _colw, 44, _play_label, "Play / stop|Hear the processed sample. When a sample loop is enabled it sustains until you stop it.", BTN_ACCENT))
     {
-        sfx_preview_play(_s);
+        if (_playing_loop) { sfx_preview_stop(); }
+        else { sfx_preview_play(_s); }
     }
 
     // right column: the crunched waveform and its cost
@@ -233,9 +327,20 @@ function sound_sample_panel(_s, _fx, _y, _colw, _cx1, _x2, _y1, _y2)
     var _gy = _y1 + 74;
     ui_heading(_gx, _gy - 18, "As Paula will play it");
     ui_inset(_gx, _gy, _gx + _gw, _gy + 170, 10);
-    ui_register("snd_graph", _gx, _gy, _gx + _gw, _gy + 170, "Waveform|The sample after trimming, resampling and bit crunch - exactly the bytes that go on the disk.");
+    ui_register("snd_graph", _gx, _gy, _gx + _gw, _gy + 170, "Waveform|The sample after trimming, resampling and bit crunch. The vertical marker shows its current playback position.");
     var _n = array_length(_r.smp);
     var _mid = _gy + 85;
+    if (_r.loop_len >= 4 && _n > 0)
+    {
+        var _loop_x1 = _gx + 10 + (_gw - 20) * _r.loop_start / _n;
+        var _loop_x2 = _gx + 10 + (_gw - 20) * (_r.loop_start + _r.loop_len) / _n;
+        var _loop_col = make_colour_rgb(80, 220, 120);
+        draw_set_alpha(0.15);
+        draw_rectangle_colour(_loop_x1, _gy + 8, _loop_x2, _gy + 162, _loop_col, _loop_col, _loop_col, _loop_col, false);
+        draw_set_alpha(1);
+        draw_line_width_colour(_loop_x1, _gy + 8, _loop_x1, _gy + 162, 2, _loop_col, _loop_col);
+        draw_line_width_colour(_loop_x2, _gy + 8, _loop_x2, _gy + 162, 2, _loop_col, _loop_col);
+    }
     if (_n > 1)
     {
         var _cols = floor(_gw - 20);
@@ -254,8 +359,52 @@ function sound_sample_panel(_s, _fx, _y, _colw, _cx1, _x2, _y1, _y2)
             draw_line(_gx + 10 + c, _mid - _hi / 128 * 75, _gx + 10 + c, _mid - _lo / 128 * 75 + 1);
         }
     }
+    var _progress = sfx_preview_progress(_s, _r);
+    if (_progress >= 0)
+    {
+        var _marker_x = _gx + 10 + _progress * max(1, _gw - 21);
+        draw_line_width_colour(_marker_x, _gy + 8, _marker_x, _gy + 162, 2, global.TH.warn, global.TH.warn);
+    }
     var _info = string(_n) + " bytes of chip RAM  -  " + string_format(_n / max(1, _r.rate), 1, 2) + " seconds at " + string(round(_r.rate)) + " Hz";
-    if (_r.capped) { _info += "  (cut to 3 seconds)"; }
+    if (_r.capped)
+    {
+        if (_n >= SMP_OUT_MAX_BYTES - 2) { _info += "  (128 KB limit: lower the rate to keep more)"; }
+        else { _info += "  (cut to 10 seconds)"; }
+    }
     ui_text(_gx, _gy + 180, ui_text_fit(_info, global.f_small, _gw), global.TH.text_dim, fa_left, fa_top, global.f_small, 1);
     ui_text_wrap(_gx, _gy + 210, "Lower rates and fewer bits are the authentic Amiga sound - and they leave more chip RAM for your backdrop. Sounds play on Paula channel 1 to 4 (sound 1 and 5 share a channel, and so on).", global.TH.text_faint, _gw, global.f_small, 1);
+    var _loop_y = _gy + 266;
+    var _loop_label = "Sample loop: Off";
+    var _loop_style = BTN_NORMAL;
+    if (_s.sample_loop) { _loop_label = "Sample loop: On"; _loop_style = BTN_ON; }
+    if (ui_button("snd_sample_loop", _gx, _loop_y, min(180, _gw), 30, _loop_label, "Sample loop|Repeats the green waveform region to sustain this sample as a music instrument. In-game sound effects still play once.", _loop_style))
+    {
+        undo_mark("sndsampleloop" + string(current_time));
+        _s.sample_loop = !_s.sample_loop;
+        if (_playing_loop) { sfx_preview_stop(); }
+    }
+    if (_s.sample_loop)
+    {
+        var _loop_width = (_gw - 12) * 0.5;
+        ui_heading(_gx, _loop_y + 40, "Loop start  " + string_format(_s.loop_a / 10, 1, 1) + "%");
+        set_val(_s, "loop_a", ui_slider("snd_loop_start", _gx, _loop_y + 56, _loop_width, _s.loop_a, 0, 999, "Loop start|Where repetition begins, within the trimmed sample."), "sndloopstart");
+        ui_heading(_gx + _loop_width + 12, _loop_y + 40, "Loop end  " + string_format(_s.loop_b / 10, 1, 1) + "%");
+        set_val(_s, "loop_b", ui_slider("snd_loop_end", _gx + _loop_width + 12, _loop_y + 56, _loop_width, _s.loop_b, _s.loop_a + 1, 1000, "Loop end|Where playback returns to the loop start. Only the sample up to this point is stored in the music instrument."), "sndloopend");
+        if (_s.loop_b <= _s.loop_a) { _s.loop_b = min(1000, _s.loop_a + 1); }
+    }
+    if (_playing_loop && !ui_held && preview_render != sfx_render_ex(_s))
+    {
+        if (mus_play_what == "sound_note" && snd_jam_note >= 0)
+        {
+            var _note = snd_jam_note;
+            var _key = snd_jam_key;
+            var _mouse = snd_jam_mouse;
+            sfx_preview_note(_s, _note);
+            snd_jam_note = _note;
+            snd_jam_key = _key;
+            snd_jam_mouse = _mouse;
+        }
+        else { sfx_preview_play(_s); }
+    }
+    sound_sample_keyboard(_s, _gx, _y2 - 104, _gw, 92);
 }

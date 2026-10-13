@@ -17,6 +17,8 @@ function ui_frame_begin()
     ui_rpressed = mouse_check_button_pressed(mb_right);
     ui_rheld    = mouse_check_button(mb_right);
     ui_pressed_raw = ui_pressed;
+    ui_repeat_seen = false;
+    if (!ui_held || ui_pressed_raw) { ui_repeat_id = ""; }
     ui_focus_claimed = false;
     ui_wheel = 0;
     if (mouse_wheel_up())   { ui_wheel = 1; }
@@ -89,6 +91,7 @@ function ui_frame_begin()
 
 function ui_frame_end()
 {
+    if (!ui_repeat_seen) { ui_repeat_id = ""; }
     if (ui_pressed_raw && !ui_focus_claimed)
     {
         ui_focus = "";
@@ -216,8 +219,27 @@ function ui_button(_id, _x, _y, _w, _h, _label, _help, _style)
 
     if (_hot && ui_pressed)
     {
+        if (_label == "+" || _label == "-" || _label == "−")
+        {
+            ui_repeat_id = _id;
+            ui_repeat_next = current_time + 600;
+            ui_repeat_seen = true;
+        }
         ui_take_click();
         return true;
+    }
+    if (ui_repeat_id == _id)
+    {
+        ui_repeat_seen = true;
+        if (!_hot || !ui_held)
+        {
+            ui_repeat_id = "";
+        }
+        else if (current_time >= ui_repeat_next)
+        {
+            ui_repeat_next = current_time + 40;
+            return true;
+        }
     }
     return false;
 }

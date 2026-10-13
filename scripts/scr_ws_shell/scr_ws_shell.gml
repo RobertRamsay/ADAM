@@ -17,6 +17,7 @@
 function ws_set(_i)
 {
     if (ws == _i) { return; }
+    if (ws == WS_SOUND && mus_playing && (mus_play_what == "sound" || mus_play_what == "sound_note")) { sfx_preview_stop(); }
     ws = _i;
     ui_focus = "";
     ui_popup_open = false;
@@ -273,7 +274,7 @@ function shortcuts_step()
         if (tut_active) { tut_active = false; }
         else { tut_start(ws); }
     }
-    if (!tut_active && !_ctrl)
+    if (!tut_active && !_ctrl && !(ws == WS_SOUND && proj.sfx[snd_sel].kind == 1 && proj.sfx[snd_sel].smp != ""))
     {
         var _tabs = ws_tabs();
         for (var i = 0; i < min(9, array_length(_tabs)); i++)
