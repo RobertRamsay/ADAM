@@ -54,7 +54,8 @@ Project data (`proj`) is plain JSON-able structs/arrays; `.adam` files are `json
 `datafiles/engine/engine.s` is a **fixed, position-independent** engine
 (`vasm -pic`). ADAM never generates code: it appends a **data block** right
 after `engine.bin`; `boot.s` (bootblock) AllocMem's chip RAM, reads engine+data
-with trackdisk (showing a copper loading bar) and jumps in. Registers held:
+with trackdisk (showing a copper loading bar) and jumps in.
+ADAM Pro loading screen (`scr_loadscr`, `proj.loadscr`, `loadscr.s`): the disk is `[boot][loading-screen block][engine][data]`; the bootblock's last 16 bytes are `screenload, screenmem, loadsize, bsssize` (0, 0 = the plain bar). The block is `loadscr.bin` + `LS_*` header + ADAM's copper list (BPLxPT / SPRxPT values are offsets from the block, fixed up by init) + picture planes + a strip of the full bar; entries 0 init / 4 progress (d0.w 0..1024) / 8 done; it is freed before the engine starts and falls back to the plain bar without the memory. Registers held:
 `a4` = data block, `a5` = V+128 (variables; per-actor state is a 64-byte record per actor,
 `v_xx(a5,Dn)` with Dn = actor << ACTV_SHIFT, up to MAX_ACT = 32 actors), `a6` = $dff000.
 

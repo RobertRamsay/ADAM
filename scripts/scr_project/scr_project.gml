@@ -628,7 +628,8 @@ function project_new()
         map : map_starter(64, 32),               // map_w x map_h tile numbers
         tile_dig : true,                         // the player digs (fire + direction) and places (fire)
         tools : [],                              // space bar menu tools (Tools tab), [] = none
-        ui : ui_new()                            // ADAM Pro custom HUD (UI page)
+        ui : ui_new(),                           // ADAM Pro custom HUD (UI page)
+        loadscr : loadscr_new()                  // ADAM Pro loading screen (UI page, scr_loadscr)
     };
     for (var i = 0; i < SFX_START; i++)
     {
@@ -847,6 +848,7 @@ function project_from_loaded(_raw)
     _p.level_song = _lsv;
     tiles_fix(_p);                       // tile world (older files have none)
     _p.ui = ui_from_loaded(_raw[$ "ui"]);       // custom HUD (older files have none)
+    _p.loadscr = loadscr_from_loaded(_raw[$ "loadscr"]);   // loading screen (older files have none)
     return _p;
 }
 
@@ -1033,6 +1035,16 @@ function project_pack(_src)
 
     // Phase 2 contract: imported songs' sample bytes and patterns ("data_z", "patterns_z")
     if (is_array(_src[$ "songs"])) { _out.songs = songs_pack(_src.songs); }
+
+    // the loading screen's own picture
+    var _lsc = _src[$ "loadscr"];
+    if (is_struct(_lsc) && is_array(_lsc[$ "pixels"]) && array_length(_lsc.pixels) == BD_W * BD_H)
+    {
+        var _cls = struct_overlay({}, _lsc);
+        variable_struct_remove(_cls, "pixels");
+        _cls.pixels_z = pack_u8(_lsc.pixels);
+        _out.loadscr = _cls;
+    }
     return _out;
 }
 
@@ -1047,6 +1059,12 @@ function project_unpack(_raw)
     {
         _raw.pixels = unpack_u8(_pz, BD_W * BD_H);
         variable_struct_remove(_raw, "pixels_z");
+    }
+    var _lsc = _raw[$ "loadscr"];
+    if (is_struct(_lsc) && is_string(_lsc[$ "pixels_z"]))
+    {
+        _lsc.pixels = unpack_u8(_lsc.pixels_z, BD_W * BD_H);
+        variable_struct_remove(_lsc, "pixels_z");
     }
 
     var _ls = _raw[$ "sprites"];
@@ -1271,7 +1289,7 @@ function undo_keys(_ws)
         case WS_MUSIC:    return ["songs", "level_song"];
         case WS_ANIMATE:  return ["actors"];
         case WS_TILES:    return ["tiles_on", "tile_size", "tiles", "map_w", "map_h", "map", "tile_dig", "tools", "actors"];
-        case WS_UI:       return ["ui"];
+        case WS_UI:       return ["ui", "loadscr"];
     }
     return [];
 }

@@ -488,6 +488,7 @@ if (ADAM_DEV_TOOLS) { music_library_effect_selftest(); }
 if (ADAM_DEV_TOOLS) { music_notes_clipboard_selftest(); }
 if (ADAM_DEV_TOOLS) { sfx_preview_selftest(); }
 if (ADAM_DEV_TOOLS) { patch_selftest(); }
+if (ADAM_DEV_TOOLS) { loadscr_selftest(); }
 if (ADAM_DEV_TOOLS) { music_sample_loop_volume_selftest(); }
 if (ADAM_DEV_TOOLS) { music_sampler_controls_selftest(); }
 

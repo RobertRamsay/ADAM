@@ -1093,6 +1093,11 @@ function mem_measure()
     mem_disk_free = ADF_SIZE - 1024;
     try
     {
+        if (loadscr_active(proj))
+        {
+            var _lsm = loadscr_block(proj, true);
+            if (!is_undefined(_lsm)) { mem_disk_free -= _lsm.size; }    // the loading screen's room on the disk
+        }
         var _data = adam_data_block(proj, true);
         mem_size = mem_engine_size + _data.size + _data.bss;
         mem_plane_size = _data.plane_bytes;
@@ -1183,13 +1188,30 @@ function build_adf(_path)
     var _need = _game + _data.bss;      // chip RAM: tile worlds use cleared memory after the data
     var _bss_alloc = max(0, _need - _load);
     build_warnings = _data.warnings;
-    if (_load > ADF_SIZE - 1024)
+    // ADAM Pro loading screen: its block goes between the bootblock and the game
+    var _ls = undefined;
+    var _ls_size = 0;
+    var _ls_mem = 0;
+    if (proj.loadscr.on && !pro_edition()) { array_push(build_warnings, "The loading screen is part of ADAM Pro - this disk loads with the plain bar."); }
+    if (loadscr_active(proj))
+    {
+        _ls = loadscr_block(proj);
+        if (is_undefined(_ls)) { array_push(build_warnings, "The loading screen's engine file is missing (datafiles/engine/loadscr.bin) - the plain bar is used."); }
+        else
+        {
+            _ls_size = _ls.size;
+            _ls_mem = _ls.mem;
+        }
+    }
+    if (_load + _ls_size > ADF_SIZE - 1024)
     {
         buffer_delete(_eng);
         buffer_delete(_boot);
         buffer_delete(_data.buf);
+        if (!is_undefined(_ls)) { buffer_delete(_ls.buf); }
         build_ok = false;
         build_msg = "Build failed - the game is " + string(_game div 1024) + " KB and does not fit on one floppy disk.";
+        if (_ls_size > 0) { build_msg = "Build failed - the game (" + string(_game div 1024) + " KB) and its loading screen (" + string(_ls_size div 1024) + " KB) do not fit on one floppy disk. Try a loading picture with fewer colours."; }
         return false;
     }
     var _m = machine_cur();
@@ -1199,6 +1221,7 @@ function build_adf(_path)
         buffer_delete(_eng);
         buffer_delete(_boot);
         buffer_delete(_data.buf);
+        if (!is_undefined(_ls)) { buffer_delete(_ls.buf); }
         build_ok = false;
         build_msg = "Build failed - the game needs " + string(_need div 1024) + " KB of chip RAM; the " + _m.name + " has about " + string(_chip_free div 1024) + " KB free. Use fewer colours, a smaller tile map or shorter sounds.";
         return false;
@@ -1207,6 +1230,8 @@ function build_adf(_path)
     var _adf = buffer_create(ADF_SIZE, buffer_fixed, 1);
     buffer_fill(_adf, 0, buffer_u8, 0, ADF_SIZE);
     buffer_copy(_boot, 0, _bsize, _adf, 0);
+    poke32(_adf, _bsize - 16, _ls_size);      // boot.s screenload (0 = the plain bar)
+    poke32(_adf, _bsize - 12, _ls_mem);       // boot.s screenmem
     poke32(_adf, _bsize - 8, _load);          // boot.s loadsize
     poke32(_adf, _bsize - 4, _bss_alloc);     // boot.s bsssize
     // bootblock checksum: add-with-carry over 256 longwords, then invert
@@ -1218,8 +1243,13 @@ function build_adf(_path)
         if (_sum > 0xffffffff) { _sum = (_sum & 0xffffffff) + 1; }
     }
     poke32(_adf, 4, 0xffffffff - _sum);
-    buffer_copy(_eng, 0, _esize, _adf, 1024);
-    buffer_copy(_data.buf, 0, _data.size, _adf, 1024 + _esize);
+    if (!is_undefined(_ls))
+    {
+        buffer_copy(_ls.buf, 0, _ls_size, _adf, 1024);
+        buffer_delete(_ls.buf);
+    }
+    buffer_copy(_eng, 0, _esize, _adf, 1024 + _ls_size);
+    buffer_copy(_data.buf, 0, _data.size, _adf, 1024 + _ls_size + _esize);
     buffer_save(_adf, _path);
     buffer_delete(_adf);
     buffer_delete(_eng);
@@ -1237,6 +1267,14 @@ function build_adf(_path)
     if (!_m.aga && _need > (A500_512K_CHIP_KB - OS_RESERVE_KB) * 1024)
     {
         array_push(build_warnings, "Too big for an A500 with only 512KB of chip RAM (about " + string(A500_512K_CHIP_KB - OS_RESERVE_KB) + " KB free) - it will show a red screen there. Fine on 1MB machines.");
+    }
+    else if (_ls_mem > 0 && !_m.aga && _need + _ls_mem > (A500_512K_CHIP_KB - OS_RESERVE_KB) * 1024)
+    {
+        array_push(build_warnings, "On an A500 with only 512KB of chip RAM the loading screen (" + string(_ls_mem div 1024) + " KB while loading) does not fit next to the game - it loads with the plain bar there.");
+    }
+    if (_ls_mem > 0 && _need + _ls_mem > _chip_free)
+    {
+        array_push(build_warnings, "The loading screen needs " + string(_ls_mem div 1024) + " KB of chip RAM while loading and there is not that much left next to the game - it loads with the plain bar.");
     }
     return true;
 }
