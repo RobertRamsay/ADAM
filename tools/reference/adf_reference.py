@@ -106,7 +106,7 @@ def build(proj, aga):
             plans.append(ents)
         else: plans.append(None)
     align(8)
-    # animation tables (engine.s AN_*): 4 x { n, rate, mode, 0, 8 right offsets, 8 left offsets }
+    # animation tables (engine.s AN_*): 4 x { n, rate, mode, 0, 16 right offsets, 16 left offsets }
     anim_offs=[]
     for ents in plans:
         if not ents: anim_offs.append(0); continue
@@ -114,7 +114,7 @@ def build(proj, aga):
         for n,rate,mode,right,left in ents:
             blob.extend(struct.pack('>HHHH',n,rate,mode,0))
             for side in (right,left):
-                for k in range(8): blob.extend(struct.pack('>L',side[k%n] if k<n else side[0]))
+                for k in range(16): blob.extend(struct.pack('>L',side[k] if k<n else side[0]))
     align(8)
     off_act=len(blob)
     for i,a in enumerate(actors):
@@ -311,15 +311,15 @@ def build(proj, aga):
     player=-1
     for i,a in enumerate(actors):
         if a['role'] in (0,6): player=i; break
-    hdr=struct.pack('>4sHHHHHHHHHHHH',b'ADAM',7,1 if aga else 0,depth,len(actors),len(rules),proj['lives'],
+    hdr=struct.pack('>4sHHHHHHHHHHHH',b'ADAM',8,1 if aga else 0,depth,len(actors),len(rules),proj['lives'],
                     int(proj['show_score']),int(proj['show_lives']),proj['hud_row'],proj['hud_col'],proj['msg_col'],player & 0xffff)+struct.pack('>L',off_game)
     hdr+=struct.pack('>LLLLLLLLLLLLLLL',off_pal,off_planes,off_act,off_rules,off_sfx,off_over,off_win,off_sprcol,off_disp,off_grad,off_ground,off_work,off_music,off_disp2,off_back)
     hdr+=struct.pack('>LL',off_tiles,off_ui)
     blob[0:100]=hdr
     return bytes(blob)
 
-# ---- animations (data block version 5); scr_project.gml anim_plan() does the same
-# actor dict: anims = 12 x {frames: [sprite indexes, up to 8], rate: 2..30, mode: 0 loop / 1 once / 2 ping-pong}
+# ---- animations (data block version 8, 16 frames); scr_project.gml anim_plan() does the same
+# actor dict: anims = 12 x {frames: [sprite indexes, up to 16], rate: 2..30, mode: 0 loop / 1 once / 2 ping-pong}
 # (0 Idle, 1 Walk, 2 Jump, 3 Fall, 4..11 = N NE E SE S SW W NW), dirs = use the 8 directions
 # instead of Walk, flip = frames turn round to face left (in 8 directions: a missing
 # side is the other side turned round); or the version 4 two-frame animation:
@@ -338,7 +338,7 @@ def anim_entries(a):
     out=[]
     for k in range(21):
         e=a.get('anims',[])[k] if k<len(a.get('anims',[])) else {}
-        fr=[f for f in e.get('frames',[])][:8]
+        fr=[f for f in e.get('frames',[])][:16]
         out.append((fr,max(2,min(30,e.get('rate',8))),max(0,min(2,e.get('mode',0))),0) if fr else None)
     return out
 

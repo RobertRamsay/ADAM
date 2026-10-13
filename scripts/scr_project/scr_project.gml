@@ -134,7 +134,7 @@ function actor_new(_name)
 #macro ANIM_BASIC 4             // Idle, Walk, Jump, Fall
 #macro ANIM_DIR0 4              // first of the 8 directions
 #macro ANIM_FIRE0 12            // Fire with no direction; 13..20 = Fire + the 8 directions
-#macro ANIM_FRAMES 8
+#macro ANIM_FRAMES 16
 
 function anim_new()
 {
@@ -148,7 +148,7 @@ function anims_new()
     return _a;
 }
 
-/// Makes a loaded anims array safe: 12 entries (older files have 4), up to 8 frames each, values in range
+/// Makes a loaded anims array safe: 12 entries (older files have 4), up to 16 frames each, values in range
 function anims_from_loaded(_raw)
 {
     var _out = anims_new();
@@ -298,7 +298,7 @@ function anim_plan(_ac)
                 var _pf = _src.frames;
                 if (array_length(_pf) > lim_frames())
                 {
-                    // ADAM Lite plays the first 4 frames (as lite_trim writes them)
+                    // ADAM Lite plays the first 6 frames (as lite_trim writes them)
                     _pf = [];
                     for (var pf = 0; pf < lim_frames(); pf++) { array_push(_pf, _src.frames[pf]); }
                 }

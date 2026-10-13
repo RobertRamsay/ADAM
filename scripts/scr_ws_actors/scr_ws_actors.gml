@@ -513,7 +513,7 @@ function ws_actors_draw(_x1, _y1, _x2, _y2)
         for (var ae = 0; ae < ANIM_COUNT; ae++) { _nfr += array_length(_s.anims[ae].frames); }
         ui_heading(_fx2, _y, "Animation");
         ui_text(_fx2, _y + 26, ui_text_fit(string(_nfr) + " frames on the Animate page", global.f_body, _fw2), global.TH.text_dim, fa_left, fa_middle, global.f_body, 1);
-        if (ui_button("act_goanim", _fx2, _y + 42, _fw2, 32, "Open the Animate page", "Animate page|Idle, walk, jump and fall animations (4 frames each in ADAM Lite, 8 in ADAM Pro), for this actor.", BTN_NORMAL))
+        if (ui_button("act_goanim", _fx2, _y + 42, _fw2, 32, "Open the Animate page", "Animate page|Idle, walk, jump and fall animations (6 frames each in ADAM Lite, 16 in ADAM Pro), for this actor.", BTN_NORMAL))
         {
             ws_set(WS_ANIMATE);
         }

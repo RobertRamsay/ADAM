@@ -150,10 +150,10 @@ A_BSIZE     equ 46         ; BOB: BLTSIZE (height << 6) | (width in words + 1), 
 A_ANIM      equ 48         ; long offset of the animation table, 0 = one frame (A_SPR)
 ACT_SIZE    equ 52
 
-; animation table (data block version 5): 4 entries - 0 Idle (standing still),
+; animation table (data block version 8; version 5 introduced animations): 4 entries - 0 Idle (standing still),
 ; 1 Walk (moving), 2 Jump (in the air going up), 3 Fall (in the air coming
 ; down; Jump and Fall only for platform players, hoppers and fallers). ADAM
-; fills empty animations in from the others, so every entry has 1..8 frames.
+; fills empty animations in from the others, so every entry has 1..16 frames.
 ; With 8 directions (A_AMODE bit 0) 8 more follow: 4 N, 5 NE, 6 E, 7 SE, 8 S,
 ; 9 SW, 10 W, 11 NW, used instead of Walk; ADAM bakes any turning round into
 ; their frames. An entry with mode 3 ('stand facing') shows frame 1 of the
@@ -161,12 +161,12 @@ ACT_SIZE    equ 52
 ; With Fire animations (A_AMODE bit 1) 9 more follow: 12 Fire (no direction),
 ; 13..20 Fire + N .. NW. While the player holds fire they are picked from the
 ; joystick direction instead of the movement (digging, shooting, swinging).
-AN_N        equ 0          ; number of frames 1..8
+AN_N        equ 0          ; number of frames 1..16
 AN_RATE     equ 2          ; 50ths of a second per frame (2..30)
 AN_MODE     equ 4          ; 0 = loop, 1 = once (stays on the last), 2 = ping-pong, 3 = stand facing (8 directions)
-AN_RIGHT    equ 8          ; 8 longs: frame offsets facing right
-AN_LEFT     equ 40         ; 8 longs: facing left (the same frames when not flipped)
-ANIM_SIZE   equ 72
+AN_RIGHT    equ 8          ; 16 longs: frame offsets facing right
+AN_LEFT     equ 72         ; 16 longs: facing left (the same frames when not flipped)
+ANIM_SIZE   equ 136
 
 ; BOB image (ADAM Pro): 16, 32, 48 or 64 pixels wide (w words) and h lines -
 ; w x h mask words, then depth x w x h words of bitplanes
@@ -1669,7 +1669,7 @@ place_sprites:
             moveq   #8,d4
 .rt         divu    d4,d3                   ; d3 = steps
             and.l   #$ffff,d3
-            move.w  AN_N(a0),d4             ; frames 1..8
+            move.w  AN_N(a0),d4             ; frames 1..16
             move.w  AN_MODE(a0),d2
             beq.s   .mloop
             cmp.w   #1,d2
@@ -1695,7 +1695,7 @@ place_sprites:
             swap    d3
             bra.s   .mfi
 .mf0        moveq   #0,d3
-.mfi        and.w   #7,d3
+.mfi        and.w   #15,d3
             lsl.w   #2,d3
             add.w   #AN_RIGHT,d3
             tst.w   v_face(a5,d5.w)

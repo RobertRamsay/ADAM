@@ -62,7 +62,7 @@ function pro_gate(_what)
 // all its data - the editor shows what is over the Lite limit and the disk
 // gets a trimmed copy (lite_trim, with a warning on the Build page).
 // ---------------------------------------------------------------------------
-#macro LITE_FRAMES 4            // frames per animation (Pro: ANIM_FRAMES = 8)
+#macro LITE_FRAMES 6            // frames per animation (Pro: ANIM_FRAMES = 16)
 #macro LITE_ACTORS 12           // actors on the disk: the 8 sprites, the rest BOBs (Pro: 32)
 #macro LITE_BANK 64             // sprite bank slots (Pro: 128)
 #macro LITE_SPR_W 32            // biggest sprite / BOB (Pro: 64 x 64)
@@ -125,7 +125,7 @@ function lim_map_h()
     return LITE_MAP_H;
 }
 
-/// Toast for reaching a Lite limit: _what (e.g. "An animation has 4 frames") and what Pro gives
+/// Toast for reaching a Lite limit: _what (e.g. "An animation has 6 frames") and what Pro gives
 function lim_toast(_what, _pro)
 {
     if (pro_edition())
@@ -144,7 +144,7 @@ function lite_trim(_p, _warn)
     var _names = variable_struct_get_names(_p);
     for (var i = 0; i < array_length(_names); i++) { _q[$ _names[i]] = _p[$ _names[i]]; }
 
-    // actors: the first 12 (a tile world: 8), frames cut to 4, no Fire animations
+    // actors: the first 12 (a tile world: 8), frames cut to 6, no Fire animations
     var _keepn = LITE_ACTORS;
     if (_p.tiles_on) { _keepn = ACT_MAX_TILE; }
     var _cut_frames = false;

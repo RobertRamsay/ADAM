@@ -122,7 +122,7 @@ function about_pro_page(_tx1, _ty1, _tx2, _ty2, _a)
     {
         ui_text(_x, _y, "This is ADAM Pro", global.TH.accent2, fa_left, fa_top, global.f_title, _a);
         _y += 44;
-        var _thanks = "Thank you for supporting ADAM! The extra Pro example games and lessons are all yours, with custom font drawing and the higher limits: 8 frames per animation, the With Fire joystick, sprites and BOBs up to 64 x 64, 32 actors, a 128-sprite bank and tile worlds of 512 tile types on maps up to 1024 x 1024 tiles.";
+        var _thanks = "Thank you for supporting ADAM! The extra Pro example games and lessons are all yours, with custom font drawing and the higher limits: 16 frames per animation, the With Fire joystick, sprites and BOBs up to 64 x 64, 32 actors, a 128-sprite bank and tile worlds of 512 tile types on maps up to 1024 x 1024 tiles.";
         ui_text_wrap(_x, _y, _thanks, global.TH.text, _w, global.f_body, _a);
         return;
     }
@@ -131,7 +131,7 @@ function about_pro_page(_tx1, _ty1, _tx2, _ty2, _a)
     _y += 44;
     var _intro = "ADAM Lite is free and includes: backdrops, copper skies, sprites and animations, BOBs, tile worlds, rules, levels, a custom HUD, sounds and music, on a real bootable disk. ADAM Pro adds extra example games and lessons to learn from and remix - they show an ADAM Pro label here - and raises the limits:\n\n" +
         "   HUD fonts:  5 built-in styles  ->  draw your own too\n" +
-        "   Frames per animation:  4  ->  8\n" +
+        "   Frames per animation:  6  ->  16\n" +
         "   With Fire joystick (fire animations):  -  ->  yes\n" +
         "   Sprites and BOBs:  up to 32 x 32  ->  64 x 64\n" +
         "   Actors on the disk:  12 (8 sprites, the rest BOBs)  ->  32\n" +

@@ -54,7 +54,7 @@ function tut_init()
         tut_step(WS_ACTORS, "act_anim", "Animation", "Give an actor a second sprite and it flips between the two - a walk cycle, a flapping fin or a twinkling star. 'Only when moving' is perfect for walking."),
         // ---------- ANIMATE ----------
         tut_step(WS_ANIMATE, "anim_mid_0", "Two joysticks", "The Moving joystick: Idle in the middle (click the stick) and an animation for each of the 8 ways it can move - people walking every way, a ship that veers and holds its lean (set it to Once). Hover a direction and the stick pushes that way."),
-        tut_step(WS_ANIMATE, "anim_slot_0", "Frames", "Up to 4 frames each (8 in ADAM Pro). Click a frame - or the + after the last one - then click sprites in the bank to fill it in."),
+        tut_step(WS_ANIMATE, "anim_slot_0", "Frames", "Up to 6 frames each (16 in ADAM Pro). Click a frame - or the + after the last one - then click sprites in the bank to fill it in."),
         tut_step(WS_ANIMATE, "anim_bank_0", "The sprite bank", "All your sprites, ready to use as frames. Draw them on the Sprites page - there is room for 64 (128 in ADAM Pro)."),
         tut_step(WS_ANIMATE, "anim_rate", "Speed and style", "How long each frame stays on screen, and whether it loops, plays once or ping-pongs back and forth."),
         tut_step(WS_ANIMATE, "anim_mid_1", "With Fire", "The second joystick is for the player holding fire: Fire in the middle and fire + each direction - digging, shooting, swinging a sword. Its fire button lights up."),

@@ -1,5 +1,5 @@
 /// ADAM - Animate workspace (ADAM Lite and Pro): Idle, Walk, Jump and Fall
-/// animations of up to 8 frames for each actor, picked from the sprite bank,
+/// animations of up to 16 frames for each actor, picked from the sprite bank,
 /// or a movement layout of 8 directions (N NE E SE S SW W NW) - people
 /// walking every way, a ship that veers and holds its lean - with a test
 /// mode driven by the arrow keys, WASD or a gamepad.
@@ -596,7 +596,7 @@ function ws_animate_draw(_x1, _y1, _x2, _y2)
     var _ax1 = _jx + _colw + 20;               // the preview, frames and controls go right of the joysticks
 
     var _py1 = _y1 + 52;
-    var _strip_h = 92;
+    var _strip_h = 164;
     var _ctrl_h = 132;
     var _py2 = _y2 - 20 - _strip_h - _ctrl_h;
     var _vx1 = _ax1;
@@ -702,7 +702,7 @@ function ws_animate_draw(_x1, _y1, _x2, _y2)
         ui_text((_vx1 + _cx2 - 20) / 2, _py1 + 22, "Only platform players, hoppers and fallers use this", global.TH.warn, fa_center, fa_middle, global.f_small, 1);
     }
 
-    // frame strip: up to 8 frames; the slot after the last one adds a frame
+    // frame strip: up to 16 frames in two rows; the slot after the last one adds a frame
     var _sy = _py2 + 14;
     var _fhw = _cx2 - 20 - _ax1;
     var _fhd = string_upper(_lnames[anim_sel] + " frames  (" + string(_nf) + " / " + string(lim_frames()) + ")  -  click a frame, then a sprite in the bank");
@@ -714,17 +714,20 @@ function ws_animate_draw(_x1, _y1, _x2, _y2)
     ui_heading(_ax1, _sy, ui_text_fit(_fhd, global.f_small, _fhw));
     var _lim = lim_frames();
     _sy += 20;
-    var _cellw = min(64, floor((_cx2 - 20 - _ax1 - 7 * 8) / ANIM_FRAMES));
+    var _strip_cols = 8;
+    var _strip_rows = ceil(ANIM_FRAMES / _strip_cols);
+    var _cellw = min(64, floor((_fhw - (_strip_cols - 1) * 8) / _strip_cols));
     for (var k = 0; k < ANIM_FRAMES; k++)
     {
-        var _kx = _ax1 + k * (_cellw + 8);
+        var _kx = _ax1 + (k mod _strip_cols) * (_cellw + 8);
+        var _sloty = _sy + (k div _strip_cols) * (_cellw + 8);
         var _kid = "anim_slot_" + string(k);
         if (k >= _lim && k >= _nf)
         {
             // over the Lite limit: a locked slot
-            var _phot = ui_register(_kid, _kx, _sy, _kx + _cellw, _sy + _cellw, "ADAM Pro|Animations have up to " + string(_lim) + " frames in ADAM Lite and " + string(ANIM_FRAMES) + " in ADAM Pro.");
-            ui_rrect_line(_kx, _sy, _kx + _cellw, _sy + _cellw, 8, global.TH.panel_edge, 0.35, 1);
-            ui_text(_kx + _cellw / 2, _sy + _cellw / 2, "Pro", global.TH.text_faint, fa_center, fa_middle, global.f_small, 1);
+            var _phot = ui_register(_kid, _kx, _sloty, _kx + _cellw, _sloty + _cellw, "ADAM Pro|Animations have up to " + string(_lim) + " frames in ADAM Lite and " + string(ANIM_FRAMES) + " in ADAM Pro.");
+            ui_rrect_line(_kx, _sloty, _kx + _cellw, _sloty + _cellw, 8, global.TH.panel_edge, 0.35, 1);
+            ui_text(_kx + _cellw / 2, _sloty + _cellw / 2, "Pro", global.TH.text_faint, fa_center, fa_middle, global.f_small, 1);
             if (_phot && ui_pressed)
             {
                 ui_take_click();
@@ -733,17 +736,17 @@ function ws_animate_draw(_x1, _y1, _x2, _y2)
         }
         else if (k < _nf)
         {
-            var _khot = ui_register(_kid, _kx, _sy, _kx + _cellw, _sy + _cellw, "Frame " + string(k + 1) + "|Click to select it, then click a sprite in the bank to change it. Double-click to draw it on the Sprites page. Remove, move or clear it with the buttons below.");
-            ui_rrect(_kx, _sy, _kx + _cellw, _sy + _cellw, 8, pal_col(0), pal_col(0), 1);
+            var _khot = ui_register(_kid, _kx, _sloty, _kx + _cellw, _sloty + _cellw, "Frame " + string(k + 1) + "|Click to select it, then click a sprite in the bank to change it. Double-click to draw it on the Sprites page. Remove, move or clear it with the buttons below.");
+            ui_rrect(_kx, _sloty, _kx + _cellw, _sloty + _cellw, 8, pal_col(0), pal_col(0), 1);
             var _ks = proj.sprites[clamp(_an.frames[k], 0, SPR_COUNT - 1)];
             var _ksc = (_cellw - 8) / max(_ks.w, _ks.h);
             var _fa = 1;
             if (k >= _lim) { _fa = 0.35; }          // a Pro project in Lite: not played
-            draw_sprite_amiga_cols(_an.frames[k], _kx + (_cellw - _ks.w * _ksc) / 2, _sy + (_cellw - _ks.h * _ksc) / 2, _ksc, _cols, _fa);
-            if (k >= _lim) { ui_text(_kx + _cellw - 4, _sy + _cellw - 2, "Pro", global.TH.warn, fa_right, fa_bottom, global.f_small, 1); }
-            ui_text(_kx + 5, _sy + 4, string(k + 1), global.TH.text_faint, fa_left, fa_top, global.f_small, 1);
-            if (anim_slot == k) { ui_rrect_line(_kx - 2, _sy - 2, _kx + _cellw + 2, _sy + _cellw + 2, 9, global.TH.accent, 1, 2); }
-            else { ui_rrect_line(_kx, _sy, _kx + _cellw, _sy + _cellw, 8, global.TH.panel_edge, 0.8, 1); }
+            draw_sprite_amiga_cols(_an.frames[k], _kx + (_cellw - _ks.w * _ksc) / 2, _sloty + (_cellw - _ks.h * _ksc) / 2, _ksc, _cols, _fa);
+            if (k >= _lim) { ui_text(_kx + _cellw - 4, _sloty + _cellw - 2, "Pro", global.TH.warn, fa_right, fa_bottom, global.f_small, 1); }
+            ui_text(_kx + 5, _sloty + 4, string(k + 1), global.TH.text_faint, fa_left, fa_top, global.f_small, 1);
+            if (anim_slot == k) { ui_rrect_line(_kx - 2, _sloty - 2, _kx + _cellw + 2, _sloty + _cellw + 2, 9, global.TH.accent, 1, 2); }
+            else { ui_rrect_line(_kx, _sloty, _kx + _cellw, _sloty + _cellw, 8, global.TH.panel_edge, 0.8, 1); }
             if (_khot && ui_pressed)
             {
                 anim_slot = k;
@@ -753,12 +756,12 @@ function ws_animate_draw(_x1, _y1, _x2, _y2)
         }
         else if (k == _nf)
         {
-            var _ahot = ui_register(_kid, _kx, _sy, _kx + _cellw, _sy + _cellw, "Add a frame|Select this slot, then click sprites in the bank: each one is added to the end of the animation.");
+            var _ahot = ui_register(_kid, _kx, _sloty, _kx + _cellw, _sloty + _cellw, "Add a frame|Select this slot, then click sprites in the bank: each one is added to the end of the animation.");
             var _aa = 0.35;
             if (_ahot) { _aa = 0.7; }
-            ui_rrect(_kx, _sy, _kx + _cellw, _sy + _cellw, 8, global.TH.btn_hot_top, global.TH.btn_hot_bot, _aa);
-            ui_text(_kx + _cellw / 2, _sy + _cellw / 2, "+", global.TH.text, fa_center, fa_middle, global.f_title, 1);
-            if (anim_slot == k) { ui_rrect_line(_kx - 2, _sy - 2, _kx + _cellw + 2, _sy + _cellw + 2, 9, global.TH.accent, 1, 2); }
+            ui_rrect(_kx, _sloty, _kx + _cellw, _sloty + _cellw, 8, global.TH.btn_hot_top, global.TH.btn_hot_bot, _aa);
+            ui_text(_kx + _cellw / 2, _sloty + _cellw / 2, "+", global.TH.text, fa_center, fa_middle, global.f_title, 1);
+            if (anim_slot == k) { ui_rrect_line(_kx - 2, _sloty - 2, _kx + _cellw + 2, _sloty + _cellw + 2, 9, global.TH.accent, 1, 2); }
             if (_ahot && ui_pressed)
             {
                 anim_slot = k;
@@ -767,12 +770,12 @@ function ws_animate_draw(_x1, _y1, _x2, _y2)
         }
         else
         {
-            ui_rrect_line(_kx, _sy, _kx + _cellw, _sy + _cellw, 8, global.TH.panel_edge, 0.35, 1);
+            ui_rrect_line(_kx, _sloty, _kx + _cellw, _sloty + _cellw, 8, global.TH.panel_edge, 0.35, 1);
         }
     }
 
     // controls
-    var _ky = _sy + _cellw + 18;
+    var _ky = _sy + _strip_rows * (_cellw + 8) + 10;
     var _half = floor((_cx2 - 20 - _ax1 - 12) / 2);
     var _sphd = "Speed (50ths of a second per frame)";
     draw_set_font(global.f_small);
