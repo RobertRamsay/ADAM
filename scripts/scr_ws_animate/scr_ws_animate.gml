@@ -97,11 +97,13 @@ function anim_test_input(_source)
     var _fire = false;
     if (_source == 0 && ui_focus == "")
     {
-        if (keyboard_check(vk_space) || keyboard_check(vk_control)) { _fire = true; }
+        // Ctrl+S belongs to the editor's Save shortcut, not test movement/fire.
+        var _save_chord = keyboard_check(vk_control) && keyboard_check(ord("S"));
+        if (!_save_chord && (keyboard_check(vk_space) || keyboard_check(vk_control))) { _fire = true; }
         if (keyboard_check(vk_left) || keyboard_check(ord("A"))) { _dx -= 1; }
         if (keyboard_check(vk_right) || keyboard_check(ord("D"))) { _dx += 1; }
         if (keyboard_check(vk_up) || keyboard_check(ord("W"))) { _dy -= 1; }
-        if (keyboard_check(vk_down) || keyboard_check(ord("S"))) { _dy += 1; }
+        if (!_save_chord && (keyboard_check(vk_down) || keyboard_check(ord("S")))) { _dy += 1; }
     }
     if (_source == 1)
     {
@@ -110,11 +112,25 @@ function anim_test_input(_source)
             if (!gamepad_is_connected(g)) { continue; }
             var _ax = gamepad_axis_value(g, gp_axislh);
             var _ay = gamepad_axis_value(g, gp_axislv);
-            if (_ax < -0.4 || gamepad_button_check(g, gp_padl)) { _dx -= 1; }
-            if (_ax > 0.4 || gamepad_button_check(g, gp_padr)) { _dx += 1; }
-            if (_ay < -0.4 || gamepad_button_check(g, gp_padu)) { _dy -= 1; }
-            if (_ay > 0.4 || gamepad_button_check(g, gp_padd)) { _dy += 1; }
-            if (gamepad_button_check(g, gp_face1)) { _fire = true; }
+            var _pad_x = 0;
+            var _pad_y = 0;
+            if (gamepad_button_check(g, gp_padl)) { _pad_x -= 1; }
+            if (gamepad_button_check(g, gp_padr)) { _pad_x += 1; }
+            if (gamepad_button_check(g, gp_padu)) { _pad_y -= 1; }
+            if (gamepad_button_check(g, gp_padd)) { _pad_y += 1; }
+            if (_pad_x == 0 && _pad_y == 0)
+            {
+                if (abs(_ax) > 0.4) { _pad_x = sign(_ax); }
+                if (abs(_ay) > 0.4) { _pad_y = sign(_ay); }
+            }
+            var _pad_fire = gamepad_button_check(g, gp_face1);
+            if (_pad_x != 0 || _pad_y != 0 || _pad_fire)
+            {
+                _dx = _pad_x;
+                _dy = _pad_y;
+                _fire = _pad_fire;
+                break;
+            }
         }
     }
     return [clamp(_dx, -1, 1), clamp(_dy, -1, 1), _fire];
@@ -258,7 +274,6 @@ function anim_joystick(_which, _x, _y, _size, _s, _plan, _cols, _in, _test_k)
     ui_rrect_line(_x, _y, _x + _size, _y + _size, 18, global.TH.panel_edge, 0.8, 1);
 
     // which way the stick leans: the direction hovered, else the one picked, else Test
-    var _push = -1;
     var _hot_any = false;
     for (var d = 0; d < 9; d++)
     {
@@ -287,7 +302,6 @@ function anim_joystick(_which, _x, _y, _size, _s, _plan, _cols, _in, _test_k)
         var _hot = ui_register(_id, _sx, _sy, _sx + _cell, _sy + _cell, _help);
         if (_hot && d < 8 && !anim_drag_on)
         {
-            _push = d;
             _hot_any = true;
         }
         if (_hot && ui_pressed)
@@ -306,6 +320,7 @@ function anim_joystick(_which, _x, _y, _size, _s, _plan, _cols, _in, _test_k)
         var _own = array_length(_s.anims[_k].frames);
         var _bg = make_colour_rgb(22, 24, 30);
         if (_hot) { _bg = make_colour_rgb(44, 48, 58); }
+        if (anim_test && _test_k == _k) { _bg = merge_colour(_bg, global.TH.accent, 0.32); }
         ui_rrect(_sx, _sy, _sx + _cell, _sy + _cell, 8, _bg, _bg, 1);
         var _a = 1;
         if (_own == 0) { _a = 0.3; }
@@ -335,42 +350,13 @@ function anim_joystick(_which, _x, _y, _size, _s, _plan, _cols, _in, _test_k)
         }
         if (!_locked) { anim_drop_zone(_k, _sx, _sy, _sx + _cell, _sy + _cell); }
     }
-    if (_push < 0 && anim_sel >= _kd && anim_sel < _kd + 8) { _push = anim_sel - _kd; }
     var _fire_lit = false;
     if (anim_test)
     {
         var _tfire = (_which == 1 && _in[2]);
-        var _tmove = (_which == 0 && !_in[2]);
-        if ((_tfire || _tmove) && (_in[0] != 0 || _in[1] != 0)) { _push = anim_dir_of(_in[0], _in[1]); }
         if (_tfire) { _fire_lit = true; }
     }
     if (_which == 1 && (_hot_any || (anim_sel >= ANIM_FIRE0))) { _fire_lit = true; }
-
-    // the stick: a small knob in the middle slot's corner that leans the way it is pushed
-    var _tx = 0;
-    var _ty = 0;
-    if (_push >= 0)
-    {
-        var _pc = anim_dir_cell(_push);
-        _tx = _pc[0] * _cell * 0.3;
-        _ty = _pc[1] * _cell * 0.3;
-    }
-    var _kn = anim_knob[_which];
-    _kn[0] = lerp(_kn[0], _tx, 0.35);
-    _kn[1] = lerp(_kn[1], _ty, 0.35);
-    anim_knob[_which] = _kn;
-    var _kx = _cx + _kn[0];
-    var _ky = _cy + _kn[1];
-    var _kr = max(6, _cell * 0.13);
-    var _ka = 0.35;
-    if (_push >= 0) { _ka = 0.9; }
-    draw_set_alpha(_ka);
-    draw_line_width_colour(_cx, _cy, _kx, _ky, _kr * 0.7, make_colour_rgb(20, 20, 24), make_colour_rgb(50, 50, 56));
-    var _kc = make_colour_rgb(200, 40, 40);
-    if (_which == 0) { _kc = make_colour_rgb(40, 40, 46); }
-    draw_circle_colour(_kx, _ky, _kr, merge_colour(_kc, c_white, 0.25), merge_colour(_kc, c_black, 0.3), false);
-    draw_circle_colour(_kx - _kr * 0.3, _ky - _kr * 0.3, _kr * 0.35, merge_colour(_kc, c_white, 0.6), _kc, false);
-    draw_set_alpha(1);
 
     // the fire button (beside the With Fire heading): lights up when fire is held
     if (_which == 1)
@@ -582,13 +568,17 @@ function ws_animate_draw(_x1, _y1, _x2, _y2)
         anim_test_entry = -1;
     }
     var _input_names = ["Keys", "Gamepad"];
-    var _input_help = "Test input|Choose keyboard controls (Arrows / WASD, fire Space / Ctrl) or a connected gamepad (D-pad / stick, fire A).";
+    var _input_help = "Test input|Choose keyboard controls (Arrows / WASD, fire Space / Ctrl) or a connected gamepad (D-pad / stick, fire A). Ctrl+S saves the project and is ignored as test input.";
     var _input_new = ui_dropdown("anim_test_source", _jx + _test_btnw + 4, _jy, _colw - _test_btnw - 4, 32, _input_names, anim_test_source, _input_help);
     if (_input_new != anim_test_source)
     {
         anim_test_source = clamp(_input_new, 0, 1);
         anim_test_entry = -1;
     }
+    var _input_keys = "Move: arrows or WASD\nFire: Space / Ctrl  (Ctrl+S saves)";
+    if (anim_test_source == 1) { _input_keys = "Move: D-pad or left stick\nFire: A"; }
+    draw_set_font(global.f_small);
+    ui_text_wrap(_jx, _jy + 38, _input_keys, global.TH.text_dim, _colw, global.f_small, 1);
     var _ax1 = _jx + _colw + 20;               // the preview, frames and controls go right of the joysticks
 
     var _py1 = _y1 + 52;
@@ -600,8 +590,6 @@ function ws_animate_draw(_x1, _y1, _x2, _y2)
     // preview: what the Amiga will play
     ui_inset(_vx1, _py1, _cx2 - 20, _py2, 10);
     ui_rrect(_vx1 + 6, _py1 + 6, _cx2 - 26, _py2 - 6, 8, pal_col(0), pal_col(0), 1);
-    var _input_desc = "Arrows / WASD; fire: Space / Ctrl";
-    if (anim_test_source == 1) { _input_desc = "D-pad / stick; fire: A"; }
     ui_register("anim_preview", _vx1, _py1, _cx2 - 20, _py2, "Preview|Plays the animation at the real Amiga speed (50 frames a second), in the colours the actor really gets. Switch on Test and choose Keys or Gamepad to change the directional animation in place.");
     var _note = "";
     if (is_undefined(_plan))
@@ -657,7 +645,7 @@ function ws_animate_draw(_x1, _y1, _x2, _y2)
         draw_sprite_amiga_flip(_psi2, _dx, _dy, _sc, _flip, _cols, 1);
         if (anim_test)
         {
-            _note = "Test: " + _lnames[_test_k] + "   -   " + _input_desc;
+            _note = "Test: " + _lnames[_test_k];
             if (_gravity && !_dirs_on) { _note += " (up = in air, down = falling)"; }
         }
         else if (_nf == 0)
@@ -671,7 +659,6 @@ function ws_animate_draw(_x1, _y1, _x2, _y2)
             _note = _lnames[anim_sel] + ":  frame " + string(_fi + 1) + " of " + string(array_length(_pe.frames)) + "   -   sprite " + string(_psi2 + 1) + ": " + _ps.name;
         }
     }
-    if (!anim_test) { _note += "   |   Test: " + _input_desc; }
     // the note wraps upwards from the bottom of the preview, clear of the Facing left switch
     var _show_face = (_s.anim_flip && !_dirs_on && !anim_test && anim_sel < ANIM_BASIC);
     var _nw = _cx2 - 26 - 12 - (_vx1 + 16);
