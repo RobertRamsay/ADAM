@@ -1248,6 +1248,19 @@ function music_editor(_ex1, _ey1, _ex2, _ey2, _song)
             music_preview_note(_lp.inst, music_inst_root(_lp.inst));
         }
         _hx += 198;
+        if (_lp.inst < MUS_INST_USER)
+        {
+            var _slot = clamp(snd_sel, 0, min(8, array_length(proj.sfx)) - 1);
+            var _ed_tip = "Edit sound|Copies " + music_inst_name(_lp.inst) + " into Sound " + string(_slot + 1) + " on the Sound page (the sound selected there), so you can change it. This loop then plays Sound " + string(_slot + 1) + ".";
+            if (ui_button("mus_ed_inst_edit", _hx, _hy, 96, 30, "Edit sound", _ed_tip, BTN_GHOST))
+            {
+                var _body = "Copy " + music_inst_name(_lp.inst) + " into Sound " + string(_slot + 1) + "? It replaces " + proj.sfx[_slot].name
+                    + ", so rules and loops that use Sound " + string(_slot + 1) + " play the new sound. This loop then plays Sound " + string(_slot + 1)
+                    + " - change it on the Sound page. You can Undo this.";
+                confirm_open("Edit this instrument?", _body, "Copy to Sound " + string(_slot + 1), "Cancel", false, music_inst_to_sound, { song : mus_song, loop : _li, inst : _lp.inst, slot : _slot });
+            }
+            _hx += 104;
+        }
     }
     var _lst = BTN_ACCENT;
     if (mus_playing && mus_play_what == "edit") { _lst = BTN_ON; }
@@ -2215,6 +2228,27 @@ function music_editor(_ex1, _ey1, _ex2, _ey2, _song)
             }
         }
     }
+}
+
+/// Edit sound: copies a built-in instrument into a Sound page slot and makes
+/// the loop play that sound (confirm_open callback)
+function music_inst_to_sound(_arg)
+{
+    if (_arg.song < 0 || _arg.song >= array_length(proj.songs)) { return; }
+    var _song = proj.songs[_arg.song];
+    if (_song.kind != 0 || _arg.loop < 0 || _arg.loop >= array_length(_song.arr.loops)) { return; }
+    if (_arg.slot < 0 || _arg.slot >= array_length(proj.sfx)) { return; }
+    undo_mark_full("musinstedit" + string(current_time));
+    proj.sfx[_arg.slot] = music_inst_sfx(_arg.inst);
+    var _lp = _song.arr.loops[_arg.loop];
+    var _uid = MUS_INST_USER + _arg.slot;
+    _lp.inst = _uid;
+    for (var s = 0; s < MUS_STEPS; s++)
+    {
+        if (_lp.insts[s] == _arg.inst) { _lp.insts[s] = _uid; }
+    }
+    music_touch();
+    toast(proj.sfx[_arg.slot].name + " is now Sound " + string(_arg.slot + 1) + " - change it on the Sound page", 0);
 }
 
 /// Puts (mode 1) or removes (mode 0) a note at a step of the open loop

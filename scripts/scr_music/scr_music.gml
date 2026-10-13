@@ -35,9 +35,10 @@
 #macro MUS_ROOT 18
 #macro MUS_CAT_MINE 5
 
-function mus_inst_def(_name, _drum, _p, _hz, _vol)
+/// _f: Sound page low-pass [filt, fspeed, fdepth] ([0, 0, 0] = off)
+function mus_inst_def(_name, _drum, _p, _hz, _vol, _f = [0, 0, 0])
 {
-    return { name : _name, drum : _drum, p : _p, hz : _hz, vol : _vol };
+    return { name : _name, drum : _drum, p : _p, hz : _hz, vol : _vol, f : _f };
 }
 
 function music_defs_init()
@@ -55,7 +56,8 @@ function music_defs_init()
     global.MUS_CHORD_CODES = [0, 0x37, 0x47, 0x4a, 0x57, 0xc0];
 
     // Built-in chip-synth instruments: Sound page synth settings
-    // [wave, pitch, slide, length, attack, decay, sustain, release].
+    // [wave, pitch, slide, length, attack, decay, sustain, release],
+    // optional low-pass [filt, fspeed, fdepth]. Rendered by music_synth_render.
     // hz > 0: a tuned instrument, F-2 plays this frequency (an F).
     global.MUS_INST = [
         mus_inst_def("Kick",        true,  [0, 12, -1, 7, 0, 4, 0, 3], 0, 64),
@@ -64,13 +66,13 @@ function music_defs_init()
         mus_inst_def("Open hat",    true,  [3, 250, 0, 6, 0, 6, 3, 5], 0, 36),
         mus_inst_def("Tom",         true,  [0, 20, -1, 8, 0, 5, 0, 4], 0, 60),
         mus_inst_def("Clap",        true,  [3, 110, 0, 3, 0, 3, 2, 4], 0, 52),
-        mus_inst_def("Square bass", false, [2, 1, 0, 10, 0, 6, 6, 4], 87.307, 56),
-        mus_inst_def("Saw bass",    false, [1, 1, 0, 10, 0, 5, 5, 4], 87.307, 56),
-        mus_inst_def("Organ",       false, [2, 1, 0, 25, 1, 8, 10, 6], 349.228, 40),
-        mus_inst_def("Soft pad",    false, [0, 1, 0, 40, 6, 9, 12, 8], 349.228, 44),
+        mus_inst_def("Square bass", false, [2, 1, 0, 10, 0, 6, 6, 4], 87.307, 56, [11, 0, 0]),
+        mus_inst_def("Saw bass",    false, [1, 1, 0, 10, 0, 5, 5, 4], 87.307, 56, [10, 0, 0]),
+        mus_inst_def("Organ",       false, [2, 1, 0, 25, 1, 8, 10, 6], 349.228, 40, [14, 0, 0]),
+        mus_inst_def("Soft pad",    false, [0, 1, 0, 40, 6, 9, 12, 8], 349.228, 44, [11, 2, 4]),
         mus_inst_def("Square lead", false, [2, 1, 0, 12, 0, 6, 9, 5], 698.456, 44),
-        mus_inst_def("Saw lead",    false, [1, 1, 0, 12, 0, 6, 9, 5], 698.456, 44),
-        mus_inst_def("Pluck",       false, [2, 1, 0, 4, 0, 4, 0, 4], 698.456, 48),
+        mus_inst_def("Saw lead",    false, [1, 1, 0, 12, 0, 6, 9, 5], 698.456, 44, [14, 0, 0]),
+        mus_inst_def("Pluck",       false, [2, 1, 0, 4, 0, 4, 0, 4], 698.456, 48, [13, 0, 0]),
         mus_inst_def("Zap",         true,  [1, 140, -8, 14, 0, 7, 0, 4], 0, 44),
         mus_inst_def("Riser",       true,  [2, 20, 4, 30, 4, 9, 10, 5], 0, 40),
         mus_inst_def("Noise sweep", true,  [3, 30, 2, 40, 8, 10, 8, 8], 0, 36)
@@ -1334,26 +1336,51 @@ function music_sampler_controls_selftest()
     else { show_debug_message("ADAM pattern volume / ten-second sampler / pitched audition self-test: FAIL"); }
 }
 
+#macro MUS_SYNTH_UNIT (256 * 985248 / 16777216)   // Hz per step of the Sound page pitch
+
 function music_inst_sample(_id)
 {
     if (_id >= MUS_INST_USER)
     {
         var _k = _id - MUS_INST_USER;
         if (_k < 0 || _k >= array_length(proj.sfx)) { return { data : [], volume : 0, root : MUS_ROOT, src : 0, loop_start : 0, loop_len : 0, capped : false }; }
-        var _r = sfx_render_ex(proj.sfx[_k]);
+        var _us = proj.sfx[_k];
+        var _r = sfx_render_ex(_us);   // cached: tells us when the sound changed
         var _key = "u" + string(_k);
         var _hit = mus_inst_cache[$ _key];
         if (!is_undefined(_hit))
         {
             if (_hit.src == _r) { return _hit; }
         }
-        var _res = music_sample_from_render(_r);
+        var _res;
+        if (_us.kind == 0)
+        {
+            // Synth sounds play through the clean renderer; a steady pitch is
+            // snapped to the nearest semitone so it is in tune with the rest
+            var _hz = 0;
+            if (_us.wave != 3 && _us.sweep == 0) { _hz = music_semitone_hz(clamp(_us.pitch, 1, 255) * MUS_SYNTH_UNIT); }
+            var _data = music_synth_render(_us, _hz);
+            var _capped = (array_length(_data) > MOD_MAX_SAMPLE_BYTES);
+            if (_capped) { array_resize(_data, MOD_MAX_SAMPLE_BYTES); }
+            _res = { data : _data, volume : 64, root : MUS_ROOT, src : _r, loop_start : 0, loop_len : 0, capped : _capped };
+        }
+        else { _res = music_sample_from_render(_r); }
         mus_inst_cache[$ _key] = _res;
         return _res;
     }
     var _key2 = "b" + string(_id);
     var _hit2 = mus_inst_cache[$ _key2];
     if (!is_undefined(_hit2)) { return _hit2; }
+    var _def = global.MUS_INST[clamp(_id, 0, array_length(global.MUS_INST) - 1)];
+    var _smp = music_synth_render(music_inst_sfx(_id), _def.hz);
+    var _res2 = { data : _smp, volume : _def.vol, root : MUS_ROOT, src : 0, loop_start : 0, loop_len : 0, capped : false };
+    mus_inst_cache[$ _key2] = _res2;
+    return _res2;
+}
+
+/// A built-in instrument as Sound page synth settings (for Edit sound)
+function music_inst_sfx(_id)
+{
     var _def = global.MUS_INST[clamp(_id, 0, array_length(global.MUS_INST) - 1)];
     var _s = sfx_new(_def.name);
     _s.wave = _def.p[0];
@@ -1364,20 +1391,137 @@ function music_inst_sample(_id)
     _s.dec = _def.p[5];
     _s.sus = _def.p[6];
     _s.rel = _def.p[7];
-    var _unit = 256 * 985248 / 16777216;     // Hz per step of the Sound page pitch
-    if (_def.hz > 0) { _s.pitch = clamp(round(_def.hz / _unit), 1, 255); }
-    var _smp = sfx_render(_s);
-    if (_def.hz > 0)
+    _s.filt = _def.f[0];
+    _s.fspeed = _def.f[1];
+    _s.fdepth = _def.f[2];
+    if (_def.hz > 0) { _s.pitch = clamp(round(_def.hz / MUS_SYNTH_UNIT), 1, 255); }
+    return _s;
+}
+
+/// The equal-tempered note frequency nearest _hz
+function music_semitone_hz(_hz)
+{
+    if (_hz <= 0) { return 0; }
+    return 440 * power(2, round(12 * log2(_hz / 440)) / 12);
+}
+
+/// PolyBLEP: smooths a wave's jump at phase 0 over one sample (band-limits it)
+function music_polyblep(_t, _dt)
+{
+    if (_t < _dt)
     {
-        // retune so F-2 (played at PAULA_CLOCK / 320) sounds exactly _def.hz
-        var _got = _s.pitch * _unit;
-        var _rate_root = PAULA_CLOCK / global.MUS_PERIODS[MUS_ROOT];
-        _smp = music_resample(_smp, (_def.hz / _rate_root) / (_got / SFX_RATE));
+        var _a = _t / _dt;
+        return _a + _a - _a * _a - 1;
     }
-    if (array_length(_smp) mod 2 == 1) { array_pop(_smp); }
-    var _res2 = { data : _smp, volume : _def.vol, root : MUS_ROOT, src : 0, loop_start : 0, loop_len : 0, capped : false };
-    mus_inst_cache[$ _key2] = _res2;
-    return _res2;
+    if (_t > 1 - _dt)
+    {
+        var _b = (_t - 1) / _dt;
+        return _b * _b + _b + _b + 1;
+    }
+    return 0;
+}
+
+/// Music page instruments: the Sound page synth (same envelope, slide and
+/// filter as sfx_render), rendered straight at the root note's Paula rate with
+/// band-limited saw and square waves, so high notes do not alias into a buzz.
+/// _hz > 0 plays exactly that frequency with no slide; else the sound's own
+/// pitch and slide. Returns signed 8-bit values, even length.
+function music_synth_render(_s, _hz)
+{
+    var _atk_ms = [2, 8, 16, 24, 38, 56, 68, 80, 100, 250, 500, 800, 1000, 3000, 5000, 8000];
+    var _dr_ms  = [6, 24, 48, 72, 114, 168, 204, 240, 300, 750, 1500, 2400, 3000, 9000, 15000, 24000];
+    var _rate = PAULA_CLOCK / global.MUS_PERIODS[MUS_ROOT];
+    var _gate_s = clamp(_s.len, 1, 100) / 50;
+    var _cap = sfx_max_seconds(_s);
+    var _rel_s = min(_dr_ms[clamp(_s.rel, 0, 15)] / 1000, _cap);
+    var _total = min(_gate_s + _rel_s, _cap);
+    var _n = floor(_total * _rate);
+    _n = _n - (_n mod 2);
+    var _out = array_create(_n, 0);
+    var _phase = 0;
+    var _hi = clamp(_s.pitch, 1, 255);
+    var _noise = 0;
+    var _last_q = 0;
+    var _rnd = 12345;
+    var _atk = max(0.001, _atk_ms[clamp(_s.atk, 0, 15)] / 1000);
+    var _dec = max(0.001, _dr_ms[clamp(_s.dec, 0, 15)] / 1000);
+    var _sus = clamp(_s.sus, 0, 15) / 15;
+    var _rel = max(0.001, _dr_ms[clamp(_s.rel, 0, 15)] / 1000);
+    var _env = 0;
+    var _rel_start = 0;
+    var _spf = _rate / 50;
+    var _frame = 0;
+    var _filt = clamp(_s.filt, 0, 15);
+    var _fbase = (_filt / 16) * (_filt / 16);
+    var _frate = clamp(_s.fspeed, 0, 15) * 0.25;
+    var _fdep = clamp(_s.fdepth, 0, 15) / 15 * 3;
+    var _lp1 = 0;
+    var _lp2 = 0;
+    var _peak = 0;
+    var _f0 = _hz;
+    for (var i = 0; i < _n; i++)
+    {
+        var _t = i / _rate;
+        var _f = floor(i / _spf);
+        if (_f != _frame)
+        {
+            _frame = _f;
+            if (_t < _gate_s && _hz <= 0) { _hi = (_hi + _s.sweep + 256) mod 256; }
+        }
+        if (_hz <= 0) { _f0 = max(1, _hi) * MUS_SYNTH_UNIT; }
+        var _dt = min(0.5, _f0 / _rate);
+        _phase += _dt;
+        _phase -= floor(_phase);
+        var _v = 0;
+        switch (_s.wave)
+        {
+            case 0: _v = 1 - 4 * abs(_phase - 0.5); break;
+            case 1: _v = _phase * 2 - 1 - music_polyblep(_phase, _dt); break;
+            case 2:
+                if (_phase < 0.5) { _v = 1; }
+                else { _v = -1; }
+                var _ph2 = _phase + 0.5;
+                _ph2 -= floor(_ph2);
+                _v += music_polyblep(_phase, _dt) - music_polyblep(_ph2, _dt);
+                break;
+            default:
+                var _q = floor(_phase * 4);
+                if (_q != _last_q)
+                {
+                    _rnd = (_rnd * 1103515245 + 12345) & 0x7fffffff;
+                    _noise = (_rnd / 0x3fffffff) - 1;
+                    _last_q = _q;
+                }
+                _v = _noise;
+                break;
+        }
+        if (_t < _gate_s)
+        {
+            if (_t < _atk) { _env = _t / _atk; }
+            else { _env = _sus + (1 - _sus) * max(0, 1 - (_t - _atk) / _dec); }
+            _rel_start = _env;
+        }
+        else
+        {
+            _env = _rel_start * max(0, 1 - (_t - _gate_s) / _rel);
+        }
+        if (_filt > 0)
+        {
+            var _c = _fbase;
+            if (_frate > 0) { _c = _fbase * power(2, _fdep * sin(2 * pi * _frate * _t)); }
+            _c = clamp(_c, 0.002, 1);
+            _lp1 += _c * (_v - _lp1);
+            _lp2 += _c * (_lp1 - _lp2);
+            _v = _lp2;
+        }
+        _out[i] = _v * _env;
+        _peak = max(_peak, abs(_out[i]));
+    }
+    // bring the loudest moment to 0.9 (filtering and band-limiting change the level)
+    var _g = 0;
+    if (_peak > 0) { _g = 0.9 / _peak; }
+    for (var k = 0; k < _n; k++) { _out[k] = round(clamp(_out[k] * _g, -1, 1) * 127); }
+    return _out;
 }
 
 /// The note an instrument plays at its own pitch
@@ -1903,7 +2047,8 @@ function music_player_new(_ms, _once, _ord, _row)
     var _pl = {
         ms : _ms, once : _once, ord : _ord, row : _row, tick : 0,
         speed : 6, tempo : 125, tick_left : 0, ended : false, done : false, tail : 0,
-        next_ord : -1, next_row : 0, frame : 0, marks : [], ch : [], preview_gain : 1
+        next_ord : -1, next_row : 0, frame : 0, marks : [], ch : [], preview_gain : 1,
+        lpf : !machine_cur().aga, lpl : 0, lpr : 0   // A500/600 output filter (see music_player_mix)
     };
     for (var c = 0; c < 4; c++)
     {
@@ -2231,11 +2376,28 @@ function music_player_mix(_pl, _buf, _n)
             if (_pl.tail > MUS_RATE * 0.6) { _pl.done = true; }
         }
     }
+    // The A500 / A600 have a fixed low-pass on the audio output (about 4.9 kHz,
+    // one pole) that softens Paula's stepped samples; FS-UAE models it too.
+    // The A1200's is far above hearing, so it plays unfiltered.
+    var _a = 1 - exp(-2 * pi * 4900 / MUS_RATE);
+    var _lpl = _pl.lpl;
+    var _lpr = _pl.lpr;
     for (var j = 0; j < _n; j++)
     {
-        buffer_write(_buf, buffer_s16, clamp(_ml[j] * 2 * _pl.preview_gain, -32767, 32767));
-        buffer_write(_buf, buffer_s16, clamp(_mr[j] * 2 * _pl.preview_gain, -32767, 32767));
+        var _ol = _ml[j];
+        var _or = _mr[j];
+        if (_pl.lpf)
+        {
+            _lpl += _a * (_ol - _lpl);
+            _lpr += _a * (_or - _lpr);
+            _ol = _lpl;
+            _or = _lpr;
+        }
+        buffer_write(_buf, buffer_s16, clamp(_ol * 2 * _pl.preview_gain, -32767, 32767));
+        buffer_write(_buf, buffer_s16, clamp(_or * 2 * _pl.preview_gain, -32767, 32767));
     }
+    _pl.lpl = _lpl;
+    _pl.lpr = _lpr;
 }
 
 /// Starts playing a modsong. _what names what is playing (for highlights).
