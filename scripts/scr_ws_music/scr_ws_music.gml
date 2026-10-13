@@ -1308,7 +1308,20 @@ function music_editor(_ex1, _ey1, _ex2, _ey2, _song)
     var _res_x = _ex2 - 112;
     var _res_y = _ey1 + 58;
     var _res_label = "Snap 1/" + string(mus_ed_resolution);
-    var _res_tip = "Grid snap|Choose 4, 8, 16 or 32 trigger positions across the bar. The maximum-resolution pattern remains ProTracker-compatible.";
+    if (keyboard_check(vk_alt)) { _res_label = "No snap"; }
+    var _res_tip = "Grid snap|Choose 4, 8, 16 or 32 trigger positions across the bar; new notes last one snap step. Keys 1-4 pick 1/4, 1/8, 1/16 or 1/32 while the mouse is over the editor. Hold Alt to place, move or resize without snap.";
+    if (!_drums && ui_hit(_ex1, _ey1, _ex2, _ey2))
+    {
+        mus_ed_keys_hover = true;
+        if (ui_focus == "" && !keyboard_check(vk_control))
+        {
+            var _key_snaps = [4, 8, 16, 32];
+            for (var _ks = 0; _ks < 4; _ks++)
+            {
+                if (keyboard_check_pressed(ord(string(_ks + 1))) && pro_gate("Music grid snap")) { mus_ed_resolution = _key_snaps[_ks]; }
+            }
+        }
+    }
     if (!_drums && ui_button("mus_ed_resolution", _res_x, _res_y, 100, 24, _res_label, _res_tip, BTN_GHOST))
     {
         if (!pro_gate("Music grid snap"))
@@ -1347,6 +1360,8 @@ function music_editor(_ex1, _ey1, _ex2, _ey2, _song)
     {
         _snap_stride = 2;
     }
+    // Alt: no snap - place, move and resize on any step (new notes 1 step)
+    if (keyboard_check(vk_alt)) { _snap_stride = 1; }
     // New notes last one snap step (drums keep the default length)
     var _new_len = 0;
     if (!_drums) { _new_len = _snap_stride; }
@@ -1376,7 +1391,7 @@ function music_editor(_ex1, _ey1, _ex2, _ey2, _song)
         _off = clamp(_off, 0, max(0, _content - (_gy2 - _gy1)));
         ds_map_replace(ui_scroll, _sid, _off);
     }
-    var _grid_note = "Snap sets where new notes go and how long they last. Shift-drag a note's right edge to resize; Ctrl+D deselects.";
+    var _grid_note = "Snap sets where new notes go and how long they last (keys 1-4; hold Alt for no snap). Shift-drag a note's right edge to resize; Ctrl+D deselects.";
     ui_register("mus_ed_grid", _sx, _gy1, _sx2, _gy2, "Notes|" + _grid_note + " Ctrl-drag a box to select touched notes, Ctrl+C to copy, Ctrl+V to paste at the mouse. Paste replaces occupied time slots. Drag a note to move it or its circle to connect a bend.");
     var _hr = -1;
     var _hs = -1;

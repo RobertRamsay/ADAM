@@ -348,6 +348,7 @@ mus_ed_select_end = [0, 0];
 mus_ed_select_ref = {};
 mus_ed_clip = { notes : [], drums : false };
 mus_ed_resolution = 16;
+mus_ed_keys_hover = false;   // mouse over the melodic step editor: 1-4 pick the snap instead of a page
 mus_rev = 0;                 // bumped on every music edit
 mus_warnings = [];
 mus_inst_cache = {};

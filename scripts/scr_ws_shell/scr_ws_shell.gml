@@ -255,6 +255,8 @@ function draw_topbar(_gw)
 
 function shortcuts_step()
 {
+    var _music_keys = (ws == WS_MUSIC && mus_ed_keys_hover);
+    mus_ed_keys_hover = false;   // the music editor sets it again while it draws
     if (ui_focus != "") { return; }
     if (machine_pick_active) { return; }
     if (about_active) { return; }
@@ -279,6 +281,7 @@ function shortcuts_step()
         var _tabs = ws_tabs();
         for (var i = 0; i < min(9, array_length(_tabs)); i++)
         {
+            if (_music_keys && i < 4) { continue; }   // 1-4 = grid snap in the music editor
             if (keyboard_check_pressed(ord(string(i + 1)))) { ws_set(_tabs[i]); }
         }
         if (array_length(_tabs) >= 10 && keyboard_check_pressed(ord("0"))) { ws_set(_tabs[array_length(_tabs) - 1]); }   // 0 = Build
