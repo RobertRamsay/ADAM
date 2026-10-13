@@ -1649,6 +1649,23 @@ function music_editor(_ex1, _ey1, _ex2, _ey2, _song)
         ui_rrect(_ghost_x + 2, _ghost_y + 2, _ghost_x + _ghost_len * _cw - 2, _ghost_y + _rh - 2, 4, merge_colour(_col, c_white, 0.15), _col, 0.45);
         ui_rrect_line(_ghost_x + 1, _ghost_y + 1, _ghost_x + _ghost_len * _cw - 1, _ghost_y + _rh - 1, 4, c_white, 0.9, 1);
     }
+    // Dragging a selection: ghosts of every selected note where they will land
+    if (mus_ed_note_drag && mus_ed_note_group && mus_ed_note_last[0] >= 0)
+    {
+        var _gd_steps = mus_ed_note_last[0] - mus_ed_note_src[0];
+        var _gd_rows = mus_ed_note_last[1] - mus_ed_note_src[1];
+        for (var _gn = 0; _gn < MUS_STEPS; _gn++)
+        {
+            if (!mus_ed_selected[_gn] || _lp.notes[_gn] <= 0) { continue; }
+            var _gn_to = _gn + _gd_steps;
+            if (_gn_to < 0 || _gn_to >= MUS_STEPS) { continue; }
+            var _gn_len = min(music_note_length(_lp, _gn), MUS_STEPS - _gn_to);
+            var _gn_x = _sx + (_gn_to div _step_stride) * _cw;
+            var _gn_y = _gy1 + (music_note_row(_lp, _gn, _drums) + _gd_rows) * _rh - _off;
+            ui_rrect(_gn_x + 2, _gn_y + 2, _gn_x + _gn_len * _cw - 2, _gn_y + _rh - 2, 4, merge_colour(_col, c_white, 0.15), _col, 0.45);
+            ui_rrect_line(_gn_x + 1, _gn_y + 1, _gn_x + _gn_len * _cw - 1, _gn_y + _rh - 1, 4, c_white, 0.9, 1);
+        }
+    }
     if (!_drums)
     {
         for (var _glide_src = 0; _glide_src < MUS_STEPS; _glide_src++)
@@ -1709,6 +1726,14 @@ function music_editor(_ex1, _ey1, _ex2, _ey2, _song)
                 if (!mus_ed_resize_changed) { music_loop_edit_begin(_song, _li, mus_ed_tag); }
                 else { music_touch(); }
                 _lp.lengths[mus_ed_resize_step] = _resize_len;
+                // Resizing a selected note gives every selected note that length
+                if (mus_ed_selected[mus_ed_resize_step])
+                {
+                    for (var _rs = 0; _rs < MUS_STEPS; _rs++)
+                    {
+                        if (mus_ed_selected[_rs] && _lp.notes[_rs] > 0) { _lp.lengths[_rs] = min(_resize_len, MUS_STEPS - _rs); }
+                    }
+                }
                 mus_ed_resize_changed = true;
             }
         }
@@ -1835,6 +1860,24 @@ function music_editor(_ex1, _ey1, _ex2, _ey2, _song)
                     music_preview_note(mus_ed_note_inst, _dst_pitch, mus_ed_note_fx, mus_ed_note_fxp);
                 }
             }
+            else if (mus_ed_note_group)
+            {
+                // Dragging a selection: ghosts follow the mouse; the move (moved
+                // notes win) is made once, when the button is let go
+                var _grp_steps = _dst_step - mus_ed_note_src[0];
+                var _grp_rows = _dst_row - mus_ed_note_src[1];
+                if (_grp_steps == 0 && _grp_rows == 0) { mus_ed_note_last = [-1, -1]; }
+                else if (!is_undefined(music_notes_move(_lp, mus_ed_selected, _grp_steps, _grp_rows, _drums, false)))
+                {
+                    mus_ed_note_last = _dst;
+                    mus_ed_note_moved = true;
+                }
+                if (_dst_pitch != mus_ed_note_preview_pitch && (mus_ed_note_last[0] >= 0 || (_grp_steps == 0 && _grp_rows == 0)))
+                {
+                    mus_ed_note_preview_pitch = _dst_pitch;
+                    music_preview_note(mus_ed_note_inst, _dst_pitch, mus_ed_note_fx, mus_ed_note_fxp);
+                }
+            }
             else if (_dst_step != mus_ed_note_src[0] || _dst_pitch != mus_ed_note_pitch || (_drums && _dst_row != mus_ed_note_src[1]) || mus_ed_note_moved)
             {
                 var _from_step = mus_ed_note_src[0];
@@ -1900,7 +1943,21 @@ function music_editor(_ex1, _ey1, _ex2, _ey2, _song)
                     mus_ed_selected[_copy_to] = mus_ed_selected[mus_ed_note_src[0]];
                 }
             }
-            else if (!mus_ed_note_moved && !mus_ed_note_group)
+            else if (mus_ed_note_group)
+            {
+                if (mus_ed_note_last[0] >= 0)
+                {
+                    var _grp_to_steps = mus_ed_note_last[0] - mus_ed_note_src[0];
+                    var _grp_to_rows = mus_ed_note_last[1] - mus_ed_note_src[1];
+                    if (!is_undefined(music_notes_move(_lp, mus_ed_selected, _grp_to_steps, _grp_to_rows, _drums, false)))
+                    {
+                        music_loop_edit_begin(_song, _li, mus_ed_tag);
+                        music_notes_move(_lp, mus_ed_selected, _grp_to_steps, _grp_to_rows, _drums);
+                        mus_ed_selected = array_create(MUS_STEPS, false);   // dropped: deselect
+                    }
+                }
+            }
+            else if (!mus_ed_note_moved)
             {
                 music_loop_edit_begin(_song, _li, mus_ed_tag);
                 music_glide_unlink(_lp, mus_ed_note_src[0]);
