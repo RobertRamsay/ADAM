@@ -145,9 +145,36 @@ function sfx_preview_stop()
 #macro SMP_OUT_MAX_BYTES 131070
 
 /// Renders any sound. Returns { smp : signed 8-bit array, rate : Hz, period : Paula period, capped : bool }.
-/// Results are cached until a setting changes.
-function sfx_render_ex(_s)
+/// Results are cached until a setting changes. A patch (kind 2) takes a moment
+/// to render, so while a Sound page control is held the last render is kept
+/// (_exact: always render, as the disk writer needs).
+function sfx_render_ex(_s, _exact = false)
 {
+    if (_s.kind == 2)
+    {
+        var _pkey = "p|" + json_stringify(_s.patch);
+        var _phit = snd_cache[$ _pkey];
+        if (!is_undefined(_phit)) { return _phit; }
+        var _slot = -1;
+        for (var i = 0; i < array_length(proj.sfx); i++)
+        {
+            if (proj.sfx[i] == _s) { _slot = i; }
+        }
+        if (!_exact && ui_held && ws == WS_SOUND && _slot >= 0 && _slot < array_length(snd_patch_last))
+        {
+            if (is_struct(snd_patch_last[_slot])) { return snd_patch_last[_slot]; }
+        }
+        var _pres = patch_render(_s.patch);
+        snd_cache_count += 1;
+        if (snd_cache_count > 24)
+        {
+            snd_cache = {};
+            snd_cache_count = 1;
+        }
+        snd_cache[$ _pkey] = _pres;
+        if (_slot >= 0 && _slot < array_length(snd_patch_last)) { snd_patch_last[_slot] = _pres; }
+        return _pres;
+    }
     var _key = string(_s.kind) + "|" + string(_s.wave) + "|" + string(_s.pitch) + "|" + string(_s.sweep) + "|" + string(_s.len) + "|"
         + string(_s.atk) + string(_s.dec) + string(_s.sus) + string(_s.rel) + "|" + string(_s.filt) + "," + string(_s.fspeed) + "," + string(_s.fdepth) + "|" + string(_s.rate) + "|" + string(_s.bits) + "|"
         + string(_s.gain) + "|" + string(_s.trim_a) + "|" + string(_s.trim_b) + "|" + string(_s.smp_len) + "|" + _s.smp_file + "|" + string(string_length(_s.smp))
@@ -428,7 +455,10 @@ function sfx_preview_note(_s, _note)
 {
     sfx_preview_stop();
     var _render = sfx_render_ex(_s);
-    var _sample = music_sample_from_render(_render, 13);
+    // samples: Q (C-2) plays them at their own speed; a patch plays its own note names
+    var _root_pick = 13;
+    if (_s.kind == 2) { _root_pick = -1; }
+    var _sample = music_sample_from_render(_render, _root_pick);
     sfx_preview_pitched(_s, _render, _sample, clamp(_note, 1, 36), "sound_note");
 }
 

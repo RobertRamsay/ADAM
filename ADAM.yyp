@@ -67,6 +67,7 @@
     {"id":{"name":"scr_mod","path":"scripts/scr_mod/scr_mod.yy",},},
     {"id":{"name":"scr_music","path":"scripts/scr_music/scr_music.yy",},},
     {"id":{"name":"scr_project","path":"scripts/scr_project/scr_project.yy",},},
+    {"id":{"name":"scr_patch","path":"scripts/scr_patch/scr_patch.yy",},},
     {"id":{"name":"scr_sfx","path":"scripts/scr_sfx/scr_sfx.yy",},},
     {"id":{"name":"scr_theme","path":"scripts/scr_theme/scr_theme.yy",},},
     {"id":{"name":"scr_tiles","path":"scripts/scr_tiles/scr_tiles.yy",},},

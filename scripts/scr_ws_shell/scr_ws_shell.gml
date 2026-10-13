@@ -276,7 +276,7 @@ function shortcuts_step()
         if (tut_active) { tut_active = false; }
         else { tut_start(ws); }
     }
-    if (!tut_active && !_ctrl && !(ws == WS_SOUND && proj.sfx[snd_sel].kind == 1 && proj.sfx[snd_sel].smp != ""))
+    if (!tut_active && !_ctrl && !(ws == WS_SOUND && ((proj.sfx[snd_sel].kind == 1 && proj.sfx[snd_sel].smp != "") || proj.sfx[snd_sel].kind == 2)))
     {
         var _tabs = ws_tabs();
         for (var i = 0; i < min(9, array_length(_tabs)); i++)

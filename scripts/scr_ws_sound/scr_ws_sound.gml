@@ -19,6 +19,7 @@ function ws_sound_draw(_x1, _y1, _x2, _y2)
         ui_text(_x1 + 24, _ry + 15, string(i + 1) + ". " + ui_text_fit(_f.name, global.f_bold, _lw - 140), global.TH.text, fa_left, fa_middle, global.f_bold, 1);
         var _sub = global.WAVE_NAMES[clamp(_f.wave, 0, 3)];
         if (_f.kind == 1) { _sub = "Sample: " + _f.smp_file; }
+        if (_f.kind == 2) { _sub = "Patch: " + patch_key_name(_f.patch.key); }
         ui_text(_x1 + 24, _ry + 33, ui_text_fit(_sub, global.f_small, _lw - 110), global.TH.text_dim, fa_left, fa_middle, global.f_small, 1);
         if (ui_button(_id + "_play", _x1 + _lw - 76, _ry + 8, 56, 30, "Play", "Play|Hear this sound.", BTN_GHOST))
         {
@@ -42,18 +43,26 @@ function ws_sound_draw(_x1, _y1, _x2, _y2)
     set_val(_s, "name", ui_textfield("snd_name", _fx, _y + 18, _colw, 32, _s.name, 16, "Sound name|Shown in the Logic page when you pick a sound to play."), "sndname");
     _y += 62;
     ui_heading(_fx, _y, "Type of sound");
-    var _kw = floor((_colw - 8) / 2);
+    var _kw = floor((_colw - 16) / 3);
     var _k0 = BTN_GHOST;
     var _k1 = BTN_GHOST;
+    var _k2 = BTN_GHOST;
     if (_s.kind == 0) { _k0 = BTN_ACCENT; }
-    else { _k1 = BTN_ACCENT; }
+    else if (_s.kind == 1) { _k1 = BTN_ACCENT; }
+    else { _k2 = BTN_ACCENT; }
     if (ui_button("snd_kind_0", _fx, _y + 18, _kw, 32, "Synth", "Synth sound|Built from a waveform, pitch slide and envelope. Tiny in memory.", _k0)) { set_val(_s, "kind", 0, "sndkind" + string(current_time)); }
     if (ui_button("snd_kind_1", _fx + _kw + 8, _y + 18, _kw, 32, "Sample", "Sampled sound|Import a WAV - a voice, a drum hit, a real explosion - then crunch it down for Paula with the rate and bit settings.", _k1)) { set_val(_s, "kind", 1, "sndkind" + string(current_time)); }
+    if (ui_button("snd_kind_2", _fx + (_kw + 8) * 2, _y + 18, _kw, 32, "Patch", "Patch synth|A big synth: three oscillators with sync, ring and FM, a resonant filter, envelopes, LFOs, modulation and effects. ADAM renders it into a sample - one-shot or with a looped sustain for music.", _k2)) { set_val(_s, "kind", 2, "sndkind" + string(current_time)); }
     _y += 62;
     if (keyboard_check_pressed(vk_space) && ui_focus == "" && ui_can_input() && !keyboard_check(vk_control)) { sfx_preview_play(_s); }
     if (_s.kind == 1)
     {
         sound_sample_panel(_s, _fx, _y, _colw, _cx1, _x2, _y1, _y2);
+        return;
+    }
+    if (_s.kind == 2)
+    {
+        sound_patch_panel(_s, _fx, _y, _colw, _cx1, _x2, _y1, _y2);
         return;
     }
     ui_heading(_fx, _y, "Waveform");
@@ -243,6 +252,51 @@ function sound_sample_keyboard(_s, _px, _py, _width, _height)
     }
 }
 
+/// A rendered sound's waveform (min / max per column), its loop in green and the playback marker
+function sound_draw_wave(_s, _r, _gx, _gy, _gw, _gh, _help)
+{
+    ui_inset(_gx, _gy, _gx + _gw, _gy + _gh, 10);
+    ui_register("snd_graph", _gx, _gy, _gx + _gw, _gy + _gh, _help);
+    var _n = array_length(_r.smp);
+    var _mid = _gy + _gh * 0.5;
+    var _amp = _gh * 0.5 - 10;
+    if (_r.loop_len >= 4 && _n > 0)
+    {
+        var _loop_x1 = _gx + 10 + (_gw - 20) * _r.loop_start / _n;
+        var _loop_x2 = _gx + 10 + (_gw - 20) * (_r.loop_start + _r.loop_len) / _n;
+        var _loop_col = make_colour_rgb(80, 220, 120);
+        draw_set_alpha(0.15);
+        draw_rectangle_colour(_loop_x1, _gy + 8, _loop_x2, _gy + _gh - 8, _loop_col, _loop_col, _loop_col, _loop_col, false);
+        draw_set_alpha(1);
+        draw_line_width_colour(_loop_x1, _gy + 8, _loop_x1, _gy + _gh - 8, 2, _loop_col, _loop_col);
+        draw_line_width_colour(_loop_x2, _gy + 8, _loop_x2, _gy + _gh - 8, 2, _loop_col, _loop_col);
+    }
+    if (_n > 1)
+    {
+        var _cols = floor(_gw - 20);
+        draw_set_colour(global.TH.accent);
+        for (var c = 0; c < _cols; c++)
+        {
+            var _a = floor(c * _n / _cols);
+            var _e = max(_a + 1, floor((c + 1) * _n / _cols));
+            var _lo = 0;
+            var _hi = 0;
+            for (var k = _a; k < min(_e, _n); k++)
+            {
+                _lo = min(_lo, _r.smp[k]);
+                _hi = max(_hi, _r.smp[k]);
+            }
+            draw_line(_gx + 10 + c, _mid - _hi / 128 * _amp, _gx + 10 + c, _mid - _lo / 128 * _amp + 1);
+        }
+    }
+    var _progress = sfx_preview_progress(_s, _r);
+    if (_progress >= 0)
+    {
+        var _marker_x = _gx + 10 + _progress * max(1, _gw - 21);
+        draw_line_width_colour(_marker_x, _gy + 8, _marker_x, _gy + _gh - 8, 2, global.TH.warn, global.TH.warn);
+    }
+}
+
 function sound_sample_panel(_s, _fx, _y, _colw, _cx1, _x2, _y1, _y2)
 {
     if (ui_button("snd_import", _fx, _y, _colw, 38, "Import WAV...", "Import sample|Loads a .WAV file (8, 16, 24 or 32-bit, mono or stereo, any rate). Up to 10 seconds are kept; stereo is mixed to mono.", BTN_ACCENT))
@@ -326,45 +380,8 @@ function sound_sample_panel(_s, _fx, _y, _colw, _cx1, _x2, _y1, _y2)
     var _gw = _x2 - 20 - _gx;
     var _gy = _y1 + 74;
     ui_heading(_gx, _gy - 18, "As Paula will play it");
-    ui_inset(_gx, _gy, _gx + _gw, _gy + 170, 10);
-    ui_register("snd_graph", _gx, _gy, _gx + _gw, _gy + 170, "Waveform|The sample after trimming, resampling and bit crunch. The vertical marker shows its current playback position.");
+    sound_draw_wave(_s, _r, _gx, _gy, _gw, 170, "Waveform|The sample after trimming, resampling and bit crunch. The vertical marker shows its current playback position.");
     var _n = array_length(_r.smp);
-    var _mid = _gy + 85;
-    if (_r.loop_len >= 4 && _n > 0)
-    {
-        var _loop_x1 = _gx + 10 + (_gw - 20) * _r.loop_start / _n;
-        var _loop_x2 = _gx + 10 + (_gw - 20) * (_r.loop_start + _r.loop_len) / _n;
-        var _loop_col = make_colour_rgb(80, 220, 120);
-        draw_set_alpha(0.15);
-        draw_rectangle_colour(_loop_x1, _gy + 8, _loop_x2, _gy + 162, _loop_col, _loop_col, _loop_col, _loop_col, false);
-        draw_set_alpha(1);
-        draw_line_width_colour(_loop_x1, _gy + 8, _loop_x1, _gy + 162, 2, _loop_col, _loop_col);
-        draw_line_width_colour(_loop_x2, _gy + 8, _loop_x2, _gy + 162, 2, _loop_col, _loop_col);
-    }
-    if (_n > 1)
-    {
-        var _cols = floor(_gw - 20);
-        draw_set_colour(global.TH.accent);
-        for (var c = 0; c < _cols; c++)
-        {
-            var _a = floor(c * _n / _cols);
-            var _e = max(_a + 1, floor((c + 1) * _n / _cols));
-            var _lo = 0;
-            var _hi = 0;
-            for (var k = _a; k < min(_e, _n); k++)
-            {
-                _lo = min(_lo, _r.smp[k]);
-                _hi = max(_hi, _r.smp[k]);
-            }
-            draw_line(_gx + 10 + c, _mid - _hi / 128 * 75, _gx + 10 + c, _mid - _lo / 128 * 75 + 1);
-        }
-    }
-    var _progress = sfx_preview_progress(_s, _r);
-    if (_progress >= 0)
-    {
-        var _marker_x = _gx + 10 + _progress * max(1, _gw - 21);
-        draw_line_width_colour(_marker_x, _gy + 8, _marker_x, _gy + 162, 2, global.TH.warn, global.TH.warn);
-    }
     var _info = string(_n) + " bytes of chip RAM  -  " + string_format(_n / max(1, _r.rate), 1, 2) + " seconds at " + string(round(_r.rate)) + " Hz";
     if (_r.capped)
     {

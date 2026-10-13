@@ -583,7 +583,7 @@ function adam_data_block_raw(_p, _measure = false)
     {
         buf_align(_b, 8);
         _snd_off[s] = buffer_tell(_b);
-        var _r = sfx_render_ex(_p.sfx[s]);
+        var _r = sfx_render_ex(_p.sfx[s], true);
         var _smp = _r.smp;
         for (var i = 0; i < array_length(_smp); i++) { buffer_write(_b, buffer_s8, _smp[i]); }
         _snd_len[s] = array_length(_smp) div 2;

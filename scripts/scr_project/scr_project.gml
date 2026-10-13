@@ -434,7 +434,8 @@ function sfx_new(_name)
         filt : 0, fspeed : 0, fdepth : 0,        // low-pass filter 1..15 (0 off), its sweep speed and depth
         smp : "", smp_rate : 0, smp_len : 0, smp_file : "",
         rate : 11025, bits : 8, gain : 100, trim_a : 0, trim_b : 1000,
-        sample_loop : false, loop_a : 0, loop_b : 1000
+        sample_loop : false, loop_a : 0, loop_b : 1000,
+        patch : patch_new()                      // kind 2: the Patch synth's settings (scr_patch)
     };
 }
 
@@ -579,6 +580,7 @@ function project_from_loaded(_raw)
     {
         var _f = _sfx[j];
         if (is_array(_lf) && j < array_length(_lf)) { struct_overlay(_f, _lf[j]); }
+        _f.patch = patch_from_loaded(_f.patch);
     }
     _p.sfx = _sfx;
 

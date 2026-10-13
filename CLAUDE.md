@@ -44,6 +44,7 @@ One object, `obj_app`, draws everything in **Draw GUI** with an immediate-mode U
 | `scr_levels` | Levels page, terrain generator (`terrain_generate`, LCG — must match `gen_examples.py`), title/goal settings. |
 | `scr_adf` | **Game data block + ADF writer**, FS-UAE launch/test-copy download. |
 | `scr_sfx` | Synth + WAV sample import, crunch (rate/bits), preview (exact Paula output). |
+| `scr_patch` | Patch sounds (sound `kind` 2, settings in `sfx.patch`, `global.PATCH_DEF` / `PATCH_PRESETS`): 3 oscillators (sync / ring / FM / unison), SVF filter + envelope, amp / pitch envelopes, 2 LFOs, 3 mod slots, chorus / drive / crush / echo, one-shot or looped sustain. `patch_render` makes one sample at the Paula rate of the tracker note with the patch note's pitch class (`patch_root`), so it is in tune as an effect and an instrument. GML only (not in `adf_reference.py`); the disk format is unchanged. |
 | `scr_ws_*` | One script per page. `scr_ws_logic` also owns rule groups. |
 | `scr_examples`, `scr_tutorial` | Example loader, tutorials. (There is no in-app intro; the YouTube intro is rendered by `tools/intro`.) |
 

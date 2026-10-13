@@ -34,6 +34,7 @@ theme_init();
 machine_defs_init();
 project_defs_init();
 music_defs_init();
+patch_defs_init();
 font_init();
 pixel_sprite_init();
 boing_init();
@@ -286,6 +287,10 @@ snd_jam_key = -1;
 snd_jam_mouse = false;
 snd_cache = {};
 snd_cache_count = 0;
+snd_patch_tab = 0;                    // Patch editor tab: 0 Osc, 1 Filter, 2 Amp, 3 Mod, 4 FX
+snd_patch_osc = 0;                    // oscillator shown on the Osc tab
+snd_patch_content_h = 0;              // height of the tab's settings last frame (scroll region)
+snd_patch_last = array_create(8, 0);  // last render of each patch sound, kept while a slider is dragged
 
 // music (Phase 2 Track B)
 mus_song = 0;                // song being edited
@@ -478,6 +483,7 @@ if (ADAM_DEV_TOOLS) { music_scope_selftest(); }
 if (ADAM_DEV_TOOLS) { music_library_effect_selftest(); }
 if (ADAM_DEV_TOOLS) { music_notes_clipboard_selftest(); }
 if (ADAM_DEV_TOOLS) { sfx_preview_selftest(); }
+if (ADAM_DEV_TOOLS) { patch_selftest(); }
 if (ADAM_DEV_TOOLS) { music_sample_loop_volume_selftest(); }
 if (ADAM_DEV_TOOLS) { music_sampler_controls_selftest(); }
 
