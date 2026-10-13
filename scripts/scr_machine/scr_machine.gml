@@ -187,10 +187,12 @@ function machine_pick_draw(_gw, _gh)
     var _x0 = floor((_gw - _total) / 2);
     var _cy = floor((_gh - _ch) / 2) + 30 + (1 - _a) * 30;
 
-    draw_boing(_gw * 0.5 - 150, _cy - 118, 56, _a);
-    ui_text(_gw * 0.5 - 80, _cy - 112, "ADAM", c_white, fa_left, fa_top, global.f_hero, _a);
-    ui_text(_gw * 0.5 - 80, _cy - 78, "Amiga games, no code needed", global.TH.text_dim, fa_left, fa_top, global.f_body, _a);
-    ui_text(_gw * 0.5, _cy - 34, "Choose the Amiga your game is for", global.TH.text, fa_center, fa_top, global.f_title, _a);
+    // header: the hero line is 50 px tall (its capitals end 37 px down), so the tag line
+    // goes 44 px below it and the question 20 px clear of the cards
+    draw_boing(_gw * 0.5 - 150, _cy - 132, 56, _a);
+    ui_text(_gw * 0.5 - 80, _cy - 128, "ADAM", c_white, fa_left, fa_top, global.f_hero, _a);
+    ui_text(_gw * 0.5 - 80, _cy - 86, "Amiga games, no code needed", global.TH.text_dim, fa_left, fa_top, global.f_body, _a);
+    ui_text(_gw * 0.5, _cy - 46, "Choose the Amiga your game is for", global.TH.text, fa_center, fa_top, global.f_title, _a);
 
     for (var i = 0; i < _n; i++)
     {
@@ -213,7 +215,7 @@ function machine_pick_draw(_gw, _gh)
         ui_text(_x + 22, _cy + 18, string(i + 1) + "   " + _m.name, c_white, fa_left, fa_top, global.f_title, _a);
         if (!machine_pick_launch && _m.id == proj.machine)
         {
-            ui_text(_x + _cw - 22, _cy + 22, "CURRENT", c_white, fa_right, fa_top, global.f_small, _a);
+            ui_text(_x + _cw - 22, _cy + 27, "CURRENT", c_white, fa_right, fa_top, global.f_small, _a);
         }
         var _labels = ["Chipset", "Processor", "Memory", "Backdrop", "Colours", "Sprites", "Emulator"];
         var _vals = [_m.chipset, _m.cpu, _m.ram_label + ", no fast RAM", "Up to " + string(1 << _m.max_depth) + " colours, 320 x 256",
@@ -221,8 +223,8 @@ function machine_pick_draw(_gw, _gh)
         var _ry = _cy + 84;
         for (var r = 0; r < array_length(_labels); r++)
         {
-            // the small label sits 2 px lower so it shares the value's baseline
-            ui_text(_x + 22, _ry + 2, _labels[r], global.TH.text_faint, fa_left, fa_top, global.f_small, _a);
+            // the small label sits 3 px lower so it shares the value's baseline
+            ui_text(_x + 22, _ry + 3, _labels[r], global.TH.text_faint, fa_left, fa_top, global.f_small, _a);
             ui_text(_x + 120, _ry, ui_text_fit(_vals[r], global.f_body, _cw - 140), global.TH.text, fa_left, fa_top, global.f_body, _a);
             _ry += 34;
         }

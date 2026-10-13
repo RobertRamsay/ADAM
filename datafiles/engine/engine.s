@@ -137,7 +137,7 @@ A_BY1       equ 20
 A_SPR       equ 22         ; long offset of this actor's hardware sprite block
 A_CHAN      equ 26         ; hardware sprite channel 0..7 (colour pair = channel / 2)
 A_SPR2      equ 28         ; long offset of a hopper's crouch frame, 0 = none
-A_ARATE     equ 32         ; (version 4: frames per animation frame - unused since version 5)
+A_CARRY     equ 32         ; 1 = the player can pick it up (fire) and throw it (fire again)
 A_AMODE     equ 34         ; animation flags: bit 0 = 8 directions (table has 12 entries),
                            ; bit 1 = Fire animations for the player (table has 21 entries)
 A_FROM      equ 36         ; first level this actor appears on (1..10)
@@ -178,7 +178,10 @@ R_N         equ 6
 R_ACT       equ 8
 R_TGT       equ 10
 R_VAL       equ 12
+R_NAND      equ 14         ; AND DO lines that follow this rule (8 bytes each: act, target, value, 0)
 RULE_SIZE   equ 16
+AND_SIZE    equ 8
+RULES_MAX   equ 128        ; rules (cards) on the disk - one latch each
 
 ; game block (levels, goal, title)
 G_NLEVELS   equ 0          ; number of levels, 0 = no levels
@@ -206,6 +209,9 @@ SAFE_TIME   equ 150        ; 3 seconds of flashing immunity
 MOMENT      equ 25         ; 'show for a moment' = half a second
 SWING_TIME  equ 14         ; a weapon swing lasts this many frames
 SWING_COOL  equ 22         ; and the next can start this many frames after it began
+THROW_VX    equ 4          ; a throw: pixels a frame across
+THROW_VY    equ 44         ; and up (1/16 pixels a frame), then gravity brings it down
+HIT_MAX     equ 8          ; thrown-actor hits remembered in a frame (WHEN 11)
 
 ; ---------------- engine variables (offsets from V) ----------------
 ; Per-actor state is one ACTV_SIZE record per actor, starting at V. a5 =
@@ -238,6 +244,8 @@ v_face      rs.w 1         ; 1 = facing left
 v_dir       rs.w 1         ; 8 directions: last direction moved, 0 N .. 7 NW
 v_ox        rs.w 1         ; where it was at the start of this frame (tile walls)
 v_oy        rs.w 1
+v_thr       rs.w 1         ; thrown: 0 no, 1 flying, 2 flying but spent (it hit something)
+v_tvx       rs.w 1         ; thrown: pixels a frame across
             rsset   -128+MAX_ACT*ACTV_SIZE
 v_anim      rs.w 1
 v_joyprev   rs.w 1
@@ -267,7 +275,7 @@ v_shadow    rs.w 1         ; shadow colour of the text drawn now, -1 = none
 v_ui        rs.l 1         ; custom HUD block, 0 = the standard HUD
 v_hudrow0   rs.w 1         ; text row of the HUD on the normal display
 v_hudlines  rs.w 1         ; lines of the HUD strip above a tile world
-v_latch     rs.w 128
+v_latch     rs.w RULES_MAX
 v_disp2     rs.l 1         ; BOBs: second display buffer, 0 = no BOBs (one display, v_disp)
 v_back      rs.l 1         ; BOBs: backdrop + hills + HUD, copied back where a BOB was
 v_dd2       rs.l 1         ; v_disp2 - v_disp (0 without BOBs): text goes to both displays
@@ -312,6 +320,10 @@ v_swing     rs.w 1         ; frames of the player's weapon swing left (Fire anim
 v_swcool    rs.w 1         ; frames until the weapon can swing again
 v_struck    rs.l 1         ; bit per actor the player's weapon struck this frame (WHEN 10)
 v_sbox      rs.w 4         ; the swing's reach: left, right, top, bottom (map pixels)
+v_carry     rs.w 1         ; actor the player carries, -1 = none
+v_picked    rs.w 1         ; actor picked up this frame, -1 = none (WHEN 12)
+v_hitn      rs.w 1         ; thrown-actor hits this frame
+v_hits      rs.b 2*HIT_MAX ; each: thrown actor, actor it hit
 V_SIZE      rs.b 0
 
 ; ============================================================================
@@ -809,6 +821,9 @@ init_actors:
             move.w  A_X(a2),v_ox(a5,d5.w)
             move.w  A_Y(a2),v_oy(a5,d5.w)
             move.w  A_LEFT(a2),v_face(a5,d5.w)
+            move.w  #0,v_thr(a5,d5.w)
+            move.w  #0,v_tvx(a5,d5.w)
+            move.w  #-1,v_carry(a5)
             move.w  #2,v_dir(a5,d5.w)       ; facing east, or west when it starts moving left
             tst.w   A_LEFT(a2)
             beq.s   .east
@@ -822,7 +837,7 @@ init_actors:
 
 clear_latches:
             lea     v_latch(a5),a0
-            move.w  #127,d7
+            move.w  #RULES_MAX-1,d7
 .l          move.w  #0,(a0)+
             dbf     d7,.l
             rts
@@ -908,6 +923,7 @@ frame:
             addq.w  #1,v_anim(a5)
             move.l  #0,v_jumped(a5)
             move.l  #0,v_struck(a5)
+            move.w  #0,v_hitn(a5)
             bsr     read_joy
             bsr     read_key
             bsr     tool_menu               ; space bar: the tool menu - the game waits while it is open
@@ -918,7 +934,9 @@ frame:
             blt.s   .f1
             move.w  #0,v_fcount(a5)
             move.w  #1,v_sectick(a5)
-.f1         bsr     move_actors
+.f1         bsr     carry_tick              ; fire picks up / throws
+            bsr     move_actors
+            bsr     carry_follow            ; what the player carries rides on its head
             move.w  v_joy(a5),v_joyprev(a5)
             bsr     cam_follow              ; tile world: camera, new tiles, scroll
             bsr     cam_window
@@ -1118,6 +1136,10 @@ move_actors:
 .nolife     move.w  A_FROM(a2),d0           ; not on this level yet
             cmp.w   v_level(a5),d0
             bgt     .next
+            cmp.w   v_carry(a5),d7          ; carried: carry_follow places it
+            beq     .adv
+            tst.w   v_thr(a5,d5.w)          ; thrown: it flies
+            bne     .fly
             move.w  A_ROLE(a2),d0
             beq     .player
             cmp.w   #6,d0
@@ -1324,6 +1346,35 @@ move_actors:
 
 .faller     bsr     physics
             bra     .next
+
+.fly        move.w  v_ax(a5,d5.w),d0        ; across, stopped by the edges
+            add.w   v_tvx(a5,d5.w),d0
+            bpl.s   .fl0
+            moveq   #0,d0
+            move.w  #0,v_tvx(a5,d5.w)
+.fl0        cmp.w   A_XMAX(a2),d0
+            ble.s   .fl1
+            move.w  A_XMAX(a2),d0
+            move.w  #0,v_tvx(a5,d5.w)
+.fl1        move.w  d0,v_ax(a5,d5.w)
+            bsr     physics                 ; up and down (and tile walls)
+            tst.w   v_tvx(a5,d5.w)          ; a wall stopped it: it drops
+            beq.s   .fl2
+            move.w  v_ax(a5,d5.w),d0
+            cmp.w   v_ox(a5,d5.w),d0
+            bne.s   .fl2
+            move.w  #0,v_tvx(a5,d5.w)
+.fl2        tst.w   v_gnd(a5,d5.w)          ; landed
+            beq.s   .fl3
+            tst.w   v_vy(a5,d5.w)
+            bmi.s   .fl3
+            move.w  #0,v_thr(a5,d5.w)
+            move.w  #0,v_tvx(a5,d5.w)
+            bra     .adv
+.fl3        cmp.w   #1,v_thr(a5,d5.w)       ; still flying at things
+            bne     .adv
+            bsr     throw_hits
+            bra     .adv
 
 .next       tst.w   v_tmode(a5)             ; tile world: walls stop it (gravity roles did it in physics)
             beq.s   .adv
@@ -2920,11 +2971,42 @@ run_rules:
             cmp.w   #6,d0
             beq     .jump
             cmp.w   #8,d0
-            beq.s   .hold
+            beq     .hold
             cmp.w   #9,d0
             beq     .inview
             cmp.w   #10,d0
             beq     .strike
+            cmp.w   #11,d0
+            beq     .thrown
+            cmp.w   #12,d0
+            beq     .pickup
+            bra     .next
+
+.pickup     move.w  v_picked(a5),d0         ; the player picked actor a up this frame
+            bmi     .next
+            cmp.w   R_A(a3),d0
+            bne     .next
+            bsr     fire_action
+            bra     .next
+
+.thrown     move.w  v_hitn(a5),d1           ; thrown actor a hit actor b (b = a: anything) this frame
+            beq     .next
+            subq.w  #1,d1
+            lea     v_hits(a5),a0
+.th         moveq   #0,d0
+            move.b  (a0)+,d0
+            moveq   #0,d2
+            move.b  (a0)+,d2
+            cmp.w   R_A(a3),d0
+            bne.s   .thn
+            move.w  R_B(a3),d0
+            cmp.w   R_A(a3),d0
+            beq.s   .thy
+            cmp.w   d0,d2
+            beq.s   .thy
+.thn        dbf     d1,.th
+            bra     .next
+.thy        bsr     fire_action
             bra     .next
 
 .strike     move.l  v_struck(a5),d0         ; the player's weapon struck actor b this frame
@@ -3018,7 +3100,7 @@ run_rules:
             move.w  #1,(a2)
             bsr     fire_action
 
-.next       lea     RULE_SIZE(a3),a3
+.next       bsr     rule_next
             addq.w  #1,d7
             cmp.w   d6,d7
             blt     .r
@@ -3037,16 +3119,38 @@ run_when_rules:
             move.w  d4,-(sp)
             bsr     fire_action
             move.w  (sp)+,d4
-.n          lea     RULE_SIZE(a3),a3
+.n          bsr     rule_next
             addq.w  #1,d7
             cmp.w   d6,d7
             blt.s   .r
 .done       rts
 
+; a3 = a rule -> the next rule (past its AND DO lines)
+rule_next:  move.l  d0,-(sp)
+            move.w  R_NAND(a3),d0
+            lsl.w   #3,d0
+            lea     RULE_SIZE(a3,d0.w),a3
+            move.l  (sp)+,d0
+            rts
+
+; the rule's DO, then each of its AND DO lines (do_action reads R_ACT / R_TGT / R_VAL,
+; so a3 points AND_SIZE before each line: its act / target / value sit at 8 / 10 / 12)
 fire_action:
             movem.l d5-d7/a2-a3,-(sp)
+            move.w  R_NAND(a3),d7
+            move.l  a3,a2
+            movem.l d7/a2,-(sp)
             bsr     do_action
-            movem.l (sp)+,d5-d7/a2-a3
+            movem.l (sp)+,d7/a2
+.and        subq.w  #1,d7
+            bmi.s   .done
+            addq.l  #AND_SIZE,a2
+            move.l  a2,a3
+            movem.l d7/a2,-(sp)
+            bsr     do_action
+            movem.l (sp)+,d7/a2
+            bra.s   .and
+.done       movem.l (sp)+,d5-d7/a2-a3
             rts
 
 ; a3 = rule
@@ -3055,7 +3159,7 @@ do_action:
             move.w  d5,d4
             lsl.w   #ACTV_SHIFT,d5
             move.w  R_ACT(a3),d0
-            cmp.w   #20,d0
+            cmp.w   #21,d0
             bhi     act_none
             add.w   d0,d0
             move.w  acttab(pc,d0.w),d0
@@ -3081,8 +3185,226 @@ acttab:     dc.w    act_score-acttab
             dc.w    act_music-acttab
             dc.w    act_nomusic-acttab
             dc.w    act_ptile-acttab
+            dc.w    act_drop-acttab
 
 act_none:   rts
+
+; DO 21: the player drops what it carries (it falls, harmless)
+act_drop:   move.w  v_carry(a5),d0
+            bmi     act_none
+            move.w  #-1,v_carry(a5)
+            lsl.w   #ACTV_SHIFT,d0
+            move.w  #2,v_thr(a5,d0.w)
+            move.w  #0,v_tvx(a5,d0.w)
+            move.w  #0,v_vy(a5,d0.w)
+            move.w  #0,v_gnd(a5,d0.w)
+            rts
+
+; ============================================================================
+;  pick up and throw: the player touches an actor with 'can be carried' and
+;  presses fire to pick it up (it rides on its head); fire again throws it the
+;  way the player faces, in an arc. Each press is used up (v_fwait).
+; ============================================================================
+carry_tick:
+            movem.l d0-d7/a0-a2,-(sp)
+            move.w  #-1,v_picked(a5)
+            tst.w   v_fwait(a5)             ; fire used for a pick-up / throw: ignored until let go
+            beq.s   .fw
+            btst    #7,$bfe001              ; the button itself (tool_menu may have masked v_joy already)
+            beq.s   .fm
+            move.w  #0,v_fwait(a5)
+            bra.s   .fw
+.fm         and.w   #$ffef,v_joy(a5)
+.fw         move.w  H_PLAYER(a4),d7
+            bmi     .out
+            cmp.w   H_NACT(a4),d7
+            bhs     .out
+            move.w  d7,d5
+            lsl.w   #ACTV_SHIFT,d5
+            tst.w   v_vis(a5,d5.w)
+            beq     .out
+            move.w  v_joy(a5),d0            ; fire just pressed?
+            btst    #4,d0
+            beq     .out
+            move.w  v_joyprev(a5),d0
+            btst    #4,d0
+            bne     .out
+            tst.w   v_carry(a5)
+            bpl.s   .throw
+            moveq   #0,d6                   ; pick up the first carriable actor it touches
+.pk         cmp.w   H_NACT(a4),d6
+            bge     .out
+            cmp.w   #MAX_ACT,d6
+            bge     .out
+            cmp.w   d7,d6
+            beq.s   .pn
+            move.w  d6,d4
+            bsr     actor_rec
+            tst.w   A_CARRY(a0)
+            beq.s   .pn
+            move.w  A_FROM(a0),d0
+            cmp.w   v_level(a5),d0
+            bgt.s   .pn
+            move.w  d6,d1
+            lsl.w   #ACTV_SHIFT,d1
+            tst.w   v_thr(a5,d1.w)          ; not while it flies
+            bne.s   .pn
+            move.w  d7,d0
+            move.w  d6,d1
+            bsr     overlap_pair
+            beq.s   .pn
+            move.w  d6,v_carry(a5)
+            move.w  d6,v_picked(a5)
+            bra.s   .used
+.pn         addq.w  #1,d6
+            bra.s   .pk
+.throw      move.w  v_carry(a5),d1
+            lsl.w   #ACTV_SHIFT,d1
+            move.w  #1,v_thr(a5,d1.w)
+            moveq   #THROW_VX,d0
+            tst.w   v_face(a5,d5.w)
+            beq.s   .tr
+            neg.w   d0
+.tr         move.w  d0,v_tvx(a5,d1.w)
+            move.w  #-THROW_VY,v_vy(a5,d1.w)
+            move.w  #0,v_ysub(a5,d1.w)
+            move.w  #0,v_gnd(a5,d1.w)
+            move.w  #-1,v_carry(a5)
+.used       move.w  #1,v_fwait(a5)          ; this press is used up
+            and.w   #$ffef,v_joy(a5)
+.out        movem.l (sp)+,d0-d7/a0-a2
+            rts
+
+; the carried actor: its box centred over the player's, standing on its head
+carry_follow:
+            movem.l d0-d7/a0-a2,-(sp)
+            move.w  v_carry(a5),d6
+            bmi     .out
+            move.w  H_PLAYER(a4),d4
+            bmi.s   .drop
+            move.w  d6,d1
+            lsl.w   #ACTV_SHIFT,d1
+            tst.w   v_vis(a5,d1.w)          ; hidden by a rule: no longer carried
+            beq.s   .drop
+            bsr     actor_rec               ; a0 = the player's record
+            move.l  a0,a1
+            move.w  d4,d5
+            lsl.w   #ACTV_SHIFT,d5
+            move.w  d6,d4
+            bsr     actor_rec               ; a0 = the carried actor's
+            move.w  A_BX0(a1),d0            ; x: centre on centre
+            add.w   A_BX1(a1),d0
+            sub.w   A_BX0(a0),d0
+            sub.w   A_BX1(a0),d0
+            asr.w   #1,d0
+            add.w   v_ax(a5,d5.w),d0
+            bpl.s   .x0
+            moveq   #0,d0
+.x0         cmp.w   A_XMAX(a0),d0
+            ble.s   .x1
+            move.w  A_XMAX(a0),d0
+.x1         move.w  d0,v_ax(a5,d1.w)
+            move.w  v_ay(a5,d5.w),d0        ; y: its feet on the player's head
+            add.w   A_BY0(a1),d0
+            sub.w   A_BY1(a0),d0
+            subq.w  #1,d0
+            bpl.s   .y0
+            moveq   #0,d0
+.y0         move.w  d0,v_ay(a5,d1.w)
+            move.w  #0,v_vy(a5,d1.w)
+            move.w  #0,v_ysub(a5,d1.w)
+            move.w  v_face(a5,d5.w),v_face(a5,d1.w)
+            bra.s   .out
+.drop       move.w  #-1,v_carry(a5)
+.out        movem.l (sp)+,d0-d7/a0-a2
+            rts
+
+; the thrown actor d7 (d5, a2): note the first actor it hits (not the player),
+; then it is spent and drops
+throw_hits:
+            movem.l d0-d6/a0,-(sp)
+            moveq   #0,d6
+.j          cmp.w   H_NACT(a4),d6
+            bge.s   .out
+            cmp.w   #MAX_ACT,d6
+            bge.s   .out
+            cmp.w   d7,d6
+            beq.s   .n
+            cmp.w   H_PLAYER(a4),d6
+            beq.s   .n
+            move.w  d6,d4
+            bsr     actor_rec
+            move.w  A_FROM(a0),d0
+            cmp.w   v_level(a5),d0
+            bgt.s   .n
+            move.w  d7,d0
+            move.w  d6,d1
+            bsr     overlap_pair
+            beq.s   .n
+            move.w  v_hitn(a5),d0
+            cmp.w   #HIT_MAX,d0
+            bge.s   .sp
+            lea     v_hits(a5),a0
+            add.w   d0,d0
+            move.b  d7,0(a0,d0.w)
+            move.b  d6,1(a0,d0.w)
+            addq.w  #1,v_hitn(a5)
+.sp         move.w  #2,v_thr(a5,d5.w)
+            move.w  #0,v_tvx(a5,d5.w)
+            bra.s   .out
+.n          addq.w  #1,d6
+            bra.s   .j
+.out        movem.l (sp)+,d0-d6/a0
+            rts
+
+; d0 / d1 = actors -> Z clear when both are shown and their boxes overlap
+overlap_pair:
+            movem.l d2-d5/a0-a1,-(sp)
+            move.w  d0,d2
+            move.w  d1,d3
+            move.w  d2,d4
+            bsr     actor_rec
+            move.l  a0,a1
+            move.w  d3,d4
+            bsr     actor_rec               ; a1 = record a, a0 = record b
+            move.w  d2,d4
+            lsl.w   #ACTV_SHIFT,d4
+            move.w  d3,d5
+            lsl.w   #ACTV_SHIFT,d5
+            tst.w   v_vis(a5,d4.w)
+            beq     .no
+            tst.w   v_vis(a5,d5.w)
+            beq     .no
+            move.w  v_ax(a5,d4.w),d2        ; a.left > b.right ?
+            add.w   A_BX0(a1),d2
+            move.w  v_ax(a5,d5.w),d3
+            add.w   A_BX1(a0),d3
+            cmp.w   d3,d2
+            bgt.s   .no
+            move.w  v_ax(a5,d5.w),d2        ; b.left > a.right ?
+            add.w   A_BX0(a0),d2
+            move.w  v_ax(a5,d4.w),d3
+            add.w   A_BX1(a1),d3
+            cmp.w   d3,d2
+            bgt.s   .no
+            move.w  v_ay(a5,d4.w),d2        ; a.top > b.bottom ?
+            add.w   A_BY0(a1),d2
+            move.w  v_ay(a5,d5.w),d3
+            add.w   A_BY1(a0),d3
+            cmp.w   d3,d2
+            bgt.s   .no
+            move.w  v_ay(a5,d5.w),d2        ; b.top > a.bottom ?
+            add.w   A_BY0(a0),d2
+            move.w  v_ay(a5,d4.w),d3
+            add.w   A_BY1(a1),d3
+            cmp.w   d3,d2
+            bgt.s   .no
+            moveq   #1,d0
+            bra.s   .out
+.no         moveq   #0,d0
+.out        movem.l (sp)+,d2-d5/a0-a1
+            tst.w   d0
+            rts
 
 ; play song R_VAL from the top / stop the music
 act_music:  move.w  R_VAL(a3),d0
@@ -3120,7 +3442,12 @@ act_goal:   move.l  v_game(a5),d0
 stop_fall:  move.w  #0,v_vy(a5,d5.w)
             move.w  #0,v_ysub(a5,d5.w)
             move.w  #0,v_gnd(a5,d5.w)
-            rts
+            move.w  #0,v_thr(a5,d5.w)       ; a thrown actor lands where it is sent
+            move.w  #0,v_tvx(a5,d5.w)
+            cmp.w   v_carry(a5),d4          ; and is no longer carried
+            bne.s   .r
+            move.w  #-1,v_carry(a5)
+.r          rts
 
 ; target (d4/d5) goes to the place where actor R_VAL is
 act_moveto: cmp.w   H_NACT(a4),d4
@@ -4161,6 +4488,8 @@ weapon_tick:
             subq.w  #1,v_swing(a5)
 .s0         tst.w   v_tmode(a5)
             beq     .r
+            tst.w   v_carry(a5)             ; hands full: no swinging
+            bpl     .r
             movem.l d0-d4/a0-a1,-(sp)
             move.l  v_tiles(a5),a0
             btst    #0,T_FLAGS+1(a0)
@@ -4219,7 +4548,9 @@ strike_mask:
             bne.s   .n
             move.w  R_B(a0),d0
             bset    d0,d2
-.n          lea     RULE_SIZE(a0),a0
+.n          move.w  R_NAND(a0),d0
+            lsl.w   #3,d0
+            lea     RULE_SIZE(a0,d0.w),a0
             dbf     d1,.l
 .r          movem.l (sp)+,d0-d1/a0
             rts

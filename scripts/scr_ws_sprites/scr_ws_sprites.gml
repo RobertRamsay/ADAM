@@ -230,7 +230,7 @@ function ws_sprites_draw(_x1, _y1, _x2, _y2)
 
     // size: 16 x 24 is a hardware sprite; ADAM Pro goes up to 64 x 64 (a BOB)
     var _szh = "Size";
-    if (spr_is_big(_s)) { _szh = "Size  - drawn as a BOB"; }
+    if (spr_is_big(_s)) { _szh = "Size - a BOB"; }      // with the Lite note below it must fit 280 px
     if (!pro_edition()) { _szh += "   (Lite: up to " + string(LITE_SPR_W) + " x " + string(LITE_SPR_H) + ")"; }
     ui_heading(_fx, _y, _szh);
     var _szw = floor((_fw - 12) / 2);

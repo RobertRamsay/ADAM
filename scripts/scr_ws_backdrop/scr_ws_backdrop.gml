@@ -549,7 +549,7 @@ function ws_backdrop_draw(_x1, _y1, _x2, _y2)
     }
     bd_dither = ui_dropdown("bd_dither", _fx + _fw - 110, _y, 110, 32, ["No dither", "Smooth", "Pattern"], clamp(bd_dither, 0, 2), "Dither|How an imported picture mixes its colours so smooth shading survives with few colours. Smooth spreads the error around (Floyd-Steinberg). Pattern uses an even Bayer grid, the classic Amiga look - it also stays steady when the picture is changed slightly.");
     _y += 42;
-    if (ui_button("bd_clear", _fx, _y, _fw, 30, "Fill whole backdrop with colour " + string(bd_sel), "Clear|Paints the whole backdrop in the selected colour. You can Undo this.", BTN_DANGER))
+    if (ui_button("bd_clear", _fx, _y, _fw, 30, "Fill the backdrop with colour " + string(bd_sel), "Clear|Paints the whole backdrop in the selected colour. You can Undo this.", BTN_DANGER))
     {
         undo_mark("bdclear" + string(current_time));
         backdrop_fill_rect(0, 0, BD_W - 1, BD_H - 1, bd_sel, true);

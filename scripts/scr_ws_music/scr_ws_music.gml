@@ -1246,7 +1246,7 @@ function music_level_panel(_px1, _py1, _px2, _py2)
     {
         ui_text(_fx, _y + 15, "Game music", global.TH.text_dim, fa_left, fa_middle, global.f_body, 1);
         var _cur2 = clamp(proj.level_song[0] + 1, 0, array_length(_opts) - 1);
-        var _nv2 = ui_dropdown("mus_lvl_0", _fx + 96, _y, 240, 30, _opts, _cur2, "Game music|The song that plays while your game runs. Switch on Levels on the Levels page to choose a song for each level.");
+        var _nv2 = ui_dropdown("mus_lvl_0", _fx + 116, _y, 240, 30, _opts, _cur2, "Game music|The song that plays while your game runs. Switch on Levels on the Levels page to choose a song for each level.");
         if (_nv2 != _cur2)
         {
             undo_mark("muslvl0");

@@ -32,7 +32,7 @@ function les_rule_has(_when, _act)
         var _r = proj.rules[i];
         var _ok = true;
         if (_when >= 0 && _r.when != _when) { _ok = false; }
-        if (_act >= 0 && _r.act != _act) { _ok = false; }
+        if (_act >= 0 && !rule_has_act(_r, _act)) { _ok = false; }
         if (_ok) { return true; }
     }
     return false;
@@ -239,7 +239,7 @@ function les_touch_any(_act)
     for (var i = 0; i < array_length(proj.rules); i++)
     {
         var _r = proj.rules[i];
-        if (_r.when == 0 && _r.a == _r.b && _r.act == _act) { return true; }
+        if (_r.when == 0 && _r.a == _r.b && rule_has_act(_r, _act)) { return true; }
     }
     return false;
 }
@@ -378,7 +378,9 @@ function lesson_draw(_gw, _gh)
     }
 
     // card: in the bottom corner away from the target
-    var _cw = 400;
+    // wide enough for the title with "Done!" in front (it does not change width when ticked off)
+    draw_set_font(global.f_title);
+    var _cw = min(max(400, ceil(ui_sw("Done!  " + _st.title)) + 48), _gw - 40);
     var _body = _st.body;
     if (!_on_page) { _body = "This step is on the " + ws_name(_st.tab) + " page."; }
     draw_set_font(global.f_body);
@@ -404,7 +406,7 @@ function lesson_draw(_gw, _gh)
     ui_rrect(_cx + 24, _cy + 36, _cx + 24 + (_cw - 48) * ((les_index + 1) / _n), _cy + 40, 2, global.TH.warn, global.TH.warn, _a);
     var _title = _st.title;
     if (les_done_t >= 0) { _title = "Done!  " + _title; }
-    ui_text(_cx + 24, _cy + 50, _title, c_white, fa_left, fa_top, global.f_title, _a);
+    ui_text(_cx + 24, _cy + 50, ui_text_fit(_title, global.f_title, _cw - 48), c_white, fa_left, fa_top, global.f_title, _a);
     ui_text_wrap(_cx + 24, _cy + 80, _body, global.TH.text_dim, _cw - 48, global.f_body, _a);
 
     // buttons

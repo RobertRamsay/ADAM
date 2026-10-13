@@ -23,7 +23,7 @@ function anim_long_names()
 
 function anim_mode_names()
 {
-    return ["Loop", "Once (hold the last frame)", "Ping-pong"];
+    return ["Loop", "Once (then hold)", "Ping-pong"];
 }
 
 /// True when the Animate page may change things (every edition; kept as the
@@ -484,7 +484,7 @@ function ws_animate_draw(_x1, _y1, _x2, _y2)
     var _dirs_on = anims_dirs_on(_s);
 
     // ---------------- centre: two joysticks, preview, frames ----------------
-    ui_panel(_cx1, _y1, _cx2, _y2, "Animate " + _s.name);
+    ui_panel(_cx1, _y1, _cx2, _y2, ui_text_fit("Animate " + _s.name, global.f_title, _cx2 - _cx1 - 32));
     var _plan = anim_plan(_s);
     var _an = _s.anims[anim_sel];
     var _nf = array_length(_an.frames);
@@ -551,7 +551,12 @@ function ws_animate_draw(_x1, _y1, _x2, _y2)
     _jy += 20;
     anim_joystick(1, _jx, _jy, _jsize, _s, _plan, _cols, _in, _test_k);
     _jy += _jsize + 12;
-    var _bw3 = floor((_jsize - 8) / 3);
+    // Walk / In air / Falling and Test are a little wider than the joysticks, so
+    // "In air 8" and "Falling 8" fit their tabs
+    var _colw = _jsize + 30;
+    var _tw0 = floor((_colw - 88) / 2);
+    var _tbw = [_tw0, _tw0, _colw - 8 - 2 * _tw0];
+    var _tbx = _jx;
     var _side = [1, 2, 3];
     var _slab = ["Walk", "In air", "Falling"];
     var _shelp = [
@@ -564,8 +569,8 @@ function ws_animate_draw(_x1, _y1, _x2, _y2)
         var _sk = _side[sb];
         var _sl = _slab[sb];
         if (array_length(_s.anims[_sk].frames) > 0) { _sl += " " + string(array_length(_s.anims[_sk].frames)); }
-        anim_drop_zone(_sk, _jx + sb * (_bw3 + 4), _jy, _jx + sb * (_bw3 + 4) + _bw3, _jy + 30);
-        if (ui_tab("anim_tab_" + string(_sk), _jx + sb * (_bw3 + 4), _jy, _bw3, 30, _sl, anim_sel == _sk, _shelp[sb]))
+        anim_drop_zone(_sk, _tbx, _jy, _tbx + _tbw[sb], _jy + 30);
+        if (ui_tab("anim_tab_" + string(_sk), _tbx, _jy, _tbw[sb], 30, _sl, anim_sel == _sk, _shelp[sb]))
         {
             if (anim_sel != _sk)
             {
@@ -574,20 +579,21 @@ function ws_animate_draw(_x1, _y1, _x2, _y2)
                 anim_t0 = current_time;
             }
         }
+        _tbx += _tbw[sb] + 4;
     }
     _jy += 38;
     var _tst = BTN_NORMAL;
     if (anim_test) { _tst = BTN_ON; }
     var _tlab = "Test";
     if (anim_test) { _tlab = "Testing - click to stop"; }
-    if (ui_button("anim_test", _jx, _jy, _jsize, 32, _tlab, "Test|Drive the actor with the arrow keys, WASD or a gamepad (fire: Space, Ctrl or the A button). The joysticks move with you and the preview plays what the Amiga will play.", _tst))
+    if (ui_button("anim_test", _jx, _jy, _colw, 32, _tlab, "Test|Drive the actor with the arrow keys, WASD or a gamepad (fire: Space, Ctrl or the A button). The joysticks move with you and the preview plays what the Amiga will play.", _tst))
     {
         anim_test = !anim_test;
         anim_test_entry = -1;
         anim_test_x = 0;
         anim_test_y = 0;
     }
-    var _ax1 = _jx + _jsize + 24;              // the preview, frames and controls go right of the joysticks
+    var _ax1 = _jx + _colw + 20;               // the preview, frames and controls go right of the joysticks
 
     var _py1 = _y1 + 52;
     var _strip_h = 92;
@@ -693,7 +699,7 @@ function ws_animate_draw(_x1, _y1, _x2, _y2)
     }
     if (!_gravity && (anim_sel == 2 || anim_sel == 3))
     {
-        ui_text((_vx1 + _cx2 - 20) / 2, _py1 + 22, "Only platform players, hoppers and fallers jump and fall", global.TH.warn, fa_center, fa_middle, global.f_small, 1);
+        ui_text((_vx1 + _cx2 - 20) / 2, _py1 + 22, "Only platform players, hoppers and fallers use this", global.TH.warn, fa_center, fa_middle, global.f_small, 1);
     }
 
     // frame strip: up to 8 frames; the slot after the last one adds a frame
@@ -768,7 +774,10 @@ function ws_animate_draw(_x1, _y1, _x2, _y2)
     // controls
     var _ky = _sy + _cellw + 18;
     var _half = floor((_cx2 - 20 - _ax1 - 12) / 2);
-    ui_heading(_ax1, _ky, "Speed (50ths of a second per frame)");
+    var _sphd = "Speed (50ths of a second per frame)";
+    draw_set_font(global.f_small);
+    if (ui_sw(string_upper(_sphd)) > _half) { _sphd = "Speed (50ths per frame)"; }
+    ui_heading(_ax1, _ky, _sphd);
     ui_heading(_ax1 + 12 + _half, _ky, "Plays");
     var _nr = ui_stepper("anim_rate", _ax1, _ky + 18, min(_half, 180), _an.rate, 2, 30, "Animation speed|How many 50ths of a second each frame stays on screen. 4 is quick, 8 a brisk walk, 20 a slow blink.");
     if (_nr != _an.rate && anim_can_edit())
@@ -783,11 +792,19 @@ function ws_animate_draw(_x1, _y1, _x2, _y2)
         _s.anims[anim_sel].mode = _nm;
     }
     _ky += 58;
-    var _bw4 = floor((_cx2 - 20 - _ax1 - 3 * 8) / 4);
+    // four buttons; when the row is narrow, Move left / right and Remove keep room for their
+    // labels and Clear (the shortest) takes what is left
+    var _bavail = _cx2 - 20 - _ax1 - 3 * 8;
+    var _bw4 = floor(_bavail / 4);
+    var _bw_mv = max(_bw4, 100);
+    var _bw_rm = max(_bw4, 80);
+    var _bw_cl = _bavail - 2 * _bw_mv - _bw_rm;
+    var _bx_rm = _ax1 + 2 * (_bw_mv + 8);
+    var _bx_cl = _bx_rm + _bw_rm + 8;
     var _sel_real = (anim_slot < _nf);
     var _st = BTN_NORMAL;
     if (!_sel_real || anim_slot == 0) { _st = BTN_GHOST; }
-    if (ui_button("anim_left", _ax1, _ky, _bw4, 32, "Move left", "Move left|Swaps the selected frame with the one before it.", _st))
+    if (ui_button("anim_left", _ax1, _ky, _bw_mv, 32, "Move left", "Move left|Swaps the selected frame with the one before it.", _st))
     {
         if (_sel_real && anim_slot > 0 && anim_can_edit())
         {
@@ -801,7 +818,7 @@ function ws_animate_draw(_x1, _y1, _x2, _y2)
     }
     _st = BTN_NORMAL;
     if (!_sel_real || anim_slot >= _nf - 1) { _st = BTN_GHOST; }
-    if (ui_button("anim_right", _ax1 + (_bw4 + 8), _ky, _bw4, 32, "Move right", "Move right|Swaps the selected frame with the one after it.", _st))
+    if (ui_button("anim_right", _ax1 + (_bw_mv + 8), _ky, _bw_mv, 32, "Move right", "Move right|Swaps the selected frame with the one after it.", _st))
     {
         if (_sel_real && anim_slot < _nf - 1 && anim_can_edit())
         {
@@ -815,7 +832,7 @@ function ws_animate_draw(_x1, _y1, _x2, _y2)
     }
     _st = BTN_NORMAL;
     if (!_sel_real) { _st = BTN_GHOST; }
-    if (ui_button("anim_remove", _ax1 + 2 * (_bw4 + 8), _ky, _bw4, 32, "Remove", "Remove frame|Takes the selected frame out of this animation. You can Undo this.", _st))
+    if (ui_button("anim_remove", _bx_rm, _ky, _bw_rm, 32, "Remove", "Remove frame|Takes the selected frame out of this animation. You can Undo this.", _st))
     {
         if (_sel_real && anim_can_edit())
         {
@@ -825,7 +842,7 @@ function ws_animate_draw(_x1, _y1, _x2, _y2)
     }
     _st = BTN_DANGER;
     if (_nf == 0) { _st = BTN_GHOST; }
-    if (ui_button("anim_clear", _ax1 + 3 * (_bw4 + 8), _ky, _bw4, 32, "Clear", "Clear animation|Removes every frame of this animation, so it borrows from the others again (with nothing left, the actor shows its own sprite). You can Undo this.", _st))
+    if (ui_button("anim_clear", _bx_cl, _ky, _bw_cl, 32, "Clear", "Clear animation|Removes every frame of this animation, so it borrows from the others again (with nothing left, the actor shows its own sprite). You can Undo this.", _st))
     {
         if (_nf > 0 && anim_can_edit())
         {

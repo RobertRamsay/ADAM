@@ -51,6 +51,7 @@ function sprite_colour_key(_si)
 }
 
 #macro ACT_MAX_SPR 8        // the Amiga's hardware sprites
+#macro ACT_MAX_TILE 7       // a tile world: the scrolling display's early fetch (DDFSTRT $30) takes sprite 7's DMA
 #macro ACT_MAX_ALL 32       // actors the engine can run (MAX_ACT in engine.s) - the rest are BOBs, ADAM Pro
 
 // Blitter time per BOB per bitplane each frame: the cookie-cut (24 lines x 2
@@ -99,7 +100,7 @@ function bobs_load()
 /// How many actors go on the disk: up to 12 in ADAM Lite, 32 in ADAM Pro
 function actors_on_disk()
 {
-    if (proj.tiles_on) { return min(ACT_MAX_SPR, array_length(proj.actors)); }     // tile world: hardware sprites only
+    if (proj.tiles_on) { return min(ACT_MAX_TILE, array_length(proj.actors)); }    // tile world: hardware sprites only, not sprite 7
     return min(lim_actors(), array_length(proj.actors));
 }
 
@@ -138,6 +139,8 @@ function actors_alloc_channels()
     var _key = ["", "", "", ""];
     var _used = [0, 0, 0, 0];
     var _owner = [-1, -1, -1, -1];
+    var _cap = [2, 2, 2, 2];             // actors per colour pair
+    if (proj.tiles_on) { _cap[3] = 1; }  // a tile world loses sprite 7 (the second of pair 3)
     for (var i = 0; i < _na; i++)
     {
         if (_bob[i]) { continue; }
@@ -145,7 +148,7 @@ function actors_alloc_channels()
         var _p = -1;
         for (var a = 0; a < 4; a++)
         {
-            if (_p < 0 && _used[a] == 1 && _key[a] == _k) { _p = a; }
+            if (_p < 0 && _used[a] == 1 && _cap[a] > 1 && _key[a] == _k) { _p = a; }
         }
         for (var b = 0; b < 4; b++)
         {
@@ -153,7 +156,7 @@ function actors_alloc_channels()
         }
         for (var c = 0; c < 4; c++)
         {
-            if (_p < 0 && _used[c] < 2) { _p = c; _conf[i] = true; }
+            if (_p < 0 && _used[c] < _cap[c]) { _p = c; _conf[i] = true; }
         }
         if (_used[_p] == 0)
         {
@@ -219,12 +222,18 @@ function ws_actors_draw(_x1, _y1, _x2, _y2)
         draw_sprite_amiga_cols(_ac.sprite, _x1 + 33 - _ts.w * _tsc / 2, _ry + 7 + (SPR_H - _ts.h * _tsc) / 2, _tsc, actor_cols_from(_alloc, i), 1);
         ui_text(_x1 + 60, _ry + 16, ui_text_fit(_ac.name, global.f_bold, _lw - 84), global.TH.text, fa_left, fa_middle, global.f_bold, 1);
         var _sub = _role_short[clamp(_ac.role, 0, 8)];
+        var _subc = global.TH.text_dim;
         if (i < array_length(_alloc.conflict))
         {
-            if (_alloc.conflict[i]) { _sub += "  -  colours shared!"; }
+            // "Platform player  -  colours shared!" (227 px) never fitted the 160 px here: the warning gets the line
+            if (_alloc.conflict[i])
+            {
+                _sub = "Colours shared!";
+                _subc = global.TH.warn;
+            }
             if (_alloc.chan[i] < 0) { _sub += "  -  BOB"; }
         }
-        ui_text(_x1 + 60, _ry + 35, ui_text_fit(_sub, global.f_small, _lw - 84), global.TH.text_dim, fa_left, fa_middle, global.f_small, 1);
+        ui_text(_x1 + 60, _ry + 35, ui_text_fit(_sub, global.f_small, _lw - 80), _subc, fa_left, fa_middle, global.f_small, 1);
         if (_hot && ui_pressed)
         {
             sel_actor = i;
@@ -496,7 +505,7 @@ function ws_actors_draw(_x1, _y1, _x2, _y2)
         var _nfr = 0;
         for (var ae = 0; ae < ANIM_COUNT; ae++) { _nfr += array_length(_s.anims[ae].frames); }
         ui_heading(_fx2, _y, "Animation");
-        ui_text(_fx2, _y + 26, ui_text_fit("Made on the Animate page (" + string(_nfr) + " frames)", global.f_body, _fw2), global.TH.text_dim, fa_left, fa_middle, global.f_body, 1);
+        ui_text(_fx2, _y + 26, ui_text_fit(string(_nfr) + " frames on the Animate page", global.f_body, _fw2), global.TH.text_dim, fa_left, fa_middle, global.f_body, 1);
         if (ui_button("act_goanim", _fx2, _y + 42, _fw2, 32, "Open the Animate page", "Animate page|Idle, walk, jump and fall animations (4 frames each in ADAM Lite, 8 in ADAM Pro), for this actor.", BTN_NORMAL))
         {
             ws_set(WS_ANIMATE);
@@ -532,6 +541,11 @@ function ws_actors_draw(_x1, _y1, _x2, _y2)
         if (feature_gate("BOBs")) { set_val(_s, "bob", _bobv, "actbob"); }
     }
     _y += 34;
+    if (_s.role != 0 && _s.role != 6)
+    {
+        set_val(_s, "carry", ui_toggle("act_carry", _fx2, _y, "Can be carried", _s.carry, "Can be carried|The player picks it up by touching it and pressing fire - it rides on the player's head - and fire again throws it the way the player faces, in an arc. Make rules with WHEN 'Thrown actor hits actor' (knock out an enemy, break a box) and 'Player picks up actor'. A rock, a barrel, a bomb, a key."), "actcarry");
+        _y += 34;
+    }
     var _yend = _y;
 
     // hardware sprite channel

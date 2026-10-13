@@ -14,12 +14,12 @@
 function project_defs_init()
 {
     global.ROLE_NAMES = ["Player (joystick)", "Bouncer (diagonal)", "Patrol left-right", "Patrol up-down", "Chaser (follows player)", "Still (does not move)", "Platform player (walks + jumps)", "Hopper (jumps left and right)", "Faller (drops onto the ground)"];
-    global.WHEN_NAMES = ["Actor touches actor", "Fire button is pressed", "Every few seconds", "Score reaches", "Lives run out", "The game starts", "Actor jumps", "A level starts", "Fire is held (stick still)", "Actor is in view", "Player strikes actor"];
+    global.WHEN_NAMES = ["Actor touches actor", "Fire button is pressed", "Every few seconds", "Score reaches", "Lives run out", "The game starts", "Actor jumps", "A level starts", "Fire is held (stick still)", "Actor is in view", "Player strikes actor", "Thrown actor hits actor", "Player picks up actor"];
     global.DO_NAMES   = ["Add to score", "Lose a life", "Play a sound", "Flash the screen", "Send actor back to start",
                          "Move actor to a random spot", "Hide actor", "Show actor", "Change background colour",
                          "Game over", "You win!", "Speed up actor", "Slow down actor", "Add a life", "Move actor to another actor",
                          "Show actor for a moment", "Make actor safe for a while", "Count towards the level goal",
-                         "Play music", "Stop music", "Place a tile (tile world)"];
+                         "Play music", "Stop music", "Place a tile (tile world)", "Drop what is carried"];
     global.WAVE_NAMES = ["Triangle (soft)", "Sawtooth (buzzy)", "Square (classic)", "Noise (crunchy)"];
     global.SFX_PRESET_NAMES = ["Coin", "Laser", "Explosion", "Jump", "Hit", "Power up", "Lose", "Blip"];
     global.TEMPLATE_NAMES = ["Player touches enemy: lose a life", "Player gets pickup: score",
@@ -115,7 +115,8 @@ function actor_new(_name)
         anim_dirs : false,      // (older files; the 8 directions are on when they have frames)
         from_level : 1,
         faster_every : 0,
-        bob : false             // ADAM Pro: drawn by the blitter instead of a hardware sprite
+        bob : false,            // ADAM Pro: drawn by the blitter instead of a hardware sprite
+        carry : false           // the player picks it up (fire on it) and throws it (fire again)
     };
 }
 
@@ -397,9 +398,30 @@ function actor_preview_sprite(_ac)
     return _e.frames[anim_frame_at(_e, current_time div 20)];
 }
 
+#macro RULE_DOS_MAX 5           // DO lines on one rule card: the DO and up to 4 AND DO lines
+
 function rule_new()
 {
-    return { when : 0, a : 0, b : 1, n : 1, act : 0, target : 0, value : 10, group : -1 };      // n: seconds / score / tenths held / seconds in view; value: points / sound / colour / actor / song / tile
+    // n: seconds / score / tenths held / seconds in view; value: points / sound / colour / actor / song / tile;
+    // more: the AND DO lines (do_new), each runs when the rule fires
+    return { when : 0, a : 0, b : 1, n : 1, act : 0, target : 0, value : 10, group : -1, more : [] };
+}
+
+/// An AND DO line of a rule: what it does, the actor it changes and its value
+function do_new()
+{
+    return { act : 2, target : 0, value : 0 };
+}
+
+/// Does rule _r do _act, on its DO line or an AND DO line?
+function rule_has_act(_r, _act)
+{
+    if (_r.act == _act) { return true; }
+    for (var i = 0; i < array_length(_r.more); i++)
+    {
+        if (_r.more[i].act == _act) { return true; }
+    }
+    return false;
 }
 
 function sfx_new(_name)
@@ -595,7 +617,17 @@ function project_from_loaded(_raw)
     {
         for (var m = 0; m < min(100, array_length(_lr)); m++)
         {
-            array_push(_rules, struct_overlay(rule_new(), _lr[m]));
+            var _ru = struct_overlay(rule_new(), _lr[m]);
+            var _mo = [];                   // AND DO lines (older files have none)
+            if (is_array(_ru.more))
+            {
+                for (var mi = 0; mi < min(RULE_DOS_MAX - 1, array_length(_ru.more)); mi++)
+                {
+                    if (is_struct(_ru.more[mi])) { array_push(_mo, struct_overlay(do_new(), _ru.more[mi])); }
+                }
+            }
+            _ru.more = _mo;
+            array_push(_rules, _ru);
         }
     }
     _p.rules = _rules;

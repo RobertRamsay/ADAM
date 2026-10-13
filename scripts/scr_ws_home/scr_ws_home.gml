@@ -61,9 +61,10 @@ function ws_home_draw(_x1, _y1, _x2, _y2)
     draw_boing(_split - 150, _y1 + 26, 110, 0.9);
     ui_text(_x1 + 28, _y1 + 26, "Make an Amiga game.", c_white, fa_left, fa_top, global.f_hero, 1);
     ui_text(_x1 + 28, _y1 + 62, "No code needed.", global.TH.accent2, fa_left, fa_top, global.f_hero, 1);
-    ui_text_wrap(_x1 + 28, _y1 + 106, "Paint a backdrop, draw sprites, choose how things move and write the rules as simple WHEN / DO sentences. ADAM builds a bootable Amiga disk for the " + _m.name + ".", global.TH.text_dim, _split - _x1 - 220, global.f_body, 1);
+    // three lines (72 px) at 1280 wide, so the buttons sit below them at + 184
+    ui_text_wrap(_x1 + 28, _y1 + 104, "Paint a backdrop, draw sprites, choose how things move and write the rules as simple WHEN / DO sentences. ADAM builds a bootable Amiga disk for the " + _m.name + ".", global.TH.text_dim, _split - _x1 - 220, global.f_body, 1);
     var _bx = _x1 + 28;
-    var _by = _y1 + 176;
+    var _by = _y1 + 184;
     var _ex = ui_menu_button("home_example", _bx, _by, 190, 40, "Example games...", example_names(), "Example games|Finished games to play and pull apart: Gem Hunter, Deep Dive, Star Catcher and Dodge Ball, plus Firefly Night for ADAM Pro, with a swarm of BOBs. Look around every page to see how they were made, then build them.", BTN_ON);
     if (_ex >= 0) { example_load(_ex); }
     if (ui_button("home_new", _bx + 200, _by, 80, 40, "New", "New project|Starts a blank project for the same machine.", BTN_NORMAL)) { home_new(); }
@@ -76,7 +77,7 @@ function ws_home_draw(_x1, _y1, _x2, _y2)
     ui_panel(_x1, _cy, _split - 10, _y2, "How it works");
     ui_text(_split - 26, _cy + 19, "Click a card to open that page", global.TH.text_faint, fa_right, fa_top, global.f_small, 1);
     var _dest = [WS_BACKDROP, WS_TILES, WS_LEVELS, WS_SPRITES, WS_ACTORS, WS_ANIMATE, WS_UI, WS_LOGIC, WS_SOUND, WS_MUSIC, WS_BUILD, -1];
-    var _desc = ["Paint the 320 x 256 picture in up to " + string(1 << _m.max_depth) + " colours, or import one.",
+    var _desc = ["Paint or import the 320 x 256 picture (up to " + string(1 << _m.max_depth) + " colours).",
                  "Draw tiles and paint a big scrolling world to dig through.",
                  "Up to 10 levels, their hills, the goal and the title screen.",
                  "Draw the pictures for the player, enemies and pickups.",
@@ -92,11 +93,12 @@ function ws_home_draw(_x1, _y1, _x2, _y2)
     var _cols = 4;
     var _rows = ceil(_ncard / _cols);
     var _cw = floor((_split - 10 - _x1 - 32 - (_cols - 1) * 8) / _cols);
-    var _ch = floor((_y2 - _cy - 56 - 16 - (_rows - 1) * 8) / _rows);
+    // at 760 high a card is about 104 px: title row, then three lines of small text (60 px)
+    var _ch = floor((_y2 - _cy - 50 - 12 - (_rows - 1) * 8) / _rows);
     for (var i = 0; i < _ncard; i++)
     {
         var _cx = _x1 + 16 + (i mod _cols) * (_cw + 8);
-        var _cyy = _cy + 56 + (i div _cols) * (_ch + 8);
+        var _cyy = _cy + 50 + (i div _cols) * (_ch + 8);
         var _id = "home_card_" + string(i);
         var _title = "Guided tour";
         var _num = "?";
@@ -121,10 +123,10 @@ function ws_home_draw(_x1, _y1, _x2, _y2)
             _c1 = global.TH.accent2;
             _c2 = merge_colour(global.TH.accent2, c_black, 0.35);
         }
-        draw_circle_colour(_cx + 22, _cyy + 22, 12, _c1, _c2, false);
-        ui_text(_cx + 22, _cyy + 22, _num, c_white, fa_center, fa_middle, global.f_bold, 1);
-        ui_text(_cx + 42, _cyy + 22, ui_text_fit(_title, global.f_bold, _cw - 50), global.TH.text, fa_left, fa_middle, global.f_bold, 1);
-        ui_text_wrap(_cx + 14, _cyy + 42, _desc[i], global.TH.text_dim, _cw - 26, global.f_small, 1);
+        draw_circle_colour(_cx + 22, _cyy + 20, 12, _c1, _c2, false);
+        ui_text(_cx + 22, _cyy + 20, _num, c_white, fa_center, fa_middle, global.f_bold, 1);
+        ui_text(_cx + 42, _cyy + 20, ui_text_fit(_title, global.f_bold, _cw - 50), global.TH.text, fa_left, fa_middle, global.f_bold, 1);
+        ui_text_wrap(_cx + 12, _cyy + 36, _desc[i], global.TH.text_dim, _cw - 22, global.f_small, 1);
         if (_hot && ui_pressed)
         {
             ui_take_click();
@@ -156,9 +158,9 @@ function ws_home_draw(_x1, _y1, _x2, _y2)
     set_val(proj, "name", _nm, "name");
     _y += 64;
     ui_heading(_fx, _y, "Target machine");
-    ui_inset(_fx, _y + 18, _fx + _fw - 110, _y + 50, 8);
-    ui_text(_fx + 10, _y + 34, ui_text_fit(_m.name + "  -  " + _m.chipset + ", " + _m.ram_label, global.f_body, _fw - 130), global.TH.text, fa_left, fa_middle, global.f_body, 1);
-    if (ui_button("home_machine", _fx + _fw - 100, _y + 18, 100, 32, "Change", "Change machine|Pick the Amiga 500/600 (OCS/ECS, 1MB) or the Amiga 1200 (AGA, 2MB). Moving to the 500/600 reduces the backdrop to 16 colours.", BTN_NORMAL))
+    ui_inset(_fx, _y + 18, _fx + _fw - 88, _y + 50, 8);
+    ui_text(_fx + 10, _y + 34, ui_text_fit(_m.name + " - " + _m.chipset + ", " + _m.ram_label, global.f_body, _fw - 108), global.TH.text, fa_left, fa_middle, global.f_body, 1);
+    if (ui_button("home_machine", _fx + _fw - 80, _y + 18, 80, 32, "Change", "Change machine|Pick the Amiga 500/600 (OCS/ECS, 1MB) or the Amiga 1200 (AGA, 2MB). Moving to the 500/600 reduces the backdrop to 16 colours.", BTN_NORMAL))
     {
         machine_pick_open(false);
     }

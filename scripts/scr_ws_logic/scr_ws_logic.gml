@@ -28,15 +28,18 @@ function logic_add_template(_t)
     switch (_t)
     {
         case 0:
-            _r = rule_new(); _r.when = 0; _r.a = _pl; _r.b = _en; _r.act = 1; array_push(proj.rules, _r);
-            _r = rule_new(); _r.when = 0; _r.a = _pl; _r.b = _en; _r.act = 4; _r.target = _pl; array_push(proj.rules, _r);
-            _r = rule_new(); _r.when = 0; _r.a = _pl; _r.b = _en; _r.act = 3; array_push(proj.rules, _r);
-            _r = rule_new(); _r.when = 0; _r.a = _pl; _r.b = _en; _r.act = 16; _r.target = _pl; array_push(proj.rules, _r);
+            // one card: lose a life AND go home AND flash AND flash safely for a while
+            _r = rule_new(); _r.when = 0; _r.a = _pl; _r.b = _en; _r.act = 1;
+            array_push(_r.more, { act : 4, target : _pl, value : 0 });
+            array_push(_r.more, { act : 3, target : 0, value : 0 });
+            array_push(_r.more, { act : 16, target : _pl, value : 0 });
+            array_push(proj.rules, _r);
             break;
         case 1:
-            _r = rule_new(); _r.when = 0; _r.a = _pl; _r.b = _pk; _r.act = 0; _r.value = 10; array_push(proj.rules, _r);
-            _r = rule_new(); _r.when = 0; _r.a = _pl; _r.b = _pk; _r.act = 5; _r.target = _pk; array_push(proj.rules, _r);
-            _r = rule_new(); _r.when = 0; _r.a = _pl; _r.b = _pk; _r.act = 2; _r.value = 0; array_push(proj.rules, _r);
+            _r = rule_new(); _r.when = 0; _r.a = _pl; _r.b = _pk; _r.act = 0; _r.value = 10;
+            array_push(_r.more, { act : 5, target : _pk, value : 0 });
+            array_push(_r.more, { act : 2, target : 0, value : 0 });
+            array_push(proj.rules, _r);
             break;
         case 2:
             _r = rule_new(); _r.when = 3; _r.n = 100; _r.act = 10; array_push(proj.rules, _r);
@@ -114,21 +117,37 @@ function logic_sentence(_r)
         case 8: _s += "fire is held for " + string_format(_r.n / 10, 0, 1) + " seconds with the stick still"; break;
         case 9: _s += _an + " is in view (every " + string(_r.n) + " seconds)"; break;
         case 10: _s += "the player strikes " + _bn; break;
+        case 11:
+            if (_r.a == _r.b) { _s += "thrown " + _an + " hits anything"; }
+            else { _s += "thrown " + _an + " hits " + _bn; }
+            break;
+        case 12: _s += "the player picks up " + _an; break;
     }
-    var _tn = "?";
-    if (_r.target < _na) { _tn = _names[_r.target]; }
-    _s += ", ";
-    switch (_r.act)
+    _s += ", " + logic_do_phrase(_r, _names, _na);
+    for (var m = 0; m < array_length(_r.more); m++)
     {
-        case 0: _s += "add " + string(_r.value) + " to the score"; break;
+        _s += ", then " + logic_do_phrase(_r.more[m], _names, _na);
+    }
+    return _s + ".";
+}
+
+/// What one DO / AND DO line does, as words (_d: act, target, value)
+function logic_do_phrase(_d, _names, _na)
+{
+    var _s = "";
+    var _tn = "?";
+    if (_d.target < _na) { _tn = _names[_d.target]; }
+    switch (_d.act)
+    {
+        case 0: _s += "add " + string(_d.value) + " to the score"; break;
         case 1: _s += "lose a life"; break;
-        case 2: _s += "play sound '" + proj.sfx[clamp(_r.value, 0, 7)].name + "'"; break;
+        case 2: _s += "play sound '" + proj.sfx[clamp(_d.value, 0, 7)].name + "'"; break;
         case 3: _s += "flash the screen"; break;
         case 4: _s += "send " + _tn + " back to its start"; break;
         case 5: _s += "move " + _tn + " to a random spot"; break;
         case 6: _s += "hide " + _tn; break;
         case 7: _s += "show " + _tn; break;
-        case 8: _s += "make the background colour " + string(clamp(_r.value, 0, pal_count() - 1)); break;
+        case 8: _s += "make the background colour " + string(clamp(_d.value, 0, pal_count() - 1)); break;
         case 9: _s += "it's game over"; break;
         case 10: _s += "the player wins"; break;
         case 11: _s += "speed up " + _tn; break;
@@ -136,21 +155,22 @@ function logic_sentence(_r)
         case 13: _s += "add a life"; break;
         case 14:
             var _vn = "?";
-            if (_r.value < _na) { _vn = _names[_r.value]; }
+            if (_d.value < _na) { _vn = _names[_d.value]; }
             _s += "move " + _tn + " to " + _vn;
             break;
         case 15: _s += "show " + _tn + " for a moment"; break;
         case 16: _s += "make " + _tn + " safe for a while (it flashes)"; break;
         case 17: _s += "count one towards the " + string_lower(proj.goal_label) + " goal"; break;
-        case 18: _s += "play the music '" + logic_song_name(_r.value) + "' from the start"; break;
+        case 18: _s += "play the music '" + logic_song_name(_d.value) + "' from the start"; break;
         case 19: _s += "stop the music"; break;
         case 20:
             var _tln = "?";
-            if (_r.value >= 0 && _r.value < array_length(proj.tiles)) { _tln = proj.tiles[_r.value].name; }
+            if (_d.value >= 0 && _d.value < array_length(proj.tiles)) { _tln = proj.tiles[_d.value].name; }
             _s += "put a " + _tln + " tile where " + _tn + " is (if nothing solid is there)";
             break;
+        case 21: _s += "the player drops what it carries"; break;
     }
-    return _s + ".";
+    return _s;
 }
 
 // ---------------------------------------------------------------------------
@@ -361,11 +381,97 @@ function rule_disabled(_r)
     return group_off_in(proj.groups, _r.group);
 }
 
+/// One DO line of a rule card (_d = the rule, or one of its AND DO lines); _pill = "DO" or "AND".
+/// _xr = the x the row must stop at (clear of the buttons on the right of the card).
+function logic_do_row(_d, _rid, _x, _y, _pill, _anames, _snames, _xr)
+{
+    var _dx = _x;
+    var _dy = _y;
+    ui_rrect(_dx, _dy + 4, _dx + 56, _dy + 26, 11, global.TH.accent, global.TH.accent_dark, 1);
+    ui_text(_dx + 28, _dy + 15, _pill, c_white, fa_center, fa_middle, global.f_small, 1);
+    _dx += 66;
+    set_val(_d, "act", ui_dropdown(_rid + "_act", _dx, _dy, LOGIC_DO_W, 30, global.DO_NAMES, _d.act, "DO|What happens when the WHEN part is true. AND DO lines happen too, in order, every time it fires."), _rid + "act");
+    _dx += LOGIC_DO_W + 10;
+    var _act = _d.act;
+    if (_act == 4 || _act == 5 || _act == 6 || _act == 7 || _act == 11 || _act == 12 || _act == 14 || _act == 15 || _act == 16 || _act == 20)
+    {
+        set_val(_d, "target", ui_dropdown(_rid + "_t", _dx, _dy, LOGIC_ACTOR_W, 30, _anames, _d.target, "Which actor|The actor this action changes."), _rid + "t");
+        _dx += LOGIC_ACTOR_W + 10;
+    }
+    if (_act == 0)
+    {
+        set_val(_d, "value", ui_stepper(_rid + "_v", _dx, _dy, 150, _d.value, 1, 9999, "Points|How many points to add. Hold Shift for steps of 10."), _rid + "v");
+        logic_word(_dx + 158, _dy, "points");
+    }
+    if (_act == 2)
+    {
+        set_val(_d, "value", ui_dropdown(_rid + "_snd", _dx, _dy, 180, 30, _snames, clamp(_d.value, 0, 7), "Sound|Which of your 8 sound effects to play. Design them on the Sound page."), _rid + "snd");
+        if (ui_button(_rid + "_play", _dx + 188, _dy, 60, 30, "Play", "Preview|Plays this sound so you can hear it.", BTN_GHOST))
+        {
+            sfx_preview_play(proj.sfx[clamp(_d.value, 0, 7)]);
+        }
+    }
+    if (_act == 14)
+    {
+        var _tox = logic_word(_dx, _dy, "to");
+        var _tow = max(100, min(LOGIC_ACTOR_W, _xr - _tox));
+        set_val(_d, "value", ui_dropdown(_rid + "_to", _tox, _dy, _tow, 30, _anames, clamp(_d.value, 0, max(0, array_length(proj.actors) - 1)), "To which actor|The first actor jumps to where this one is - drop a gem from a moving cloud, or respawn an enemy at a portal."), _rid + "to");
+    }
+    if (_act == 18)
+    {
+        var _mnames = logic_song_names();
+        if (array_length(_mnames) > 0)
+        {
+            set_val(_d, "value", ui_dropdown(_rid + "_song", _dx, _dy, 200, 30, _mnames, clamp(_d.value, 0, array_length(_mnames) - 1), "Song|Which song to play. It starts from the beginning, and sound effects still play over it. Make songs on the Music page."), _rid + "song");
+        }
+        else
+        {
+            ui_text(_dx, _dy + 15, ui_text_fit("No songs yet - make one on the Music page", global.f_small, _xr - _dx), global.TH.warn, fa_left, fa_middle, global.f_small, 1);
+        }
+    }
+    if (_act == 20)
+    {
+        var _tnames = [];
+        for (var tq = 0; tq < array_length(proj.tiles); tq++) { array_push(_tnames, string(tq) + ": " + proj.tiles[tq].name); }
+        var _tlw = max(100, min(170, _xr - _dx));
+        set_val(_d, "value", ui_dropdown(_rid + "_tile", _dx, _dy, _tlw, 30, _tnames, clamp(_d.value, 0, array_length(_tnames) - 1), "Tile|The tile put down where the actor is (its middle, else its feet or head) - only where nothing solid is. A ladder part to climb out of a hole, a block to stand on, a torch. Tile world games only (Tiles page)."), _rid + "tile");
+        // the note only where it fits before the card's buttons (the help says it too)
+        if (!proj.tiles_on && _xr - (_dx + _tlw + 8) >= 80)
+        {
+            ui_text(_dx + _tlw + 8, _dy + 15, "(tile worlds)", global.TH.warn, fa_left, fa_middle, global.f_small, 1);
+        }
+    }
+    if (_act == 8)
+    {
+        set_val(_d, "value", ui_colour_drop(_rid + "_col", _dx, _dy, 180, 30, clamp(_d.value, 0, pal_count() - 1), "Colour|The backdrop palette colour that colour 0 (the background and border) changes to."), _rid + "col");
+    }
+
+}
+
+#macro LOGIC_DO_ROW_H 40         // each AND DO line makes a rule card this much taller
+#macro LOGIC_WHEN_W 230          // the WHEN drop-down: room for 'Thrown actor hits actor'
+#macro LOGIC_DO_W 270            // the DO drop-downs: room for 'Move actor to a random spot'
+#macro LOGIC_ACTOR_W 150         // actor drop-downs on a card
+
+/// A dim word between a card's controls, at _x; returns the x just after it (and a gap)
+function logic_word(_x, _y, _text)
+{
+    draw_set_font(global.f_body);
+    ui_text(_x, _y + 15, _text, global.TH.text_dim, fa_left, fa_middle, global.f_body, 1);
+    return _x + ceil(ui_sw(_text)) + 8;
+}
+
+/// Height of rule _r's card: 128, plus a row for each AND DO line
+function logic_card_h(_r)
+{
+    return 128 + array_length(_r.more) * LOGIC_DO_ROW_H;
+}
+
 /// One WHEN / DO card. Returns 0, or 1 = delete, 2 = up, 3 = down.
 function logic_rule_card(_r, i, _cx, _cy, _cw, _anames, _snames, _gnames)
 {
     var _res = 0;
-    var _cardh = 128;
+    var _cardh = logic_card_h(_r);
     var _rid = "rule_" + string(i);
     var _alpha = 0.9;
     if (rule_disabled(_r)) { _alpha = 0.45; }
@@ -381,106 +487,86 @@ function logic_rule_card(_r, i, _cx, _cy, _cw, _anames, _snames, _gnames)
     ui_rrect(_wx, _wy + 4, _wx + 56, _wy + 26, 11, global.TH.accent2, make_colour_rgb(46, 140, 116), 1);
     ui_text(_wx + 28, _wy + 15, "WHEN", make_colour_rgb(16, 30, 28), fa_center, fa_middle, global.f_small, 1);
     _wx += 66;
-    set_val(_r, "when", ui_dropdown(_rid + "_when", _wx, _wy, 210, 30, global.WHEN_NAMES, _r.when, "WHEN|The thing that has to happen for this rule to fire."), _rid + "w");
-    _wx += 220;
+    set_val(_r, "when", ui_dropdown(_rid + "_when", _wx, _wy, LOGIC_WHEN_W, 30, global.WHEN_NAMES, _r.when, "WHEN|The thing that has to happen for this rule to fire."), _rid + "w");
+    _wx += LOGIC_WHEN_W + 10;
+    var _aw = LOGIC_ACTOR_W;
     switch (_r.when)
     {
         case 0:
-            set_val(_r, "a", ui_dropdown(_rid + "_a", _wx, _wy, 150, 30, _anames, _r.a, "First actor|The actor that does the touching."), _rid + "a");
-            ui_text(_wx + 158, _wy + 15, "touches", global.TH.text_dim, fa_left, fa_middle, global.f_body, 1);
-            set_val(_r, "b", ui_dropdown(_rid + "_b", _wx + 222, _wy, 150, 30, _anames, _r.b, "Second actor|The actor being touched. Pick the same actor twice for 'touches anything'."), _rid + "b");
+            set_val(_r, "a", ui_dropdown(_rid + "_a", _wx, _wy, _aw, 30, _anames, _r.a, "First actor|The actor that does the touching."), _rid + "a");
+            _wx = logic_word(_wx + _aw + 8, _wy, "touches");
+            set_val(_r, "b", ui_dropdown(_rid + "_b", _wx, _wy, _aw, 30, _anames, _r.b, "Second actor|The actor being touched. Pick the same actor twice for 'touches anything'."), _rid + "b");
             break;
         case 2:
-            ui_text(_wx, _wy + 15, "every", global.TH.text_dim, fa_left, fa_middle, global.f_body, 1);
-            set_val(_r, "n", ui_stepper(_rid + "_n", _wx + 48, _wy, 120, _r.n, 1, 60, "Seconds|How many seconds between each time this rule fires."), _rid + "n");
-            ui_text(_wx + 176, _wy + 15, "seconds", global.TH.text_dim, fa_left, fa_middle, global.f_body, 1);
+            _wx = logic_word(_wx, _wy, "every");
+            set_val(_r, "n", ui_stepper(_rid + "_n", _wx, _wy, 120, _r.n, 1, 60, "Seconds|How many seconds between each time this rule fires."), _rid + "n");
+            logic_word(_wx + 128, _wy, "seconds");
             break;
         case 6:
-            set_val(_r, "a", ui_dropdown(_rid + "_a", _wx, _wy, 150, 30, _anames, _r.a, "Which actor|The actor whose jump fires this rule - great for a jump sound."), _rid + "a");
-            ui_text(_wx + 158, _wy + 15, "jumps", global.TH.text_dim, fa_left, fa_middle, global.f_body, 1);
+            set_val(_r, "a", ui_dropdown(_rid + "_a", _wx, _wy, _aw, 30, _anames, _r.a, "Which actor|The actor whose jump fires this rule - great for a jump sound."), _rid + "a");
+            logic_word(_wx + _aw + 8, _wy, "jumps");
             break;
         case 8:
-            ui_text(_wx, _wy + 15, "for", global.TH.text_dim, fa_left, fa_middle, global.f_body, 1);
-            set_val(_r, "n", ui_stepper(_rid + "_n", _wx + 34, _wy, 120, clamp(_r.n, 1, 100), 1, 100, "Hold time|How long fire is held, in tenths of a second (10 = one second), with the joystick left alone. Fires once per hold - hold again for another. Great for 'hold fire to build a ladder part'."), _rid + "n");
-            ui_text(_wx + 162, _wy + 15, "tenths of a second", global.TH.text_dim, fa_left, fa_middle, global.f_body, 1);
+            _wx = logic_word(_wx, _wy, "for");
+            set_val(_r, "n", ui_stepper(_rid + "_n", _wx, _wy, 120, clamp(_r.n, 1, 100), 1, 100, "Hold time|How long fire is held, in tenths of a second (10 = one second), with the joystick left alone. Fires once per hold - hold again for another. Great for 'hold fire to build a ladder part'."), _rid + "n");
+            logic_word(_wx + 128, _wy, "tenths of a second");
             break;
         case 9:
-            set_val(_r, "a", ui_dropdown(_rid + "_a", _wx, _wy, 150, 30, _anames, _r.a, "Which actor|While this actor is on the screen the rule fires every few seconds - a bell that rings only when you can see it, a waterfall you hear as you pass. Off the screen it waits, then fires a second after it comes back into view."), _rid + "a");
-            ui_text(_wx + 158, _wy + 15, "in view, every", global.TH.text_dim, fa_left, fa_middle, global.f_body, 1);
-            set_val(_r, "n", ui_stepper(_rid + "_n", _wx + 246, _wy, 110, clamp(_r.n, 1, 60), 1, 60, "Seconds|How many seconds between each time, while it is in view."), _rid + "n");
-            ui_text(_wx + 364, _wy + 15, "s", global.TH.text_dim, fa_left, fa_middle, global.f_body, 1);
+            set_val(_r, "a", ui_dropdown(_rid + "_a", _wx, _wy, _aw, 30, _anames, _r.a, "Which actor|While this actor is on the screen the rule fires every few seconds - a bell that rings only when you can see it, a waterfall you hear as you pass. Off the screen it waits, then fires a second after it comes back into view."), _rid + "a");
+            _wx = logic_word(_wx + _aw + 8, _wy, "in view, every");
+            set_val(_r, "n", ui_stepper(_rid + "_n", _wx, _wy, 100, clamp(_r.n, 1, 60), 1, 60, "Seconds|How many seconds between each time, while it is in view."), _rid + "n");
+            logic_word(_wx + 108, _wy, "s");
             break;
         case 10:
-            ui_text(_wx, _wy + 15, "the player strikes", global.TH.text_dim, fa_left, fa_middle, global.f_body, 1);
-            set_val(_r, "b", ui_dropdown(_rid + "_b", _wx + 110, _wy, 150, 30, _anames, _r.b, "Which actor|Fires when the player's weapon (a Weapon tool - Tiles page, Tools tab) reaches this actor. Auto weapons swing by themselves only at actors that have a rule like this."), _rid + "b");
+            _wx = logic_word(_wx, _wy, "the player strikes");
+            set_val(_r, "b", ui_dropdown(_rid + "_b", _wx, _wy, _aw, 30, _anames, _r.b, "Which actor|Fires when the player's weapon (a Weapon tool - Tiles page, Tools tab) reaches this actor. Auto weapons swing by themselves only at actors that have a rule like this."), _rid + "b");
+            break;
+        case 11:
+            set_val(_r, "a", ui_dropdown(_rid + "_a", _wx, _wy, _aw, 30, _anames, _r.a, "Thrown actor|An actor with 'Can be carried' (Actors page) that the player has thrown."), _rid + "a");
+            _wx = logic_word(_wx + _aw + 8, _wy, "hits");
+            set_val(_r, "b", ui_dropdown(_rid + "_b", _wx, _wy, _aw, 30, _anames, _r.b, "Which actor|The actor it hits while it flies. Pick the thrown actor twice for 'hits anything'. After a hit it drops, harmless."), _rid + "b");
+            break;
+        case 12:
+            set_val(_r, "a", ui_dropdown(_rid + "_a", _wx, _wy, _aw, 30, _anames, _r.a, "Which actor|Fires when the player picks this actor up (it needs 'Can be carried' on the Actors page)."), _rid + "a");
+            logic_word(_wx + _aw + 8, _wy, "is picked up");
             break;
         case 3:
             set_val(_r, "n", ui_stepper(_rid + "_n", _wx, _wy, 150, _r.n, 1, 9999, "Score target|The rule fires once when the score reaches this number. Hold Shift for steps of 10."), _rid + "n");
-            ui_text(_wx + 158, _wy + 15, "points", global.TH.text_dim, fa_left, fa_middle, global.f_body, 1);
+            logic_word(_wx + 158, _wy, "points");
             break;
     }
 
-    // DO row
-    var _dx = _cx + 46;
-    var _dy = _cy + 50;
-    ui_rrect(_dx, _dy + 4, _dx + 56, _dy + 26, 11, global.TH.accent, global.TH.accent_dark, 1);
-    ui_text(_dx + 28, _dy + 15, "DO", c_white, fa_center, fa_middle, global.f_small, 1);
-    _dx += 66;
-    set_val(_r, "act", ui_dropdown(_rid + "_act", _dx, _dy, 210, 30, global.DO_NAMES, _r.act, "DO|What happens when the WHEN part is true."), _rid + "act");
-    _dx += 220;
-    var _act = _r.act;
-    if (_act == 4 || _act == 5 || _act == 6 || _act == 7 || _act == 11 || _act == 12 || _act == 14 || _act == 15 || _act == 16 || _act == 20)
+    // DO row, then the AND DO lines (each fires with the rule)
+    logic_do_row(_r, _rid, _cx + 46, _cy + 50, "DO", _anames, _snames, _cx + _cw - 50);
+    var _mdel = -1;
+    for (var m = 0; m < array_length(_r.more); m++)
     {
-        set_val(_r, "target", ui_dropdown(_rid + "_t", _dx, _dy, 150, 30, _anames, _r.target, "Which actor|The actor this action changes."), _rid + "t");
-        _dx += 160;
+        var _my = _cy + 50 + (m + 1) * LOGIC_DO_ROW_H;
+        logic_do_row(_r.more[m], _rid + "_m" + string(m), _cx + 46, _my, "AND", _anames, _snames, _cx + _cw - 90);
+        if (ui_button(_rid + "_mdel" + string(m), _cx + _cw - 80, _my, 30, 30, "x", "Remove this line|Takes this AND DO line off the rule. You can Undo this.", BTN_GHOST)) { _mdel = m; }
     }
-    if (_act == 0)
+    if (_mdel >= 0)
     {
-        set_val(_r, "value", ui_stepper(_rid + "_v", _dx, _dy, 150, _r.value, 1, 9999, "Points|How many points to add. Hold Shift for steps of 10."), _rid + "v");
-        ui_text(_dx + 158, _dy + 15, "points", global.TH.text_dim, fa_left, fa_middle, global.f_body, 1);
-    }
-    if (_act == 2)
-    {
-        set_val(_r, "value", ui_dropdown(_rid + "_snd", _dx, _dy, 180, 30, _snames, clamp(_r.value, 0, 7), "Sound|Which of your 8 sound effects to play. Design them on the Sound page."), _rid + "snd");
-        if (ui_button(_rid + "_play", _dx + 188, _dy, 60, 30, "Play", "Preview|Plays this sound so you can hear it.", BTN_GHOST))
-        {
-            sfx_preview_play(proj.sfx[clamp(_r.value, 0, 7)]);
-        }
-    }
-    if (_act == 14)
-    {
-        ui_text(_dx, _dy + 15, "to", global.TH.text_dim, fa_left, fa_middle, global.f_body, 1);
-        set_val(_r, "value", ui_dropdown(_rid + "_to", _dx + 24, _dy, 150, 30, _anames, clamp(_r.value, 0, max(0, array_length(proj.actors) - 1)), "To which actor|The first actor jumps to where this one is - drop a gem from a moving cloud, or respawn an enemy at a portal."), _rid + "to");
-    }
-    if (_act == 18)
-    {
-        var _mnames = logic_song_names();
-        if (array_length(_mnames) > 0)
-        {
-            set_val(_r, "value", ui_dropdown(_rid + "_song", _dx, _dy, 200, 30, _mnames, clamp(_r.value, 0, array_length(_mnames) - 1), "Song|Which song to play. It starts from the beginning, and sound effects still play over it. Make songs on the Music page."), _rid + "song");
-        }
-        else
-        {
-            ui_text(_dx, _dy + 15, "No songs yet - make one on the Music page", global.TH.warn, fa_left, fa_middle, global.f_body, 1);
-        }
-    }
-    if (_act == 20)
-    {
-        var _tnames = [];
-        for (var tq = 0; tq < array_length(proj.tiles); tq++) { array_push(_tnames, string(tq) + ": " + proj.tiles[tq].name); }
-        set_val(_r, "value", ui_dropdown(_rid + "_tile", _dx, _dy, 170, 30, _tnames, clamp(_r.value, 0, array_length(_tnames) - 1), "Tile|The tile put down where the actor is (its middle, else its feet or head) - only where nothing solid is. A ladder part to climb out of a hole, a block to stand on, a torch. Tile world games only (Tiles page)."), _rid + "tile");
-        if (!proj.tiles_on) { ui_text(_dx + 180, _dy + 15, "(tile worlds only)", global.TH.warn, fa_left, fa_middle, global.f_small, 1); }
-    }
-    if (_act == 8)
-    {
-        set_val(_r, "value", ui_colour_drop(_rid + "_col", _dx, _dy, 180, 30, clamp(_r.value, 0, pal_count() - 1), "Colour|The backdrop palette colour that colour 0 (the background and border) changes to."), _rid + "col");
+        undo_mark("ruledodel" + string(current_time));
+        array_delete(_r.more, _mdel, 1);
     }
 
     // sentence, group and tools
     var _gw = 170;
     var _gx = _cx + _cw - 48 - _gw;
-    ui_text(_cx + 46, _cy + 104, ui_text_fit(logic_sentence(_r), global.f_small, _gx - _cx - 56), global.TH.text_faint, fa_left, fa_middle, global.f_small, 1);
-    var _ng = ui_dropdown(_rid + "_grp", _gx, _cy + 90, _gw, 28, _gnames, _r.group + 1, "Group|Move this rule into a group. Groups keep related rules together and can be collapsed or switched off.") - 1;
+    var _by = _cy + _cardh - 38;
+    var _sx2 = _gx - 10;
+    if (array_length(_r.more) < RULE_DOS_MAX - 1)
+    {
+        _sx2 = _gx - 112;
+        if (ui_button(_rid + "_anddo", _gx - 102, _by, 92, 28, "+ AND DO", "Add an AND DO line|Something else that happens every time this rule fires - e.g. add to the score AND play a sound AND send the enemy home. Up to " + string(RULE_DOS_MAX) + " DO lines on one rule; they run in order.", BTN_GHOST))
+        {
+            undo_mark("ruledoadd" + string(current_time));
+            array_push(_r.more, do_new());
+        }
+    }
+    ui_text(_cx + 46, _by + 14, ui_text_fit(logic_sentence(_r), global.f_small, _sx2 - _cx - 46), global.TH.text_faint, fa_left, fa_middle, global.f_small, 1);
+    var _ng = ui_dropdown(_rid + "_grp", _gx, _by, _gw, 28, _gnames, _r.group + 1, "Group|Move this rule into a group. Groups keep related rules together and can be collapsed or switched off.") - 1;
     if (_ng != _r.group)
     {
         undo_mark("rulegrp" + string(current_time));
@@ -509,7 +595,9 @@ function ws_logic_draw(_x1, _y1, _x2, _y2)
     ui_panel(_x1, _y1, _lx2, _y2, "Rules");
     var _nr = array_length(proj.rules);
     var _ngr = array_length(proj.groups);
-    ui_text(_x1 + 100, _y1 + 15, string(_nr) + " rule(s) in " + string(_ngr) + " group(s). Checked every frame, top to bottom.", global.TH.text_faint, fa_left, fa_top, global.f_small, 1);
+    var _subr = _lx2 - 306;                 // stop before '+ Add group' (or 'Collapse all' when there are groups)
+    if (_ngr > 0) { _subr = _lx2 - 422; }
+    ui_text(_x1 + 100, _y1 + 15, ui_text_fit(string(_nr) + " rule(s) in " + string(_ngr) + " group(s). Checked every frame, top to bottom.", global.f_small, _subr - _x1 - 100), global.TH.text_faint, fa_left, fa_top, global.f_small, 1);
     if (ui_button("logic_add", _lx2 - 150, _y1 + 8, 136, 30, "+ Add rule", "Add rule|Adds a new WHEN / DO rule (outside any group). Use the + Rule button on a group to add straight into it.", BTN_ACCENT))
     {
         if (_nr < 100)
@@ -548,7 +636,6 @@ function ws_logic_draw(_x1, _y1, _x2, _y2)
     var _lx = _x1 + 14;
     var _ly1 = _y1 + 52;
     var _ly2 = _y2 - 12;
-    var _cardh = 128;
     var _hdrh = 44;
     var _anames = actor_names();
     var _snames = sfx_names();
@@ -578,7 +665,7 @@ function ws_logic_draw(_x1, _y1, _x2, _y2)
     var _content = 10;
     for (var k = 0; k < array_length(_items); k++)
     {
-        if (_items[k][0] == 0) { _content += _cardh + 10; }
+        if (_items[k][0] == 0) { _content += logic_card_h(proj.rules[_items[k][1]]) + 10; }
         else { _content += _hdrh + 10; }
     }
     // a rule was just added: scroll so its whole card is in view
@@ -593,11 +680,11 @@ function ws_logic_draw(_x1, _y1, _x2, _y2)
                 var _cur = ds_map_find_value(ui_scroll, "logic_list");
                 if (is_undefined(_cur)) { _cur = 0; }
                 if (_ry2 - 10 < _cur) { _cur = _ry2 - 10; }
-                if (_ry2 + _cardh + 10 > _cur + _view) { _cur = _ry2 + _cardh + 10 - _view; }
+                if (_ry2 + logic_card_h(logic_reveal) + 10 > _cur + _view) { _cur = _ry2 + logic_card_h(logic_reveal) + 10 - _view; }
                 ds_map_replace(ui_scroll, "logic_list", max(0, _cur));
                 break;
             }
-            if (_items[k3][0] == 0) { _ry2 += _cardh + 10; }
+            if (_items[k3][0] == 0) { _ry2 += logic_card_h(proj.rules[_items[k3][1]]) + 10; }
             else { _ry2 += _hdrh + 10; }
         }
         logic_reveal = -1;
@@ -621,7 +708,7 @@ function ws_logic_draw(_x1, _y1, _x2, _y2)
         {
             var _g = _it[1];
             var _gr = proj.groups[_g];
-            var _gin = group_depth(_g) * 20;        // groups inside groups step in
+            var _gin = min(group_depth(_g) * 20, max(0, _cw - 816));     // groups inside groups step in (cards keep 800 px)
             var _gx0 = _lx + _gin;
             var _gw0 = _cw - _gin;
             if (_y + _hdrh >= _ly1 - 10 && _y <= _ly2 + 10)
@@ -652,14 +739,16 @@ function ws_logic_draw(_x1, _y1, _x2, _y2)
                     _gr.collapsed = !_gr.collapsed;
                     proj_dirty = true;
                 }
-                var _nmw = max(100, min(260, _gw0 - 700));
-                var _nm = ui_textfield(_gid + "_name", _gx0 + 48, _y + 7, _nmw, 30, _gr.name, 28, "Group name|Call it what the rules do, e.g. 'Hoppers hit the hero' or 'Collecting gems'.");
-                set_val(_gr, "name", _nm, _gid + "name");
                 var _rt = string(_count) + " rule";
                 if (_count != 1) { _rt += "s"; }
                 if (_nsub > 0) { _rt += ", " + string(_nsub) + " group"; }
                 if (_nsub > 1) { _rt += "s"; }
-                ui_text(_gx0 + 48 + _nmw + 10, _y + _hdrh * 0.5, _rt, global.TH.text_dim, fa_left, fa_middle, global.f_small, 1);
+                // name box and count share the room left of the On toggle (at _gw0 - 532)
+                draw_set_font(global.f_small);
+                var _nmw = max(100, min(260, _gw0 - 532 - 10 - ceil(ui_sw(_rt)) - 10 - 48));
+                var _nm = ui_textfield(_gid + "_name", _gx0 + 48, _y + 7, _nmw, 30, _gr.name, 28, "Group name|Call it what the rules do, e.g. 'Hoppers hit the hero' or 'Collecting gems'.");
+                set_val(_gr, "name", _nm, _gid + "name");
+                ui_text(_gx0 + 48 + _nmw + 10, _y + _hdrh * 0.5, ui_text_fit(_rt, global.f_small, _gw0 - 532 - 10 - 48 - _nmw - 10), global.TH.text_dim, fa_left, fa_middle, global.f_small, 1);
                 var _bx = _gx0 + _gw0 - 8;
                 _bx -= 30;
                 if (ui_button(_gid + "_del", _bx, _y + 7, 30, 30, "X", "Remove group|Removes the group. Its rules are kept and move out of the group. You can Undo this.", BTN_DANGER)) { _gact = _g; _gop = "del"; }
@@ -680,7 +769,7 @@ function ws_logic_draw(_x1, _y1, _x2, _y2)
                     if (_np >= 0 && group_inside(_np, _g)) { toast("A group cannot go inside itself or a group inside it", 1); }
                     else { _gact = _g; _gop = "par"; _gpar = _np; }
                 }
-                _bx -= 80;      // toggle (44) + gap + "On" (17) + gap, clear of the In: drop-down
+                _bx -= 84;      // toggle (44) + gap + "On" (23) = 77, clear of the In: drop-down
                 set_val(_gr, "enabled", ui_toggle(_gid + "_on", _bx, _y + 10, "On", _gr.enabled, "Group on / off|Switch a group off to leave its rules - and the groups inside it - out of the game while you test. They are kept, just not built."), _gid + "on");
             }
             _y += _hdrh + 10;
@@ -688,16 +777,17 @@ function ws_logic_draw(_x1, _y1, _x2, _y2)
         else
         {
             var _i = _it[1];
-            if (_y + _cardh >= _ly1 - 10 && _y <= _ly2 + 10)
+            var _ch = logic_card_h(proj.rules[_i]);
+            if (_y + _ch >= _ly1 - 10 && _y <= _ly2 + 10)
             {
                 var _ind = 0;
-                if (proj.rules[_i].group >= 0) { _ind = 16 + group_depth(proj.rules[_i].group) * 20; }
+                if (proj.rules[_i].group >= 0) { _ind = min(16 + group_depth(proj.rules[_i].group) * 20, max(16, _cw - 800)); }   // a card needs 800 px
                 var _res = logic_rule_card(proj.rules[_i], _i, _lx + _ind, _y, _cw - _ind, _anames, _snames, _gnames);
                 if (_res == 1) { _del = _i; }
                 if (_res == 2) { _movei = _i; _move = -1; }
                 if (_res == 3) { _movei = _i; _move = 1; }
             }
-            _y += _cardh + 10;
+            _y += _ch + 10;
         }
     }
     ui_scroll_end("logic_list", _lx, _ly1, _lx2 - 10, _ly2, _content);

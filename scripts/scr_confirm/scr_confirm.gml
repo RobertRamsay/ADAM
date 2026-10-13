@@ -31,7 +31,15 @@ function confirm_draw(_gw, _gh)
     draw_rectangle_colour(0, 0, _gw, _gh, c_black, c_black, global.TH.bg_bot, global.TH.bg_bot, false);
     draw_set_alpha(1);
 
-    var _w = min(520, _gw - 80);
+    // buttons sized from their labels; the panel grows (up to the window) so the
+    // "Enter = ...   Esc = ..." hint on the left never runs under the buttons
+    draw_set_font(global.f_bold);
+    var _yw = max(110, ceil(ui_sw(confirm_yes)) + 32);
+    var _nw = max(100, ceil(ui_sw(confirm_no)) + 32);
+    var _keys = "Enter = " + confirm_yes + "   Esc = " + confirm_no;
+    draw_set_font(global.f_small);
+    var _kw = ceil(ui_sw(_keys));
+    var _w = min(max(520, 24 + _kw + 20 + _nw + 10 + _yw + 24), _gw - 80);
     var _tw = _w - 48;
     draw_set_font(global.f_body);
     var _bh = ceil(ui_sh_ext(confirm_body, _tw));
@@ -50,16 +58,12 @@ function confirm_draw(_gw, _gh)
         ui_text_wrap(_x1 + 24, _y1 + 24 + 34 + 14, confirm_body, global.TH.text, _tw, global.f_body, _a);
     }
 
-    // buttons, sized from their labels
-    draw_set_font(global.f_bold);
-    var _yw = max(110, ceil(ui_sw(confirm_yes)) + 32);
-    var _nw = max(100, ceil(ui_sw(confirm_no)) + 32);
     var _by = _y2 - 22 - 36;
     var _style = BTN_ACCENT;
     if (confirm_danger) { _style = BTN_DANGER; }
     var _yes = ui_button("confirm_yes", _x2 - 24 - _yw, _by, _yw, 36, confirm_yes, confirm_yes + "|Or press Enter.", _style);
     var _no = ui_button("confirm_no", _x2 - 24 - _yw - 10 - _nw, _by, _nw, 36, confirm_no, confirm_no + "|Goes back without doing anything. Esc does the same.", BTN_NORMAL);
-    ui_text(_x1 + 24, _by + 18, "Enter = " + confirm_yes + "   Esc = " + confirm_no, global.TH.text_faint, fa_left, fa_middle, global.f_small, _a);
+    ui_text(_x1 + 24, _by + 18, ui_text_fit(_keys, global.f_small, _w - 24 - 20 - _nw - 10 - _yw - 24), global.TH.text_faint, fa_left, fa_middle, global.f_small, _a);
 
     // a click outside the panel cancels too
     if (ui_pressed && !point_in_rectangle(ui_mx, ui_my, _x1, _y1, _x2, _y2))

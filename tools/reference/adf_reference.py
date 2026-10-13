@@ -12,7 +12,7 @@ BOOT=open(os.path.join(ENGINE_DIR,'boot.bin'),'rb').read()
 
 def build(proj, aga):
     depth=proj['depth']; ncol=1<<depth
-    actors=proj['actors']; rules=proj['rules']
+    actors=proj['actors']; rules=proj['rules'][:128]
     blob=bytearray()
     def align(n):
         while len(blob)%n: blob.append(0)
@@ -131,13 +131,15 @@ def build(proj, aga):
         aflags=0                                       # A_AMODE bit 0: 8 directions, bit 1: Fire
         if plans[i] and dirs_on(a) and len(plans[i])>=12: aflags|=1
         if plans[i] and len(plans[i])>12: aflags|=2
-        blob+=struct.pack('>HLHHHHHHHH',a.get('chan',i),spr2_offs[i],a.get('rate',8),aflags,a.get('from',1),a.get('fast',0),
+        blob+=struct.pack('>HLHHHHHHHH',a.get('chan',i),spr2_offs[i],1 if a.get('carry') else 0,aflags,a.get('from',1),a.get('fast',0),
                           1 if a.get('bob') else 0,ww-bw,wh-bh,bsize)
         blob+=struct.pack('>L',anim_offs[i])
     align(8)
     off_rules=len(blob)
     for r in rules:
-        blob+=struct.pack('>HHHHHHHH',r['when'],r['a'],r['b'],r['n'],r['act'],r['target'],r['value'],0)
+        more=r.get('more',[])[:4]          # AND DO lines: R_NAND, then 8 bytes each (engine.s AND_SIZE)
+        blob+=struct.pack('>HHHHHHHH',r['when'],r['a'],r['b'],r['n'],r['act'],r['target'],r['value'],len(more))
+        for m in more: blob+=struct.pack('>HHHH',m['act'],m['target'],m['value'],0)
     align(8)
     off_sprcol=len(blob)
     for pair in range(4):

@@ -684,7 +684,9 @@ function ws_tiles_draw(_x1, _y1, _x2, _y2)
     ui_panel(_x1, _y1, _x1 + _lw, _y2, "Tiles (" + string(array_length(proj.tiles)) + " / " + string(lim_tiles()) + ")");
     var _S = proj.tile_size;
     var _ly = tiles_grid(_x1 + 16, _y1 + 54, _lw - 32, max(_y1 + 160, _y2 - 360), "tile_pick_") + 10;
-    var _bw = floor((_lw - 32 - 8) / 2);
+    // 'Remove last' (100 px of bold text) needs the wider button
+    var _bw = 90;
+    var _bw2 = _lw - 32 - 8 - _bw;
     if (ui_button("tile_add", _x1 + 16, _ly, _bw, 30, "New tile", "New tile|Adds a tile (up to " + string(lim_tiles()) + "), starting as a copy of the one picked.", BTN_NORMAL))
     {
         if (array_length(proj.tiles) < lim_tiles())
@@ -705,7 +707,7 @@ function ws_tiles_draw(_x1, _y1, _x2, _y2)
     }
     var _dst = BTN_DANGER;
     if (tile_sel == 0 || tile_sel != array_length(proj.tiles) - 1) { _dst = BTN_GHOST; }
-    if (ui_button("tile_del", _x1 + 16 + _bw + 8, _ly, _bw, 30, "Remove last", "Remove the last tile|Takes the last tile out of the set (the map's cells that used it become air). Air cannot be removed. You can Undo this.", _dst))
+    if (ui_button("tile_del", _x1 + 16 + _bw + 8, _ly, _bw2, 30, "Remove last", "Remove the last tile|Takes the last tile out of the set (the map's cells that used it become air). Air cannot be removed. You can Undo this.", _dst))
     {
         var _last = array_length(proj.tiles) - 1;
         if (_last > 0)
@@ -729,7 +731,7 @@ function ws_tiles_draw(_x1, _y1, _x2, _y2)
         }
     }
     _ly += 40;
-    ui_heading(_x1 + 16, _ly, "Tile size (one size for the whole game)");
+    ui_heading(_x1 + 16, _ly, "Tile size (whole game)");
     _ly += 18;
     var _sizes = [8, 16, 32, 64];
     var _scur = 1;
@@ -747,7 +749,7 @@ function ws_tiles_draw(_x1, _y1, _x2, _y2)
     _ly += 40;
     ui_heading(_x1 + 16, _ly, "Tile world");
     _ly += 20;
-    var _on = ui_toggle("tile_on", _x1 + 16, _ly, "Use a tile world", proj.tiles_on, "Tile world|The game plays on this map instead of the backdrop: it scrolls left, right, up and down as the player moves, and actors stand on solid tiles. The backdrop is still used for the title, the level cards and the HUD strip at the top. Up to 8 actors, all hardware sprites.");
+    var _on = ui_toggle("tile_on", _x1 + 16, _ly, "Use a tile world", proj.tiles_on, "Tile world|The game plays on this map instead of the backdrop: it scrolls left, right, up and down as the player moves, and actors stand on solid tiles. The backdrop is still used for the title, the level cards and the HUD strip at the top. Up to 7 actors, all hardware sprites (the scrolling takes the 8th sprite's time).");
     if (_on != proj.tiles_on)
     {
         undo_mark_full("tileon" + string(current_time));
@@ -875,8 +877,10 @@ function tiles_tools_editor(_x1, _y1, _x2, _y2)
     var _fx = _x1 + 20;
     var _fw = _x2 - _x1 - 40;
     var _y = _y1 + 8;
-    ui_text_wrap(_fx, _y, "In the game, space opens a menu of these tools along the HUD: left and right pick one, fire or space takes it, and from then on fire uses it. With no tools, fire + a direction digs and fire on its own puts the tile carried down. Needs Dig and place on.", global.TH.text_dim, _fw, global.f_body, 1);
-    _y += 70;
+    var _intro = "In the game, space opens a menu of these tools along the HUD: left and right pick one, fire or space takes it, and from then on fire uses it. With no tools, fire + a direction digs and fire on its own puts the tile carried down. Needs Dig and place on.";
+    ui_text_wrap(_fx, _y, _intro, global.TH.text_dim, _fw, global.f_body, 1);
+    draw_set_font(global.f_body);
+    _y += ceil(ui_sh_ext(_intro, _fw)) + 12;      // 4 lines (96 px) at 1280 wide
     if (!proj.tile_dig)
     {
         ui_text_wrap(_fx, _y, "Dig and place is off (left panel), so the game has no tools.", global.TH.warn, _fw, global.f_body, 1);

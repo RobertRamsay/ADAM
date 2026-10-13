@@ -104,8 +104,8 @@ function ws_build_draw(_x1, _y1, _x2, _y2)
     var _end = false;
     for (var r = 0; r < _nr; r++)
     {
-        if (proj.rules[r].act == 1) { _lose = true; }
-        if (proj.rules[r].act == 9 || proj.rules[r].act == 10 || proj.rules[r].act == 17) { _end = true; }
+        if (rule_has_act(proj.rules[r], 1)) { _lose = true; }
+        if (rule_has_act(proj.rules[r], 9) || rule_has_act(proj.rules[r], 10) || rule_has_act(proj.rules[r], 17)) { _end = true; }
     }
     var _alloc = actors_alloc_channels();
     var _conf = 0;
@@ -159,7 +159,7 @@ function ws_build_draw(_x1, _y1, _x2, _y2)
         var _gl = false;
         for (var g = 0; g < _nr; g++)
         {
-            if (proj.rules[g].act == 17) { _gl = true; }
+            if (rule_has_act(proj.rules[g], 17)) { _gl = true; }
         }
         if (proj.goal_on && _gl) { array_push(_items, "Collect " + string(proj.goal) + " " + string_lower(proj.goal_label) + " to finish each level"); array_push(_kinds, 0); }
         else { array_push(_items, "Nothing finishes a level - add a 'Count towards the level goal' rule"); array_push(_kinds, 1); }
@@ -237,7 +237,7 @@ function ws_build_draw(_x1, _y1, _x2, _y2)
         var _t = 0;
         if (fsuae_dl_total > 0) { _t = clamp(fsuae_dl_got / fsuae_dl_total, 0, 1); }
         ui_rrect(_fx + 4, _y + 22, _fx + 4 + (_row_w - 8) * _t, _y + 46, 6, global.TH.accent2, merge_colour(global.TH.accent2, c_black, 0.3), 1);
-        ui_text(_fx + 10, _y + 34, "Downloading FS-UAE...  " + string(round(_t * 100)) + "%", global.TH.text, fa_left, fa_middle, global.f_small, 1);
+        ui_text(_fx + 10, _y + 34, ui_text_fit("Downloading FS-UAE...  " + string(round(_t * 100)) + "%", global.f_small, _row_w - 20), global.TH.text, fa_left, fa_middle, global.f_small, 1);
     }
     else
     {
@@ -245,9 +245,10 @@ function ws_build_draw(_x1, _y1, _x2, _y2)
         var _scol = global.TH.text_dim;
         if (_src == "")
         {
-            _src = "(not found - Get FS-UAE, or Find it)";
-            if (os_type == os_macosx) { _src = "(not found - Get it, put in Applications)"; }
-            if (ADAM_DEV_TOOLS) { _src = "(not found - Get test copy, or Find your own)"; }
+            // short: the box is only about 200 px wide at 1280 (the buttons say the rest)
+            _src = "(not found - Get it, or Find it)";
+            if (os_type == os_macosx) { _src = "(not in Applications - Get it)"; }
+            if (ADAM_DEV_TOOLS) { _src = "(not found - Get test copy)"; }
             _scol = global.TH.warn;
         }
         ui_text(_fx + 10, _y + 34, ui_text_fit(_src, global.f_small, _row_w - 20), _scol, fa_left, fa_middle, global.f_small, 1);
@@ -348,7 +349,7 @@ function ws_build_draw(_x1, _y1, _x2, _y2)
         }
         ui_register("build_mem", _fx, _y, _fx + _fw, _y + 26, _mem_help);
         _y += 34;
-        ui_text(_fx, _y, "Engine   Backdrop   Sound & music   Other        " + string(ceil(build_size / 1024)) + " KB of about " + string(build_chip_free div 1024) + " KB", global.TH.text_faint, fa_left, fa_top, global.f_small, 1);
+        ui_text(_fx, _y, ui_text_fit("Engine   Backdrop   Sound & music   Other    " + string(ceil(build_size / 1024)) + " KB of about " + string(build_chip_free div 1024) + " KB", global.f_small, _fw), global.TH.text_faint, fa_left, fa_top, global.f_small, 1);
     }
     else
     {

@@ -184,7 +184,7 @@ function tut_draw(_gw, _gh)
     var _cw = 420;
     draw_set_font(global.f_body);
     var _bh = ui_sh_ext(_step.body, _cw - 48);
-    var _ch = 144 + _bh;
+    var _ch = 148 + _bh;
     var _cx = (_gw - _cw) / 2;
     var _cy = (_gh - _ch) / 2;
     if (!is_undefined(_r))
@@ -236,7 +236,7 @@ function tut_draw(_gw, _gh)
     ui_rrect(_cx + 24, _cy + 38, _cx + _cw - 24, _cy + 42, 2, c_black, c_black, 0.3 * _a);
     ui_rrect(_cx + 24, _cy + 38, _cx + 24 + (_cw - 48) * ((tut_index + 1) / _n), _cy + 42, 2, global.TH.warn, global.TH.warn, _a);
     ui_text(_cx + 24, _cy + 52, _step.title, c_white, fa_left, fa_top, global.f_title, _a);
-    ui_text_wrap(_cx + 24, _cy + 80, _step.body, global.TH.text_dim, _cw - 48, global.f_body, _a);
+    ui_text_wrap(_cx + 24, _cy + 84, _step.body, global.TH.text_dim, _cw - 48, global.f_body, _a);
 
     ui_force_input = true;
     var _by = _cy + _ch - 44;

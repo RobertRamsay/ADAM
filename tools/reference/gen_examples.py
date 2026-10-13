@@ -96,6 +96,17 @@ def actor(name,sprite,role,speed,x,y,anim=-1,rate=8,moving=False,vis=True,left=F
     return dict(name=name,sprite=sprite,role=role,speed=speed,x=x,y=y,visible=vis,start_left=left,start_up=up,anim_sprite=anim,anim_rate=rate,anim_moving=moving,from_level=1,faster_every=0)
 def R(when=0,a=0,b=1,n=1,act=0,target=0,value=10): return dict(when=when,a=a,b=b,n=n,act=act,target=target,value=value,group=-1)
 
+def merge_rules(p):
+    # back-to-back rules with the same WHEN (and group) become one card with AND DO lines (up to 5 DOs)
+    out=[]
+    for r in p['rules']:
+        r.setdefault('more',[])
+        k=(r['when'],r['a'],r['b'],r['n'],r['group'])
+        if out and (out[-1]['when'],out[-1]['a'],out[-1]['b'],out[-1]['n'],out[-1]['group'])==k and len(out[-1]['more'])<4:
+            out[-1]['more'].append(dict(act=r['act'],target=r['target'],value=r['value']))
+        else: out.append(r)
+    p['rules']=out
+
 def auto_groups(p):
     names=p['actors']
     def key(r):
@@ -111,6 +122,9 @@ def auto_groups(p):
             return names[r['a']]['name']+" touches "+tgt
         if r['when'] in (1,6): return "Controls and sounds"
         if r['when']==2: return "Timers"
+        if r['when']==9: return "Sounds in view"
+        if r['when']==10: return "Sword strikes"
+        if r['when'] in (11,12): return "Throwing"
         return "Game flow"
     order=[]; 
     for r in p['rules']:
@@ -700,15 +714,16 @@ def pal_nearest(p,rgb):
 
 def alloc(p):
     acts=p['actors']; key=['']*4; used=[0]*4; owner=[-1]*4; chan=[]; conf=[]; bob=bob_flags(p)
-    for i,a in enumerate(acts[:32]):
+    cap=[2,2,2,1] if p.get('tiles_on') else [2,2,2,2]     # a tile world loses sprite 7 (DDFSTRT $30)
+    for i,a in enumerate(acts[:7] if p.get('tiles_on') else acts[:32]):
         if bob[i]: chan.append(-1); conf.append(False); continue
         k=str([q(c) for c in p['sprites'][a['sprite']]['cols']]); pp=-1; cf=False
         for j in range(4):
-            if pp<0 and used[j]==1 and key[j]==k: pp=j
+            if pp<0 and used[j]==1 and cap[j]>1 and key[j]==k: pp=j
         for j in range(4):
             if pp<0 and used[j]==0: pp=j
         for j in range(4):
-            if pp<0 and used[j]<2: pp=j; cf=True
+            if pp<0 and used[j]<cap[j]: pp=j; cf=True
         if used[pp]==0: key[pp]=k; owner[pp]=i
         chan.append(pp*2+used[pp]); used[pp]+=1; conf.append(cf)
     return chan,conf,owner
@@ -793,7 +808,7 @@ def to_builder(p):
     acts=[]
     for i,a in enumerate(p['actors'][:32]):
         d=dict(x=a['x'],y=a['y'],role=a['role'],speed=a['speed'],visible=int(a['visible']),left=int(a['start_left']),up=int(a['start_up']),
-               sprite=a['sprite'],chan=max(0,chan[i]),anim=a['anim_sprite'],rate=a['anim_rate'],amode=int(a['anim_moving']),anims=a.get('anims',[]),flip=a.get('anim_flip',False),dirs=a.get('anim_dirs',False),**{'from':a['from_level'],'fast':a['faster_every']})
+               sprite=a['sprite'],chan=max(0,chan[i]),anim=a['anim_sprite'],rate=a['anim_rate'],amode=int(a['anim_moving']),anims=a.get('anims',[]),carry=a.get('carry',False),flip=a.get('anim_flip',False),dirs=a.get('anim_dirs',False),**{'from':a['from_level'],'fast':a['faster_every']})
         if chan[i]<0:
             d['bob']=1; d['bobmap']=[pal_nearest(p,c) for c in p['sprites'][a['sprite']]['cols']]
         acts.append(d)
@@ -845,6 +860,7 @@ if __name__=='__main__':
         p=make()
         aga_end()
         auto_groups(p)
+        merge_rules(p)
         name=fn
         if aga: name=fn+'_a1200'
         json.dump(p,open(os.path.join(REPO,'datafiles','examples','%s.adam'%name),'w'),separators=(',',':'))

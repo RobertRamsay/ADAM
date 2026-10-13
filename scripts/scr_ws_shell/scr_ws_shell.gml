@@ -104,22 +104,32 @@ function draw_topbar(_gw)
     var _tutw = max(104, ceil(ui_sw(_tutlab)) + 24);
     var _playw = ceil(ui_sw(_playlab)) + 28;
     var _helpw = 102;
+    // the page tab labels: a tab needs its label + 12 (ui_tab fits text to its width - 10)
+    var _lsum = 0;
+    for (var tl = 0; tl < _nt; tl++) { _lsum += ceil(ui_sw(ws_name(_tabs[tl]))); }
+    var _udw = 64;
     draw_set_font(global.f_title);
     var _logo_full = 10 + 26 + 10 + ui_sw("ADAM") + 14 + 22;
     // narrow window: if the page tabs would get squeezed, use the compact bar -
-    // just the ball for the logo, shorter labels and no Helpers button (it is on Home too)
+    // just the ball for the logo, shorter labels and no Helpers button (it is on Home too).
+    // At 1280 wide only the compact bar fits the 12 tabs (labels are about 590 px together).
     var _full_avail = _gw - (14 + _logo_full + 10 + 54 + 8 + 150 + 18) - (14 + _tutw + 6 + _helpw + 6 + 64 + 6 + 64 + 12 + _playw + 12);
-    var _compact = (_full_avail < 84 * _nt);
+    var _compact = (_full_avail < _lsum + 16 * _nt);
     var _mw = 150;
+    var _mlab = machine_cur().short_name;
     if (_compact)
     {
         _tutlab = "Learn";
-        _playlab = "Play (F5)";
+        _playlab = "Play";          // F5 is in its help bubble
         draw_set_font(global.f_bold);
         _tutw = ceil(ui_sw(_tutlab)) + 24;
         _playw = ceil(ui_sw(_playlab)) + 24;
         _helpw = 0;
-        _mw = 136;
+        _udw = 58;
+        // the machine without its memory ("A500/600", "A1200"); the help bubble has the rest
+        var _sp = string_pos(" ", _mlab);
+        if (_sp > 1) { _mlab = string_copy(_mlab, 1, _sp - 1); }
+        _mw = ceil(ui_sw(_mlab)) + 24;
     }
 
     var _logo_w = draw_logo(14, 13, _compact);
@@ -146,13 +156,13 @@ function draw_topbar(_gw)
     var _mx = _ex + _ew + 8;
     var _mst = BTN_NORMAL;
     if (_m.aga) { _mst = BTN_ON; }
-    if (ui_button("top_machine", _mx, 14, _mw, 32, _m.short_name, "Target machine|" + _m.name + ": " + _m.chipset + ", " + _m.cpu + ", " + _m.ram_label + ". Click to change the machine this game is made for.", _mst))
+    if (ui_button("top_machine", _mx, 14, _mw, 32, _mlab, "Target machine|" + _m.name + ": " + _m.chipset + ", " + _m.cpu + ", " + _m.ram_label + ". Click to change the machine this game is made for.", _mst))
     {
         machine_pick_open(false);
     }
 
     // page tabs share what is left
-    var _right = 14 + _tutw + 6 + 64 + 6 + 64 + 12 + _playw + 12;
+    var _right = 14 + _tutw + 6 + _udw + 6 + _udw + 12 + _playw + 12;
     if (_helpw > 0) { _right += _helpw + 6; }
     var _tw = 96;
     var _tx = _mx + _mw + 18;
@@ -163,14 +173,12 @@ function draw_topbar(_gw)
     if (_avail < _tw * _nt)
     {
         draw_set_font(global.f_bold);
-        var _lsum = 0;
         for (var t0 = 0; t0 < _nt; t0++)
         {
             _tws[t0] = ceil(ui_sw(ws_name(_tabs[t0])));
-            _lsum += _tws[t0];
         }
         var _pad = floor((_avail - _lsum) / _nt);
-        if (_pad >= 14)
+        if (_pad >= 12)
         {
             for (var t1 = 0; t1 < _nt; t1++) { _tws[t1] += _pad; }
         }
@@ -218,24 +226,24 @@ function draw_topbar(_gw)
         }
     }
     var _pg = ws_name(ws);
-    _rx -= 70;
+    _rx -= _udw + 6;
     var _rst = BTN_GHOST;
     if (redo_count() > 0) { _rst = BTN_NORMAL; }
-    if (ui_button("top_redo", _rx, 14, 64, 32, "Redo", "Redo (" + _pg + ")|Puts back the last change you undid on this page (" + string(redo_count()) + " to redo). Every page keeps its own history. Shortcut: Ctrl+Y.", _rst))
+    if (ui_button("top_redo", _rx, 14, _udw, 32, "Redo", "Redo (" + _pg + ")|Puts back the last change you undid on this page (" + string(redo_count()) + " to redo). Every page keeps its own history. Shortcut: Ctrl+Y.", _rst))
     {
         redo_do();
     }
-    _rx -= 70;
+    _rx -= _udw + 6;
     var _ust = BTN_GHOST;
     if (undo_count() > 0) { _ust = BTN_NORMAL; }
-    if (ui_button("top_undo", _rx, 14, 64, 32, "Undo", "Undo (" + _pg + ")|Takes back your last change on this page (" + string(undo_count()) + " to undo). Every page keeps its own history, so undoing here never touches the other pages. Shortcut: Ctrl+Z.", _ust))
+    if (ui_button("top_undo", _rx, 14, _udw, 32, "Undo", "Undo (" + _pg + ")|Takes back your last change on this page (" + string(undo_count()) + " to undo). Every page keeps its own history, so undoing here never touches the other pages. Shortcut: Ctrl+Z.", _ust))
     {
         undo_do();
     }
     if (undo_count() > 0)
     {
-        draw_circle_colour(_rx + 60, 18, 7, global.TH.accent, global.TH.accent_dark, false);
-        ui_text(_rx + 60, 18, string(min(99, undo_count())), c_white, fa_center, fa_middle, global.f_small, 1);
+        draw_circle_colour(_rx + _udw - 4, 18, 7, global.TH.accent, global.TH.accent_dark, false);
+        ui_text(_rx + _udw - 4, 18, string(min(99, undo_count())), c_white, fa_center, fa_middle, global.f_small, 1);
     }
     _rx -= _playw + 12;
     if (ui_button("top_play", _rx, 14, _playw, 32, _playlab, "Build and play|Builds your game's .ADF disk and boots it in FS-UAE straight away, from any page - the same as Build and play on the Build page. Shortcut: F5.", BTN_ACCENT))

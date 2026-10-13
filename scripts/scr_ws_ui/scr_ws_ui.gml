@@ -424,8 +424,8 @@ function ws_ui_draw(_x1, _y1, _x2, _y2)
         var _np = ui_dropdown("ui_pos", _fx, _y + 18, _half, 30, ["Top", "Bottom"], _pos, "Where|The panel's place on the screen. A tile world always has it at the top (the map scrolls below it).");
         if (_np != _pos) { set_val(_u, "bottom", (_np == 1), "uipos"); }
         set_val(_u, "rows", ui_stepper("ui_rows", _fx + _half + 8, _y + 18, _half, _u.rows, 1, UI_ROWS_MAX, "Height|Text rows of 8 lines: 1 is a slim strip, 2 room for a frame round one line of text, up to 6. Fields on rows below the panel are not shown."), "uirows");
-        if (_u.bottom && proj.tiles_on) { ui_text(_fx, _y + 54, "Tile world: shown at the top", global.TH.warn, fa_left, fa_top, global.f_small, 1); }
-        _y += 72;
+        if (_u.bottom && proj.tiles_on) { ui_text(_fx, _y + 52, "Tile world: shown at the top", global.TH.warn, fa_left, fa_top, global.f_small, 1); }
+        _y += 76;                               // room for that line (20 px) above the toggle
         set_val(_u, "frame_on", ui_toggle("ui_frame_on", _fx, _y, "Panel frame", _u.frame_on, "Panel frame|Draws the 9-slice frame: corners, edges and a fill that stretch to the panel's size. Off: the backdrop shows behind the text."), "uiframeon");
         _y += 32;
         ui_heading(_fx, _y, "Frame style");
@@ -741,7 +741,7 @@ function ui_font_editor(_x1, _y1, _x2, _y2)
         }
     }
     var _ex = _x1 + 16 * (_cs + 2) + 24;
-    var _ps = max(6, floor(min(_x2 - _ex, _y2 - _y1 - 30) / 8));     // room for the line of help below it
+    var _ps = max(6, floor(min(_x2 - _ex, _y2 - _y1 - 54) / 8));     // room for the help below it (2 lines)
     ui_rrect(_ex - 4, _y1 - 4, _ex + 8 * _ps + 4, _y1 + 8 * _ps + 4, 6, make_colour_rgb(22, 24, 30), make_colour_rgb(22, 24, 30), 1);
     for (var i2 = 0; i2 < 8; i2++)
     {
@@ -753,7 +753,8 @@ function ui_font_editor(_x1, _y1, _x2, _y2)
             draw_rectangle_colour(_ex + b2 * _ps + 1, _y1 + i2 * _ps + 1, _ex + (b2 + 1) * _ps - 1, _y1 + (i2 + 1) * _ps - 1, _col, _col, _col, _col, false);
         }
     }
-    ui_text(_ex, _y1 + 8 * _ps + 12, "'" + chr(32 + ui_font_char) + "'  - left-click draws, right-click rubs out", global.TH.text_dim, fa_left, fa_top, global.f_small, 1);
+    // 270 px of text: wrapped, as only 262 px fit beside the character grid at 1280 wide
+    ui_text_wrap(_ex, _y1 + 8 * _ps + 12, "'" + chr(32 + ui_font_char) + "'  - left-click draws, right-click rubs out", global.TH.text_dim, max(60, _x2 - _ex), global.f_small, 1);
     var _hot2 = ui_register("ui_font_canvas", _ex, _y1, _ex + 8 * _ps - 1, _y1 + 8 * _ps - 1, "Character|Left-click sets a pixel, right-click clears it. The first change makes the font Custom (starting from the style you had).");
     if (_hot2)
     {

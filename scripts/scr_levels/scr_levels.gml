@@ -304,7 +304,7 @@ function levels_side_panel(_px, _y1, _x2, _y2)
     // the real height of what is drawn below, so the panel only scrolls when it has to
     var _endnote = "After the last level the Win message (Home page) is shown - make it a big congratulations!";
     draw_set_font(global.f_small);
-    var _content = 10 + 140 + 116 + 226 + ceil(ui_sh_ext(_endnote, _fw)) + 12;
+    var _content = 10 + 174 + 116 + 226 + ceil(ui_sh_ext(_endnote, _fw)) + 12;
     if (proj.levels_on && _nl > 0) { _content += 256; }
     var _off = ui_scroll_begin("lvl_side", _px + 4, _y1 + 46, _x2 - 4, _y2 - 6, _content);
     _y -= _off;
@@ -350,12 +350,12 @@ function levels_side_panel(_px, _y1, _x2, _y2)
     _y += 18;
     var _tn = ["Edge", "Grass", "Soil", "Specks"];
     var _th = ["Edge colour|The top line of the ground.", "Grass colour|The band under the edge.", "Soil colour|Everything below the grass.", "Speck colour|Little stones scattered through the soil."];
+    // one per row, the name on the left: a half-width drop cut "Colour 12  $0F0" short
     for (var k = 0; k < 4; k++)
     {
-        var _cx = _fx + (k mod 2) * (_half + 12);
-        var _cy = _y + (k div 2) * 56;
-        ui_text(_cx, _cy, _tn[k], global.TH.text_faint, fa_left, fa_top, global.f_small, 1);
-        var _v = ui_colour_drop("lvl_col_" + string(k), _cx, _cy + 16, _half, 30, proj.terrain_cols[k], _th[k]);
+        var _cy = _y + k * 38;
+        ui_text(_fx, _cy + 15, _tn[k], global.TH.text_faint, fa_left, fa_middle, global.f_small, 1);
+        var _v = ui_colour_drop("lvl_col_" + string(k), _fx + 64, _cy, _fw - 64, 30, proj.terrain_cols[k], _th[k]);
         if (_v != proj.terrain_cols[k])
         {
             undo_mark("lvlcol" + string(k));
@@ -363,7 +363,7 @@ function levels_side_panel(_px, _y1, _x2, _y2)
             terrain_changed();
         }
     }
-    _y += 122;
+    _y += 156;
 
     ui_heading(_fx, _y, "Level goal");
     _y += 20;

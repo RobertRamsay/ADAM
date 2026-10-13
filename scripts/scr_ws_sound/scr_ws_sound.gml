@@ -256,6 +256,6 @@ function sound_sample_panel(_s, _fx, _y, _colw, _cx1, _x2, _y1, _y2)
     }
     var _info = string(_n) + " bytes of chip RAM  -  " + string_format(_n / max(1, _r.rate), 1, 2) + " seconds at " + string(round(_r.rate)) + " Hz";
     if (_r.capped) { _info += "  (cut to 3 seconds)"; }
-    ui_text(_gx, _gy + 180, _info, global.TH.text_dim, fa_left, fa_top, global.f_small, 1);
+    ui_text(_gx, _gy + 180, ui_text_fit(_info, global.f_small, _gw), global.TH.text_dim, fa_left, fa_top, global.f_small, 1);
     ui_text_wrap(_gx, _gy + 210, "Lower rates and fewer bits are the authentic Amiga sound - and they leave more chip RAM for your backdrop. Sounds play on Paula channel 1 to 4 (sound 1 and 5 share a channel, and so on).", global.TH.text_faint, _gw, global.f_small, 1);
 }

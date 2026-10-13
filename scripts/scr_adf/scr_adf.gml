@@ -8,6 +8,7 @@
 #macro ADF_SIZE 901120
 #macro ADF_HDR 100
 #macro ADF_SONGS_MAX 4
+#macro RULES_DISK_MAX 128       // rules (cards) on the disk (engine.s RULES_MAX); each AND DO line adds 8 bytes
 #macro OS_RESERVE_KB 160
 // Original A500s have only 512KB of chip RAM. Even with a trapdoor slow-RAM card
 // the engine, data and screens must all be in chip RAM, so the usable budget is
@@ -66,6 +67,18 @@ function buf_zeros(_b, _n)
 }
 
 /// Text in a fixed-size, zero-padded field (upper case, font characters only)
+/// A DO line on the disk: act, target, value (6 bytes) - a rule's DO or one of its AND DO lines
+function adf_do_line(_b, _d, _ncol)
+{
+    var _val = _d.value;
+    if (_d.act == 8) { _val = clamp(_val, 0, _ncol - 1); }
+    if (_d.act == 2) { _val = clamp(_val, 0, 7); }
+    if (_d.act == 18) { _val = clamp(_val, 0, ADF_SONGS_MAX - 1); }
+    be16(_b, clamp(_d.act, 0, 21));
+    be16(_b, clamp(_d.target, 0, ACT_MAX_ALL - 1));
+    be16(_b, clamp(_val, 0, 65535));
+}
+
 function buf_fixed_text(_b, _s, _n)
 {
     var _t = string_upper(string_copy(_s, 1, _n - 1));
@@ -288,13 +301,20 @@ function adam_data_block_raw(_p, _measure = false)
         if (_bob[bq]) { _anybob = true; }
     }
     var _rules = [];
+    var _rcut = false;
     for (var ru = 0; ru < array_length(_p.rules); ru++)
     {
         var _rr = _p.rules[ru];
         var _off_grp = group_off_in(_p.groups, _rr.group);     // its group, or a group that is inside, is off
-        if (!_off_grp) { array_push(_rules, _rr); }
+        if (_off_grp) { continue; }
+        if (array_length(_rules) >= RULES_DISK_MAX)
+        {
+            _rcut = true;
+            break;
+        }
+        array_push(_rules, _rr);
     }
-    var _nr = min(100, array_length(_rules));
+    var _nr = array_length(_rules);
     var _b = buffer_create(262144, buffer_grow, 1);
     buf_zeros(_b, ADF_HDR);
     buf_align(_b, 8);
@@ -489,7 +509,9 @@ function adam_data_block_raw(_p, _measure = false)
         be32(_b, _spr_off[a2]);
         be16(_b, max(0, _alloc.chan[a2]));
         be32(_b, _spr2_off[a2]);
-        be16(_b, clamp(_ac.anim_rate, 2, 30));
+        var _carry = 0;                  // A_CARRY: the player can pick it up and throw it
+        if (_ac.carry) { _carry = 1; }
+        be16(_b, _carry);
         var _am = 0;                     // A_AMODE: bit 0 = 8 directions, bit 1 = Fire animations
         if (!is_undefined(_plans[a2]))
         {
@@ -518,21 +540,22 @@ function adam_data_block_raw(_p, _measure = false)
 
     // rules
     var _off_rules = buffer_tell(_b);
+    // each rule: 16 bytes (R_*, R_NAND = its AND DO lines), then 8 bytes per AND DO line
     for (var r = 0; r < _nr; r++)
     {
         var _ru = _rules[r];
-        var _val = _ru.value;
-        if (_ru.act == 8) { _val = clamp(_val, 0, _ncol - 1); }
-        if (_ru.act == 2) { _val = clamp(_val, 0, 7); }
-        if (_ru.act == 18) { _val = clamp(_val, 0, ADF_SONGS_MAX - 1); }
-        be16(_b, clamp(_ru.when, 0, 10));
+        var _nand = min(array_length(_ru.more), RULE_DOS_MAX - 1);
+        be16(_b, clamp(_ru.when, 0, 12));
         be16(_b, clamp(_ru.a, 0, ACT_MAX_ALL - 1));
         be16(_b, clamp(_ru.b, 0, ACT_MAX_ALL - 1));
         be16(_b, clamp(_ru.n, 1, 65535));
-        be16(_b, clamp(_ru.act, 0, 20));
-        be16(_b, clamp(_ru.target, 0, ACT_MAX_ALL - 1));
-        be16(_b, clamp(_val, 0, 65535));
-        be16(_b, 0);
+        adf_do_line(_b, _ru, _ncol);
+        be16(_b, _nand);
+        for (var rm2 = 0; rm2 < _nand; rm2++)
+        {
+            adf_do_line(_b, _ru.more[rm2], _ncol);
+            be16(_b, 0);
+        }
     }
     buf_align(_b, 8);
 
@@ -913,12 +936,18 @@ function adam_data_block_raw(_p, _measure = false)
 
     for (var rm = 0; rm < _nr; rm++)
     {
-        if (_rules[rm].act == 18 && _rules[rm].value >= _mus.nsongs)
+        var _bad_song = (_rules[rm].act == 18 && _rules[rm].value >= _mus.nsongs);
+        for (var rs = 0; rs < array_length(_rules[rm].more); rs++)
+        {
+            if (_rules[rm].more[rs].act == 18 && _rules[rm].more[rs].value >= _mus.nsongs) { _bad_song = true; }
+        }
+        if (_bad_song)
         {
             array_push(_warn, "A rule plays a song that does not exist - make it on the Music page.");
             break;
         }
     }
+    if (_rcut) { array_push(_warn, "The game has more than " + string(RULES_DISK_MAX) + " rules - the ones after that are left out. Merge some into AND DO lines."); }
     if (_na == 0) { array_push(_warn, "There are no actors yet - the game will just show your backdrop."); }
     if (_player < 0 && _na > 0) { array_push(_warn, "No actor is set as Player, so the joystick will not move anything."); }
     var _nbobs = 0;
@@ -936,7 +965,7 @@ function adam_data_block_raw(_p, _measure = false)
         if (pro_on()) { array_push(_warn, "Only the first " + string(ACT_MAX_ALL) + " actors go on the disk."); }
         else { array_push(_warn, "Only the first " + string(ACT_MAX_SPR) + " actors go on the disk - more actors (as BOBs) are part of ADAM Pro."); }
     }
-    if (_p.tiles_on && array_length(_acts) > ACT_MAX_SPR) { array_push(_warn, "A tile world has up to " + string(ACT_MAX_SPR) + " actors (hardware sprites) - only the first " + string(ACT_MAX_SPR) + " go on the disk."); }
+    if (_p.tiles_on && array_length(_acts) > ACT_MAX_TILE) { array_push(_warn, "A tile world has up to " + string(ACT_MAX_TILE) + " actors (hardware sprites - the scrolling display uses sprite 8's time) - only the first " + string(ACT_MAX_TILE) + " go on the disk."); }
     return { buf : _b, size : _size, warnings : _warn, sound_bytes : _snd_bytes + _mus.bytes, plane_bytes : _depth * 10240 * _nbuf, bss : _bss };
 }
 
