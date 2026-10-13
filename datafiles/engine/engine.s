@@ -67,7 +67,7 @@ UI_NF       equ 4          ; number of fields
 UI_FONT     equ 8          ; long offset: 64 x 8 bytes font (characters 32..95), 0 = the built-in one
 UI_PANEL    equ 12         ; long offset: panel picture, depth planes x ROWS x 8 lines x 40 bytes, 0 = none
 UI_FIELDS   equ 16         ; NF x 32 bytes (F_*)
-F_TYPE      equ 0          ; 0 text, 1 score, 2 lives, 3 goal, 4 tile carried, 5 level
+F_TYPE      equ 0          ; 0 text, 1 score, 2 lives, 3 goal, 4 tile carried, 5 level, 6 tool
 F_COL       equ 2          ; text column 0..39
 F_ROW       equ 4          ; row in the panel
 F_COLOUR    equ 6
@@ -93,8 +93,15 @@ T_SHIFT     equ 30         ; log2 S: 3..6
 T_LINE      equ 32         ; bytes per line of the scrolling picture: NCOL x S / 8
 T_NCOL      equ 34         ; tiles across the scrolling picture: 320 / S + 2
 T_NROW      equ 36         ; tiles down it: 256 / S + 2
+T_NTOOL     equ 38         ; tools in the space bar menu, 0 = none (fire + direction digs, fire places)
 T_RING      equ 40         ; long: NROW x S x LINE - the picture is a ring this big, kept twice
-T_PROPS     equ 44         ; NT x 8 bytes (TP_*), then NT x 4 bytes of names for the HUD
+T_PROPS     equ 44         ; NT x 8 bytes (TP_*), then NT x 4 bytes of names for the HUD,
+                           ; then NTOOL x 12 bytes of tools (TL_*)
+TL_ACT      equ 0          ; what fire does: 0 dig (pickaxe), 1 build with the tile carried (hammer),
+                           ; 2 put tile TL_TILE where the player stands (ladder, torch)
+TL_TILE     equ 2
+TL_NAME     equ 4          ; 8 bytes, 0 ends it early
+TL_SIZE     equ 12
 TP_FLAGS    equ 0          ; byte: bit 0 solid, bit 1 can be dug, bit 2 counts towards the level goal,
                            ; bit 3 ladder (a platform player climbs it)
 TP_SOUND    equ 1          ; byte: sound 0..7, $ff = none
@@ -293,6 +300,11 @@ v_sel       rs.w 1         ; tile the player places (the last one dug)
 v_digt      rs.w 1         ; frames spent digging v_digc
 v_digc      rs.l 1         ; map cell being dug, -1 = none
 v_inv       rs.w 512       ; tiles the player carries
+v_key       rs.w 1         ; key pressed this frame: $100 + raw key code, 0 = none
+v_tool      rs.w 1         ; tool in use (T_NTOOL > 0)
+v_menu      rs.w 1         ; 1 while the tool menu is open (the game waits)
+v_msel      rs.w 1         ; tool picked in the menu
+v_fwait     rs.w 1         ; 1 = fire chose a tool: it does nothing until let go
 V_SIZE      rs.b 0
 
 ; ============================================================================
@@ -889,6 +901,9 @@ frame:
             addq.w  #1,v_anim(a5)
             move.l  #0,v_jumped(a5)
             bsr     read_joy
+            bsr     read_key
+            bsr     tool_menu               ; space bar: the tool menu - the game waits while it is open
+            bne     .wait
             move.w  #0,v_sectick(a5)
             addq.w  #1,v_fcount(a5)
             cmp.w   #50,v_fcount(a5)
@@ -903,6 +918,148 @@ frame:
             bsr     place_sprites
             bsr     bob_draw
             bsr     run_rules
+.wait       rts
+
+; keyboard: CIA-A serial port, read each frame (no interrupt). v_key = $100 + the
+; raw code of a key pressed this frame ($140 = space), 0 = none
+read_key:   move.w  #0,v_key(a5)
+            btst    #3,$bfed01              ; SP: a key code came in (reading clears it)
+            beq.s   .r
+            movem.l d0-d2,-(sp)
+            moveq   #0,d0
+            move.b  $bfec01,d0
+            bset    #6,$bfee01              ; handshake: hold KDAT low a moment
+            not.b   d0
+            ror.b   #1,d0                   ; bit 7 set = let go
+            bmi.s   .hs
+            or.w    #$100,d0
+            move.w  d0,v_key(a5)
+.hs         moveq   #3,d1                   ; 3 raster lines (the keyboard wants 85 us)
+.w1         move.b  $06(a6),d2
+.w2         cmp.b   $06(a6),d2
+            beq.s   .w2
+            dbf     d1,.w1
+            bclr    #6,$bfee01
+            movem.l (sp)+,d0-d2
+.r          rts
+
+; the tool menu (a tile world with tools): space opens it in the HUD row, left / right
+; choose, fire or space take the tool. Z clear while it is open (the game waits)
+tool_menu:  tst.w   v_tmode(a5)
+            beq     .no
+            movem.l d1-d3/a0,-(sp)
+            move.l  v_tiles(a5),a0
+            move.w  T_NTOOL(a0),d1
+            beq     .none
+            tst.w   v_fwait(a5)             ; fire chose a tool: ignore it until let go
+            beq.s   .fw
+            move.w  v_joy(a5),d2
+            btst    #4,d2
+            bne.s   .fh
+            move.w  #0,v_fwait(a5)
+            bra.s   .fw
+.fh         and.w   #$ffef,v_joy(a5)
+.fw         tst.w   v_menu(a5)
+            bne.s   .open
+            cmp.w   #$140,v_key(a5)
+            bne     .none
+            move.w  #1,v_menu(a5)
+            move.w  v_tool(a5),v_msel(a5)
+            bsr     menu_draw
+            bra     .yes
+.open       move.w  v_joy(a5),d2            ; newly pressed
+            move.w  v_joyprev(a5),d3
+            not.w   d3
+            and.w   d3,d2
+            btst    #2,d2
+            beq.s   .m1
+            subq.w  #1,v_msel(a5)           ; left
+            bpl.s   .md
+            move.w  d1,v_msel(a5)
+            subq.w  #1,v_msel(a5)
+            bra.s   .md
+.m1         btst    #3,d2
+            beq.s   .m2
+            addq.w  #1,v_msel(a5)           ; right
+            cmp.w   v_msel(a5),d1
+            bhi.s   .md
+            move.w  #0,v_msel(a5)
+.md         bsr     menu_draw
+            bra.s   .yes
+.m2         btst    #4,d2
+            beq.s   .m3
+            move.w  #1,v_fwait(a5)
+            bra.s   .take
+.m3         cmp.w   #$140,v_key(a5)
+            bne.s   .yes
+.take       move.w  v_msel(a5),v_tool(a5)
+            move.w  #0,v_menu(a5)
+            bsr     menu_clear
+            bsr     draw_hud
+            move.l  #-1,v_digc(a5)
+.yes        move.w  v_joy(a5),v_joyprev(a5)
+            movem.l (sp)+,d1-d3/a0
+            moveq   #1,d0
+            rts
+.none       movem.l (sp)+,d1-d3/a0
+.no         moveq   #0,d0
+            rts
+
+; the HUD row as the tool menu: each tool's name, the one picked in the message colour
+menu_draw:  movem.l d0-d7/a0-a1,-(sp)
+            bsr     menu_clear
+            move.w  #-1,v_shadow(a5)
+            move.l  v_tiles(a5),a1
+            move.w  T_NTOOL(a1),d7
+            move.w  T_NT(a1),d0
+            mulu    #12,d0
+            lea     T_PROPS(a1,d0.l),a1     ; the tools
+            move.w  v_hudrow(a5),d2
+            moveq   #0,d1
+            moveq   #0,d6
+.t          move.w  H_HUDCOL(a4),d3
+            moveq   #' ',d0
+            cmp.w   v_msel(a5),d6
+            bne.s   .mk
+            move.w  H_MSGCOL(a4),d3
+            moveq   #'>',d0
+.mk         bsr     draw_char
+            addq.w  #1,d1
+            lea     TL_NAME(a1),a0
+            moveq   #7,d5
+.c          moveq   #0,d0
+            move.b  (a0)+,d0
+            beq.s   .e
+            bsr     draw_char
+            addq.w  #1,d1
+            dbf     d5,.c
+.e          addq.w  #1,d1
+            lea     TL_SIZE(a1),a1
+            addq.w  #1,d6
+            cmp.w   d7,d6
+            blt.s   .t
+            movem.l (sp)+,d0-d7/a0-a1
+            rts
+
+; the HUD row back to its background (draw_hud then puts the HUD back)
+menu_clear: movem.l d0-d3,-(sp)
+            move.w  #-1,v_shadow(a5)
+            move.w  v_hudrow(a5),d2
+            moveq   #0,d3
+            moveq   #39,d1
+.c          moveq   #' ',d0
+            bsr     draw_char
+            dbf     d1,.c
+            movem.l (sp)+,d0-d3
+            rts
+
+; a0 = tile world block -> a1 = the tool in use
+tool_rec:   move.w  T_NT(a0),d4
+            mulu    #12,d4
+            lea     T_PROPS(a0,d4.l),a1
+            move.w  v_tool(a5),d4
+            mulu    #TL_SIZE,d4
+            add.l   d4,a1
             rts
 
 read_joy:
@@ -1512,6 +1669,9 @@ tiles_start:
 .ci         move.w  #0,(a0)+
             dbf     d0,.ci
             move.w  #0,v_sel(a5)
+            move.w  #0,v_tool(a5)
+            move.w  #0,v_menu(a5)
+            move.w  #0,v_fwait(a5)
             move.w  #0,v_digt(a5)
             move.l  #-1,v_digc(a5)
             bsr     tiles_on
@@ -2061,6 +2221,49 @@ tile_dig:   move.l  v_tiles(a5),a0
             beq     .off
             movem.l d0-d4/a0-a1,-(sp)
             and.w   #15,d2
+            tst.w   T_NTOOL(a0)
+            beq     .nt
+            bsr     tool_rec                ; tools: fire uses the one picked with space
+            move.w  TL_ACT(a1),d3
+            beq.s   .pick
+            move.w  v_joyprev(a5),d4        ; build / put: once per press
+            btst    #4,d4
+            bne     .held
+            cmp.w   #2,d3
+            bne.s   .ham
+            move.w  TL_TILE(a1),d3          ; a ladder part, a torch: where it stands
+            bsr     ptile_core
+            bra     .held
+.ham        tst.w   d2                      ; hammer: the tile carried, where fire points
+            beq     .place
+            btst    #3,d2
+            bne.s   .hr
+            btst    #2,d2
+            bne.s   .hl
+            bsr     .midx
+            move.w  v_ay(a5,d5.w),d1
+            btst    #1,d2
+            bne.s   .hd
+            add.w   A_BY0(a2),d1            ; above the head
+            subq.w  #4,d1
+            bra     .put
+.hd         add.w   A_BY1(a2),d1            ; under the feet
+            addq.w  #4,d1
+            bra     .put
+.hr         move.w  v_ax(a5,d5.w),d0
+            add.w   A_BX1(a2),d0
+            addq.w  #4,d0
+            bra     .pf
+.hl         move.w  v_ax(a5,d5.w),d0
+            add.w   A_BX0(a2),d0
+            subq.w  #4,d0
+            bra     .pf
+.pick       tst.w   d2                      ; pickaxe: fire on its own digs the way it faces
+            bne.s   .nt
+            tst.w   v_face(a5,d5.w)
+            bne.s   .left
+            bra.s   .right
+.nt         tst.w   d2
             beq     .place
             btst    #3,d2
             bne.s   .right
@@ -2104,12 +2307,6 @@ tile_dig:   move.l  v_tiles(a5),a0
 .place      move.w  v_joyprev(a5),d3        ; fire just pressed: put a tile down
             btst    #4,d3
             bne.s   .held
-            move.w  v_sel(a5),d3
-            beq.s   .held
-            add.w   d3,d3
-            lea     v_inv(a5),a1
-            tst.w   0(a1,d3.w)
-            beq.s   .held
             move.w  v_ax(a5,d5.w),d0        ; in front of it, at its feet
             tst.w   v_face(a5,d5.w)
             bne.s   .pl
@@ -2121,6 +2318,12 @@ tile_dig:   move.l  v_tiles(a5),a0
 .pf         move.w  v_ay(a5,d5.w),d1
             add.w   A_BY1(a2),d1
             subq.w  #2,d1
+.put        move.w  v_sel(a5),d3            ; when it carries one
+            beq.s   .held
+            add.w   d3,d3
+            lea     v_inv(a5),a1
+            tst.w   0(a1,d3.w)
+            beq.s   .held
             bsr     place_px
 .held       movem.l (sp)+,d0-d4/a0-a1
             moveq   #1,d0                   ; Z clear: fire is held
@@ -2252,6 +2455,18 @@ act_ptile:  tst.w   v_tmode(a5)
             lea     0(a4,d0.l),a2
             mulu    #ACT_SIZE,d4
             add.l   d4,a2                   ; its record (the box)
+            move.w  R_VAL(a3),d3
+            bsr     ptile_core
+.out        movem.l (sp)+,d0-d4/a0-a2
+.r          rts
+
+; tile d3 where actor d5 / a2 is: its middle, then its feet, then its head - the
+; first place that is not solid and does not have that tile already
+ptile_core: movem.l d0-d6/a0,-(sp)
+            move.w  d3,d6
+            move.l  v_tiles(a5),a0
+            cmp.w   T_NT(a0),d6
+            bcc.s   .out
             moveq   #2,d4                   ; try its middle, then its feet, then its head
 .try        move.w  v_ax(a5,d5.w),d0
             move.w  A_BX0(a2),d1
@@ -2274,19 +2489,19 @@ act_ptile:  tst.w   v_tmode(a5)
             addq.w  #2,d1
 .t4         bsr     px_cell                 ; d0 / d1 = column / row, d2 = cell, d3 = tile
             beq.s   .nx
+            cmp.w   d6,d3
+            beq.s   .nx                     ; that tile is there already
             lsl.w   #3,d3
             move.l  v_tiles(a5),a0
             btst    #0,T_PROPS+TP_FLAGS(a0,d3.w)
             beq.s   .put                    ; nothing solid there
 .nx         dbf     d4,.try
             bra.s   .out
-.put        move.w  R_VAL(a3),d3
-            cmp.w   T_NT(a0),d3
-            bcc.s   .out
+.put        move.w  d6,d3
             bsr     map_put
             bsr     redraw_cell
-.out        movem.l (sp)+,d0-d4/a0-a2
-.r          rts
+.out        movem.l (sp)+,d0-d6/a0
+            rts
 
 ; actor d5 / a2: its box middle onto the middle of the tile column it is in,
 ; if that place is free - climbing a ladder, digging straight up or down
@@ -3678,8 +3893,12 @@ ui_hud:     movem.l d0-d7/a0-a3,-(sp)
             bne.s   .lb
             lea     G_LABEL(a1),a0
 .lb         cmp.w   #4,d6                   ; tile carried: only in a tile world where the player digs
-            bne.s   .dl
+            bne.s   .tq
             bsr     hud_digging
+            beq     .nx
+.tq         cmp.w   #6,d6                   ; tool: only in a tile world with tools
+            bne.s   .dl
+            bsr     hud_tools
             beq     .nx
 .dl         bsr     draw_text               ; the label
 .adv        tst.b   (a0)+                   ; column after it
@@ -3726,8 +3945,22 @@ ui_hud:     movem.l d0-d7/a0-a3,-(sp)
             move.w  G_GOAL(a1),d0
             bsr     two_digits
             bra.s   .nx
-.ntl        cmp.w   #4,d6
-            bne.s   .nx
+.ntl        cmp.w   #6,d6
+            bne.s   .nto
+            move.l  v_tiles(a5),a0          ; the tool's name, 8 letters
+            bsr     tool_rec
+            lea     TL_NAME(a1),a0
+            moveq   #7,d4
+.tl         moveq   #0,d0
+            move.b  (a0)+,d0
+            bne.s   .tlc
+            moveq   #' ',d0
+.tlc        bsr     draw_char
+            addq.w  #1,d1
+            dbf     d4,.tl
+            bra     .nx
+.nto        cmp.w   #4,d6
+            bne     .nx
             move.w  v_sel(a5),d0            ; the tile's name, then how many
             move.l  v_tiles(a5),a0
             move.w  T_NT(a0),d4
@@ -3789,6 +4022,15 @@ hud_digging:
             move.l  a0,-(sp)
             move.l  v_tiles(a5),a0
             btst    #0,T_FLAGS+1(a0)
+            move.l  (sp)+,a0
+.r          rts
+
+; Z clear in a tile world with tools (the space bar menu)
+hud_tools:  tst.w   v_tmode(a5)
+            beq.s   .r
+            move.l  a0,-(sp)
+            move.l  v_tiles(a5),a0
+            tst.w   T_NTOOL(a0)
             move.l  (sp)+,a0
 .r          rts
 

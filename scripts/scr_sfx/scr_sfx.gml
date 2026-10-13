@@ -3,6 +3,14 @@
 
 #macro SFX_RATE 11015
 #macro SFX_MAX_SECONDS 1.5
+#macro SFX_MAX_SWEPT 3          // seconds: a sound with a filter sweep (wind, surf) may last this long
+
+/// The longest a synth sound may last, in seconds
+function sfx_max_seconds(_s)
+{
+    if (_s.filt > 0 && _s.fspeed > 0 && _s.fdepth > 0) { return SFX_MAX_SWEPT; }
+    return SFX_MAX_SECONDS;
+}
 
 /// Returns an array of signed 8-bit sample values (-127..127)
 function sfx_render(_s)
@@ -11,8 +19,9 @@ function sfx_render(_s)
     var _dr_ms  = [6, 24, 48, 72, 114, 168, 204, 240, 300, 750, 1500, 2400, 3000, 9000, 15000, 24000];
     var _rate = SFX_RATE;
     var _gate_s = clamp(_s.len, 1, 100) / 50;
-    var _rel_s = min(_dr_ms[clamp(_s.rel, 0, 15)] / 1000, SFX_MAX_SECONDS);
-    var _total = min(_gate_s + _rel_s, SFX_MAX_SECONDS);
+    var _cap = sfx_max_seconds(_s);
+    var _rel_s = min(_dr_ms[clamp(_s.rel, 0, 15)] / 1000, _cap);
+    var _total = min(_gate_s + _rel_s, _cap);
     var _n = floor(_total * _rate);
     _n = _n - (_n mod 2);
     var _out = array_create(_n, 0);
@@ -29,6 +38,15 @@ function sfx_render(_s)
     var _rel_start = 0;
     var _spf = _rate / 50;
     var _frame = 0;
+    // low-pass filter (two poles): filt sets how bright, and a slow wave sweeps it
+    // up and down - fspeed quarter-hertz steps, fdepth up to 3 octaves each way
+    var _filt = clamp(_s.filt, 0, 15);
+    var _fbase = (_filt / 16) * (_filt / 16);
+    var _frate = clamp(_s.fspeed, 0, 15) * 0.25;
+    var _fdep = clamp(_s.fdepth, 0, 15) / 15 * 3;
+    var _lp1 = 0;
+    var _lp2 = 0;
+    var _peak = 0;
     for (var i = 0; i < _n; i++)
     {
         var _t = i / _rate;
@@ -71,7 +89,25 @@ function sfx_render(_s)
         {
             _env = _rel_start * max(0, 1 - (_t - _gate_s) / _rel);
         }
-        _out[i] = round(clamp(_v * _env * 0.9, -1, 1) * 127);
+        if (_filt > 0)
+        {
+            var _c = _fbase;
+            if (_frate > 0) { _c = _fbase * power(2, _fdep * sin(2 * pi * _frate * _t)); }
+            _c = clamp(_c, 0.002, 1);
+            _lp1 += _c * (_v - _lp1);
+            _lp2 += _c * (_lp1 - _lp2);
+            _v = _lp2;
+            _out[i] = _v * _env;
+            _peak = max(_peak, abs(_out[i]));
+        }
+        else { _out[i] = round(clamp(_v * _env * 0.9, -1, 1) * 127); }
+    }
+    if (_filt > 0)
+    {
+        // filtering takes volume away: bring the loudest moment back to full
+        var _g = 0;
+        if (_peak > 0) { _g = 0.9 / _peak; }
+        for (var k = 0; k < _n; k++) { _out[k] = round(clamp(_out[k] * _g, -1, 1) * 127); }
     }
     return _out;
 }
@@ -101,7 +137,7 @@ function sfx_preview_stop()
 function sfx_render_ex(_s)
 {
     var _key = string(_s.kind) + "|" + string(_s.wave) + "|" + string(_s.pitch) + "|" + string(_s.sweep) + "|" + string(_s.len) + "|"
-        + string(_s.atk) + string(_s.dec) + string(_s.sus) + string(_s.rel) + "|" + string(_s.rate) + "|" + string(_s.bits) + "|"
+        + string(_s.atk) + string(_s.dec) + string(_s.sus) + string(_s.rel) + "|" + string(_s.filt) + "," + string(_s.fspeed) + "," + string(_s.fdepth) + "|" + string(_s.rate) + "|" + string(_s.bits) + "|"
         + string(_s.gain) + "|" + string(_s.trim_a) + "|" + string(_s.trim_b) + "|" + string(_s.smp_len) + "|" + _s.smp_file + "|" + string(string_length(_s.smp));
     var _hit = snd_cache[$ _key];
     if (!is_undefined(_hit)) { return _hit; }

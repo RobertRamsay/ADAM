@@ -65,7 +65,15 @@ function ws_sound_draw(_x1, _y1, _x2, _y2)
     set_val(_s, "sweep", ui_stepper("snd_sweep", _fx, _y + 18, _half, _s.sweep, -8, 8, "Pitch slide|How much the pitch rises (+) or falls (-) every frame. Falling slides make lasers, rising slides make coins and power-ups."), "sndsweep");
     ui_heading(_fx + _half + 12, _y, "Length (frames)");
     set_val(_s, "len", ui_stepper("snd_len", _fx + _half + 12, _y + 18, _half, _s.len, 1, 100, "Length|How long the note is held, in 50ths of a second. The release then fades it out."), "sndlen");
-    _y += 66;
+    _y += 62;
+    var _third = floor((_colw - 16) / 3);
+    ui_heading(_fx, _y, "Filter");
+    ui_heading(_fx + _third + 8, _y, "Sweep speed");
+    ui_heading(_fx + (_third + 8) * 2, _y, "Sweep depth");
+    set_val(_s, "filt", ui_stepper("snd_filt", _fx, _y + 18, _third, _s.filt, 0, 15, "Filter|Softens the sound: 0 is off, 1 is very dark and muffled, 15 is nearly open. Great on noise for wind, rain and surf."), "sndfilt");
+    set_val(_s, "fspeed", ui_stepper("snd_fspeed", _fx + _third + 8, _y + 18, _third, _s.fspeed, 0, 15, "Sweep speed|How fast the filter sweeps up and down (0 = it stays put; 1 is one sweep every 4 seconds, 15 nearly 4 a second). A slow sweep on filtered noise is a gust of wind. With a sweep a sound can last up to 3 seconds."), "sndfspeed");
+    set_val(_s, "fdepth", ui_stepper("snd_fdepth", _fx + (_third + 8) * 2, _y + 18, _third, _s.fdepth, 0, 15, "Sweep depth|How far the sweep opens and closes the filter (15 = three octaves each way)."), "sndfdepth");
+    _y += 62;
     ui_heading(_fx, _y, "Envelope (attack, decay, sustain, release)");
     _y += 22;
     var _lab = ["Attack", "Decay", "Sustain", "Release"];

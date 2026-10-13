@@ -373,7 +373,7 @@ function adam_data_block_raw(_p, _measure = false)
                     // the other way too when it faces left (not with 8 directions)
                     var _need0 = !_plan[e].flip;
                     var _need1 = _plan[e].flip;
-                    if (_acts[a].anim_flip && !_dirs && e < ANIM_BASIC)
+                    if (_acts[a].anim_flip && !_dirs && (e < ANIM_BASIC || e == ANIM_FIRE0))
                     {
                         _need0 = true;
                         _need1 = true;
@@ -407,10 +407,11 @@ function adam_data_block_raw(_p, _measure = false)
             for (var side = 0; side < 2; side++)
             {
                 // right: as the entry says; left: turned the other way when it faces
-                // left (8 directions and Fire bake any turning into the entries instead)
+                // left (8 directions and Fire + a direction bake any turning into the entries instead;
+                // Fire on its own turns round like Idle)
                 var _way = 0;
                 if (_pl[e2].flip) { _way = 1; }
-                if (side == 1 && _acts[a3].anim_flip && !_dirs2 && e2 < ANIM_BASIC) { _way = 1 - _way; }
+                if (side == 1 && _acts[a3].anim_flip && !_dirs2 && (e2 < ANIM_BASIC || e2 == ANIM_FIRE0)) { _way = 1 - _way; }
                 for (var k = 0; k < ANIM_FRAMES; k++)
                 {
                     var _fi = 0;
@@ -666,7 +667,9 @@ function adam_data_block_raw(_p, _measure = false)
         be16(_b, _tg.line);
         be16(_b, _tg.ncol);
         be16(_b, _tg.nrow);
-        be16(_b, 0);
+        var _ntool = 0;                 // T_NTOOL: the space bar menu (only where the player digs)
+        if (_p.tile_dig) { _ntool = min(array_length(_p.tools), TOOL_MAX); }
+        be16(_b, _ntool);
         be32(_b, _tg.ring);
         for (var ti = 0; ti < _nt; ti++)
         {
@@ -687,6 +690,16 @@ function adam_data_block_raw(_p, _measure = false)
             be16(_b, _bec);
         }
         for (var tn = 0; tn < _nt; tn++) { buf_fixed_text(_b, _p.tiles[tn].name, 5); buffer_seek(_b, buffer_seek_relative, -1); }
+        for (var tt = 0; tt < _ntool; tt++)             // TL_*: what fire does, its tile, 8 letters
+        {
+            var _tl = _p.tools[tt];
+            var _ttile = _tl.tile;
+            if (_ttile < 0 || _ttile >= _nt) { _ttile = 0; }
+            be16(_b, clamp(_tl.act, 0, 2));
+            be16(_b, _ttile);
+            buf_fixed_text(_b, _tl.name, 9);
+            buffer_seek(_b, buffer_seek_relative, -1);
+        }
         buf_align(_b, 8);
         var _off_timg = buffer_tell(_b);
         if (_measure) { buf_zeros(_b, _nt * _depth * _ts * _ts div 8); }     // the memory bar only needs the size

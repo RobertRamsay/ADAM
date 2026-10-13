@@ -808,7 +808,7 @@ def to_builder(p):
                       font=(ui_ref.font_bytes(u) if u.get('font_style',0)!=0 else None),
                       panel=(ui_ref.panel_pixels(uu,p['pixels']) if u.get('frame_on',True) else None))
     if p.get('tiles_on'):
-        bp['tiles']=dict(w=p['map_w'],h=p['map_h'],dig=p['tile_dig'],tiles=p['tiles'],map=p['map'],size=p.get('tile_size',16))
+        bp['tiles']=dict(w=p['map_w'],h=p['map_h'],dig=p['tile_dig'],tiles=p['tiles'],map=p['map'],size=p.get('tile_size',16),tools=p.get('tools',[]))
     return bp, conf
 
 def preview(p,fn):

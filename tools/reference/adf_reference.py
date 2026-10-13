@@ -101,7 +101,7 @@ def build(proj, aga):
             dirs=dirs_on(a)
             for ei,(frames,rate,mode,fl) in enumerate(plan):
                 right=[img(f,fl) for f in frames]
-                left=[img(f,not fl) for f in frames] if a.get('flip') and not dirs and ei<4 else right
+                left=[img(f,not fl) for f in frames] if a.get('flip') and not dirs and (ei<4 or ei==12) else right
                 ents.append((len(frames),rate,mode,right,left))
             plans.append(ents)
         else: plans.append(None)
@@ -201,7 +201,8 @@ def build(proj, aga):
         blob.extend(struct.pack('>HHHH',t['w'],t['h'],nt,(1 if t.get('dig') else 0)|(2 if wcell else 0)))
         tile_fix=len(blob)
         blob.extend(b'\0'*20)                  # T_IMG T_MAP T_WMAP T_BUF T_BUFPL, filled in below
-        blob.extend(struct.pack('>HHHHHHL',S,sh,tline,ncol,nrow,0,ring))
+        tools=t.get('tools',[])[:6] if t.get('dig') else []
+        blob.extend(struct.pack('>HHHHHHL',S,sh,tline,ncol,nrow,len(tools),ring))
         for td in t['tiles']:
             fl=(1 if td.get('solid') else 0)|(2 if td.get('dig') else 0)|(4 if td.get('goal') else 0)|(8 if td.get('ladder') else 0)
             snd=td.get('sound',-1); snd=0xff if snd<0 else snd&7
@@ -211,6 +212,12 @@ def build(proj, aga):
         for td in t['tiles']:
             nm=td['name'].upper().encode('ascii','replace')[:4]
             blob.extend(nm+b'\0'*(4-len(nm)))
+        # the space bar menu's tools (engine.s TL_*): 0 dig, 1 build with the tile carried, 2 put a tile
+        for tl in tools:
+            tt=tl.get('tile',0)
+            if tt<0 or tt>=nt: tt=0
+            nm=tl['name'].upper().encode('ascii','replace')[:8]
+            blob.extend(struct.pack('>HH',max(0,min(2,tl.get('act',0))),tt)+nm+b'\0'*(8-len(nm)))
         align(8)
         off_img=len(blob)
         for td in t['tiles']:
@@ -394,10 +401,13 @@ def render_sfx(s):
     rate=3546895/322
     atk_ms=[2,8,16,24,38,56,68,80,100,250,500,800,1000,3000,5000,8000]
     dr_ms=[6,24,48,72,114,168,204,240,300,750,1500,2400,3000,9000,15000,24000]
-    gate=s['len']/50; rel=min(dr_ms[s['rel']]/1000,1.5); total=min(gate+rel,1.5)
+    filt=s.get('filt',0); fspeed=s.get('fspeed',0); fdepth=s.get('fdepth',0)
+    cap=3 if (filt>0 and fspeed>0 and fdepth>0) else 1.5     # scr_sfx.gml sfx_max_seconds
+    gate=s['len']/50; rel=min(dr_ms[s['rel']]/1000,cap); total=min(gate+rel,cap)
     n=int(total*rate); out=bytearray(); ph=0; hi=s['pitch']; frame=0; noise=0; lq=0; env=0; rs=0
     atk=max(.001,atk_ms[s['atk']]/1000); dec=max(.001,dr_ms[s['dec']]/1000); sus=s['sus']/15; rl=max(.001,dr_ms[s['rel']]/1000)
     rnd=12345
+    fbase=(filt/16)**2; frate=fspeed*0.25; fdep=fdepth/15*3; lp1=lp2=0; peak=0; fl=[]
     for i in range(n):
         t=i/rate; f=int(i/(rate/50))
         if f!=frame:
@@ -417,7 +427,15 @@ def render_sfx(s):
         if t<gate:
             env= t/atk if t<atk else sus+(1-sus)*max(0,1-(t-atk)/dec); rs=env
         else: env=rs*max(0,1-(t-gate)/rl)
-        out.append(int(round(max(-1,min(1,v*env*0.9))*127))&255)
+        if filt>0:
+            c=fbase*2**(fdep*math.sin(2*math.pi*frate*t)) if frate>0 else fbase
+            c=max(.002,min(1,c))
+            lp1+=c*(v-lp1); lp2+=c*(lp1-lp2)
+            fl.append(lp2*env); peak=max(peak,abs(fl[-1]))
+        else: out.append(int(round(max(-1,min(1,v*env*0.9))*127))&255)
+    if filt>0:
+        g=0.9/peak if peak>0 else 0
+        for x in fl: out.append(int(round(max(-1,min(1,x*g))*127))&255)
     return out
 
 def adf(game,need=0):

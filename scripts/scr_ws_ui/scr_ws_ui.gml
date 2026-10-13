@@ -22,7 +22,7 @@ function ui_frame_styles()
 
 function ui_field_types()
 {
-    return ["Text", "Score", "Lives", "Goal", "Tile carried", "Level"];
+    return ["Text", "Score", "Lives", "Goal", "Tile carried", "Level", "Tool"];
 }
 
 /// The custom HUD of a new project: off (the standard HUD is used)
@@ -77,7 +77,7 @@ function ui_from_loaded(_raw)
             if (!is_struct(_src)) { continue; }
             var _fd = struct_overlay(ui_field_new(0), _src);
             if (!is_numeric(_fd.type)) { _fd.type = 0; }
-            _fd.type = clamp(floor(_fd.type), 0, 5);
+            _fd.type = clamp(floor(_fd.type), 0, 6);
             if (!is_string(_fd.label)) { _fd.label = ""; }
             _fd.label = string_upper(string_copy(_fd.label, 1, UI_LABEL_MAX));
             if (!is_numeric(_fd.col)) { _fd.col = 0; }
@@ -289,6 +289,9 @@ function ui_field_text(_f)
             if (array_length(proj.tiles) > 1) { _tn = string_copy(proj.tiles[1].name + "    ", 1, 4); }
             return _lab + _tn + " 03";
         case 5: return _lab + string_replace_all(string_format(1, _f.digits, 0), " ", "0");
+        case 6:
+            if (!(proj.tiles_on && proj.tile_dig) || array_length(proj.tools) == 0) { return ""; }
+            return _lab + string_copy(proj.tools[0].name + "        ", 1, 8);
     }
     return _lab;
 }
@@ -604,11 +607,14 @@ function ws_ui_draw(_x1, _y1, _x2, _y2)
     }
     var _sf = _u.fields[ui_sel_field];
     ui_heading(_gx, _gy, "Shows");
-    set_val(_sf, "type", ui_dropdown("ui_ftype", _gx, _gy + 18, _gw, 30, ui_field_types(), _sf.type, "Shows|Text: just the label. Score, Lives, Level: the label then the number. Goal: the label (or the goal's name) and 'got / needed'. Tile carried: the tile's name and how many (tile worlds where the player digs)."), "uiftype");
+    set_val(_sf, "type", ui_dropdown("ui_ftype", _gx, _gy + 18, _gw, 30, ui_field_types(), _sf.type, "Shows|Text: just the label. Score, Lives, Level: the label then the number. Goal: the label (or the goal's name) and 'got / needed'. Tile carried: the tile's name and how many (tile worlds where the player digs). Tool: the label then the tool in use (8 letters; tile worlds with tools - Tiles page, Tools tab)."), "uiftype");
     _gy += 58;
     ui_heading(_gx, _gy, "Label (up to " + string(UI_LABEL_MAX) + " letters)");
-    var _nl = ui_textfield("ui_flabel", _gx, _gy + 18, _gw, 32, _sf.label, UI_LABEL_MAX, "Label|Drawn before the value, e.g. 'SCORE ' (end it with a space). For Text it is the whole text.");
-    set_val(_sf, "label", string_upper(_nl), "uiflabel");
+    // each field has its own label box: picking another field drops the typing in the old one
+    var _lid = "ui_flabel" + string(ui_sel_field);
+    if (string_pos("ui_flabel", ui_focus) == 1 && ui_focus != _lid) { ui_focus = ""; }
+    var _nl = ui_textfield(_lid, _gx, _gy + 18, _gw, 32, _sf.label, UI_LABEL_MAX, "Label|Drawn before the value, e.g. 'SCORE ' (end it with a space). For Text it is the whole text.");
+    set_val(_sf, "label", string_upper(_nl), "uiflabel" + string(ui_sel_field));
     _gy += 62;
     var _gh = floor((_gw - 10) / 2);
     ui_heading(_gx, _gy, "Column (0-39)");

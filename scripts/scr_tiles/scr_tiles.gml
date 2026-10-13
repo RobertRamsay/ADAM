@@ -7,12 +7,46 @@
 /// (fire + a direction) and place them again (fire).
 ///
 /// Tile 0 is always empty air: colour 0, so the copper sky shows through.
-/// Engine side: data block version 6, H_TILES / T_* / TP_* in engine.s.
+/// Engine side: data block version 6, H_TILES / T_* / TP_* / TL_* (tools) in engine.s.
 
 #macro TILE_MAX 512             // tile types, ADAM Pro (lim_tiles)
 #macro MAP_MAX 1024             // map width / height in tiles, ADAM Pro (lim_map_w / lim_map_h)
 #macro WORLD_PX_MAX 32640       // the world is at most this many pixels across and down (engine words)
 #macro TILE_ATLAS_COLS 32       // tiles across the atlas surface
+#macro TOOL_MAX 6               // tools in the space bar menu (engine.s T_NTOOL / TL_*)
+#macro TOOL_NAME_LEN 8
+
+/// A tool for the space bar menu: _act 0 = dig (pickaxe), 1 = build with the tile
+/// carried (hammer), 2 = put tile _tile where the player stands (ladder, torch)
+function tool_new(_name, _act, _tile)
+{
+    return { name : _name, act : _act, tile : _tile };
+}
+
+/// Checks a loaded project's tools (called by tiles_fix)
+function tools_fix(_p)
+{
+    var _out = [];
+    var _lt = _p.tools;
+    if (is_array(_lt))
+    {
+        for (var i = 0; i < min(TOOL_MAX, array_length(_lt)); i++)
+        {
+            var _src = _lt[i];
+            if (!is_struct(_src)) { continue; }
+            var _t = struct_overlay(tool_new("TOOL", 0, 0), _src);
+            if (!is_string(_t.name)) { _t.name = "TOOL"; }
+            _t.name = string_upper(string_copy(_t.name, 1, TOOL_NAME_LEN));
+            if (!is_numeric(_t.act)) { _t.act = 0; }
+            _t.act = clamp(floor(_t.act), 0, 2);
+            if (!is_numeric(_t.tile)) { _t.tile = 0; }
+            _t.tile = floor(_t.tile);
+            if (_t.tile < 0 || _t.tile >= array_length(_p.tiles)) { _t.tile = 0; }
+            array_push(_out, _t);
+        }
+    }
+    _p.tools = _out;
+}
 
 /// A tile size ADAM supports: 8, 16, 32 or 64 (anything else becomes 16)
 function tile_size_ok(_s)
@@ -285,6 +319,7 @@ function tiles_fix(_p)
     }
     if (!is_bool(_p.tiles_on)) { _p.tiles_on = (is_numeric(_p.tiles_on) && _p.tiles_on != 0); }
     if (!is_bool(_p.tile_dig)) { _p.tile_dig = (is_numeric(_p.tile_dig) && _p.tile_dig != 0); }
+    tools_fix(_p);
 }
 
 /// A starter world: sky, grass, dirt, stone and bedrock across the map
@@ -681,6 +716,10 @@ function ws_tiles_draw(_x1, _y1, _x2, _y2)
             {
                 if (proj.tiles[k].becomes >= _last) { proj.tiles[k].becomes = 0; }
             }
+            for (var tq = 0; tq < array_length(proj.tools); tq++)
+            {
+                if (proj.tools[tq].tile >= _last) { proj.tools[tq].tile = 0; }
+            }
             tile_sel = min(tile_sel, _last - 1);
             tiles_mark_all();
         }
@@ -730,7 +769,7 @@ function ws_tiles_draw(_x1, _y1, _x2, _y2)
         }
     }
     _ly += 32;
-    set_val(proj, "tile_dig", ui_toggle("tile_dig", _x1 + 16, _ly, "Dig and place", proj.tile_dig, "Dig and place|The player digs: fire + a direction digs the tile that way (each tile says how long it takes), fire on its own puts the last tile dug back down in front of it. Up jumps. The HUD shows the tile carried and how many."), "tiledig");
+    set_val(proj, "tile_dig", ui_toggle("tile_dig", _x1 + 16, _ly, "Dig and place", proj.tile_dig, "Dig and place|The player digs: fire + a direction digs the tile that way (each tile says how long it takes), fire on its own puts the last tile dug back down in front of it. Up jumps. The HUD shows the tile carried and how many. With tools (Tools tab), space picks a tool and fire uses it."), "tiledig");
     _ly += 36;
     ui_heading(_x1 + 16, _ly, "Map size (tiles)");
     _ly += 18;
@@ -757,14 +796,18 @@ function ws_tiles_draw(_x1, _y1, _x2, _y2)
 
     // ---------------- centre: Tile set or Map ----------------
     ui_panel(_cx1, _y1, _cx2, _y2, "");
-    var _tabs = ["Map", "Tile set"];
-    var _thelp = ["Map|Paint the world with tiles and drag actors to where they start.", "Tile set|Draw the tiles, " + string(_S) + " x " + string(_S) + " pixels in the backdrop colours, and say what each one does."];
-    for (var tb = 0; tb < 2; tb++)
+    var _tabs = ["Map", "Tile set", "Tools"];
+    var _thelp = ["Map|Paint the world with tiles and drag actors to where they start.", "Tile set|Draw the tiles, " + string(_S) + " x " + string(_S) + " pixels in the backdrop colours, and say what each one does.", "Tools|The player's tools: space opens a menu in the game to pick one (a pickaxe, a hammer, a ladder...) and fire uses it."];
+    for (var tb = 0; tb < 3; tb++)
     {
         if (ui_tab("tile_tab_" + string(tb), _cx1 + 16 + tb * 120, _y1 + 12, 114, 30, _tabs[tb], tile_page == tb, _thelp[tb])) { tile_page = tb; }
     }
     if (tile_page == 1) { tiles_set_editor(_cx1, _y1 + 50, _cx2, _y2); }
-    else { tiles_map_editor(_cx1, _y1 + 50, _cx2, _y2); }
+    else
+    {
+        if (tile_page == 2) { tiles_tools_editor(_cx1, _y1 + 50, _cx2, _y2); }
+        else { tiles_map_editor(_cx1, _y1 + 50, _cx2, _y2); }
+    }
 
     // ---------------- right: the picked tile ----------------
     var _rx = _x2 - _rw;
@@ -788,7 +831,7 @@ function ws_tiles_draw(_x1, _y1, _x2, _y2)
     _y += 32;
     set_val(_t, "goal", ui_toggle("tile_goal", _fx, _y, "Counts towards the goal", _t.goal, "Counts towards the level goal|Digging it adds one to the level goal counter (Levels page) - gold, gems, treasure."), "tilegoal");
     _y += 32;
-    set_val(_t, "ladder", ui_toggle("tile_ladder", _fx, _y, "Ladder (climb it)", _t.ladder, "Ladder|A platform player on it climbs with up and down instead of falling - ladders, vines, ropes. Switch Solid off for it. Put ladder parts down with the rule DO 'Place a tile', e.g. WHEN fire is held for 1 second."), "tileladder");
+    set_val(_t, "ladder", ui_toggle("tile_ladder", _fx, _y, "Ladder (climb it)", _t.ladder, "Ladder|A platform player on it climbs with up and down instead of falling - ladders, vines, ropes. Switch Solid off for it. Give the player a ladder tool (Tools tab) to put ladder parts down, or use the rule DO 'Place a tile'."), "tileladder");
     _y += 36;
     var _half = floor((_fw - 12) / 2);
     ui_heading(_fx, _y, "Dig time (50ths)");
@@ -817,6 +860,82 @@ function ws_tiles_draw(_x1, _y1, _x2, _y2)
         tile_draw(tile_sel, _ax, _y + 27, _shown);
         _ax += _shown + 16;
         for (var rr = 0; rr < 3; rr++) { tile_draw(tile_sel, _ax + rr * 32, _y + 27, 32); }
+    }
+}
+
+/// The Tools tab: the space bar menu's tools - up to TOOL_MAX, each a name, what
+/// fire does with it and (to put down) its tile. None = fire digs and places as before.
+function tiles_tools_editor(_x1, _y1, _x2, _y2)
+{
+    var _fx = _x1 + 20;
+    var _fw = _x2 - _x1 - 40;
+    var _y = _y1 + 8;
+    ui_text_wrap(_fx, _y, "In the game, space opens a menu of these tools along the HUD: left and right pick one, fire or space takes it, and from then on fire uses it. With no tools, fire + a direction digs and fire on its own puts the tile carried down. Needs Dig and place on.", global.TH.text_dim, _fw, global.f_body, 1);
+    _y += 70;
+    if (!proj.tile_dig)
+    {
+        ui_text_wrap(_fx, _y, "Dig and place is off (left panel), so the game has no tools.", global.TH.warn, _fw, global.f_body, 1);
+        _y += 30;
+    }
+    var _acts = ["Dig (pickaxe)", "Build with the tile carried (hammer)", "Put a tile where the player stands"];
+    var _tn = [];
+    for (var k = 0; k < array_length(proj.tiles); k++) { array_push(_tn, string(k) + ": " + proj.tiles[k].name); }
+    var _nw = 130;
+    var _aw = min(300, floor((_fw - _nw - 50) / 2));
+    var _tw = _fw - _nw - _aw - 50 - 16;
+    ui_heading(_fx, _y, "Name");
+    ui_heading(_fx + _nw + 8, _y, "Fire does");
+    ui_heading(_fx + _nw + _aw + 16, _y, "Tile it puts down");
+    _y += 20;
+    var _del = -1;
+    for (var i = 0; i < array_length(proj.tools); i++)
+    {
+        var _t = proj.tools[i];
+        var _id = "tool" + string(i) + "_";
+        var _nm = ui_textfield(_id + "name", _fx, _y, _nw, 30, _t.name, TOOL_NAME_LEN, "Tool name|Up to 8 letters, shown in the space bar menu and the HUD's Tool field.");
+        set_val(_t, "name", string_upper(_nm), "toolname" + string(i));
+        set_val(_t, "act", ui_dropdown(_id + "act", _fx + _nw + 8, _y, _aw, 30, _acts, _t.act, "Fire does|Dig: fire digs the way the player faces (or fire + a direction digs that way), held down. Build: fire puts the tile carried (the last one dug) where fire points, or in front. Put a tile: fire puts the tile picked here where the player stands - a ladder part to climb out of a hole, a torch on the wall."), "toolact" + string(i));
+        if (_t.act == 2)
+        {
+            set_val(_t, "tile", ui_dropdown(_id + "tile", _fx + _nw + _aw + 16, _y, _tw, 30, _tn, clamp(_t.tile, 0, array_length(_tn) - 1), "Tile it puts down|Put a ladder tile (Ladder on, Solid off) to climb, or a background tile like a torch. It goes in the first place at the player that is not solid: its middle, its feet, then its head."), "tooltile" + string(i));
+        }
+        if (ui_button(_id + "del", _fx + _fw - 50, _y, 50, 30, "X", "Remove this tool|You can Undo it.", BTN_DANGER)) { _del = i; }
+        _y += 38;
+    }
+    if (_del >= 0)
+    {
+        undo_mark("tooldel" + string(current_time));
+        array_delete(proj.tools, _del, 1);
+    }
+    var _bst = BTN_NORMAL;
+    if (array_length(proj.tools) >= TOOL_MAX) { _bst = BTN_GHOST; }
+    if (ui_button("tool_add", _fx, _y + 4, 160, 30, "Add a tool", "Add a tool|Up to " + string(TOOL_MAX) + " tools. Keep the names short so they all fit across the HUD.", _bst))
+    {
+        if (array_length(proj.tools) < TOOL_MAX)
+        {
+            undo_mark("tooladd" + string(current_time));
+            var _names = ["PICK", "HAMMER", "LADDER", "TORCH", "TOOL5", "TOOL6"];
+            var _a = 0;
+            if (array_length(proj.tools) == 1) { _a = 1; }
+            if (array_length(proj.tools) >= 2) { _a = 2; }
+            array_push(proj.tools, tool_new(_names[array_length(proj.tools)], _a, 0));
+        }
+    }
+    // the menu as the game shows it (40 columns)
+    var _line = "";
+    for (var j = 0; j < array_length(proj.tools); j++)
+    {
+        if (j == 0) { _line += ">"; }
+        else { _line += " "; }
+        _line += proj.tools[j].name + " ";
+    }
+    if (string_length(_line) > 40)
+    {
+        ui_text_wrap(_fx, _y + 46, "The menu is " + string(string_length(_line)) + " letters across - only 40 fit. Shorten some names.", global.TH.warn, _fw, global.f_body, 1);
+    }
+    else
+    {
+        if (array_length(proj.tools) > 0) { ui_text_wrap(_fx, _y + 46, "Menu: " + _line, global.TH.text_faint, _fw, global.f_body, 1); }
     }
 }
 

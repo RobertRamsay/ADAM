@@ -6,7 +6,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 FONT = [int(v, 16) for v in re.findall(r'\$([0-9a-f]{2})', open(os.path.join(HERE, '..', '..', 'datafiles', 'engine', 'font.inc')).read())]
 FONT_STYLES = ["ADAM", "Bold", "Thin", "Italic", "Bold italic", "Custom"]
 FRAME_STYLES = ["Metal", "Wood", "Stone", "Neon", "Parchment", "Window"]
-FIELD_TYPES = ["Text", "Score", "Lives", "Goal", "Tile carried", "Level"]
+FIELD_TYPES = ["Text", "Score", "Lives", "Goal", "Tile carried", "Level", "Tool"]
 
 def font_bytes(ui):
     st = ui.get('font_style', 0)

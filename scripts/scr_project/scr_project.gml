@@ -407,6 +407,7 @@ function sfx_new(_name)
     return {
         name : _name, kind : 0,
         wave : 2, pitch : 60, sweep : 0, len : 10, atk : 0, dec : 8, sus : 0, rel : 6,
+        filt : 0, fspeed : 0, fdepth : 0,        // low-pass filter 1..15 (0 off), its sweep speed and depth
         smp : "", smp_rate : 0, smp_len : 0, smp_file : "",
         rate : 11025, bits : 8, gain : 100, trim_a : 0, trim_b : 1000
     };
@@ -482,6 +483,7 @@ function project_new()
         map_h : 32,
         map : map_starter(64, 32),               // map_w x map_h tile numbers
         tile_dig : true,                         // the player digs (fire + direction) and places (fire)
+        tools : [],                              // space bar menu tools (Tools tab), [] = none
         ui : ui_new()                            // ADAM Pro custom HUD (UI page)
     };
     for (var i = 0; i < 8; i++)
@@ -1085,7 +1087,7 @@ function undo_keys(_ws)
         case WS_SOUND:    return ["sfx"];
         case WS_MUSIC:    return ["songs", "level_song"];
         case WS_ANIMATE:  return ["actors"];
-        case WS_TILES:    return ["tiles_on", "tile_size", "tiles", "map_w", "map_h", "map", "tile_dig", "actors"];
+        case WS_TILES:    return ["tiles_on", "tile_size", "tiles", "map_w", "map_h", "map", "tile_dig", "tools", "actors"];
         case WS_UI:       return ["ui"];
     }
     return [];

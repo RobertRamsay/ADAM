@@ -187,7 +187,7 @@ spr_dirty = array_create(SPR_COUNT, true);
 sel_actor = 0;
 
 // Tiles page
-tile_page = 0;              // 0 = Map, 1 = Tile set
+tile_page = 0;              // 0 = Map, 1 = Tile set, 2 = Tools
 tile_sel = 1;               // tile picked
 tile_pen = 1;               // colour the tile editor draws with
 tile_tool = 0;              // map: 0 paint, 1 box, 2 pick

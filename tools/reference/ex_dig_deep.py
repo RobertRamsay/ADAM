@@ -399,25 +399,33 @@ def dig_deep():
              R(when=0, a=0, b=5, act=1), R(when=0, a=0, b=5, act=4, target=0), R(when=0, a=0, b=5, act=16, target=0), R(when=0, a=0, b=5, act=2, value=6),
              R(when=6, a=0, act=2, value=3),
              R(when=4, act=9),
-             # hold fire for a second: a ladder part where the miner stands, to climb out of holes
-             R(when=8, n=10, act=20, target=0, value=LADDER),
-             R(when=8, n=10, act=2, value=4),
-             # the wind blows through the caves now and again
-             R(when=2, n=9, act=2, value=7),
-             R(when=2, n=23, act=2, value=7)]
+             # the wind gusts through the caves now and again, and chimes ring far off
+             R(when=2, n=11, act=2, value=1),
+             R(when=2, n=26, act=2, value=1),
+             R(when=2, n=7, act=2, value=2),
+             R(when=2, n=19, act=2, value=7),
+             R(when=2, n=31, act=2, value=2)]
     sfx = g.sfx_list({0: dict(name="Treasure", wave=2, pitch=84, sweep=12, len=8, atk=0, dec=5, sus=0, rel=5),
                       3: dict(name="Dig", wave=3, pitch=26, sweep=-2, len=3, atk=0, dec=3, sus=0, rel=2),
                       4: dict(name="Clink", wave=2, pitch=70, sweep=-6, len=3, atk=0, dec=3, sus=0, rel=3),
                       6: dict(name="Ouch", wave=0, pitch=46, sweep=-1, len=26, atk=1, dec=8, sus=9, rel=7),
-                      7: dict(name="Wind", wave=3, pitch=6, sweep=-1, len=32, atk=10, dec=10, sus=12, rel=9, gain=70)})
+                      # sound 1 / 5 share Paula channel 2, 2 / 6 channel 3, 3 / 7 channel 4 (no music here):
+                      # the wind has channel 2 to itself, the chimes ring on 3 and 4
+                      1: dict(name="Wind", wave=3, pitch=230, sweep=0, len=70, atk=11, dec=12, sus=10, rel=10, filt=4, fspeed=2, fdepth=11),
+                      2: dict(name="Chime", wave=0, pitch=100, sweep=0, len=2, atk=0, dec=10, sus=0, rel=10),
+                      7: dict(name="Chime 2", wave=0, pitch=133, sweep=0, len=2, atk=0, dec=10, sus=0, rel=10)})
     p = g.make_project("Dig Deep", PAL, img, sprites, actors, rules, [0x1850b0, 0x60a8ff, 0xc8e8ff, 120],
                        hud_col=1, msg_col=11, sfx=sfx, win="ALL THE TREASURE! - PRESS FIRE", over="BURIED! - PRESS FIRE", songs=[])
     p.update(goal_on=True, goal=12, goal_label="GOLD", title_on=True, title1="DIG DEEP", title2="PRESS FIRE TO START")
     p.update(tiles_on=True, tile_size=16, tiles=tl, map_w=W, map_h=H, map=m, tile_dig=True)
+    # space opens the tool menu: the pickaxe digs, the hammer builds with the tile carried,
+    # ladder parts to climb out of holes and torches to light the way
+    p['tools'] = [dict(name="PICK", act=0, tile=0), dict(name="HAMMER", act=1, tile=0),
+                  dict(name="LADDER", act=2, tile=LADDER), dict(name="TORCH", act=2, tile=TORCH)]
     # ADAM Pro: a stone HUD panel, bold lettering with shadows: score, gold, the tile carried, lives
     g.dress_ui(p, "Stone", 1, 2, [(1, "SCORE ", 1, 0, 0xffffff, 0x161626, 5), (3, "", 17, 0, 0xffcc22, 0x161626, 0),
                                   (4, "", 29, 0, 0x40e8ff, 0x161626, 0), (2, "LIVES ", 1, 1, 0xff8820, 0x161626, 1),
-                                  (0, "HOLD FIRE: LADDER", 17, 1, 0xd8d8e0, 0x161626, 0)])
+                                  (6, "", 17, 1, 0xd8d8e0, 0x161626, 0), (0, "SPACE:TOOLS", 27, 1, 0x9090a0, 0x161626, 0)])
     # animations: walk, jump and fall, and the pickaxe on the With Fire joystick
     T = g.tf_shift
     walk = [("Miner step", miner_rows(1)), ("Miner pass", miner_rows(2)), ("Miner step 2", miner_rows(3)), ("Miner pass 2", miner_rows(2, bob=1))]
