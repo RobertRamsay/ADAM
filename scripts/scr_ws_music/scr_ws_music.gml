@@ -47,7 +47,12 @@ function music_item_loop(_it)
 
 function music_inst_short(_id)
 {
-    if (_id >= MUS_INST_USER) { return "Sound " + string(_id - MUS_INST_USER + 1); }
+    if (_id >= MUS_INST_USER)
+    {
+        var _k = _id - MUS_INST_USER;
+        if (_k >= 0 && _k < array_length(proj.sfx)) { return string(_k + 1) + " " + proj.sfx[_k].name; }
+        return "Sound " + string(_k + 1);
+    }
     return music_inst_name(_id);
 }
 
@@ -1396,6 +1401,7 @@ function music_editor(_ex1, _ey1, _ex2, _ey2, _song)
     var _rh = 16;
     if (_drums)
     {
+        music_drum_rows_refresh();
         _rows = global.MUS_DRUM_ROWS;
         _rh = 22;
     }

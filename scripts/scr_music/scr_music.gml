@@ -324,6 +324,16 @@ function music_note_length(_lp, _step)
     return min(_length, MUS_STEPS - _step);
 }
 
+/// The drum grid's rows: the built-in drums and effects, then every sound on
+/// the Sound page in its order (by folder). Rebuilt as sounds come and go.
+function music_drum_rows_refresh()
+{
+    var _rows = [0, 1, 2, 3, 4, 5, 13, 14, 15];
+    var _sl = sfx_pick_list(false);
+    for (var k = 0; k < array_length(_sl.ids); k++) { array_push(_rows, MUS_INST_USER + _sl.ids[k]); }
+    global.MUS_DRUM_ROWS = _rows;
+}
+
 function music_note_row(_lp, _step, _drums)
 {
     if (!_drums) { return 36 - _lp.notes[_step]; }

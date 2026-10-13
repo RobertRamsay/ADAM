@@ -1246,6 +1246,7 @@ function project_after_change()
     bd_sel = clamp(bd_sel, 0, pal_count() - 1);
     sel_actor = clamp(sel_actor, 0, max(0, array_length(proj.actors) - 1));
     snd_sel = clamp(snd_sel, 0, array_length(proj.sfx) - 1);
+    music_drum_rows_refresh();
     build_listing = [];
 }
 
