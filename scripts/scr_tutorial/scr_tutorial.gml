@@ -12,7 +12,7 @@ function tut_init()
         tut_step(WS_HOME, "", "Welcome to ADAM", "You are going to make a real Amiga game without writing a single line of code. This tour visits every page. Use Next and Back, or the arrow keys. Press Esc to leave at any time."),
         tut_step(WS_HOME, "top_machine", "Your Amiga", "This is the machine your game is made for: the Amiga 500/600 (OCS/ECS, 1MB) or the Amiga 1200 (AGA, 2MB). Click it any time to switch. The 1200 allows many more colours."),
         tut_step(WS_HOME, "home_example", "Try an example first", "Pick one of four finished games - Gem Hunter, Deep Dive, Star Catcher or Dodge Ball. They are a great way to see how everything fits together. You can start a New project any time."),
-        tut_step(WS_HOME, "home_card_0", "Six simple steps", "Every game is made the same way: paint a backdrop, draw sprites, place actors, write rules, add sounds, then build. Click any card to jump to that page."),
+        tut_step(WS_HOME, "home_card_0", "Every editor, in order", "Each card is one of ADAM's pages, in the same order as the top bar: paint a backdrop or a tile world, set up levels, draw sprites, place and animate actors, design the HUD, write rules, add sounds and music, then build. Click any card to jump to that page - the last one starts this tour."),
         tut_step(WS_HOME, "home_name", "Name your game", "Give your game a name. It is also used for the file names when you save and build."),
         tut_step(WS_HOME, "home_lives", "Lives and score", "Choose how many lives the player gets and where the score and lives are shown. A rule on the Logic page takes lives away."),
         tut_step(WS_HOME, "home_over", "Messages", "These messages appear when the game ends. The player presses fire to play again."),
@@ -327,7 +327,7 @@ function tut_offer_draw(_gw, _gh)
     {
         tut_offer_on = false;
     }
-    if (ui_button("tut_offer_never", _cx + 24, _by, _dw, 32, "Don't ask again", "Stop offering tutorials|Turns off 'Offer a tutorial on each new page' (Home page, Studio). Tutorial (F1) still works.", BTN_GHOST))
+    if (ui_button("tut_offer_never", _cx + 24, _by, _dw, 32, "Don't ask again", "Stop offering tutorials|Turns off 'Offer page tutorials' (Home page, Studio panel). Tutorial (F1) still works.", BTN_GHOST))
     {
         tut_offer_on = false;
         auto_tutorials = false;

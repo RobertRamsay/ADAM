@@ -3,7 +3,7 @@
 /// At start-up ADAM fetches latest.json from the public repo (one small GET,
 /// nothing about the user is sent) and, when its version is newer than
 /// ADAM_VERSION, shows a card in the bottom-right corner with a link to the
-/// itch.io page. Off with Home > Game settings > "Check for updates".
+/// itch.io page. Off with Home > Studio > "Check for updates".
 /// latest.json is updated (and pushed) only AFTER a release is on itch.io -
 /// see docs/RELEASE.md. It holds:
 ///   { "version" : "1.0.2", "lite_url" : "https://...", "pro_url" : "https://...",
@@ -104,7 +104,7 @@ function update_card_draw(_gw, _gh)
         url_open(update_url);
         _close = true;
     }
-    if (ui_button("update_later", _x2 - 20 - 120 - 10 - 110, _by, 110, 34, "Not now", "Not now|Hides this until you next start ADAM. Turn the check off on Home > Game settings.", BTN_NORMAL)) { _close = true; }
+    if (ui_button("update_later", _x2 - 20 - 120 - 10 - 110, _by, 110, 34, "Not now", "Not now|Hides this until you next start ADAM. Turn the check off on Home > Studio.", BTN_NORMAL)) { _close = true; }
     ui_force_input = false;
     if (_close)
     {

@@ -16,7 +16,7 @@ function whatsnew_entries()
                 "Questions such as \"Quit ADAM?\" and \"Start a new project?\" now appear in ADAM's own panel, with Enter for yes and Esc for cancel.",
                 "Fixed: on some older graphics cards ADAM could go black when you came back to it from a game running full screen.",
                 "ADAM uses far less graphics memory (about half on a 4K screen), so it runs better on older PCs.",
-                "ADAM now tells you when a new version is out, with a small card and a link to it. Turn it off on Home > Game settings > Check for updates.",
+                "ADAM now tells you when a new version is out, with a small card and a link to it. Turn it off on Home > Studio > Check for updates.",
                 "This What's new panel. Open it again any time from the Learn ADAM menu."
             ]
         },
