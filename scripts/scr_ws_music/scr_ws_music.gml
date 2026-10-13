@@ -280,6 +280,29 @@ function music_loop_edit_begin(_song, _li, _tag)
     }
 }
 
+function music_loop_clear_now(_arg)
+{
+    if (_arg.song < 0 || _arg.song >= array_length(proj.songs)) { return; }
+    var _song = proj.songs[_arg.song];
+    if (_song.kind != 0 || _arg.loop < 0 || _arg.loop >= array_length(_song.arr.loops)) { return; }
+    music_loop_edit_begin(_song, _arg.loop, "museditclear" + string(current_time));
+    var _lp = _song.arr.loops[_arg.loop];
+    for (var _step = 0; _step < MUS_STEPS; _step++)
+    {
+        _lp.notes[_step] = 0;
+        _lp.arps[_step] = 0;
+        _lp.fx[_step] = 0;
+        _lp.fxp[_step] = 0;
+        _lp.fx_end[_step] = -1;
+        _lp.glide_to[_step] = -1;
+    }
+    mus_ed_note_drag = false;
+    mus_ed_note_glide = false;
+    mus_ed_fx_drag = false;
+    mus_ed_painting = false;
+    if (mus_playing && mus_play_what == "edit") { music_preview_stop(); }
+}
+
 function music_open_editor(_li, _lane, _bar)
 {
     mus_edit = _li;
@@ -485,7 +508,7 @@ function ws_music_draw(_x1, _y1, _x2, _y2)
         }
     }
 
-    if (keyboard_check_pressed(vk_space) && ui_focus == "" && !tut_active && !ui_popup_open && !machine_pick_active && !about_active)
+    if (keyboard_check_pressed(vk_space) && ui_focus == "" && !tut_active && !ui_popup_open && !machine_pick_active && !about_active && !confirm_active)
     {
         if (mus_edit >= 0 && !is_undefined(_song) && _song.kind == 0 && mus_edit < array_length(_song.arr.loops))
         {
@@ -1201,18 +1224,14 @@ function music_editor(_ex1, _ey1, _ex2, _ey2, _song)
         }
         _hx += _cpw + 8;
     }
-    if (ui_button("mus_ed_clear", _hx, _hy, 70, 30, "Clear", "Clear|Removes every note from this loop.", BTN_GHOST))
+    if (ui_button("mus_ed_clear", _ex2 - 170, _hy, 70, 30, "Clear", "Clear loop|Asks before removing every note, chord, effect and bend connection from this loop. You can Undo the clear.", BTN_GHOST))
     {
-        music_loop_edit_begin(_song, _li, "museditclear" + string(current_time));
-        for (var s2 = 0; s2 < MUS_STEPS; s2++)
+        var _body = "Remove all notes, chords, effects and bend connections from " + _lp.name + "? You can Undo this.";
+        if (_uses > 1)
         {
-            _lp.notes[s2] = 0;
-            _lp.arps[s2] = 0;
-            _lp.fx[s2] = 0;
-            _lp.fxp[s2] = 0;
-            _lp.fx_end[s2] = -1;
-            _lp.glide_to[s2] = -1;
+            _body += " This loop is used in " + string(_uses) + " bars, so all of those bars will be cleared.";
         }
+        confirm_open("Clear this loop?", _body, "Clear loop", "Cancel", true, music_loop_clear_now, { song : mus_song, loop : _li });
     }
     if (ui_button("mus_ed_close", _ex2 - 92, _hy, 80, 30, "Close", "Close the editor|Back to the level music settings. Double-click any bar to edit again.", BTN_GHOST))
     {
