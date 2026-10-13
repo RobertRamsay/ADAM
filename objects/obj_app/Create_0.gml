@@ -278,9 +278,14 @@ snd_cache_count = 0;
 // music (Phase 2 Track B)
 mus_song = 0;                // song being edited
 mus_cat = 0;                 // library category shown (5 = Mine)
+mus_group_selected = -1;
+mus_group_hover = -2;        // -2 no drop target, -1 Ungrouped
+mus_ungrouped_open = true;
 mus_brush = [-1, -1];        // [0, library loop] or [1, song loop] painted on the timeline
 mus_scroll_bar = 0;          // first bar shown on the timeline
 mus_cursor_bar = 0;          // Play starts from this bar
+mus_play_mode = 2;           // 0 current bar, 1 four bars, 2 song
+mus_play_bar = 0;            // original song bar where the preview range starts
 mus_hover = [-1, -1];        // [lane, bar] under the mouse
 mus_hsb_grab = 0;
 mus_edit = -1;               // song loop open in the step editor
@@ -296,6 +301,8 @@ mus_drag = false;
 mus_drag_src = [-1, -1];
 mus_drag_mx = 0;
 mus_drag_my = 0;
+mus_lib_click_loop = -1;
+mus_lib_click_time = 0;
 mus_ed_mode = 1;
 mus_ed_painting = false;
 mus_ed_rclear = false;
@@ -315,6 +322,9 @@ mus_ed_note_fx = 0;
 mus_ed_note_fxp = 0;
 mus_ed_note_arp = 0;
 mus_ed_fx_step = 0;
+mus_ed_fx_drag = false;
+mus_ed_fx_src = -1;
+mus_ed_fx_end = -1;
 mus_ed_resolution = 16;
 mus_rev = 0;                 // bumped on every music edit
 mus_warnings = [];
@@ -440,6 +450,9 @@ if (ADAM_DEV_TOOLS) { project_pack_selftest(); }
 // Phase 2 Track C: MOD export/import - dev-only round-trip check (IDE Output window),
 // also leaves game_save_id + "adam_selftest.mod" to open in OpenMPT / ProTracker
 if (ADAM_DEV_TOOLS) { mod_selftest(); }
+if (ADAM_DEV_TOOLS) { music_glide_selftest(); }
+if (ADAM_DEV_TOOLS) { music_scope_selftest(); }
+if (ADAM_DEV_TOOLS) { music_library_effect_selftest(); }
 
 // lessons: every step check() runs once on a new project and each example (IDE Output window)
 if (ADAM_DEV_TOOLS) { lessons_selftest(); }

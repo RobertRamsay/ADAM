@@ -95,21 +95,31 @@ function music_play_toggle()
     }
     var _song = music_cur_song();
     if (is_undefined(_song)) { return; }
-    var _ms = song_to_modsong(_song);
+    mus_play_bar = 0;
+    if (_song.kind == 0) { mus_play_bar = clamp(mus_cursor_bar, 0, _song.arr.bars - 1); }
+    var _preview = music_scope_song(_song, mus_play_mode, mus_play_bar);
+    var _ms = song_to_modsong(_preview);
     if (array_length(mus_warnings) > 0) { toast(mus_warnings[0], 1); }
     var _ord = 0;
     var _row = 0;
     if (_song.kind == 0)
     {
-        mus_ord_bar = music_order_bars(_song);
+        mus_ord_bar = music_order_bars(_preview);
         var _cb = clamp(mus_cursor_bar, 0, _song.arr.bars - 1);
-        for (var i = 0; i < array_length(mus_ord_bar); i++)
+        if (mus_play_mode == 2)
         {
-            if (mus_ord_bar[i] <= _cb)
+            for (var i = 0; i < array_length(mus_ord_bar); i++)
             {
-                _ord = i;
-                _row = (_cb - mus_ord_bar[i]) * MUS_STEPS;
+                if (mus_ord_bar[i] <= _cb)
+                {
+                    _ord = i;
+                    _row = (_cb - mus_ord_bar[i]) * MUS_STEPS;
+                }
             }
+        }
+        else
+        {
+            for (var i = 0; i < array_length(mus_ord_bar); i++) { mus_ord_bar[i] += mus_play_bar; }
         }
     }
     music_preview_start(_ms, false, _ord, _row, "song");
@@ -131,6 +141,72 @@ function music_song_add()
     music_song_added();
 }
 
+function music_loop_add()
+{
+    var _song = music_cur_song();
+    if (is_undefined(_song) || _song.kind != 0)
+    {
+        music_song_add();
+        _song = music_cur_song();
+        if (is_undefined(_song) || _song.kind != 0) { return; }
+    }
+    var _li = array_length(_song.arr.loops);
+    if (_li >= MUS_LOOP_MAX)
+    {
+        toast("This song has " + string(MUS_LOOP_MAX) + " different loops already", 1);
+        return;
+    }
+    var _cat = mus_cat;
+    if (_cat >= MUS_CAT_MINE) { _cat = 3; }
+    var _defaults = [0, 6, 8, 10, 13];
+    undo_mark("musnewloop" + string(current_time));
+    array_push(_song.arr.loops, loop_new("Loop " + string(_li + 1), _cat, _defaults[_cat]));
+    if (mus_group_selected >= 0 && mus_group_selected < array_length(_song.arr.loop_groups))
+    {
+        _song.arr.loops[_li].group = mus_group_selected;
+        _song.arr.loop_groups[mus_group_selected].open = true;
+    }
+    else { mus_ungrouped_open = true; }
+    mus_cat = MUS_CAT_MINE;
+    mus_brush = [1, _li];
+    mus_drag_arm = false;
+    mus_drag = false;
+    music_touch();
+    music_open_editor(_li, 0, clamp(mus_cursor_bar, 0, _song.arr.bars - 1));
+    var _rows = music_loop_group_rows(_song, true);
+    var _offset = 4;
+    for (var _row = 0; _row < array_length(_rows); _row++)
+    {
+        if (_rows[_row].kind == 0 && _rows[_row].it[1] == _li)
+        {
+            ds_map_replace(ui_scroll, "mus_lib", max(0, _offset - 4));
+            break;
+        }
+        _offset += _rows[_row].h;
+    }
+}
+
+function music_group_add()
+{
+    var _song = music_cur_song();
+    if (is_undefined(_song) || _song.kind != 0)
+    {
+        music_song_add();
+        _song = music_cur_song();
+        if (is_undefined(_song) || _song.kind != 0) { return; }
+    }
+    var _gi = array_length(_song.arr.loop_groups);
+    if (_gi >= MUS_LOOP_MAX) { toast("This song has too many loop groups", 1); return; }
+    undo_mark("musnewgroup" + string(current_time));
+    var _name = "Group " + string(_gi + 1);
+    array_push(_song.arr.loop_groups, { name : _name, open : true });
+    mus_cat = MUS_CAT_MINE;
+    mus_group_selected = _gi;
+    ds_map_replace(ui_scroll, "mus_lib", 100000);
+    ui_focus = "mus_group_name_" + string(_gi);
+    keyboard_string = _name;
+}
+
 /// After a song was added: select it, and let the first song play in the game
 function music_song_added()
 {
@@ -140,6 +216,7 @@ function music_song_added()
     mus_brush = [-1, -1];
     mus_scroll_bar = 0;
     mus_cursor_bar = 0;
+    mus_group_selected = -1;
     if (_n == 1 && proj.level_song[0] < 0)
     {
         proj.level_song[0] = 0;
@@ -207,6 +284,8 @@ function music_open_editor(_li, _lane, _bar)
 {
     mus_edit = _li;
     mus_edit_cell = [_lane, _bar];
+    mus_ed_fx_drag = false;
+    if (_bar >= 0) { mus_cursor_bar = _bar; }
     var _lp = music_cur_song().arr.loops[_li];
     if (_lp.cat != 0)
     {
@@ -329,6 +408,7 @@ function ws_music_draw(_x1, _y1, _x2, _y2)
     }
 
     music_library_panel(_x1, _y1, _x1 + _lw, _y2);
+    _song = music_cur_song();
 
     var _cx1 = _x1 + _lw + 12;
     ui_panel(_cx1, _y1, _x2, _y2, "Music");
@@ -372,6 +452,19 @@ function ws_music_draw(_x1, _y1, _x2, _y2)
             {
                 if (_song.kind == 0) { music_paint_cell(_song, mus_drag_src, mus_hover[0], mus_hover[1], "musdrop" + string(current_time)); }
             }
+            else if (mus_drag && mus_group_hover >= -1 && !is_undefined(_song) && _song.kind == 0)
+            {
+                if (mus_drag_src[0] == 0 && array_length(_song.arr.loops) >= MUS_LOOP_MAX)
+                {
+                    toast("This song has too many different loops", 1);
+                }
+                else
+                {
+                    undo_mark("musgroupdrop" + string(current_time));
+                    var _li = music_loop_group_assign(_song, mus_drag_src, mus_group_hover);
+                    if (_li >= 0) { mus_brush = [1, _li]; mus_group_selected = mus_group_hover; music_touch(); }
+                }
+            }
             mus_drag_arm = false;
             mus_drag = false;
         }
@@ -394,12 +487,17 @@ function ws_music_draw(_x1, _y1, _x2, _y2)
 
     if (keyboard_check_pressed(vk_space) && ui_focus == "" && !tut_active && !ui_popup_open && !machine_pick_active && !about_active)
     {
-        music_play_toggle();
+        if (mus_edit >= 0 && !is_undefined(_song) && _song.kind == 0 && mus_edit < array_length(_song.arr.loops))
+        {
+            music_preview_loop(_song.arr.loops[mus_edit], "edit");
+        }
+        else { music_play_toggle(); }
     }
 }
 
 function music_library_panel(_x1, _y1, _x2, _y2)
 {
+    mus_group_hover = -2;
     ui_panel(_x1, _y1, _x2, _y2, "Loops");
     var _helps = [
         "Drums|Beats made from kick, snare, hi-hats, toms and claps.",
@@ -407,7 +505,7 @@ function music_library_panel(_x1, _y1, _x2, _y2)
         "Chords|Chip-music chords: the Amiga plays them as fast arpeggios on one channel.",
         "Lead|Melodies and arpeggios that sit on top.",
         "FX|Zaps, risers and swells for builds and drops.",
-        "Mine|Loops you have edited in this song. Right-click one that is not used anywhere to delete it."
+        "Mine|Your loops and named groups. Drag loops onto a group to organise them; hover Mine during a drag to bring groups into view. Click a group name to rename it, or its arrow to open and close it."
     ];
     // three tabs a row when the names fit, otherwise two
     draw_set_font(global.f_bold);
@@ -427,24 +525,88 @@ function music_library_panel(_x1, _y1, _x2, _y2)
         var _st = BTN_GHOST;
         if (mus_cat == c) { _st = BTN_ACCENT; }
         if (ui_button("mus_cat_" + string(c), _bx, _by, _bw, 28, global.MUS_CAT_NAMES[c], _helps[c], _st)) { mus_cat = c; }
+        if (mus_drag && c == MUS_CAT_MINE && ui_hit(_bx, _by, _bx + _bw, _by + 28)) { mus_cat = c; }
     }
     var _ly1 = _y1 + 58 + ceil(6 / _ncol) * 34;
+    if (ui_button("mus_new_loop", _x1 + 16, _ly1, _x2 - _x1 - 32, 30, "+ New loop", "New loop|Opens a blank loop in the note editor and selects it for painting onto the timeline. Uses the selected category, or Lead from Mine. Creates an editable song first if needed.", BTN_ACCENT))
+    {
+        music_loop_add();
+    }
+    _ly1 += 40;
+    if (mus_cat == MUS_CAT_MINE)
+    {
+        if (ui_button("mus_new_group", _x1 + 16, _ly1, _x2 - _x1 - 32, 28, "+ New group", "New group|Adds a named group to Mine. Click its name to rename it, and drag loops onto it. Groups are saved in this song.", BTN_NORMAL)) { music_group_add(); }
+        _ly1 += 36;
+    }
     var _tip = "Click a loop to hear it. Click or drag on the timeline to paint it in, right-click to rub out, double-click a bar to edit its notes.";
     draw_set_font(global.f_small);
     var _ly2 = _y2 - 72;
     var _items = music_lib_items(mus_cat);
-    var _ih = 40;
-    var _content = array_length(_items) * (_ih + 4) + 4;
-    var _off = ui_scroll_begin("mus_lib", _x1 + 8, _ly1, _x2 - 8, _ly2, _content);
-    for (var i = 0; i < array_length(_items); i++)
+    var _song = music_cur_song();
+    var _rows = [];
+    if (mus_cat == MUS_CAT_MINE && !is_undefined(_song) && _song.kind == 0)
     {
-        var _it = _items[i];
+        if (mus_group_selected >= array_length(_song.arr.loop_groups)) { mus_group_selected = -1; }
+        _rows = music_loop_group_rows(_song, mus_ungrouped_open);
+    }
+    else
+    {
+        for (var _item = 0; _item < array_length(_items); _item++)
+        {
+            array_push(_rows, { kind : 0, group : -1, count : 0, h : 44, it : _items[_item] });
+        }
+    }
+    var _ih = 40;
+    var _offsets = [];
+    var _content = 4;
+    for (var _ri = 0; _ri < array_length(_rows); _ri++) { array_push(_offsets, _content); _content += _rows[_ri].h; }
+    var _off = ui_scroll_begin("mus_lib", _x1 + 8, _ly1, _x2 - 8, _ly2, _content);
+    if (mus_drag && ui_hit(_x1 + 8, _ly1, _x2 - 22, _ly2))
+    {
+        if (ui_my < _ly1 + 22) { _off -= 6; }
+        if (ui_my > _ly2 - 22) { _off += 6; }
+        _off = clamp(_off, 0, max(0, _content - (_ly2 - _ly1)));
+        ds_map_replace(ui_scroll, "mus_lib", _off);
+    }
+    for (var i = 0; i < array_length(_rows); i++)
+    {
+        var _row = _rows[i];
+        var _iy = _ly1 + _offsets[i] - _off;
+        if (_iy + _row.h < _ly1 || _iy > _ly2) { continue; }
+        var _ix2 = _x2 - 22;
+        if (mus_cat == MUS_CAT_MINE && ui_hit(_x1 + 12, _iy, _ix2, _iy + _row.h - 4))
+        {
+            if (mus_drag) { mus_group_hover = _row.group; }
+            if (ui_pressed_raw) { mus_group_selected = _row.group; }
+        }
+        if (_row.kind == 1)
+        {
+            var _gi = _row.group;
+            var _open = mus_ungrouped_open;
+            var _gname = "Ungrouped";
+            if (_gi >= 0) { _open = _song.arr.loop_groups[_gi].open; _gname = _song.arr.loop_groups[_gi].name; }
+            ui_rrect(_x1 + 12, _iy, _ix2, _iy + 30, 6, global.TH.btn_top, global.TH.btn_bot, 1);
+            if (mus_drag && mus_group_hover == _gi) { ui_rrect_line(_x1 + 12, _iy, _ix2, _iy + 30, 6, global.TH.accent, 1, 2); }
+            var _arrow = ">";
+            if (_open) { _arrow = "v"; }
+            if (ui_button("mus_group_open_" + string(_gi), _x1 + 14, _iy + 2, 26, 26, _arrow, "Open / close group|Shows or hides the loops in this group.", BTN_GHOST))
+            {
+                if (_gi < 0) { mus_ungrouped_open = !_open; }
+                else { undo_mark("musgroupopen" + string(current_time)); _song.arr.loop_groups[_gi].open = !_open; }
+            }
+            if (_gi >= 0)
+            {
+                var _renamed = ui_textfield("mus_group_name_" + string(_gi), _x1 + 44, _iy + 2, _ix2 - _x1 - 74, 26, _gname, 24, "Group name|Type a new name. Drag a loop onto this header to put it in the group.");
+                if (_renamed != _gname) { undo_mark("musgrouprename" + string(_gi)); _song.arr.loop_groups[_gi].name = _renamed; }
+            }
+            else { ui_text(_x1 + 48, _iy + 15, _gname, global.TH.text_dim, fa_left, fa_middle, global.f_small, 1); }
+            ui_text(_ix2 - 6, _iy + 15, string(_row.count), global.TH.text_faint, fa_right, fa_middle, global.f_small, 1);
+            continue;
+        }
+        var _it = _row.it;
         var _lp = music_item_loop(_it);
-        var _iy = _ly1 + 4 + i * (_ih + 4) - _off;
-        if (_iy + _ih < _ly1 || _iy > _ly2) { continue; }
         var _id = "mus_lib_item_" + string(i);
         var _what = "lib_" + string(_it[0]) + "_" + string(_it[1]);
-        var _ix2 = _x2 - 22;
         var _hot = ui_register(_id, _x1 + 12, _iy, _ix2, _iy + _ih, _lp.name + "|Click to hear this loop and make it your brush, then click or drag along the timeline to paint it into bars. You can also drag it straight onto a bar.");
         var _tgt = 0;
         if (_hot) { _tgt = 1; }
@@ -469,7 +631,18 @@ function music_library_panel(_x1, _y1, _x2, _y2)
             mus_drag_src = [_it[0], _it[1]];
             mus_drag_mx = ui_mx;
             mus_drag_my = ui_my;
-            music_preview_loop(_lp, _what);
+            if (_it[0] == 1 && mus_lib_click_loop == _it[1] && current_time - mus_lib_click_time < 350)
+            {
+                music_open_editor(_it[1], 0, clamp(mus_cursor_bar, 0, _song.arr.bars - 1));
+                mus_lib_click_loop = -1;
+            }
+            else
+            {
+                music_preview_loop(_lp, _what);
+                mus_lib_click_loop = -1;
+                if (_it[0] == 1) { mus_lib_click_loop = _it[1]; }
+                mus_lib_click_time = current_time;
+            }
         }
         if (_hot && ui_rpressed && _it[0] == 1)
         {
@@ -487,9 +660,9 @@ function music_library_panel(_x1, _y1, _x2, _y2)
             }
         }
     }
-    if (array_length(_items) == 0)
+    if (array_length(_rows) == 0)
     {
-        ui_text_wrap(_x1 + 20, _ly1 + 10, "Loops you change in the editor show up here. Double-click a bar on the timeline to edit its loop.", global.TH.text_faint, _x2 - _x1 - 40, global.f_small, 1);
+        ui_text_wrap(_x1 + 20, _ly1 + 10, "Press New loop to start from scratch. Your new and edited loops appear here; paint them onto the timeline to use them.", global.TH.text_faint, _x2 - _x1 - 40, global.f_small, 1);
     }
     ui_scroll_end("mus_lib", _x1 + 8, _ly1, _x2 - 8, _ly2, _content);
     if (mus_edit >= 0)
@@ -497,8 +670,8 @@ function music_library_panel(_x1, _y1, _x2, _y2)
         var _help_y = _y2 - 66;
         ui_rrect(_x1 + 10, _help_y, _x2 - 10, _y2 - 8, 7, global.TH.btn_top, global.TH.panel_bot, 0.9);
         ui_text(_x1 + 20, _help_y + 11, "NOTE SHORTCUTS", global.TH.text_faint, fa_left, fa_middle, global.f_small, 1);
-        ui_text(_x1 + 20, _help_y + 28, "Shift: move pitch   Alt: audition", global.TH.text_dim, fa_left, fa_middle, global.f_small, 1);
-        ui_text(_x1 + 20, _help_y + 45, "Drag note edge: glide to pitch", global.TH.text_dim, fa_left, fa_middle, global.f_small, 1);
+        ui_text(_x1 + 20, _help_y + 28, "Drag: move note   Alt: audition", global.TH.text_dim, fa_left, fa_middle, global.f_small, 1);
+        ui_text(_x1 + 20, _help_y + 45, "Circle: bend   Space: Listen", global.TH.text_dim, fa_left, fa_middle, global.f_small, 1);
     }
     else
     {
@@ -517,6 +690,8 @@ function music_toolbar(_cx1, _y1, _x2, _song)
         if (_sel != mus_song)
         {
             mus_song = _sel;
+            mus_group_selected = -1;
+            mus_lib_click_loop = -1;
             mus_edit = -1;
             mus_brush = [-1, -1];
             mus_scroll_bar = 0;
@@ -580,7 +755,7 @@ function music_toolbar(_cx1, _y1, _x2, _song)
         _plab = "Stop";
         _pst = BTN_ON;
     }
-    if (ui_button("mus_play", _fx, _ry + 16, 96, 32, _plab, "Play the song|Plays the whole song as Paula will, from the yellow marker on the bar ruler. Space bar plays and stops too.", _pst))
+    if (ui_button("mus_play", _fx, _ry + 16, 96, 32, _plab, "Play / stop|Plays the selected range from the yellow bar marker. Space controls this playback when the loop editor is closed; in the editor, Space controls Listen instead.", _pst))
     {
         music_play_toggle();
     }
@@ -595,6 +770,16 @@ function music_toolbar(_cx1, _y1, _x2, _song)
     }
     else
     {
+        ui_heading(_x, _ry, "Playback");
+        var _mode = ui_dropdown("mus_play_mode", _x, _ry + 16, 110, 32, ["Bar", "4 bars", "Song"], mus_play_mode, "Playback range|Bar repeats the current bar on all four lanes. 4 bars repeats up to four bars starting at the yellow marker. Song plays the complete arrangement with its song loop point. This only changes preview playback; MOD and ADF exports use the full song.");
+        if (_mode != mus_play_mode)
+        {
+            var _was_playing = (mus_playing && mus_play_what == "song");
+            if (_was_playing) { music_preview_stop(); }
+            mus_play_mode = _mode;
+            if (_was_playing) { music_play_toggle(); }
+        }
+        _x += 122;
         ui_heading(_x, _ry, "Tempo (BPM)");
         var _bpm = ui_stepper("mus_bpm", _x, _ry + 16, 124, _song.bpm, 32, 255, "Tempo|Beats per minute. 125 is ProTracker's standard; hold Shift for steps of 10.");
         if (set_val(_song, "bpm", _bpm, "musbpm")) { music_touch(); }
@@ -627,13 +812,13 @@ function music_toolbar(_cx1, _y1, _x2, _song)
         mus_size_warn = mus_warnings;
     }
     var _kb = string_format(mus_size_bytes / 1024, 1, 1);
-    var _sx = max(_x + 4, _x2 - 190);
-    ui_register("mus_size", _sx, _ry + 10, _x2 - 20, _ry + 50, "Chip RAM|The song becomes a ProTracker module of this size, stored in chip RAM with the rest of your game. Instruments that are not used take no room.");
-    ui_text(_x2 - 20, _ry + 22, "Song: " + _kb + " KB chip RAM", global.TH.text_dim, fa_right, fa_middle, global.f_small, 1);
+    var _sx = _x2 - 270;
+    ui_register("mus_size", _sx, _y1 + 10, _x2 - 20, _y1 + 45, "Chip RAM|The song becomes a ProTracker module of this size, stored in chip RAM with the rest of your game. Instruments that are not used take no room.");
+    ui_text(_x2 - 20, _y1 + 22, "Song: " + _kb + " KB chip RAM", global.TH.text_dim, fa_right, fa_middle, global.f_small, 1);
     if (array_length(mus_size_warn) > 0)
     {
-        ui_register("mus_warn", _sx, _ry + 34, _x2 - 20, _ry + 50, "Music warning|" + mus_size_warn[0]);
-        ui_text(_x2 - 20, _ry + 42, ui_text_fit(mus_size_warn[0], global.f_small, _x2 - 20 - _sx), global.TH.warn, fa_right, fa_middle, global.f_small, 1);
+        ui_register("mus_warn", _sx, _y1 + 32, _x2 - 20, _y1 + 46, "Music warning|" + mus_size_warn[0]);
+        ui_text(_x2 - 20, _y1 + 39, ui_text_fit(mus_size_warn[0], global.f_small, _x2 - 20 - _sx), global.TH.warn, fa_right, fa_middle, global.f_small, 1);
     }
 }
 
@@ -982,7 +1167,7 @@ function music_editor(_ex1, _ey1, _ex2, _ey2, _song)
     }
     var _lst = BTN_ACCENT;
     if (mus_playing && mus_play_what == "edit") { _lst = BTN_ON; }
-    if (ui_button("mus_ed_listen", _hx, _hy, 80, 30, "Listen", "Listen|Plays this loop once at the song's tempo and swing.", _lst))
+    if (ui_button("mus_ed_listen", _hx, _hy, 80, 30, "Listen", "Listen|Plays this loop once at the song's tempo and swing. Space does the same while the loop editor is open; press again to stop.", _lst))
     {
         music_preview_loop(_lp, "edit");
     }
@@ -1025,6 +1210,8 @@ function music_editor(_ex1, _ey1, _ex2, _ey2, _song)
             _lp.arps[s2] = 0;
             _lp.fx[s2] = 0;
             _lp.fxp[s2] = 0;
+            _lp.fx_end[s2] = -1;
+            _lp.glide_to[s2] = -1;
         }
     }
     if (ui_button("mus_ed_close", _ex2 - 92, _hy, 80, 30, "Close", "Close the editor|Back to the level music settings. Double-click any bar to edit again.", BTN_GHOST))
@@ -1035,7 +1222,7 @@ function music_editor(_ex1, _ey1, _ex2, _ey2, _song)
     var _tip = "Used in " + string(_uses) + " bar";
     if (_uses != 1) { _tip += "s"; }
     if (_drums) { _tip += "  -  one hit per step: click to add or remove, drag to paint, right-click to rub out."; }
-    else { _tip += "  -  one note per step: click to place, drag to move; drag its right edge toward a later pitch to glide. Chords play as ProTracker arpeggios."; }
+    else { _tip += "  -  one note per step: click to place, drag to move; drag the blue handle to a later note to link a glide. Chords play as ProTracker arpeggios."; }
     ui_text(_ex1 + 14, _hy + 44, ui_text_fit(_tip, global.f_small, _ex2 - _ex1 - 28), global.TH.text_faint, fa_left, fa_middle, global.f_small, 1);
 
     var _res_x = _ex2 - 112;
@@ -1101,7 +1288,7 @@ function music_editor(_ex1, _ey1, _ex2, _ey2, _song)
     var _sx = _gx1 + _lab;
     var _sx2 = _sx + _cw * _view_steps;
     var _grid_note = "Snap is 1/" + string(_view_steps) + " note across each bar.";
-    ui_register("mus_ed_grid", _sx, _gy1, _sx2, _gy2, "Notes|" + _grid_note + " Click an empty square to add a note. Drag an existing note to move it. Click a note to remove it; right-click to rub it out.");
+    ui_register("mus_ed_grid", _sx, _gy1, _sx2, _gy2, "Notes|" + _grid_note + " Click an empty square to add a note. Drag a note to move it. Drag its blue handle to a later note to link a glide. Click a note to remove it; right-click to rub it out.");
     var _hr = -1;
     var _hs = -1;
     if (ui_hit(_sx, _gy1, _sx2, _gy2))
@@ -1116,6 +1303,30 @@ function music_editor(_ex1, _ey1, _ex2, _ey2, _song)
         }
     }
     var _play_step = -1;
+    var _hit_handle_step = -1;
+    var _hit_handle_row = -1;
+    var _hit_handle_distance = 9;
+    var _glide_col = make_colour_rgb(80, 220, 120);
+    var _glide_drop_step = -1;
+    var _glide_drop_row = -1;
+    if (mus_ed_note_glide && !_drums && ui_my >= _gy1 && ui_my < _gy2)
+    {
+        for (var _target_cell = 0; _target_cell < _view_steps; _target_cell++)
+        {
+            var _target_step = _target_cell * _step_stride;
+            if (_target_step <= mus_ed_note_src[0] || _lp.notes[_target_step] <= 0) { continue; }
+            var _target_row = 36 - _lp.notes[_target_step];
+            var _target_x = _sx + _target_cell * _cw;
+            var _target_y = _gy1 + _target_row * _rh - _off;
+            if (ui_hit(_target_x + 2, _target_y + 2, _target_x + _cw - 2, _target_y + _rh - 2)
+                || point_distance(ui_mx, ui_my, _target_x + 2, _target_y + _rh * 0.5) <= 7)
+            {
+                _glide_drop_step = _target_step;
+                _glide_drop_row = _target_row;
+                break;
+            }
+        }
+    }
     if (mus_playing && mus_play_what != "note")
     {
         var _pos = music_preview_pos();
@@ -1157,40 +1368,90 @@ function music_editor(_ex1, _ey1, _ex2, _ey2, _song)
             if (_on)
             {
                 ui_rrect(_cx + 2, _ry + 2, _cx + _cw - 2, _ry + _rh - 2, 4, merge_colour(_col, c_white, 0.15), _col, 1);
+                if (!_drums)
+                {
+                    var _handle_x = _cx + _cw - 2;
+                    var _handle_y = _ry + _rh * 0.5;
+                    var _handle_hot = (point_distance(ui_mx, ui_my, _handle_x, _handle_y) <= 9);
+                    var _handle_distance = point_distance(ui_mx, ui_my, _handle_x, _handle_y);
+                    if (_handle_hot && _handle_distance <= _hit_handle_distance && ui_my >= _gy1 && ui_my < _gy2)
+                    {
+                        _hit_handle_step = _data_step;
+                        _hit_handle_row = r;
+                        _hit_handle_distance = _handle_distance;
+                    }
+                    var _handle_colour = global.TH.accent;
+                    var _handle_radius = 4;
+                    if (_handle_hot || (mus_ed_note_glide && _data_step == mus_ed_note_src[0]))
+                    {
+                        _handle_colour = c_white;
+                        _handle_radius = 6;
+                    }
+                    draw_circle_colour(_handle_x, _handle_y, _handle_radius + 1, global.TH.panel_bot, global.TH.panel_bot, false);
+                    draw_circle_colour(_handle_x, _handle_y, _handle_radius, _handle_colour, _handle_colour, false);
+                }
+            }
+            var _glide_target_hot = false;
+            if (_on && mus_ed_note_glide && ui_held && _data_step > mus_ed_note_src[0])
+            {
+                draw_circle_colour(_cx + 2, _ry + _rh * 0.5, 5, global.TH.panel_bot, global.TH.panel_bot, false);
+                draw_circle_colour(_cx + 2, _ry + _rh * 0.5, 4, _glide_col, _glide_col, false);
+                _glide_target_hot = (_glide_drop_step == _data_step && _glide_drop_row == r);
             }
             if (r == _hr && _data_step == _hs)
             {
                 ui_rrect_line(_cx + 1, _ry + 1, _cx + _cw - 1, _ry + _rh - 1, 4, global.TH.accent, 0.9, 1);
             }
+            if (_glide_target_hot)
+            {
+                var _flash_alpha = 0.55 + 0.45 * abs(sin(current_time / 120));
+                draw_set_alpha(_flash_alpha * 0.3);
+                draw_rectangle_colour(_cx + 2, _ry + 2, _cx + _cw - 2, _ry + _rh - 2, _glide_col, _glide_col, _glide_col, _glide_col, false);
+                draw_set_alpha(1);
+                ui_rrect_line(_cx + 1, _ry + 1, _cx + _cw - 1, _ry + _rh - 1, 4, _glide_col, _flash_alpha, 2);
+            }
         }
     }
     if (!_drums)
     {
-        for (var _glide_target = 1; _glide_target < MUS_STEPS; _glide_target++)
+        for (var _glide_src = 0; _glide_src < MUS_STEPS; _glide_src++)
         {
-            if (_lp.notes[_glide_target] <= 0 || _lp.fx[_glide_target] != 3) { continue; }
-            var _glide_src = _glide_target - 1;
-            while (_glide_src >= 0 && _lp.notes[_glide_src] <= 0) { _glide_src -= 1; }
-            if (_glide_src < 0) { continue; }
+            if (!music_glide_valid(_lp, _glide_src)) { continue; }
+            var _glide_target = _lp.glide_to[_glide_src];
             var _line_x1 = _sx + (_glide_src div _step_stride) * _cw + _cw - 2;
             var _line_x2 = _sx + (_glide_target div _step_stride) * _cw + 2;
             var _line_y1 = _gy1 + (36 - _lp.notes[_glide_src]) * _rh - _off + _rh * 0.5;
             var _line_y2 = _gy1 + (36 - _lp.notes[_glide_target]) * _rh - _off + _rh * 0.5;
-            draw_line_width_colour(_line_x1, _line_y1, _line_x2, _line_y2, 2, global.TH.accent, global.TH.accent);
-            draw_circle_colour(_line_x2, _line_y2, 3, global.TH.accent, global.TH.accent, false);
+            draw_line_width_colour(_line_x1, _line_y1, _line_x2, _line_y2, 3, _glide_col, _glide_col);
+            draw_circle_colour(_line_x1, _line_y1, 4, _glide_col, _glide_col, false);
+            draw_circle_colour(_line_x2, _line_y2, 4, _glide_col, _glide_col, false);
         }
     }
-    if (mus_ed_note_glide && ui_held && _hr >= 0 && _hs >= 0 && _hs > mus_ed_note_src[0])
+    if (mus_ed_note_glide && ui_held) { mus_ed_note_glide_end = [-1, -1]; }
+    if (mus_ed_note_glide && ui_held && _glide_drop_step >= 0)
     {
-        mus_ed_note_glide_end = [_hs, _hr];
+        mus_ed_note_glide_end = [_glide_drop_step, _glide_drop_row];
+    }
+    if (mus_ed_note_glide && ui_held)
+    {
         var _src_x = _sx + (mus_ed_note_src[0] div _step_stride) * _cw + _cw - 2;
         var _src_y = _gy1 + mus_ed_note_src[1] * _rh - _off + _rh * 0.5;
-        var _dst_x = _sx + (_hs div _step_stride) * _cw + 2;
-        var _dst_y = _gy1 + _hr * _rh - _off + _rh * 0.5;
-        draw_line_width_colour(_src_x, _src_y, _dst_x, _dst_y, 3, global.TH.accent, global.TH.accent);
-        draw_circle_colour(_dst_x, _dst_y, 4, global.TH.accent, global.TH.accent, false);
+        draw_line_width_colour(_src_x, _src_y, ui_mx, ui_my, 2, _glide_col, _glide_col);
     }
     ui_scroll_end(_sid, _gx1, _gy1, _gx2, _gy2, _content);
+
+    // The circle extends beyond its cell. Capture its whole hit area before
+    // considering an empty cell, so grabbing its outer edge cannot paint a note.
+    if (ui_pressed && !mus_ed_note_drag && _hit_handle_step >= 0)
+    {
+        _hs = _hit_handle_step;
+        _hr = _hit_handle_row;
+    }
+    if (mus_ed_note_glide && _glide_drop_step >= 0)
+    {
+        _hs = _glide_drop_step;
+        _hr = _glide_drop_row;
+    }
 
     // Alt-hover auditions each existing note cell once, until the pointer leaves it.
     var _alt_note_on = false;
@@ -1238,7 +1499,7 @@ function music_editor(_ex1, _ey1, _ex2, _ey2, _song)
         var _on2 = false;
         if (_drums) { _on2 = (_lp.notes[_hs] > 0 && _lp.insts[_hs] == _rv2); }
         else { _on2 = (_lp.notes[_hs] == _rv2); }
-        if (ui_pressed)
+        if (ui_pressed && !mus_ed_note_drag)
         {
             ui_take_click();
             mus_ed_tag = "musstep" + string(current_time);
@@ -1257,7 +1518,9 @@ function music_editor(_ex1, _ey1, _ex2, _ey2, _song)
                 mus_ed_note_last = [-1, -1];
                 mus_ed_note_preview_pitch = mus_ed_note_pitch;
                 var _note_cell_x = _sx + (_hs div _step_stride) * _cw;
-                mus_ed_note_glide = (ui_mx >= _note_cell_x + _cw - 6);
+                var _note_cell_y = _gy1 + _hr * _rh - _off;
+                mus_ed_note_glide = (point_distance(ui_mx, ui_my, _note_cell_x + _cw - 2, _note_cell_y + _rh * 0.5) <= 9);
+                mus_ed_painting = false;
                 mus_ed_note_glide_end = [-1, -1];
             }
             else
@@ -1275,33 +1538,17 @@ function music_editor(_ex1, _ey1, _ex2, _ey2, _song)
         {
             var _dst_step = _hs;
             var _dst_row = _hr;
-            var _dst_pitch = mus_ed_note_pitch;
-            if (keyboard_check(vk_shift)) { _dst_pitch = clamp(mus_ed_note_pitch + mus_ed_note_src[1] - _dst_row, 1, 36); }
+            var _dst_pitch = clamp(mus_ed_note_pitch + mus_ed_note_src[1] - _dst_row, 1, 36);
             var _dst = [_dst_step, _dst_row];
             if (_dst_step != mus_ed_note_src[0] || _dst_pitch != mus_ed_note_pitch || mus_ed_note_moved)
             {
-                if (_lp.notes[_dst_step] == 0 || _dst_step == mus_ed_note_src[0] || _dst_step == mus_ed_note_last[0])
+                var _from_step = mus_ed_note_src[0];
+                if (mus_ed_note_moved) { _from_step = mus_ed_note_last[0]; }
+                if (music_note_can_move(_lp, _from_step, _dst_step))
                 {
                     if (!mus_ed_note_moved) { music_loop_edit_begin(_song, _li, mus_ed_tag); }
                     else { music_touch(); }
-                    if (mus_ed_note_last[0] >= 0 && mus_ed_note_last[0] != _dst_step && _lp.notes[mus_ed_note_last[0]] > 0)
-                    {
-                        _lp.notes[mus_ed_note_last[0]] = 0;
-                        _lp.insts[mus_ed_note_last[0]] = _lp.inst;
-                        _lp.fx[mus_ed_note_last[0]] = 0;
-                        _lp.fxp[mus_ed_note_last[0]] = 0;
-                        _lp.arps[mus_ed_note_last[0]] = 0;
-                    }
-                    _lp.notes[mus_ed_note_src[0]] = 0;
-                    _lp.insts[mus_ed_note_src[0]] = _lp.inst;
-                    _lp.fx[mus_ed_note_src[0]] = 0;
-                    _lp.fxp[mus_ed_note_src[0]] = 0;
-                    _lp.arps[mus_ed_note_src[0]] = 0;
-                    _lp.notes[_dst_step] = _dst_pitch;
-                    _lp.insts[_dst_step] = mus_ed_note_inst;
-                    _lp.fx[_dst_step] = mus_ed_note_fx;
-                    _lp.fxp[_dst_step] = mus_ed_note_fxp;
-                    _lp.arps[_dst_step] = mus_ed_note_arp;
+                    music_note_move(_lp, _from_step, _dst_step, _dst_pitch);
                     mus_ed_note_last = _dst;
                     mus_ed_note_moved = true;
                     if (_dst_pitch != mus_ed_note_preview_pitch)
@@ -1316,23 +1563,11 @@ function music_editor(_ex1, _ey1, _ex2, _ey2, _song)
         {
             if (mus_ed_note_glide)
             {
-                var _glide_step = mus_ed_note_glide_end[0];
-                var _glide_row = mus_ed_note_glide_end[1];
-                if (_glide_step > mus_ed_note_src[0] && _glide_row >= 0 && (_lp.notes[_glide_step] == 0 || _lp.notes[_glide_step] == _rows[_glide_row]))
+                var _glide_step = _glide_drop_step;
+                if (_glide_step > mus_ed_note_src[0])
                 {
-                    var _glide_pitch = _rows[_glide_row];
-                    var _period_delta = abs(global.MUS_PERIODS[mus_ed_note_pitch] - global.MUS_PERIODS[_glide_pitch]);
-                    var _glide_ticks = max(1, floor(_song.speed * 0.5));
-                    var _glide_speed = clamp(floor(_period_delta / max(1, _glide_ticks * (_glide_step - mus_ed_note_src[0]))), 1, 255);
                     music_loop_edit_begin(_song, _li, mus_ed_tag);
-                    if (_lp.notes[_glide_step] == 0)
-                    {
-                        _lp.notes[_glide_step] = _glide_pitch;
-                        _lp.insts[_glide_step] = mus_ed_note_inst;
-                        _lp.arps[_glide_step] = 0;
-                    }
-                    _lp.fx[_glide_step] = 3;
-                    _lp.fxp[_glide_step] = _glide_speed;
+                    music_glide_connect(_lp, mus_ed_note_src[0], _glide_step);
                     mus_ed_fx_step = _glide_step;
                     mus_ed_note_moved = true;
                 }
@@ -1340,74 +1575,154 @@ function music_editor(_ex1, _ey1, _ex2, _ey2, _song)
             else if (!mus_ed_note_moved)
             {
                 music_loop_edit_begin(_song, _li, mus_ed_tag);
+                music_glide_unlink(_lp, mus_ed_note_src[0]);
                 _lp.notes[mus_ed_note_src[0]] = 0;
                 _lp.arps[mus_ed_note_src[0]] = 0;
                 _lp.fx[mus_ed_note_src[0]] = 0;
                 _lp.fxp[mus_ed_note_src[0]] = 0;
+                _lp.fx_end[mus_ed_note_src[0]] = -1;
             }
             mus_ed_note_drag = false;
             mus_ed_note_glide = false;
             mus_ed_note_glide_end = [-1, -1];
         }
-        if (mus_ed_painting && ui_held && _hr >= 0 && _hs >= 0)
+        if (mus_ed_painting && !mus_ed_note_drag && !mus_ed_note_glide && ui_held && _hr >= 0 && _hs >= 0)
         {
             if (_drums || !_on2) { music_ed_apply(_song, _li, _hs, _rv2, _drums, 1); }
         }
-        if (ui_rpressed)
+        if (ui_rpressed && !mus_ed_note_drag)
         {
             mus_ed_rclear = true;
             mus_ed_tag = "musstepclr" + string(current_time);
         }
-        if (mus_ed_rclear && ui_rheld && _lp.notes[_hs] > 0)
+        if (mus_ed_rclear && !mus_ed_note_drag && ui_rheld && _lp.notes[_hs] > 0)
         {
             music_loop_edit_begin(_song, _li, mus_ed_tag);
+            music_glide_unlink(_lp, _hs);
             _lp.notes[_hs] = 0;
             _lp.arps[_hs] = 0;
             _lp.fx[_hs] = 0;
             _lp.fxp[_hs] = 0;
+            _lp.fx_end[_hs] = -1;
         }
+    }
+    if (_hr < 0 && mus_ed_note_drag && !ui_held)
+    {
+        mus_ed_note_drag = false;
+        mus_ed_note_glide = false;
+        mus_ed_note_glide_end = [-1, -1];
     }
     if (!ui_held) { mus_ed_painting = false; }
     if (!ui_rheld) { mus_ed_rclear = false; }
 
     // ---------- chord and tracker effect rows ----------
-    var _effect_names = ["--", "Up", "Down", "To", "Vib"];
+    var _effect_names = ["--", "Up", "Down", "Link", "Vib"];
     var _effect_help = [
         "No tracker effect.",
         "ProTracker 1xx: bend pitch up. The low byte is the slide speed.",
         "ProTracker 2xx: bend pitch down. The low byte is the slide speed.",
-        "ProTracker 3xx: slide this note to its pitch. The low byte is the speed.",
+        "Legacy slide from an older loop. Use the note's circle to connect bends now.",
         "ProTracker 4xy: vibrato. x is speed, y is depth."
     ];
     var _fx_y = _gy2 + 2;
     if (!_drums) { _fx_y = _gy2 + 30; }
+    var _fx_handle_hot = -1;
+    var _fx_handle_distance = 7;
+    for (var _handle_col = 0; _handle_col < _view_steps; _handle_col++)
+    {
+        var _handle_step = _handle_col * _step_stride;
+        var _handle_kind = _lp.fx[_handle_step];
+        if (_handle_kind != 1 && _handle_kind != 2 && _handle_kind != 4) { continue; }
+        var _distance = point_distance(ui_mx, ui_my, _sx + (_handle_col + 1) * _cw - 2, _fx_y + 12);
+        if (_distance <= _fx_handle_distance)
+        {
+            _fx_handle_hot = _handle_step;
+            _fx_handle_distance = _distance;
+        }
+    }
+    if (ui_pressed && _fx_handle_hot >= 0 && !mus_ed_note_drag)
+    {
+        ui_take_click();
+        mus_ed_fx_drag = true;
+        mus_ed_fx_src = _fx_handle_hot;
+        mus_ed_fx_step = _fx_handle_hot;
+    }
+    if (mus_ed_fx_drag)
+    {
+        var _end_col = clamp(floor((ui_mx - _sx) / _cw), 0, _view_steps - 1);
+        mus_ed_fx_end = clamp((_end_col + 1) * _step_stride - 1, mus_ed_fx_src, MUS_STEPS - 1);
+        if (!ui_held)
+        {
+            if (ui_hit(_sx - 7, _fx_y - 7, _sx2 + 7, _fx_y + 31) && _lp.fx[mus_ed_fx_src] > 0)
+            {
+                music_loop_edit_begin(_song, _li, "musfxlength" + string(current_time));
+                _lp.fx_end[mus_ed_fx_src] = mus_ed_fx_end;
+            }
+            mus_ed_fx_drag = false;
+        }
+    }
     ui_text(_gx1 + 6, _fx_y + 12, "FX", global.TH.text_dim, fa_left, fa_middle, global.f_small, 1);
     for (var fx_col = 0; fx_col < _view_steps; fx_col++)
     {
         var fx_step = fx_col * _step_stride;
         var _fx_x = _sx + fx_col * _cw + 1;
         var _fx_kind = clamp(_lp.fx[fx_step], 0, 4);
+        var _active_step = music_fx_active_step(_lp, fx_step);
+        var _display_kind = _fx_kind;
+        if (_active_step >= 0) { _display_kind = _lp.fx[_active_step]; }
         var _fx_style = BTN_GHOST;
-        if (_fx_kind > 0) { _fx_style = BTN_ON; }
-        var _fx_tip = "Step " + string(fx_step + 1) + " effect|" + _effect_help[_fx_kind] + " Click to cycle effect; right-click to clear.";
-        if (ui_hit(_fx_x, _fx_y, _fx_x + _cw - 2, _fx_y + 24)) { mus_ed_fx_step = fx_step; }
-        if (ui_button("mus_fx_" + string(fx_step), _fx_x, _fx_y, _cw - 2, 24, _effect_names[_fx_kind], _fx_tip, _fx_style))
+        if (_display_kind > 0) { _fx_style = BTN_ON; }
+        var _fx_tip = "Step " + string(fx_step + 1) + " effect|" + _effect_help[_display_kind] + " Click to cycle effect; right-click to clear. Drag the effect's circle to the right to extend it.";
+        if (!mus_ed_fx_drag && ui_hit(_fx_x, _fx_y, _fx_x + _cw - 2, _fx_y + 24))
+        {
+            mus_ed_fx_step = fx_step;
+            if (_active_step >= 0) { mus_ed_fx_step = _active_step; }
+        }
+        if (ui_button("mus_fx_" + string(fx_step), _fx_x, _fx_y, _cw - 2, 24, _effect_names[_display_kind], _fx_tip, _fx_style))
         {
             music_loop_edit_begin(_song, _li, "musfx" + string(current_time));
             mus_ed_fx_step = fx_step;
-            _fx_kind = (_fx_kind + 1) mod array_length(_effect_names);
+            _fx_kind = music_fx_next_kind(_fx_kind);
             _lp.fx[fx_step] = _fx_kind;
             if (_fx_kind == 1 || _fx_kind == 2) { _lp.fxp[fx_step] = 0x20; }
-            if (_fx_kind == 3) { _lp.fxp[fx_step] = 0x30; }
             if (_fx_kind == 4) { _lp.fxp[fx_step] = 0x47; }
-            if (_fx_kind == 0) { _lp.fxp[fx_step] = 0; }
+            if (_fx_kind == 0) { _lp.fxp[fx_step] = 0; _lp.fx_end[fx_step] = -1; }
         }
-        if (ui_rpressed && _lp.fx[fx_step] > 0 && ui_hit(_fx_x, _fx_y, _fx_x + _cw - 2, _fx_y + 24))
+        if (!mus_ed_fx_drag && ui_rpressed && _active_step >= 0 && ui_hit(_fx_x, _fx_y, _fx_x + _cw - 2, _fx_y + 24))
         {
             music_loop_edit_begin(_song, _li, "musfxclear" + string(current_time));
-            _lp.fx[fx_step] = 0;
-            _lp.fxp[fx_step] = 0;
+            _lp.fx[_active_step] = 0;
+            _lp.fxp[_active_step] = 0;
+            _lp.fx_end[_active_step] = -1;
         }
+    }
+    // Draw span markers after the buttons, so later cells cannot cover them.
+    for (var _node_cell = 0; _node_cell < _view_steps; _node_cell++)
+    {
+        var _node_step = _node_cell * _step_stride;
+        var _node_kind = _lp.fx[_node_step];
+        if (_node_kind == 1 || _node_kind == 2 || _node_kind == 4)
+        {
+            var _node_x = _sx + (_node_cell + 1) * _cw - 2;
+            var _effect_end = _lp.fx_end[_node_step];
+            if (mus_ed_fx_drag && mus_ed_fx_src == _node_step) { _effect_end = mus_ed_fx_end; }
+            if (_effect_end >= _node_step)
+            {
+                var _end_x = _sx + ((_effect_end div _step_stride) + 1) * _cw - 2;
+                draw_line_width_colour(_node_x, _fx_y + 23, _end_x, _fx_y + 23, 3, global.TH.accent, global.TH.accent);
+                draw_circle_colour(_end_x, _fx_y + 23, 3, global.TH.accent, global.TH.accent, false);
+            }
+            var _radius = 4;
+            var _node_col = global.TH.accent;
+            if (_fx_handle_hot == _node_step || (mus_ed_fx_drag && mus_ed_fx_src == _node_step)) { _radius = 6; _node_col = c_white; }
+            draw_circle_colour(_node_x, _fx_y + 12, _radius + 1, global.TH.panel_bot, global.TH.panel_bot, false);
+            draw_circle_colour(_node_x, _fx_y + 12, _radius, _node_col, _node_col, false);
+        }
+    }
+    if (mus_ed_fx_drag)
+    {
+        var _src_x = _sx + ((mus_ed_fx_src div _step_stride) + 1) * _cw - 2;
+        draw_line_width_colour(_src_x, _fx_y + 12, clamp(ui_mx, _src_x, _sx2 - 2), _fx_y + 12, 2, global.TH.accent, global.TH.accent);
     }
 
     // ---------- selected effect parameter ----------
@@ -1415,7 +1730,7 @@ function music_editor(_ex1, _ey1, _ex2, _ey2, _song)
     if (_drums) { _param_y = _gy2 + 29; }
     var _param_step = clamp(mus_ed_fx_step, 0, MUS_STEPS - 1);
     var _param_fx = _lp.fx[_param_step];
-    if (_param_fx > 0)
+    if (_param_fx == 1 || _param_fx == 2 || _param_fx == 4)
     {
         var _param_w = 190;
         if (_param_fx == 4) { _param_w = 252; }
@@ -1442,7 +1757,7 @@ function music_editor(_ex1, _ey1, _ex2, _ey2, _song)
         {
             var _speed = max(1, _lp.fxp[_param_step] & 255);
             ui_text(_param_x + 48, _param_y + 13, "Speed", global.TH.text_dim, fa_left, fa_middle, global.f_small, 1);
-            var _nsp = ui_stepper("mus_fx_speed", _param_x + 88, _param_y, 100, _speed, 1, 255, "Effect speed|ProTracker 1xx / 2xx / 3xx: the low byte sets how many period units the pitch changes per tick. Use the same To effect on successive notes for a progressive slide.");
+            var _nsp = ui_stepper("mus_fx_speed", _param_x + 88, _param_y, 100, _speed, 1, 255, "Effect speed|ProTracker 1xx / 2xx: pitch movement per tick. Drag the effect's circle to extend its duration over later steps.");
             if (_nsp != _speed)
             {
                 music_loop_edit_begin(_song, _li, "musfxparam" + string(_param_step));
@@ -1510,8 +1825,12 @@ function music_ed_apply(_song, _li, _st, _rv, _drums, _mode)
         else { _match = (_lp.notes[_st] == _rv); }
         if (!_match) { return; }
         music_loop_edit_begin(_song, _li, mus_ed_tag);
+        music_glide_unlink(_lp, _st);
         _lp.notes[_st] = 0;
         _lp.arps[_st] = 0;
+        _lp.fx[_st] = 0;
+        _lp.fxp[_st] = 0;
+        _lp.fx_end[_st] = -1;
     }
 }
 

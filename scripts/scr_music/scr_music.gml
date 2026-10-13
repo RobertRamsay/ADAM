@@ -6,7 +6,8 @@
 ///   bars  : song length in bars (1..128)
 ///   lanes : 4 arrays (one per Paula channel) of MUS_BAR_MAX entries,
 ///           each an index into arr.loops, or -1 for an empty bar
-///   loops : the song's 1-bar loops = { name, cat, lib, inst, notes, insts, arps, fx, fxp }
+///   loops : the song's 1-bar loops = { name, cat, lib, inst, notes, insts, arps, fx, fxp, glide_to }
+///           glide_to : explicit source -> later destination step, -1 = unlinked
 ///           cat   : 0 drums, 1 bass, 2 chords, 3 lead, 4 fx
 ///           lib   : built-in library loop it was copied from, -1 = edited (user loop)
 ///           inst  : instrument new notes use
@@ -130,12 +131,15 @@ function loop_new(_name, _cat, _inst)
         name : _name,
         cat : _cat,
         lib : -1,
+        group : -1,
         inst : _inst,
         notes : array_create(MUS_STEPS, 0),
         insts : array_create(MUS_STEPS, _inst),
         arps : array_create(MUS_STEPS, 0),
         fx : array_create(MUS_STEPS, 0),
-        fxp : array_create(MUS_STEPS, 0)
+        fxp : array_create(MUS_STEPS, 0),
+        glide_to : array_create(MUS_STEPS, -1),
+        fx_end : array_create(MUS_STEPS, -1)
     };
 }
 
@@ -171,11 +175,14 @@ function loop_copy(_l)
 {
     var _c = loop_new(_l.name, _l.cat, _l.inst);
     _c.lib = _l.lib;
+    _c.group = _l.group;
     array_copy(_c.notes, 0, _l.notes, 0, MUS_STEPS);
     array_copy(_c.insts, 0, _l.insts, 0, MUS_STEPS);
     array_copy(_c.arps, 0, _l.arps, 0, MUS_STEPS);
     array_copy(_c.fx, 0, _l.fx, 0, MUS_STEPS);
     array_copy(_c.fxp, 0, _l.fxp, 0, MUS_STEPS);
+    array_copy(_c.glide_to, 0, _l.glide_to, 0, MUS_STEPS);
+    array_copy(_c.fx_end, 0, _l.fx_end, 0, MUS_STEPS);
     return _c;
 }
 
@@ -235,7 +242,7 @@ function music_note_for_period(_period)
 
 function arr_new()
 {
-    var _a = { bars : 8, lanes : [], loops : [] };
+    var _a = { bars : 8, lanes : [], loops : [], loop_groups : [] };
     for (var l = 0; l < MUS_LANES; l++) { array_push(_a.lanes, array_create(MUS_BAR_MAX, -1)); }
     return _a;
 }
@@ -254,12 +261,15 @@ function loop_from_loaded(_raw)
     if (is_string(_raw[$ "name"])) { _l.name = string_copy(_raw.name, 1, 24); }
     if (is_numeric(_raw[$ "cat"])) { _l.cat = clamp(floor(_raw.cat), 0, 4); }
     if (is_numeric(_raw[$ "lib"])) { _l.lib = clamp(floor(_raw.lib), -1, array_length(global.MUS_LIB) - 1); }
+    if (is_numeric(_raw[$ "group"])) { _l.group = clamp(floor(_raw.group), -1, MUS_LOOP_MAX - 1); }
     if (music_inst_valid(_raw[$ "inst"])) { _l.inst = floor(_raw.inst); }
     var _n = _raw[$ "notes"];
     var _i = _raw[$ "insts"];
     var _a = _raw[$ "arps"];
     var _fx = _raw[$ "fx"];
     var _fxp = _raw[$ "fxp"];
+    var _links = _raw[$ "glide_to"];
+    var _ends = _raw[$ "fx_end"];
     var _legacy = is_array(_n) && array_length(_n) <= 16;
     for (var s = 0; s < MUS_STEPS; s++)
     {
@@ -272,8 +282,282 @@ function loop_from_loaded(_raw)
         if (is_array(_a) && _src_step < array_length(_a) && is_numeric(_a[_src_step])) { _l.arps[s] = clamp(floor(_a[_src_step]), 0, 255); }
         if (is_array(_fx) && _src_step < array_length(_fx) && is_numeric(_fx[_src_step])) { _l.fx[s] = clamp(floor(_fx[_src_step]), 0, 4); }
         if (is_array(_fxp) && _src_step < array_length(_fxp) && is_numeric(_fxp[_src_step])) { _l.fxp[s] = clamp(floor(_fxp[_src_step]), 0, 255); }
+        if (is_array(_links) && _src_step < array_length(_links) && is_numeric(_links[_src_step]))
+        {
+            var _target = floor(_links[_src_step]);
+            if (_legacy) { _target *= 2; }
+            if (_target > s && _target < MUS_STEPS) { _l.glide_to[s] = _target; }
+        }
+        if (is_array(_ends) && _src_step < array_length(_ends) && is_numeric(_ends[_src_step]))
+        {
+            var _end = floor(_ends[_src_step]);
+            if (_legacy) { _end = _end * 2 + 1; }
+            if (_end >= s && _end < MUS_STEPS) { _l.fx_end[s] = _end; }
+        }
     }
     return _l;
+}
+
+/// Explicit connections are independent of manually selected tracker effects.
+function music_fx_active_step(_lp, _step)
+{
+    var _active = -1;
+    for (var _source = 0; _source <= _step; _source++)
+    {
+        if (_lp.fx[_source] > 0 && (_source == _step || _lp.fx_end[_source] >= _step)) { _active = _source; }
+    }
+    return _active;
+}
+
+function music_fx_next_kind(_kind)
+{
+    if (_kind == 0) { return 1; }
+    if (_kind == 1) { return 2; }
+    if (_kind == 2 || _kind == 3) { return 4; }
+    return 0;
+}
+
+function music_library_effect_selftest()
+{
+    var _ok = true;
+    var _warnings = mus_warnings;
+    var _song = song_new("Library test");
+    _song.arr.bars = 1;
+    _song.arr.loop_groups = [{ name : "Leads", open : false }, { name : "Rhythm", open : true }];
+    var _loop = loop_new("Lead", 3, 10);
+    _loop.group = 0;
+    _loop.notes[0] = MUS_ROOT;
+    _loop.fx[0] = 4;
+    _loop.fxp[0] = 0x47;
+    _loop.fx_end[0] = 5;
+    array_push(_song.arr.loops, _loop);
+    array_push(_song.arr.loops, loop_new("Loose", 1, 6));
+    _song.arr.lanes[0][0] = 0;
+    if (array_length(music_loop_group_rows(_song, true)) != 4) { _ok = false; }
+    _song.arr.loop_groups[0].open = true;
+    if (array_length(music_loop_group_rows(_song, true)) != 5) { _ok = false; }
+    var _loaded = song_from_loaded(json_parse(json_stringify(_song)));
+    if (_loaded.arr.loop_groups[0].name != "Leads" || !_loaded.arr.loop_groups[0].open || _loaded.arr.loops[0].group != 0 || _loaded.arr.loops[0].fx_end[0] != 5) { _ok = false; }
+    if (loop_copy(_loop).group != 0 || loop_copy(_loop).fx_end[0] != 5) { _ok = false; }
+    music_loop_group_assign(_loaded, [1, 0], 1);
+    if (_loaded.arr.loops[0].group != 1 || _loaded.arr.lanes[0][0] != 0) { _ok = false; }
+    var _copy = music_loop_group_assign(_loaded, [0, 0], 1);
+    if (_copy != 2 || _loaded.arr.loops[_copy].lib != -1 || _loaded.arr.loops[_copy].group != 1 || global.MUS_LIB[0].lib != 0) { _ok = false; }
+    var _ms = song_to_modsong(_song);
+    var _pattern = _ms.patterns[_ms.order[0]];
+    for (var _step = 0; _step <= 5; _step++)
+    {
+        if (_pattern[_step][0].effect != 4 || _pattern[_step][0].param != 0x47) { _ok = false; }
+    }
+    if (_pattern[6][0].effect != 0 || music_fx_active_step(_loop, 6) != -1) { _ok = false; }
+    var _bytes = mod_write(_ms);
+    var _roundtrip = mod_parse(_bytes);
+    if (is_undefined(_roundtrip.song)) { _ok = false; }
+    else
+    {
+        var _cell = _roundtrip.song.patterns[_roundtrip.song.order[0]][5][0];
+        if (_cell.effect != 4 || _cell.param != 0x47) { _ok = false; }
+    }
+    buffer_delete(_bytes);
+    _loop.fx[0] = 2;
+    _loop.fxp[0] = 3;
+    _ms = song_to_modsong(_song);
+    if (_ms.patterns[_ms.order[0]][5][0].effect != 2) { _ok = false; }
+    if (music_fx_next_kind(2) != 4 || music_fx_next_kind(4) != 0) { _ok = false; }
+    music_note_move(_loop, 0, 2, MUS_ROOT);
+    if (_loop.fx_end[2] != 7 || _loop.fx_end[0] != -1) { _ok = false; }
+    mus_warnings = _warnings;
+    if (_ok) { show_debug_message("ADAM loop groups / effect spans self-test: PASS"); }
+    else { show_debug_message("ADAM loop groups / effect spans self-test: FAIL"); }
+}
+
+/// Headers and visible loops share one scrolling list; closing a group removes its rows.
+function music_loop_group_rows(_song, _ungrouped_open)
+{
+    var _rows = [];
+    var _ng = array_length(_song.arr.loop_groups);
+    for (var _group = -1; _group < _ng; _group++)
+    {
+        var _count = 0;
+        for (var _li = 0; _li < array_length(_song.arr.loops); _li++)
+        {
+            if (_song.arr.loops[_li].lib < 0 && _song.arr.loops[_li].group == _group) { _count += 1; }
+        }
+        var _open = _ungrouped_open;
+        if (_group >= 0) { _open = _song.arr.loop_groups[_group].open; }
+        if (_ng > 0) { array_push(_rows, { kind : 1, group : _group, count : _count, h : 36, it : [-1, -1] }); }
+        else { _open = true; }
+        if (!_open) { continue; }
+        for (var _li = 0; _li < array_length(_song.arr.loops); _li++)
+        {
+            if (_song.arr.loops[_li].lib < 0 && _song.arr.loops[_li].group == _group)
+            {
+                array_push(_rows, { kind : 0, group : _group, count : 0, h : 44, it : [1, _li] });
+            }
+        }
+    }
+    return _rows;
+}
+
+/// Library presets become personal copies; existing personal loops keep their indices.
+function music_loop_group_assign(_song, _src, _group)
+{
+    if (_group < -1 || _group >= array_length(_song.arr.loop_groups)) { return -1; }
+    var _li = _src[1];
+    if (_src[0] == 0)
+    {
+        if (_li < 0 || _li >= array_length(global.MUS_LIB) || array_length(_song.arr.loops) >= MUS_LOOP_MAX) { return -1; }
+        var _copy = loop_copy(global.MUS_LIB[_li]);
+        _copy.lib = -1;
+        _li = array_length(_song.arr.loops);
+        array_push(_song.arr.loops, _copy);
+    }
+    if (_li < 0 || _li >= array_length(_song.arr.loops)) { return -1; }
+    _song.arr.loops[_li].group = _group;
+    if (_group >= 0) { _song.arr.loop_groups[_group].open = true; }
+    return _li;
+}
+
+function music_glide_valid(_lp, _source)
+{
+    var _target = _lp.glide_to[_source];
+    if (_target <= _source || _target >= MUS_STEPS || _lp.notes[_source] <= 0) { return false; }
+    return (_lp.notes[_target] > 0);
+}
+
+/// One Paula lane carries one bend at a time; endpoints may chain connections.
+function music_glide_connect(_lp, _source, _target)
+{
+    for (var _other = 0; _other < MUS_STEPS; _other++)
+    {
+        if (music_glide_valid(_lp, _other) && _other < _target && _lp.glide_to[_other] > _source)
+        {
+            _lp.glide_to[_other] = -1;
+        }
+    }
+    _lp.glide_to[_source] = _target;
+}
+
+function music_glide_unlink(_lp, _step)
+{
+    _lp.glide_to[_step] = -1;
+    for (var _source = 0; _source < MUS_STEPS; _source++)
+    {
+        if (_lp.glide_to[_source] == _step) { _lp.glide_to[_source] = -1; }
+    }
+}
+
+/// Moving a connected endpoint keeps its identity and its forward timing.
+function music_note_can_move(_lp, _from, _to)
+{
+    if (_from == _to) { return true; }
+    if (_lp.notes[_to] > 0) { return false; }
+    if (_lp.glide_to[_from] >= 0 && _to >= _lp.glide_to[_from]) { return false; }
+    for (var _source = 0; _source < MUS_STEPS; _source++)
+    {
+        if (_lp.glide_to[_source] == _from && _to <= _source) { return false; }
+    }
+    return true;
+}
+
+function music_note_move(_lp, _from, _to, _pitch)
+{
+    if (!music_note_can_move(_lp, _from, _to)) { return false; }
+    if (_from != _to)
+    {
+        _lp.notes[_to] = _lp.notes[_from];
+        _lp.insts[_to] = _lp.insts[_from];
+        _lp.fx[_to] = _lp.fx[_from];
+        _lp.fxp[_to] = _lp.fxp[_from];
+        _lp.arps[_to] = _lp.arps[_from];
+        _lp.glide_to[_to] = _lp.glide_to[_from];
+        _lp.fx_end[_to] = -1;
+        if (_lp.fx_end[_from] >= _from) { _lp.fx_end[_to] = clamp(_lp.fx_end[_from] + _to - _from, _to, MUS_STEPS - 1); }
+        _lp.notes[_from] = 0;
+        _lp.insts[_from] = _lp.inst;
+        _lp.fx[_from] = 0;
+        _lp.fxp[_from] = 0;
+        _lp.arps[_from] = 0;
+        _lp.glide_to[_from] = -1;
+        _lp.fx_end[_from] = -1;
+        for (var _source = 0; _source < MUS_STEPS; _source++)
+        {
+            if (_lp.glide_to[_source] == _from) { _lp.glide_to[_source] = _to; }
+        }
+    }
+    _lp.notes[_to] = _pitch;
+    return true;
+}
+
+/// Checks connection persistence and the actual MOD rows used by preview/export.
+function music_glide_selftest()
+{
+    var _ok = true;
+    var _saved_warnings = mus_warnings;
+    var _loop = loop_new("Glide test", 1, 6);
+    _loop.notes[0] = 18;
+    _loop.notes[8] = 26;
+    var _song = music_loop_song(_loop, 125, 0);
+    var _plain = song_to_modsong(_song);
+    if (_plain.patterns[_plain.order[0]][0][0].effect != 0) { _ok = false; }
+    _loop.fx[8] = 3;
+    if (music_glide_valid(_loop, 0)) { _ok = false; }
+    _loop.fx[8] = 0;
+    _loop.glide_to[0] = 8;
+    var _loaded = loop_from_loaded(json_parse(json_stringify(_loop)));
+    if (!music_glide_valid(_loaded, 0) || loop_copy(_loaded).glide_to[0] != 8) { _ok = false; }
+    // Placing a note inside a connection must not erase it or restart the bend.
+    _loaded.notes[4] = 30;
+    if (!music_glide_valid(_loaded, 0)) { _ok = false; }
+    _song = music_loop_song(_loaded, 125, 0);
+    var _linked = song_to_modsong(_song);
+    var _pattern = _linked.patterns[_linked.order[0]];
+    var _slide = 0;
+    for (var _row = 0; _row < 8; _row++)
+    {
+        var _cell = _pattern[_row][0];
+        if (_cell.effect != 1) { _ok = false; }
+        if (_row > 0 && (_cell.note != 0 || _cell.sample != 0)) { _ok = false; }
+        _slide += _cell.param * (floor(_song.speed * 0.5) - 1);
+    }
+    if (abs(_slide - (global.MUS_PERIODS[18] - global.MUS_PERIODS[26])) > 1) { _ok = false; }
+    if (_pattern[8][0].note != 26 || _pattern[8][0].sample != 0 || _pattern[8][0].effect != 3) { _ok = false; }
+    // The endpoint updates the pitch without restarting the source sample.
+    var _player = music_player_new(_linked, true, 0, 8);
+    _player.ch[0].smp = _pattern[0][0].sample;
+    _player.ch[0].base = global.MUS_PERIODS[18] - _slide;
+    _player.ch[0].pos = 123;
+    _player.ch[0].vol = 37;
+    music_player_row(_player);
+    if (_player.ch[0].pos != 123 || _player.ch[0].vol != 37 || _player.ch[0].smp != _pattern[0][0].sample) { _ok = false; }
+    _player.tick = 1;
+    music_player_effects(_player);
+    if (_player.ch[0].period != global.MUS_PERIODS[26]) { _ok = false; }
+    var _bytes = mod_write(_linked);
+    var _parsed = mod_parse(_bytes);
+    if (is_undefined(_parsed.song)) { _ok = false; }
+    else if (_parsed.song.patterns[_parsed.song.order[0]][1][0].effect != 1) { _ok = false; }
+    buffer_delete(_bytes);
+    if (_loaded.notes[4] != 30) { _ok = false; }
+    // Retune both endpoints, then move each in time: the same link must follow.
+    music_note_move(_loaded, 0, 0, 22);
+    music_note_move(_loaded, 8, 8, 14);
+    if (!music_glide_valid(_loaded, 0) || _loaded.glide_to[0] != 8) { _ok = false; }
+    var _retuned = song_to_modsong(music_loop_song(_loaded, 125, 0));
+    var _retuned_pattern = _retuned.patterns[_retuned.order[0]];
+    if (_retuned_pattern[0][0].note != 22 || _retuned_pattern[0][0].effect != 2) { _ok = false; }
+    if (_retuned_pattern[8][0].note != 14 || _retuned_pattern[8][0].sample != 0 || _retuned_pattern[8][0].effect != 3) { _ok = false; }
+    music_note_move(_loaded, 0, 2, 22);
+    music_note_move(_loaded, 8, 10, 14);
+    if (!music_glide_valid(_loaded, 2) || _loaded.glide_to[2] != 10 || _loaded.glide_to[0] != -1) { _ok = false; }
+    if (music_note_move(_loaded, 2, 12, 22) || _loaded.glide_to[2] != 10) { _ok = false; }
+    music_note_move(_loaded, 10, 8, 14);
+    music_note_move(_loaded, 2, 0, 22);
+    music_glide_unlink(_loaded, 8);
+    if (music_glide_valid(_loaded, 0) || _loaded.glide_to[0] != -1) { _ok = false; }
+    mus_warnings = _saved_warnings;
+    if (_ok) { show_debug_message("ADAM glide self-test: PASS"); }
+    else { show_debug_message("ADAM glide self-test: FAIL"); }
 }
 
 function song_from_loaded(_raw)
@@ -289,6 +573,22 @@ function song_from_loaded(_raw)
     var _ra = _raw[$ "arr"];
     if (is_struct(_ra))
     {
+        var _groups = _ra[$ "loop_groups"];
+        if (is_array(_groups))
+        {
+            for (var _gi = 0; _gi < min(MUS_LOOP_MAX, array_length(_groups)); _gi++)
+            {
+                var _group = { name : "Group " + string(_gi + 1), open : true };
+                var _raw_group = _groups[_gi];
+                if (is_struct(_raw_group))
+                {
+                    if (is_string(_raw_group[$ "name"])) { _group.name = string_copy(_raw_group.name, 1, 24); }
+                    var _open = _raw_group[$ "open"];
+                    if (!is_undefined(_open)) { _group.open = (_open == true); }
+                }
+                array_push(_s.arr.loop_groups, _group);
+            }
+        }
         if (is_numeric(_ra[$ "bars"])) { _s.arr.bars = clamp(floor(_ra.bars), 1, MUS_BAR_MAX); }
         var _rl = _ra[$ "loops"];
         if (is_array(_rl))
@@ -296,6 +596,10 @@ function song_from_loaded(_raw)
             for (var i = 0; i < min(MUS_LOOP_MAX, array_length(_rl)); i++) { array_push(_s.arr.loops, loop_from_loaded(_rl[i])); }
         }
         var _nl = array_length(_s.arr.loops);
+        for (var _li = 0; _li < _nl; _li++)
+        {
+            if (_s.arr.loops[_li].group >= array_length(_s.arr.loop_groups)) { _s.arr.loops[_li].group = -1; }
+        }
         var _lanes = _ra[$ "lanes"];
         if (is_array(_lanes))
         {
@@ -743,6 +1047,27 @@ function song_to_modsong(_song)
                 {
                     var _cell = _pat[b * MUS_STEPS + st][lane];
                     var _nt = _lp.notes[st];
+                    var _bend_source = -1;
+                    var _bend_arrival = -1;
+                    for (var _candidate = 0; _candidate <= st; _candidate++)
+                    {
+                        if (music_glide_valid(_lp, _candidate) && st == _lp.glide_to[_candidate])
+                        {
+                            _bend_arrival = _candidate;
+                        }
+                        if (music_glide_valid(_lp, _candidate) && st < _lp.glide_to[_candidate])
+                        {
+                            _bend_source = _candidate;
+                            break;
+                        }
+                    }
+                    // A linked destination is a pitch target for the source voice.
+                    // It must not start its own sample or reset the source's volume.
+                    if ((_bend_source >= 0 && st > _bend_source) || _bend_arrival >= 0)
+                    {
+                        _nt = 0;
+                        _arp = 0;
+                    }
                     if (_nt > 0)
                     {
                         var _iid = _lp.insts[st];
@@ -800,11 +1125,41 @@ function song_to_modsong(_song)
                             _cell.param = _arp;
                         }
                     }
-                    if (_lp.fx[st] > 0)
+                    var _effect_step = music_fx_active_step(_lp, st);
+                    if (_effect_step >= 0)
                     {
                         if (_cell.effect != 0 || _cell.param != 0) { array_push(mus_warnings, "Tracker effect replaced a chord or swing effect on step " + string(st + 1) + "."); }
-                        _cell.effect = _lp.fx[st];
-                        _cell.param = _lp.fxp[st];
+                        _cell.effect = _lp.fx[_effect_step];
+                        _cell.param = _lp.fxp[_effect_step];
+                    }
+                    if (_bend_arrival >= 0 && _bend_source < 0)
+                    {
+                        // 3xx sets a target pitch without retriggering the sample.
+                        // Resolve tracker period rounding, then hold that pitch.
+                        _cell.note = _lp.notes[st];
+                        _cell.sample = 0;
+                        _cell.effect = 3;
+                        _cell.param = 1;
+                    }
+                    // Linked bends start with the source note and continue through
+                    // every row before the destination, using standard MOD slides.
+                    if (_bend_source >= 0)
+                    {
+                        var _source = _bend_source;
+                        var _target = _lp.glide_to[_source];
+                        var _from_period = global.MUS_PERIODS[_lp.notes[_source]];
+                        var _to_period = global.MUS_PERIODS[_lp.notes[_target]];
+                        var _delta = _to_period - _from_period;
+                        var _ticks = max(1, _speed - 1);
+                        var _span = _target - _source;
+                        var _units = round(abs(_delta) / _ticks);
+                        var _before = floor(_units * (st - _source) / _span);
+                        var _after = floor(_units * (st - _source + 1) / _span);
+                        _cell.effect = 2;
+                        if (_delta < 0) { _cell.effect = 1; }
+                        _cell.param = clamp(_after - _before, 0, 255);
+                        // A zero slide parameter recalls the previous speed in ProTracker.
+                        if (_cell.param == 0) { _cell.effect = 0; }
                     }
                 }
             }
@@ -900,6 +1255,63 @@ function music_song_options()
     var _out = ["No music"];
     for (var i = 0; i < array_length(proj.songs); i++) { array_push(_out, string(i + 1) + ". " + proj.songs[i].name); }
     return _out;
+}
+
+/// Playback range is a temporary arrangement; saving/exporting keeps the full song.
+function music_scope_song(_song, _mode, _start)
+{
+    if (_song.kind != 0 || _mode == 2) { return _song; }
+    var _preview = song_new(_song.name);
+    _preview.bpm = _song.bpm;
+    _preview.speed = _song.speed;
+    _preview.swing = _song.swing;
+    _preview.loop_bar = 0;
+    _start = clamp(_start, 0, _song.arr.bars - 1);
+    var _count = 1;
+    if (_mode == 1) { _count = 4; }
+    _preview.arr.bars = min(_count, _song.arr.bars - _start);
+    _preview.arr.loops = _song.arr.loops;
+    for (var _lane = 0; _lane < MUS_LANES; _lane++)
+    {
+        for (var _bar = 0; _bar < _preview.arr.bars; _bar++)
+        {
+            _preview.arr.lanes[_lane][_bar] = _song.arr.lanes[_lane][_start + _bar];
+        }
+    }
+    return _preview;
+}
+
+function music_scope_selftest()
+{
+    var _ok = true;
+    var _warnings = mus_warnings;
+    var _song = song_new("Scope test");
+    _song.arr.bars = 7;
+    _song.loop_bar = 2;
+    for (var _bar = 0; _bar < 7; _bar++)
+    {
+        var _loop = loop_new("Bar " + string(_bar), 1, 6);
+        _loop.notes[0] = 18 + _bar;
+        array_push(_song.arr.loops, _loop);
+        _song.arr.lanes[0][_bar] = _bar;
+        _song.arr.lanes[1][_bar] = 6 - _bar;
+    }
+    var _one = music_scope_song(_song, 0, 3);
+    var _four = music_scope_song(_song, 1, 2);
+    var _tail = music_scope_song(_song, 1, 5);
+    if (_one.arr.bars != 1 || _one.arr.lanes[0][0] != 3 || _one.arr.lanes[1][0] != 3) { _ok = false; }
+    if (_four.arr.bars != 4 || _four.arr.lanes[0][3] != 5 || _four.arr.lanes[1][3] != 1 || _four.loop_bar != 0) { _ok = false; }
+    if (_tail.arr.bars != 2 || _tail.arr.lanes[0][1] != 6) { _ok = false; }
+    if (music_scope_song(_song, 2, 3) != _song || _song.arr.bars != 7 || _song.loop_bar != 2) { _ok = false; }
+    var _one_mod = song_to_modsong(_one);
+    var _four_mod = song_to_modsong(_four);
+    if (_one_mod.patterns[_one_mod.order[0]][0][0].note != 21 || _one_mod.patterns[_one_mod.order[0]][MUS_STEPS][0].note != 0) { _ok = false; }
+    if (array_length(_four_mod.order) != 2 || _four_mod.patterns[_four_mod.order[1]][MUS_STEPS][0].note != 23) { _ok = false; }
+    var _end = _four_mod.patterns[_four_mod.order[1]][63][3];
+    if (_end.effect != 11 || _end.param != 0) { _ok = false; }
+    mus_warnings = _warnings;
+    if (_ok) { show_debug_message("ADAM playback scope self-test: PASS"); }
+    else { show_debug_message("ADAM playback scope self-test: FAIL"); }
 }
 
 /// Number of bars using song loop _li
@@ -1387,12 +1799,27 @@ function music_preview_step()
             mus_play_ref = _s;
             mus_play_rev = mus_rev;
             mus_play_rebuild_t = current_time;
-            var _ms = song_to_modsong(_s);
+            if (_s.kind == 0) { mus_play_bar = clamp(mus_play_bar, 0, _s.arr.bars - 1); }
+            var _preview = music_scope_song(_s, mus_play_mode, mus_play_bar);
+            var _ms = song_to_modsong(_preview);
             mus_pl.ms = _ms;
             mus_pl.ord = clamp(mus_pl.ord, 0, array_length(_ms.order) - 1);
             mus_pl.next_ord = -1;
             mus_pl.tempo = clamp(_s.bpm, 32, 255);
-            if (_s.kind == 0) { mus_ord_bar = music_order_bars(_s); }
+            if (_s.kind == 0)
+            {
+                mus_ord_bar = music_order_bars(_preview);
+                var _chunks = music_chunks(_preview);
+                if (mus_pl.row >= _chunks[mus_pl.ord][1] * MUS_STEPS)
+                {
+                    mus_pl.row = 0;
+                    mus_pl.tick = 0;
+                }
+                if (mus_play_mode != 2)
+                {
+                    for (var _order = 0; _order < array_length(mus_ord_bar); _order++) { mus_ord_bar[_order] += mus_play_bar; }
+                }
+            }
         }
     }
     var _elapsed = (get_timer() - mus_play_t0) / 1000000 * MUS_RATE;
