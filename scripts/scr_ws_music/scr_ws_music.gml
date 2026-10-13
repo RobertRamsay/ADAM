@@ -1640,8 +1640,8 @@ function music_editor(_ex1, _ey1, _ex2, _ey2, _song)
         }
         ui_rrect_line(_hov_x + 1, _hov_y + 1, _hov_x + _hov_len * _cw - 1, _hov_y + _rh - 1, 4, global.TH.accent, 0.9, 1);
     }
-    // Ctrl-drag clone: a ghost of the copy where it will land when let go
-    if (mus_ed_note_drag && mus_ed_note_copy && mus_ed_note_last[0] >= 0)
+    // Dragging one note (moved or Ctrl-cloned): a ghost where it will land when let go
+    if (mus_ed_note_drag && !mus_ed_note_group && !mus_ed_note_glide && mus_ed_note_last[0] >= 0)
     {
         var _ghost_len = min(music_note_length(_lp, mus_ed_note_src[0]), MUS_STEPS - mus_ed_note_last[0]);
         var _ghost_x = _sx + (mus_ed_note_last[0] div _step_stride) * _cw;
@@ -1878,41 +1878,21 @@ function music_editor(_ex1, _ey1, _ex2, _ey2, _song)
                     music_preview_note(mus_ed_note_inst, _dst_pitch, mus_ed_note_fx, mus_ed_note_fxp);
                 }
             }
-            else if (_dst_step != mus_ed_note_src[0] || _dst_pitch != mus_ed_note_pitch || (_drums && _dst_row != mus_ed_note_src[1]) || mus_ed_note_moved)
+            else
             {
-                var _from_step = mus_ed_note_src[0];
-                if (mus_ed_note_moved) { _from_step = mus_ed_note_last[0]; }
-                var _first_copy = (mus_ed_note_copy && !mus_ed_note_moved);
-                var _can_move = music_note_can_move(_lp, _from_step, _dst_step);
-                var _group_row = mus_ed_note_src[1];
-                if (mus_ed_note_moved) { _group_row = mus_ed_note_last[1]; }
-                if (mus_ed_note_group) { _can_move = !is_undefined(music_notes_move(_lp, mus_ed_selected, _dst_step - _from_step, _dst_row - _group_row, _drums, false)); }
-                if (_first_copy) { _can_move = (_dst_step != mus_ed_note_src[0]); }
-                if (mus_ed_note_copy && _dst_step == mus_ed_note_src[0]) { _can_move = false; }
-                if (_can_move)
+                // Dragging one note: a ghost follows the mouse; the note moves
+                // (and replaces what is there) only when the button is let go
+                var _same_spot = (_dst_step == mus_ed_note_src[0] && _dst_row == mus_ed_note_src[1]);
+                if (_same_spot) { mus_ed_note_last = [-1, -1]; }
+                else if (music_note_can_move(_lp, mus_ed_note_src[0], _dst_step))
                 {
-                    if (!mus_ed_note_moved) { music_loop_edit_begin(_song, _li, mus_ed_tag); }
-                    else { music_touch(); }
-                    var _was_selected = mus_ed_selected[_from_step];
-                    if (mus_ed_note_group)
-                    {
-                        mus_ed_selected = music_notes_move(_lp, mus_ed_selected, _dst_step - _from_step, _dst_row - _group_row, _drums);
-                    }
-                    else
-                    {
-                        if (_first_copy) { music_note_duplicate(_lp, _from_step, _dst_step, _dst_pitch); }
-                        else { music_note_move(_lp, _from_step, _dst_step, _dst_pitch); }
-                        if (_drums) { _lp.insts[_dst_step] = _rows[_dst_row]; }
-                        if (!_first_copy) { mus_ed_selected[_from_step] = false; }
-                        mus_ed_selected[_dst_step] = _was_selected;
-                    }
                     mus_ed_note_last = _dst;
                     mus_ed_note_moved = true;
-                    if (_dst_pitch != mus_ed_note_preview_pitch)
-                    {
-                        mus_ed_note_preview_pitch = _dst_pitch;
-                        music_preview_note(mus_ed_note_inst, _dst_pitch, mus_ed_note_fx, mus_ed_note_fxp);
-                    }
+                }
+                if (_dst_pitch != mus_ed_note_preview_pitch && (_same_spot || mus_ed_note_last[0] >= 0))
+                {
+                    mus_ed_note_preview_pitch = _dst_pitch;
+                    music_preview_note(mus_ed_note_inst, _dst_pitch, mus_ed_note_fx, mus_ed_note_fxp);
                 }
             }
         }
@@ -1957,7 +1937,21 @@ function music_editor(_ex1, _ey1, _ex2, _ey2, _song)
                     }
                 }
             }
-            else if (!mus_ed_note_moved)
+            else if (mus_ed_note_moved)
+            {
+                if (mus_ed_note_last[0] >= 0 && music_note_can_move(_lp, mus_ed_note_src[0], mus_ed_note_last[0]))
+                {
+                    var _move_to = mus_ed_note_last[0];
+                    var _move_row = mus_ed_note_last[1];
+                    var _move_pitch = clamp(mus_ed_note_pitch + mus_ed_note_src[1] - _move_row, 1, 36);
+                    if (_drums) { _move_pitch = mus_ed_note_pitch; }
+                    music_loop_edit_begin(_song, _li, mus_ed_tag);
+                    music_note_move(_lp, mus_ed_note_src[0], _move_to, _move_pitch);
+                    if (_drums) { _lp.insts[_move_to] = _rows[_move_row]; }
+                    mus_ed_selected[mus_ed_note_src[0]] = false;
+                }
+            }
+            else
             {
                 music_loop_edit_begin(_song, _li, mus_ed_tag);
                 music_glide_unlink(_lp, mus_ed_note_src[0]);
