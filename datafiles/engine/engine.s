@@ -129,7 +129,8 @@ A_ROLE      equ 4
 A_SPD       equ 6
 A_VIS       equ 8
 A_LEFT      equ 10
-A_UP        equ 12
+A_UP        equ 12         ; a shot (role 9): its aim - 0 the way the shooter goes, 1 up, 2 down,
+                           ; 3 left, 4 right, 5 at the player
 A_BX0       equ 14
 A_BY0       equ 16
 A_BX1       equ 18
@@ -211,12 +212,15 @@ SWING_TIME  equ 14         ; a weapon swing lasts this many frames
 SWING_COOL  equ 22         ; and the next can start this many frames after it began
 THROW_VX    equ 4          ; a throw: pixels a frame across
 THROW_VY    equ 44         ; and up (1/16 pixels a frame), then gravity brings it down
-HIT_MAX     equ 8          ; thrown-actor hits remembered in a frame (WHEN 11)
+HIT_MAX     equ 8          ; thrown-actor and shot hits remembered in a frame (WHEN 11)
+ROLE_SHOT   equ 9          ; a shot: hidden until a Shoot rule fires it, flies straight, hides when it
+                           ; hits something or leaves the screen
+SHOT_FLY    equ 3          ; v_thr of a shot in flight
 
 ; ---------------- engine variables (offsets from V) ----------------
 ; Per-actor state is one ACTV_SIZE record per actor, starting at V. a5 =
 ; V+128, so a field is v_xx(a5,Dn) with Dn = actor * ACTV_SIZE (actor << ACTV_SHIFT):
-; the field offsets (-128..-97) fit the signed 8-bit displacement and the
+; the field offsets (-128..-65) fit the signed 8-bit displacement and the
 ; index register carries the actor. Scalars follow the MAX_ACT records.
 MAX_ACT     equ 32
 ACTV_SIZE   equ 64
@@ -244,8 +248,13 @@ v_face      rs.w 1         ; 1 = facing left
 v_dir       rs.w 1         ; 8 directions: last direction moved, 0 N .. 7 NW
 v_ox        rs.w 1         ; where it was at the start of this frame (tile walls)
 v_oy        rs.w 1
-v_thr       rs.w 1         ; thrown: 0 no, 1 flying, 2 flying but spent (it hit something)
+v_thr       rs.w 1         ; thrown: 0 no, 1 flying, 2 flying but spent (it hit something), 3 a shot flying
 v_tvx       rs.w 1         ; thrown: pixels a frame across
+v_tvy       rs.w 1         ; a shot: pixels a frame down
+v_owner     rs.w 1         ; a shot: the actor that fired it (it never hits that one)
+v_pool      rs.w 1         ; a shot: the actor the Shoot rule names (WHEN 11 hits report this one)
+v_mdx       rs.w 1         ; the way it last moved: -1 / 0 / 1 across (a shot's aim 0)
+v_mdy       rs.w 1         ;                        -1 / 0 / 1 down
             rsset   -128+MAX_ACT*ACTV_SIZE
 v_anim      rs.w 1
 v_joyprev   rs.w 1
@@ -350,10 +359,11 @@ get_vbr:    dc.l    $4e7a0801               ; movec vbr,d0
 ; Supervisor mode from here on. The OS is never returned to, so the
 ; exception frame Supervisor() left on the system stack is simply dropped.
 in_super:   move.w  #$2700,sr               ; mask all CPU interrupts while taking over
-            lea     V(pc),a7                ; (stack_top is too far for one PC-relative lea)
+            lea     start(pc),a5            ; (V is too far for a PC-relative lea)
+            add.l   #V+128-start,a5
+            lea     -128(a5),a7
             add.l   #stack_top-V,a7
-            lea     V+128(pc),a5
-            lea     V(pc),a4
+            lea     -128(a5),a4
             add.l   #data_start-V,a4
             lea     $dff000,a6
             move.w  #$7fff,$9a(a6)          ; INTENA  - all interrupts off
@@ -370,7 +380,7 @@ in_super:   move.w  #$2700,sr               ; mask all CPU interrupts while taki
             bsr     init_display
 
 game_restart:
-            lea     V(pc),a7                ; (stack_top is too far for one PC-relative lea)
+            lea     -128(a5),a7             ; a5 = V+128 (stack_top is too far for a PC-relative lea)
             add.l   #stack_top-V,a7
             bsr     music_stop              ; silence: music and effects
             move.w  #1,v_level(a5)
@@ -400,7 +410,7 @@ game_restart:
 
 ; next level: show which one is coming, then play it
 level_next: addq.w  #1,v_level(a5)
-level_card: lea     V(pc),a7                ; (stack_top is too far for one PC-relative lea)
+level_card: lea     -128(a5),a7             ; a5 = V+128 (stack_top is too far for a PC-relative lea)
             add.l   #stack_top-V,a7
             bsr     tiles_off
             bsr     hide_sprites
@@ -823,12 +833,19 @@ init_actors:
             move.w  A_LEFT(a2),v_face(a5,d5.w)
             move.w  #0,v_thr(a5,d5.w)
             move.w  #0,v_tvx(a5,d5.w)
+            move.w  #0,v_tvy(a5,d5.w)
             move.w  #-1,v_carry(a5)
+            move.w  #1,v_mdx(a5,d5.w)       ; last moved: right, or left when it starts moving left
+            move.w  #0,v_mdy(a5,d5.w)
             move.w  #2,v_dir(a5,d5.w)       ; facing east, or west when it starts moving left
             tst.w   A_LEFT(a2)
             beq.s   .east
             move.w  #6,v_dir(a5,d5.w)
-.east
+            move.w  #-1,v_mdx(a5,d5.w)
+.east       cmp.w   #ROLE_SHOT,A_ROLE(a2)   ; shots wait, hidden, for a Shoot rule
+            bne.s   .notshot
+            move.w  #0,v_vis(a5,d5.w)
+.notshot
             lea     ACT_SIZE(a2),a2
             addq.w  #1,d7
             cmp.w   d6,d7
@@ -1256,6 +1273,7 @@ move_actors:
             bra.s   .cn
 .cyi        addq.w  #1,v_ay(a5,d5.w)
 .cn         dbf     d3,.cl
+            bra     .next                   ; (it used to run on into the platform player's code)
 
 .platform  tst.w   v_tmode(a5)             ; tile world: fire digs / places instead of walking
             beq.s   .plmv
@@ -1347,7 +1365,9 @@ move_actors:
 .faller     bsr     physics
             bra     .next
 
-.fly        move.w  v_ax(a5,d5.w),d0        ; across, stopped by the edges
+.fly        cmp.w   #SHOT_FLY,v_thr(a5,d5.w)
+            beq     .shot
+            move.w  v_ax(a5,d5.w),d0        ; across, stopped by the edges
             add.w   v_tvx(a5,d5.w),d0
             bpl.s   .fl0
             moveq   #0,d0
@@ -1374,6 +1394,34 @@ move_actors:
 .fl3        cmp.w   #1,v_thr(a5,d5.w)       ; still flying at things
             bne     .adv
             bsr     throw_hits
+            bra     .adv
+
+.shot       move.w  v_ax(a5,d5.w),d0        ; a shot flies straight
+            add.w   v_tvx(a5,d5.w),d0
+            move.w  v_ay(a5,d5.w),d1
+            add.w   v_tvy(a5,d5.w),d1
+            move.w  d0,v_ax(a5,d5.w)
+            move.w  d1,v_ay(a5,d5.w)
+            tst.w   v_tmode(a5)
+            bne.s   .sht
+            tst.w   d0                      ; one screen: gone at its edges
+            bmi.s   .shend
+            cmp.w   A_XMAX(a2),d0
+            bgt.s   .shend
+            tst.w   d1
+            bmi.s   .shend
+            cmp.w   A_YMAX(a2),d1
+            bgt.s   .shend
+            bra.s   .shhit
+.sht        bsr     box_solid               ; a tile world: gone in a wall or out of view
+            bne.s   .shend
+            move.w  d7,d0
+            bsr     on_screen
+            beq.s   .shend
+.shhit      bsr     shot_hits
+            beq     .adv
+.shend      move.w  #0,v_vis(a5,d5.w)
+            move.w  #0,v_thr(a5,d5.w)
             bra     .adv
 
 .next       tst.w   v_tmode(a5)             ; tile world: walls stop it (gravity roles did it in physics)
@@ -1654,7 +1702,21 @@ place_sprites:
             beq.s   .rgt
             add.w   #AN_LEFT-AN_RIGHT,d3
 .rgt        move.l  0(a0,d3.w),d0
-.frame      move.w  v_ax(a5,d5.w),v_px(a5,d5.w)
+.frame      move.l  d0,-(sp)                ; remember the way it moved (a shot's aim 0)
+            move.w  v_ax(a5,d5.w),d0
+            sub.w   v_px(a5,d5.w),d0
+            move.w  v_ay(a5,d5.w),d3
+            sub.w   v_py(a5,d5.w),d3
+            move.w  d0,d4
+            or.w    d3,d4
+            beq.s   .mdk
+            bsr     sign_w
+            move.w  d0,v_mdx(a5,d5.w)
+            move.w  d3,d0
+            bsr     sign_w
+            move.w  d0,v_mdy(a5,d5.w)
+.mdk        move.l  (sp)+,d0
+            move.w  v_ax(a5,d5.w),v_px(a5,d5.w)
             move.w  v_ay(a5,d5.w),v_py(a5,d5.w)
             move.l  d0,v_fofs(a5,d5.w)      ; BOBs: just note the frame, bob_draw draws it
             tst.w   A_BOB(a2)
@@ -3159,7 +3221,7 @@ do_action:
             move.w  d5,d4
             lsl.w   #ACTV_SHIFT,d5
             move.w  R_ACT(a3),d0
-            cmp.w   #21,d0
+            cmp.w   #22,d0
             bhi     act_none
             add.w   d0,d0
             move.w  acttab(pc,d0.w),d0
@@ -3186,6 +3248,7 @@ acttab:     dc.w    act_score-acttab
             dc.w    act_nomusic-acttab
             dc.w    act_ptile-acttab
             dc.w    act_drop-acttab
+            dc.w    act_shoot-acttab
 
 act_none:   rts
 
@@ -3355,6 +3418,252 @@ throw_hits:
 .n          addq.w  #1,d6
             bra.s   .j
 .out        movem.l (sp)+,d0-d6/a0
+            rts
+
+; the shot d7 (d5, a2): the first actor it hits - not the one that fired it, not another
+; shot, not one that is safe - goes in v_hits as (the actor the Shoot rule named, it).
+; Z clear when it hit something
+shot_hits:
+            movem.l d1-d6/a0,-(sp)
+            moveq   #0,d6
+.j          cmp.w   H_NACT(a4),d6
+            bge.s   .none
+            cmp.w   #MAX_ACT,d6
+            bge.s   .none
+            cmp.w   d7,d6
+            beq.s   .n
+            cmp.w   v_owner(a5,d5.w),d6
+            beq.s   .n
+            move.w  d6,d4
+            bsr     actor_rec
+            cmp.w   #ROLE_SHOT,A_ROLE(a0)   ; shots pass each other by
+            beq.s   .n
+            move.w  A_FROM(a0),d0
+            cmp.w   v_level(a5),d0
+            bgt.s   .n
+            move.w  d7,d0
+            move.w  d6,d1
+            bsr     touch_pair              ; both shown, neither safe, boxes overlap
+            beq.s   .n
+            move.w  v_hitn(a5),d0
+            cmp.w   #HIT_MAX,d0
+            bge.s   .hit
+            lea     v_hits(a5),a0
+            add.w   d0,d0
+            move.b  v_pool+1(a5,d5.w),0(a0,d0.w)
+            move.b  d6,1(a0,d0.w)
+            addq.w  #1,v_hitn(a5)
+.hit        moveq   #1,d0
+            bra.s   .out
+.n          addq.w  #1,d6
+            bra.s   .j
+.none       moveq   #0,d0
+.out        movem.l (sp)+,d1-d6/a0
+            tst.w   d0
+            rts
+
+; d0.w -> -1, 0 or 1
+sign_w:     tst.w   d0
+            beq.s   .r
+            bmi.s   .m
+            moveq   #1,d0
+            rts
+.m          moveq   #-1,d0
+.r          rts
+
+; DO 22: fire the shot d4 (d5) from actor R_VAL. When it is already flying the next
+; actor after it that is a shot (role 9) goes instead, so a few shots in a row make
+; rapid fire. It starts on the shooter's middle and flies its aim (A_UP) at its speed.
+act_shoot:
+            movem.l d0-d7/a0-a2,-(sp)
+            move.w  d4,d3                   ; d3 = the shot the rule names
+            cmp.w   H_NACT(a4),d3
+            bhs     .out
+            move.w  R_VAL(a3),d6            ; d6 = the shooter
+            cmp.w   H_NACT(a4),d6
+            bhs     .out
+            move.w  d6,d7
+            lsl.w   #ACTV_SHIFT,d7          ; d7 = its offset
+            tst.w   v_vis(a5,d7.w)
+            beq     .out
+            move.w  d6,d4
+            bsr     actor_rec
+            move.l  a0,a1                   ; a1 = the shooter's record
+            move.w  A_FROM(a1),d0
+            cmp.w   v_level(a5),d0
+            bgt     .out
+            move.w  d3,d4                   ; a free shot: the one named, or a shot after it
+.find       cmp.w   H_NACT(a4),d4
+            bhs     .out
+            cmp.w   #MAX_ACT,d4
+            bhs     .out
+            cmp.w   d6,d4
+            beq     .out
+            bsr     actor_rec               ; a0 = its record
+            cmp.w   d3,d4
+            beq.s   .head
+            cmp.w   #ROLE_SHOT,A_ROLE(a0)
+            bne     .out
+.head       move.w  d4,d5
+            lsl.w   #ACTV_SHIFT,d5
+            tst.w   v_thr(a5,d5.w)          ; flying (or thrown)
+            bne.s   .nx
+            cmp.w   v_carry(a5),d4
+            beq.s   .nx
+            move.w  A_FROM(a0),d0
+            cmp.w   v_level(a5),d0
+            ble.s   .free
+.nx         addq.w  #1,d4
+            bra.s   .find
+
+.free       move.w  A_BX0(a1),d0            ; its box centred on the shooter's
+            add.w   A_BX1(a1),d0
+            sub.w   A_BX0(a0),d0
+            sub.w   A_BX1(a0),d0
+            asr.w   #1,d0
+            add.w   v_ax(a5,d7.w),d0
+            move.w  A_BY0(a1),d1
+            add.w   A_BY1(a1),d1
+            sub.w   A_BY0(a0),d1
+            sub.w   A_BY1(a0),d1
+            asr.w   #1,d1
+            add.w   v_ay(a5,d7.w),d1
+            tst.w   v_tmode(a5)
+            bne.s   .pos
+            tst.w   d0
+            bpl.s   .x0
+            moveq   #0,d0
+.x0         cmp.w   A_XMAX(a0),d0
+            ble.s   .x1
+            move.w  A_XMAX(a0),d0
+.x1         tst.w   d1
+            bpl.s   .y0
+            moveq   #0,d1
+.y0         cmp.w   A_YMAX(a0),d1
+            ble.s   .pos
+            move.w  A_YMAX(a0),d1
+.pos        move.w  d0,v_ax(a5,d5.w)
+            move.w  d1,v_ay(a5,d5.w)
+            move.w  d0,v_px(a5,d5.w)
+            move.w  d1,v_py(a5,d5.w)
+            move.w  d0,v_ox(a5,d5.w)
+            move.w  d1,v_oy(a5,d5.w)
+
+            move.w  A_UP(a0),d2             ; the aim -> d0 / d1 = -1, 0 or 1 across / down
+            moveq   #0,d0
+            moveq   #-1,d1
+            cmp.w   #1,d2
+            beq     .go                     ; up
+            moveq   #1,d1
+            cmp.w   #2,d2
+            beq     .go                     ; down
+            moveq   #0,d1
+            moveq   #-1,d0
+            cmp.w   #3,d2
+            beq     .go                     ; left
+            moveq   #1,d0
+            cmp.w   #4,d2
+            beq     .go                     ; right
+            cmp.w   #5,d2
+            beq.s   .atp
+            cmp.w   #6,A_ROLE(a1)           ; 0: a platform player shoots the way it faces
+            bne.s   .joy
+            moveq   #1,d0
+            tst.w   v_face(a5,d7.w)
+            beq     .go
+            moveq   #-1,d0
+            bra     .go
+.joy        cmp.w   H_PLAYER(a4),d6         ; the player: the way the stick points
+            bne.s   .last
+            move.w  v_joy(a5),d2
+            moveq   #0,d0
+            moveq   #0,d1
+            btst    #0,d2
+            beq.s   .j1
+            moveq   #-1,d1
+.j1         btst    #1,d2
+            beq.s   .j2
+            moveq   #1,d1
+.j2         btst    #2,d2
+            beq.s   .j3
+            moveq   #-1,d0
+.j3         btst    #3,d2
+            beq.s   .j4
+            moveq   #1,d0
+.j4         move.w  d0,d2
+            or.w    d1,d2
+            bne     .go
+.last       move.w  v_mdx(a5,d7.w),d0       ; else the way it last moved
+            move.w  v_mdy(a5,d7.w),d1
+            move.w  d0,d2
+            or.w    d1,d2
+            bne     .go
+            moveq   #-1,d1                  ; (never moved: up)
+            bra     .go
+.atp        move.w  H_PLAYER(a4),d4         ; 5: at the player, in one of 8 directions
+            bmi.s   .last
+            move.l  a0,a2                   ; a2 = the shot's record
+            bsr     actor_rec               ; a0 = the player's
+            lsl.w   #ACTV_SHIFT,d4
+            move.w  A_BX0(a0),d0            ; player's middle - the shot's middle
+            add.w   A_BX1(a0),d0
+            sub.w   A_BX0(a2),d0
+            sub.w   A_BX1(a2),d0
+            asr.w   #1,d0
+            add.w   v_ax(a5,d4.w),d0
+            sub.w   v_ax(a5,d5.w),d0
+            move.w  A_BY0(a0),d1
+            add.w   A_BY1(a0),d1
+            sub.w   A_BY0(a2),d1
+            sub.w   A_BY1(a2),d1
+            asr.w   #1,d1
+            add.w   v_ay(a5,d4.w),d1
+            sub.w   v_ay(a5,d5.w),d1
+            move.l  a2,a0
+            move.w  d0,d2                   ; d2 / d4 = how far across / down
+            bpl.s   .ax
+            neg.w   d2
+.ax         move.w  d1,d4
+            bpl.s   .ay
+            neg.w   d4
+.ay         add.w   d2,d2                   ; across only when it is more than half the way down
+            cmp.w   d4,d2
+            bgt.s   .sx
+            moveq   #0,d0
+.sx         lsr.w   #1,d2
+            add.w   d4,d4                   ; down only when it is more than half the way across
+            cmp.w   d2,d4
+            bgt.s   .sy
+            moveq   #0,d1
+.sy         bsr     sign_w
+            exg     d0,d1
+            bsr     sign_w
+            exg     d0,d1
+            move.w  d0,d2
+            or.w    d1,d2
+            bne.s   .go
+            moveq   #1,d1                   ; (right on top of it: down)
+
+.go         move.w  v_spd(a5,d5.w),d2       ; speed; a bit less on the diagonals
+            tst.w   d0
+            beq.s   .sp
+            tst.w   d1
+            beq.s   .sp
+            move.w  d2,d4
+            lsr.w   #2,d4
+            sub.w   d4,d2
+.sp         muls    d2,d0
+            muls    d2,d1
+            move.w  d0,v_tvx(a5,d5.w)
+            move.w  d1,v_tvy(a5,d5.w)
+            move.w  #SHOT_FLY,v_thr(a5,d5.w)
+            move.w  #1,v_vis(a5,d5.w)
+            move.w  #0,v_life(a5,d5.w)
+            move.w  #0,v_vy(a5,d5.w)
+            move.w  #0,v_gnd(a5,d5.w)
+            move.w  d6,v_owner(a5,d5.w)
+            move.w  d3,v_pool(a5,d5.w)
+.out        movem.l (sp)+,d0-d7/a0-a2
             rts
 
 ; d0 / d1 = actors -> Z clear when both are shown and their boxes overlap

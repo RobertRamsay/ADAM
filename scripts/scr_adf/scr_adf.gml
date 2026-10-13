@@ -74,7 +74,7 @@ function adf_do_line(_b, _d, _ncol)
     if (_d.act == 8) { _val = clamp(_val, 0, _ncol - 1); }
     if (_d.act == 2) { _val = clamp(_val, 0, 7); }
     if (_d.act == 18) { _val = clamp(_val, 0, ADF_SONGS_MAX - 1); }
-    be16(_b, clamp(_d.act, 0, 21));
+    be16(_b, clamp(_d.act, 0, 22));
     be16(_b, clamp(_d.target, 0, ACT_MAX_ALL - 1));
     be16(_b, clamp(_val, 0, 65535));
 }
@@ -495,9 +495,10 @@ function adam_data_block_raw(_p, _measure = false)
         if (_ac.start_left) { _left = 1; }
         var _up = 0;
         if (_ac.start_up) { _up = 1; }
+        if (_ac.role == 9) { _up = clamp(_ac.aim, 0, 5); }    // A_UP of a shot = its aim
         be16(_b, clamp(_ac.x, 0, _ww - _aw));     // tile world: anywhere on the map
         be16(_b, clamp(_ac.y, 0, _wh - _ah));
-        be16(_b, clamp(_ac.role, 0, 8));
+        be16(_b, clamp(_ac.role, 0, 9));
         be16(_b, clamp(_ac.speed, 1, 8));
         be16(_b, _vis);
         be16(_b, _left);

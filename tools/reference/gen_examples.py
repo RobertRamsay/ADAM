@@ -124,6 +124,7 @@ def auto_groups(p):
         if r['when']==2: return "Timers"
         if r['when']==9: return "Sounds in view"
         if r['when']==10: return "Sword strikes"
+        if r['when']==11 and names[r['a']]['role']==9: return "Shooting"
         if r['when'] in (11,12): return "Throwing"
         return "Game flow"
     order=[]; 
@@ -493,16 +494,38 @@ def star_catcher():
     d.ellipse([34,44,40,50],fill=4)
     d.rectangle([0,0,319,11],fill=2)
     ship=[0xe8e8f0,0x3050a0,0xff9020]; rock=[0x9a7a5a,0x4a3a2a,0xc0a080]; ufo=[0x60e060,0x206030,0xb0ffb0]; star=[0xffe040,0xc08000,0xffffff]
+    # the two lasers share a colour pair each with the star and the rocket (8 hardware sprites, no clashes):
+    # a white core with a warm edge in either set of colours
+    bolt=lambda core,edge: ["................"]*6+[".......%s%s......."%(core,core)]+["......%s%s%s%s......"%(edge,core,core,edge)]*8+[".......%s%s......."%(core,core)]+["................"]*8
+    art.A['sc_laser']=bolt('3','1'); art.A['sc_laser2']=bolt('1','3')
+    art.A['sc_bomb']=["................"]*8+[".......22.......",".....211112.....","....21133112....","....21333312....",
+                      "....21333312....","....21133112....",".....211112.....",".......22......."]+["................"]*8
     sprites=[("Rocket","ship",ship),("Asteroid","rock",rock),("UFO","ufo",ufo),("Star","star",star),
-             ("Rocket flame","ship2",ship),("Asteroid spin","rock2",rock),("UFO lights","ufo2",ufo),("Star twinkle","star2",star)]
+             ("Rocket flame","ship2",ship),("Asteroid spin","rock2",rock),("UFO lights","ufo2",ufo),("Star twinkle","star2",star),
+             ("Laser","sc_laser",star),("Laser B","sc_laser2",ship),("Bomb","sc_bomb",ufo)]
+    def shot(name,spr,speed,aim):
+        a=actor(name,spr,9,speed,0,0,vis=False); a['aim']=aim; return a
+    # 4 and 5 are the laser and its rapid-fire copy (Shot actors in a row); the star waits, hidden, until
+    # something is shot, then drops from it (a Faller); the UFO cruises along the top and its bomb flies at the rocket
     actors=[actor("Rocket",0,0,3,150,200,4,4),actor("Asteroid 1",1,1,1,40,40,5,16,left=False,up=False),actor("Asteroid 2",1,1,2,260,100,5,16,left=True,up=True),
-            actor("UFO",2,4,1,10,20,6,12),actor("Star",3,5,1,160,90,7,10)]
-    rules=[R(b=1,act=1),R(b=1,act=4,target=0),R(b=1,act=2,value=2),R(b=1,act=3),
-           R(b=2,act=1),R(b=2,act=4,target=0),R(b=2,act=2,value=2),R(b=2,act=3),
-           R(b=3,act=1),R(b=3,act=4,target=0),R(b=3,act=4,target=3),R(b=3,act=2,value=6),
-           R(b=4,act=0,value=10),R(b=4,act=5,target=4),R(b=4,act=2,value=0),
-           R(when=1,act=2,value=1),R(when=2,n=20,act=11,target=3),R(when=3,n=250,act=10),R(when=4,act=9),R(when=5,act=2,value=5),
-           R(when=5,act=18,value=0)]
+            actor("UFO",2,2,1,10,20,6,12),shot("Laser",8,8,1),shot("Laser 2",9,8,1),
+            actor("Star",3,8,1,160,90,7,10,vis=False),shot("Bomb",10,2,5)]
+    rules=[]
+    for b in (1,2):                                                          # an asteroid hits the rocket
+        rules+=[R(b=b,act=1),R(b=b,act=4,target=0),R(b=b,act=2,value=2),R(b=b,act=3),R(b=b,act=16,target=0)]
+    rules+=[R(b=3,act=1),R(b=3,act=4,target=0),R(b=3,act=4,target=3),R(b=3,act=2,value=6),R(b=3,act=16,target=0)]
+    rules+=[R(b=6,act=0,value=10),R(b=6,act=6,target=6),R(b=6,act=2,value=0)]     # catch the star
+    for b in (1,2):                                                          # shoot an asteroid: it drops a star
+        rules+=[R(when=11,a=4,b=b,act=0,value=5),R(when=11,a=4,b=b,act=14,target=6,value=b),R(when=11,a=4,b=b,act=7,target=6),
+                R(when=11,a=4,b=b,act=5,target=b),R(when=11,a=4,b=b,act=2,value=2)]
+    rules+=[R(when=11,a=4,b=3,act=0,value=25),R(when=11,a=4,b=3,act=14,target=6,value=3),R(when=11,a=4,b=3,act=7,target=6),
+            R(when=11,a=4,b=3,act=4,target=3),R(when=11,a=4,b=3,act=2,value=2)]
+    rules+=[R(when=11,a=7,b=0,act=1),R(when=11,a=7,b=0,act=4,target=0),R(when=11,a=7,b=0,act=3),
+            R(when=11,a=7,b=0,act=2,value=6),R(when=11,a=7,b=0,act=16,target=0)]     # the UFO's bomb hits
+    rules+=[R(when=1,act=22,target=4,value=0),R(when=1,act=2,value=1),
+            R(when=9,a=3,n=4,act=22,target=7,value=3),
+            R(when=2,n=20,act=11,target=3),R(when=3,n=250,act=10),R(when=4,act=9),R(when=5,act=2,value=5),
+            R(when=5,act=18,value=0)]
     tune=song("Orbit",130,[
         bars("Four on the floor",7,"Tom fill",1,"Four on the floor",7,"Tom fill",1),
         bars("Octave bounce",16),
@@ -519,7 +542,7 @@ def star_catcher():
     rock=dict(anims={0:([1,5,("Asteroid spin 2",tf_hflip(RK)),("Asteroid spin 3",tf_hflip(RK2))],16,0)})
     animate(p,"sc",{0:rocket,1:rock,2:rock,
                     3:dict(anims={0:([2,6,("UFO lights 2",tf_row(U,10,"2113113113113112"[2:]+"2113113113113112"[:2]))],8,0)}),
-                    4:dict(anims={0:([3,7,("Star twinkle 2",tf_hflip(T2))],10,2)})})
+                    6:dict(anims={0:([3,7,("Star twinkle 2",tf_hflip(T2))],10,2)})})
     return p
 
 # ------------------------------------------------------------------ DODGE BALL
@@ -808,7 +831,7 @@ def to_builder(p):
     acts=[]
     for i,a in enumerate(p['actors'][:32]):
         d=dict(x=a['x'],y=a['y'],role=a['role'],speed=a['speed'],visible=int(a['visible']),left=int(a['start_left']),up=int(a['start_up']),
-               sprite=a['sprite'],chan=max(0,chan[i]),anim=a['anim_sprite'],rate=a['anim_rate'],amode=int(a['anim_moving']),anims=a.get('anims',[]),carry=a.get('carry',False),flip=a.get('anim_flip',False),dirs=a.get('anim_dirs',False),**{'from':a['from_level'],'fast':a['faster_every']})
+               sprite=a['sprite'],chan=max(0,chan[i]),anim=a['anim_sprite'],rate=a['anim_rate'],amode=int(a['anim_moving']),anims=a.get('anims',[]),carry=a.get('carry',False),aim=a.get('aim',0),flip=a.get('anim_flip',False),dirs=a.get('anim_dirs',False),**{'from':a['from_level'],'fast':a['faster_every']})
         if chan[i]<0:
             d['bob']=1; d['bobmap']=[pal_nearest(p,c) for c in p['sprites'][a['sprite']]['cols']]
         acts.append(d)

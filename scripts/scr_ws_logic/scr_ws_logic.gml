@@ -118,8 +118,8 @@ function logic_sentence(_r)
         case 9: _s += _an + " is in view (every " + string(_r.n) + " seconds)"; break;
         case 10: _s += "the player strikes " + _bn; break;
         case 11:
-            if (_r.a == _r.b) { _s += "thrown " + _an + " hits anything"; }
-            else { _s += "thrown " + _an + " hits " + _bn; }
+            if (_r.a == _r.b) { _s += _an + " (thrown or shot) hits anything"; }
+            else { _s += _an + " (thrown or shot) hits " + _bn; }
             break;
         case 12: _s += "the player picks up " + _an; break;
     }
@@ -169,6 +169,11 @@ function logic_do_phrase(_d, _names, _na)
             _s += "put a " + _tln + " tile where " + _tn + " is (if nothing solid is there)";
             break;
         case 21: _s += "the player drops what it carries"; break;
+        case 22:
+            var _fn = "?";
+            if (_d.value < _na) { _fn = _names[_d.value]; }
+            _s += "shoot " + _tn + " from " + _fn;
+            break;
     }
     return _s;
 }
@@ -398,6 +403,14 @@ function logic_do_row(_d, _rid, _x, _y, _pill, _anames, _snames, _xr)
         set_val(_d, "target", ui_dropdown(_rid + "_t", _dx, _dy, LOGIC_ACTOR_W, 30, _anames, _d.target, "Which actor|The actor this action changes."), _rid + "t");
         _dx += LOGIC_ACTOR_W + 10;
     }
+    if (_act == 22)
+    {
+        set_val(_d, "target", ui_dropdown(_rid + "_t", _dx, _dy, LOGIC_ACTOR_W, 30, _anames, _d.target, "Which shot|An actor with the behaviour 'Shot' (Actors page) - a laser, bullet or bomb. If it is still flying, the next Shot actor after it goes instead, so a few in a row give rapid fire."), _rid + "t");
+        _dx += LOGIC_ACTOR_W + 10;
+        var _frx = logic_word(_dx, _dy, "from");
+        var _frw = max(100, min(LOGIC_ACTOR_W, _xr - _frx));
+        set_val(_d, "value", ui_dropdown(_rid + "_from", _frx, _dy, _frw, 30, _anames, clamp(_d.value, 0, max(0, array_length(proj.actors) - 1)), "From which actor|The shot starts on this actor's middle and flies the way set on the shot (Actors page). WHEN 'Fire button is pressed' for the player; WHEN 'Every few seconds' or 'Actor is in view' for an enemy that fires back."), _rid + "from");
+    }
     if (_act == 0)
     {
         set_val(_d, "value", ui_stepper(_rid + "_v", _dx, _dy, 150, _d.value, 1, 9999, "Points|How many points to add. Hold Shift for steps of 10."), _rid + "v");
@@ -522,9 +535,9 @@ function logic_rule_card(_r, i, _cx, _cy, _cw, _anames, _snames, _gnames)
             set_val(_r, "b", ui_dropdown(_rid + "_b", _wx, _wy, _aw, 30, _anames, _r.b, "Which actor|Fires when the player's weapon (a Weapon tool - Tiles page, Tools tab) reaches this actor. Auto weapons swing by themselves only at actors that have a rule like this."), _rid + "b");
             break;
         case 11:
-            set_val(_r, "a", ui_dropdown(_rid + "_a", _wx, _wy, _aw, 30, _anames, _r.a, "Thrown actor|An actor with 'Can be carried' (Actors page) that the player has thrown."), _rid + "a");
+            set_val(_r, "a", ui_dropdown(_rid + "_a", _wx, _wy, _aw, 30, _anames, _r.a, "Thrown or shot actor|An actor with 'Can be carried' (Actors page) that the player has thrown, or a Shot actor fired by a Shoot rule (pick the one the Shoot rule names - its rapid-fire copies count as it)."), _rid + "a");
             _wx = logic_word(_wx + _aw + 8, _wy, "hits");
-            set_val(_r, "b", ui_dropdown(_rid + "_b", _wx, _wy, _aw, 30, _anames, _r.b, "Which actor|The actor it hits while it flies. Pick the thrown actor twice for 'hits anything'. After a hit it drops, harmless."), _rid + "b");
+            set_val(_r, "b", ui_dropdown(_rid + "_b", _wx, _wy, _aw, 30, _anames, _r.b, "Which actor|The actor it hits while it flies. Pick the same actor twice for 'hits anything'. After a hit a thrown actor drops, harmless; a shot vanishes. A shot never hits the actor that fired it."), _rid + "b");
             break;
         case 12:
             set_val(_r, "a", ui_dropdown(_rid + "_a", _wx, _wy, _aw, 30, _anames, _r.a, "Which actor|Fires when the player picks this actor up (it needs 'Can be carried' on the Actors page)."), _rid + "a");

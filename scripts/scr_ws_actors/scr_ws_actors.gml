@@ -197,7 +197,7 @@ function ws_actors_draw(_x1, _y1, _x2, _y2)
     var _by = _y2 - 130;
     var _lcontent = _na * _rowh + 8;
     var _loff = ui_scroll_begin("act_list", _x1 + 6, _y1 + 50, _x1 + _lw - 6, _by - 8, _lcontent);
-    var _role_short = ["Player", "Bouncer", "Patrol L-R", "Patrol U-D", "Chaser", "Still", "Platform player", "Hopper", "Faller"];
+    var _role_short = ["Player", "Bouncer", "Patrol L-R", "Patrol U-D", "Chaser", "Still", "Platform player", "Hopper", "Faller", "Shot"];
     for (var i = 0; i < _na; i++)
     {
         var _ac = proj.actors[i];
@@ -221,7 +221,7 @@ function ws_actors_draw(_x1, _y1, _x2, _y2)
         var _tsc = min(1, SPR_H / max(_ts.w, _ts.h));
         draw_sprite_amiga_cols(_ac.sprite, _x1 + 33 - _ts.w * _tsc / 2, _ry + 7 + (SPR_H - _ts.h * _tsc) / 2, _tsc, actor_cols_from(_alloc, i), 1);
         ui_text(_x1 + 60, _ry + 16, ui_text_fit(_ac.name, global.f_bold, _lw - 84), global.TH.text, fa_left, fa_middle, global.f_bold, 1);
-        var _sub = _role_short[clamp(_ac.role, 0, 8)];
+        var _sub = _role_short[clamp(_ac.role, 0, 9)];
         var _subc = global.TH.text_dim;
         if (i < array_length(_alloc.conflict))
         {
@@ -457,9 +457,10 @@ function ws_actors_draw(_x1, _y1, _x2, _y2)
         "Stays where you put it. Great for pickups, doors and goals.",
         "Walks left and right on the ground and jumps with fire (or up). Follows the hills - set your ground colours on the Backdrop page.",
         "Hops along the ground on its own: it squats, springs up and drifts left or right in the air. Jump over it or run under it. Give it a second sprite and that one is shown while it squats.",
-        "Falls until it lands on the ground, then stays there. Use 'Move actor to another actor' to drop it from a cloud."
+        "Falls until it lands on the ground, then stays there. Use 'Move actor to another actor' to drop it from a cloud.",
+        "A laser, bullet or bomb. Hidden until a rule with DO 'Shoot' fires it from another actor, then it flies straight at its speed and vanishes when it hits something or leaves the screen. For rapid fire, add a few shots in a row with the same picture: the rule uses the next free one. Score hits with WHEN 'Thrown or shot actor hits'."
     ];
-    var _desc = _rdesc[clamp(_s.role, 0, 8)];
+    var _desc = _rdesc[clamp(_s.role, 0, 9)];
     draw_set_font(global.f_small);
     var _dh = max(50, ceil(ui_sh_ext(_desc, _fw2 - 20)) + 14);
     ui_rrect(_fx2, _y, _fx2 + _fw2, _y + _dh, 8, global.TH.inset_top, global.TH.inset_bot, 0.8);
@@ -480,6 +481,12 @@ function ws_actors_draw(_x1, _y1, _x2, _y2)
     {
         set_val(_s, "start_up", ui_toggle("act_up", _fx2, _y, "Starts moving up", _s.start_up, "Start direction|Whether this actor starts heading up instead of down."), "actup");
         _y += 32;
+    }
+    if (_s.role == 9)
+    {
+        ui_heading(_fx2, _y, "Flies");
+        set_val(_s, "aim", ui_dropdown("act_aim", _fx2, _y + 18, _fw2, 32, global.AIM_NAMES, clamp(_s.aim, 0, 5), "Which way it flies|'The way the shooter moves': the player shoots the way the joystick points (or it last moved; a platform player the way it faces). Up / Down / Left / Right: always that way - a rocket's laser goes up. 'At the player': an enemy aims at the player (8 directions)."), "actaim");
+        _y += 62;
     }
     _y += 6;
     var _sd = actor_dims(_s);
@@ -541,7 +548,7 @@ function ws_actors_draw(_x1, _y1, _x2, _y2)
         if (feature_gate("BOBs")) { set_val(_s, "bob", _bobv, "actbob"); }
     }
     _y += 34;
-    if (_s.role != 0 && _s.role != 6)
+    if (_s.role != 0 && _s.role != 6 && _s.role != 9)
     {
         set_val(_s, "carry", ui_toggle("act_carry", _fx2, _y, "Can be carried", _s.carry, "Can be carried|The player picks it up by touching it and pressing fire - it rides on the player's head - and fire again throws it the way the player faces, in an arc. Make rules with WHEN 'Thrown actor hits actor' (knock out an enemy, break a box) and 'Player picks up actor'. A rock, a barrel, a bomb, a key."), "actcarry");
         _y += 34;

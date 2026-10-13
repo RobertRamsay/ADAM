@@ -127,7 +127,8 @@ def build(proj, aga):
         bsize=(bh<<6)|(bw//16+1) if a.get('bob') else 0
         ts=proj['tiles'].get('size',16) if proj.get('tiles') else 16
         ww,wh=(proj['tiles']['w']*ts,proj['tiles']['h']*ts) if proj.get('tiles') else (320,256)
-        blob+=struct.pack('>HHHHHHHHHHHL',min(a['x'],ww-bw),min(a['y'],wh-bh),a['role'],a['speed'],int(a['visible']),int(a['left']),int(a['up']),bx0,by0,bx1,by1,spr_offs[i])
+        up=a.get('aim',0) if a['role']==9 else int(a['up'])   # A_UP of a shot (role 9) = its aim
+        blob+=struct.pack('>HHHHHHHHHHHL',min(a['x'],ww-bw),min(a['y'],wh-bh),a['role'],a['speed'],int(a['visible']),int(a['left']),up,bx0,by0,bx1,by1,spr_offs[i])
         aflags=0                                       # A_AMODE bit 0: 8 directions, bit 1: Fire
         if plans[i] and dirs_on(a) and len(plans[i])>=12: aflags|=1
         if plans[i] and len(plans[i])>12: aflags|=2

@@ -5,7 +5,7 @@ function examples_init()
     global.EXAMPLES = [
         { file : "gem_hunter.adam", file_aga : "gem_hunter_a1200.adam",  name : "Gem Hunter",  pro : false, desc : "Collect gems under a copper sunset while two ghosts hunt you." },
         { file : "deep_dive.adam", file_aga : "deep_dive_a1200.adam",   name : "Deep Dive",   pro : false, desc : "Swim for pearls on the sea bed, dodging jellyfish and a shark." },
-        { file : "star_catcher.adam", file_aga : "star_catcher_a1200.adam", name : "Star Catcher", pro : false, desc : "Fly through an asteroid belt catching stars, chased by a UFO." },
+        { file : "star_catcher.adam", file_aga : "star_catcher_a1200.adam", name : "Star Catcher", pro : false, desc : "Blast asteroids and a UFO with your lasers, then catch the stars they drop - mind the bombs." },
         { file : "dodge_ball.adam", file_aga : "dodge_ball_a1200.adam",  name : "Dodge Ball",  pro : false, desc : "Survive the neon arena as the bouncing balls get faster and faster." },
         { file : "firefly_night.adam", file_aga : "firefly_night_a1200.adam", name : "Firefly Night", pro : true, desc : "An owl catches a swarm of 12 fireflies - BOBs - while bats hunt it." },
         { file : "dig_deep.adam", file_aga : "dig_deep_a1200.adam",    name : "Dig Deep",    pro : true,  desc : "Dig through a scrolling 128 x 64 tile world for 12 gold, Terraria style, past slimes, bats and a mole." }
