@@ -1399,6 +1399,8 @@ function dev_shots_step()
     var _pg = shot_pages[shot_i];
     ws = _pg.ws;
     bd_panel = _pg.panel;
+    ui_page_tab = 0;
+    if (_pg.ws == WS_UI) { ui_page_tab = _pg.panel; }
     shot_wait += 1;
 }
 

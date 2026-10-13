@@ -233,6 +233,21 @@ ui_prev_surf = -1;          // the preview: backdrop + panel + fields (index sur
 ui_prev_buf = -1;
 ui_prev_key = "";           // what it was drawn from
 ui_prev_tick = 0;
+ui_page_tab = 0;            // 0 = custom HUD, 1 = loading screen (ADAM Pro)
+ls_surf_empty = -1;         // loading screen preview: the picture with the empty bar (RGB)
+ls_surf_full = -1;          // ... and with the full bar
+ls_buf = -1;
+ls_key = "";                // what the preview was drawn from
+ls_prog = 1;                // preview progress 0..1
+ls_playing = false;         // Play: the bar fills like a real load
+ls_piece = 1;               // piece being drawn: 0 left cap, 1 middle tile, 2 right cap
+ls_pen = 1;                 // colour the piece editor draws with
+ls_drawing = false;         // a stroke on the piece editor
+ls_drag = 0;                // bar on the preview: 0 none, 1 moving, 2 resizing
+ls_drag_dx = 0;
+ls_drag_dy = 0;
+ls_pic = { pixels : [], pal : [0, 0], depth : 1, ncol : 2 };  // loadscr_picture() the preview was drawn from
+ls_pc = { left : [], mid : [], right : [] };                   // the bar pieces it was drawn with
 
 // Animate page
 anim_sel = 0;               // 0 Idle, 1 Walk, 2 Jump, 3 Fall
@@ -512,6 +527,7 @@ shot_pages = [
     { ws : WS_BACKDROP, panel : 1, name : "copper_sky" },
     { ws : WS_TILES,    panel : 0, name : "tiles" },
     { ws : WS_UI,       panel : 0, name : "ui" },
+    { ws : WS_UI,       panel : 1, name : "loading_screen" },
     { ws : WS_LEVELS,   panel : 0, name : "levels" },
     { ws : WS_SPRITES,  panel : 0, name : "sprites" },
     { ws : WS_ACTORS,   panel : 0, name : "actors" },

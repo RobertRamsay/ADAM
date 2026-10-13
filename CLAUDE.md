@@ -55,7 +55,8 @@ Project data (`proj`) is plain JSON-able structs/arrays; `.adam` files are `json
 (`vasm -pic`). ADAM never generates code: it appends a **data block** right
 after `engine.bin`; `boot.s` (bootblock) AllocMem's chip RAM, reads engine+data
 with trackdisk (showing a copper loading bar) and jumps in.
-ADAM Pro loading screen (`scr_loadscr`, `proj.loadscr`, `loadscr.s`): the disk is `[boot][loading-screen block][engine][data]`; the bootblock's last 16 bytes are `screenload, screenmem, loadsize, bsssize` (0, 0 = the plain bar). The block is `loadscr.bin` + `LS_*` header + ADAM's copper list (BPLxPT / SPRxPT values are offsets from the block, fixed up by init) + picture planes + a strip of the full bar; entries 0 init / 4 progress (d0.w 0..1024) / 8 done; it is freed before the engine starts and falls back to the plain bar without the memory. Registers held:
+ADAM Pro loading screen (`scr_loadscr`, `proj.loadscr`, `loadscr.s`): the disk is `[boot][loading-screen block][engine][data]`; the bootblock's last 16 bytes are `screenload, screenmem, loadsize, bsssize` (0, 0 = the plain bar). The block is `loadscr.bin` + `LS_*` header + ADAM's copper list (BPLxPT / SPRxPT values are offsets from the block, fixed up by init) + picture planes + a strip of the full bar; entries 0 init / 4 progress (d0.w 0..1024) / 8 done; it is freed before the engine starts and falls back to the plain bar without the memory. Editor: the UI page's Loading screen tab (`ui_page_tab` 1, `loadscr_page_draw`; Pro only) - the backdrop or its own PNG (`picture_quantize`, 1-5 planes, A1200 up to 8), bar place / size (steppers or drag on the preview), a HUD frame style or Custom pieces drawn in the picture's colours (or a PNG strip, `loadscr_import_strip`), and a progress slider / Play preview (`loadscr_preview_update`, RGB surfaces, no shader). Not yet in adf_reference.py.
+Registers held:
 `a4` = data block, `a5` = V+128 (variables; per-actor state is a 64-byte record per actor,
 `v_xx(a5,Dn)` with Dn = actor << ACTV_SHIFT, up to MAX_ACT = 32 actors), `a6` = $dff000.
 
@@ -137,3 +138,11 @@ the layout changed, examples regenerated if needed, and a short "how to verify" 
   - Data block: actor record gets an offset to an animation table instead of `A_SPR2` (bump version to 5, keep Lite's two-frame actors working by writing them as a 2-frame Loop). Frame images are written once per used sprite slot and shared. Change `engine.s`, `scr_adf.gml` and `adf_reference.py` together; old `.adam` files load with `anim_sprite` turned into a 2-frame Walk/Idle.
   - Lite keeps the current two-frame animation; the page shows the rest locked with `pro_gate("Animations")`. Ship a Pro example and a Pro lesson.
 - Suggested order: `pro_on()` (done), BOBs (done, 16 x 16 up to 64 x 64 - size picker on the Sprites page), then scrolling (most other Pro features build on them), then the rest.
+
+### Next phase — Palette switching (Bob, 13 Oct 2026; after loading screen part 2)
+- **Named palettes:** a project keeps extra palettes, each changing some or all of the backdrop colours (the others stay as they are). Edited on the Backdrop page (palette tab or list), previewed in the editor.
+- **DO "Switch palette"** (value = palette), with an optional fade over N frames; the engine writes the colours in the copper list (OCS 12-bit; AGA 24-bit with LOCT, as `loadscr_copper` / the copper sky do).
+- **Per-level palette:** each level can start with a palette (Levels page).
+- Also asked: fewer bitplanes as a memory saving on A500/600 and A1200 (the loading screen already has its own colour count).
+- Layout change: `engine.s`, `scr_adf.gml` and `tools/reference/adf_reference.py` together; bump the data version.
+- Loading screen still to do: adf_reference.py support, a Pro example (Dig Deep, stone bar), a Pro lesson, sweeps and pictures at percentages.

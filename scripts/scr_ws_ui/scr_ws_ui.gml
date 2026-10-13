@@ -364,6 +364,25 @@ function ui_gfx_free()
 {
     if (surface_exists(ui_prev_surf)) { surface_free(ui_prev_surf); }
     if (buffer_exists(ui_prev_buf)) { buffer_delete(ui_prev_buf); }
+    loadscr_gfx_free();
+}
+
+/// The tabs at the top of the left panel: Custom HUD / Loading screen (ADAM Pro)
+function ui_page_tabs(_x1, _y1, _lw)
+{
+    var _tw = 76;
+    var _tw2 = _lw - 32 - 6 - _tw;
+    var _lab = "Loading screen";
+    if (!pro_edition()) { _lab = "Loading (Pro)"; }
+    if (ui_tab("ui_page_0", _x1 + 16, _y1 + 10, _tw, 30, "HUD", ui_page_tab == 0, "Custom HUD|Your own panel, font and fields for the game's score, lives and so on."))
+    {
+        ui_page_tab = 0;
+    }
+    if (ui_tab("ui_page_1", _x1 + 16 + _tw + 6, _y1 + 10, _tw2, 30, _lab, ui_page_tab == 1, "Loading screen (ADAM Pro)|A picture shown while the game loads, with a loading bar made of a left cap, a repeating middle and a right cap."))
+    {
+        if (pro_gate("The loading screen")) { ui_page_tab = 1; }
+    }
+    draw_line_colour(_x1 + 14, _y1 + 46, _x1 + _lw - 14, _y1 + 46, global.TH.panel_edge, global.TH.panel_edge);
 }
 
 /// Switches the custom HUD on, starting from fields like the standard HUD and a metal frame
@@ -392,12 +411,19 @@ function ws_ui_draw(_x1, _y1, _x2, _y2)
     var _nf = array_length(_u.fields);
     ui_sel_field = clamp(ui_sel_field, 0, max(0, _nf - 1));
     var _pro = pro_edition();
+    if (!_pro) { ui_page_tab = 0; }
+    if (ui_page_tab == 1)
+    {
+        loadscr_page_draw(_x1, _y1, _x2, _y2, _lw, _rw);
+        return;
+    }
 
     // ---------------- left: the panel, the frame, the font, the fields ----------------
-    ui_panel(_x1, _y1, _x1 + _lw, _y2, "Custom HUD");
+    ui_panel(_x1, _y1, _x1 + _lw, _y2, "");
+    ui_page_tabs(_x1, _y1, _lw);
     var _fx = _x1 + 16;
     var _fw = _lw - 32;
-    var _y = _y1 + 54;
+    var _y = _y1 + 58;
     var _on = ui_toggle("ui_on", _fx, _y, "Use a custom HUD", _u.on, "Custom HUD|Replaces the standard one-line HUD with your own panel, font and fields. Switch it off to go back to the standard HUD (your design is kept).");
     if (_on != _u.on)
     {
