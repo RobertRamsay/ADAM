@@ -8,7 +8,9 @@ function examples_init()
         { file : "star_catcher.adam", file_aga : "star_catcher_a1200.adam", name : "Star Catcher", pro : false, desc : "Blast asteroids and a UFO with your lasers, then catch the stars they drop - mind the bombs." },
         { file : "dodge_ball.adam", file_aga : "dodge_ball_a1200.adam",  name : "Dodge Ball",  pro : false, desc : "Survive the neon arena as the bouncing balls get faster and faster." },
         { file : "firefly_night.adam", file_aga : "firefly_night_a1200.adam", name : "Firefly Night", pro : true, desc : "An owl catches a swarm of 12 fireflies - BOBs - while bats hunt it." },
-        { file : "dig_deep.adam", file_aga : "dig_deep_a1200.adam",    name : "Dig Deep",    pro : true,  desc : "Dig through a scrolling 128 x 64 tile world for 12 gold, Terraria style, past slimes, bats and a mole." }
+        { file : "dig_deep.adam", file_aga : "dig_deep_a1200.adam",    name : "Dig Deep",    pro : true,  desc : "Dig through a scrolling 128 x 64 tile world for 12 gold, Terraria style, past slimes, bats and a mole." },
+        { file : "nebula_strike.adam", file_aga : "nebula_strike_a1200.adam", name : "Nebula Strike", pro : true, desc : "A side-scrolling shoot 'em up: grab Power, Speed and Multiple capsules, then take on the battleship guarding the warp gate." },
+        { file : "starfire.adam", file_aga : "starfire_a1200.adam",    name : "Starfire",    pro : true,  desc : "A vertical shoot 'em up down a space station's trench: power up your fighter, pick up options and break the mothership." }
     ];
 }
 

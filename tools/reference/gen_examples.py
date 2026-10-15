@@ -127,6 +127,7 @@ def auto_groups(p):
         if r['when']==11 and names[r['a']]['role']==9: return "Shooting"
         if r['when'] in (11,12): return "Throwing"
         return "Game flow"
+    if '_gk' in p: key=p.pop('_gk')            # the example's own groups (ex_shmup)
     order=[]; 
     for r in p['rules']:
         k=key(r)
@@ -244,7 +245,7 @@ def dmix(a,b,t,x,y):
         key=(a,b,k)
         if key in AGA['keys']: return AGA['keys'][key]
         if (b,a,n-k) in AGA['keys']: return AGA['keys'][(b,a,n-k)]
-        if 16+len(AGA['order'])<128:
+        if 16+len(AGA['order'])<AGA.get('max',128):
             i=16+len(AGA['order']); AGA['keys'][key]=i; AGA['order'].append(key); return i
     return b if (bayer(x,y)+0.5)/64<t else a
 def ramp(cols,t,x,y):
@@ -718,10 +719,12 @@ def firefly_night():
 
 # ------------------------------------------------------------------ helpers
 def bob_flags(p):
-    # as actors_bob_flags in scr_ws_actors (ADAM Pro): set to BOB, or a sprite actor after the 8th
-    out=[]; spr=0
+    # as actors_bob_flags in scr_ws_actors (ADAM Pro): set to BOB, a sprite bigger than 16 x 24,
+    # or a sprite actor after the 8th (the 7th when the backdrop scrolls across)
+    out=[]; spr=0; nspr=7 if scroll_across(p) else 8
     for a in p['actors'][:32]:
-        b=bool(a.get('bob')) or spr>=8
+        s=p['sprites'][a['sprite']]
+        b=bool(a.get('bob')) or spr>=nspr or s.get('w',16)>16 or s.get('h',24)>24
         if not b: spr+=1
         out.append(b)
     return out
@@ -735,9 +738,13 @@ def pal_nearest(p,rgb):
         if bd<0 or d<bd: bd=d; best=c
     return best
 
+def scroll_across(p):
+    # the backdrop scrolls left or right (the fine scroll's early fetch takes sprite 7, as in a tile world)
+    return not p.get('tiles_on') and p.get('scroll_dir',0) in (2,4)
+
 def alloc(p):
     acts=p['actors']; key=['']*4; used=[0]*4; owner=[-1]*4; chan=[]; conf=[]; bob=bob_flags(p)
-    cap=[2,2,2,1] if p.get('tiles_on') else [2,2,2,2]     # a tile world loses sprite 7 (DDFSTRT $30)
+    cap=[2,2,2,1] if (p.get('tiles_on') or scroll_across(p)) else [2,2,2,2]     # a tile world loses sprite 7 (DDFSTRT $30)
     for i,a in enumerate(acts[:7] if p.get('tiles_on') else acts[:32]):
         if bob[i]: chan.append(-1); conf.append(False); continue
         k=str([q(c) for c in p['sprites'][a['sprite']]['cols']]); pp=-1; cf=False
@@ -816,7 +823,7 @@ def ground_table(p):
 def game_block(p):
     if not (p['levels_on'] or p['goal_on'] or p['title_on']): return None
     lv=[l['heights'] for l in p['levels']] if p['levels_on'] and p['levels'] else [[256]*320]
-    return dict(levels=lv,terrain=p['levels_on'] and bool(p['levels']),cols=p['terrain_cols'],goal=p['goal'] if p['goal_on'] else 0,
+    return dict(levels=lv,terrain=p['levels_on'] and bool(p['levels']) and p.get('hills_on',True),cols=p['terrain_cols'],goal=p['goal'] if p['goal_on'] else 0,
                 title=p['title_on'],label=p['goal_label'],title1=p['title1'],title2=p['title2'],levtxt=p['lev_text'])
 
 def to_builder(p):
@@ -826,12 +833,13 @@ def to_builder(p):
         # the colour as the machine shows it: 12-bit on the A500/600, 24-bit on the A1200
         if aga: return c
         return q(c)
-    spr=[dict(px=s['px'],cols=[qm(c) for c in s['cols']]) for s in p['sprites']]
+    spr=[dict(px=s['px'],cols=[qm(c) for c in s['cols']],w=s.get('w',16),h=s.get('h',24)) for s in p['sprites']]
     # pair colours = owner's colours: emulate by giving each actor's sprite the owner colours is the same as build_test's rule
     acts=[]
     for i,a in enumerate(p['actors'][:32]):
         d=dict(x=a['x'],y=a['y'],role=a['role'],speed=a['speed'],visible=int(a['visible']),left=int(a['start_left']),up=int(a['start_up']),
-               sprite=a['sprite'],chan=max(0,chan[i]),anim=a['anim_sprite'],rate=a['anim_rate'],amode=int(a['anim_moving']),anims=a.get('anims',[]),carry=a.get('carry',False),aim=a.get('aim',0),flip=a.get('anim_flip',False),dirs=a.get('anim_dirs',False),**{'from':a['from_level'],'fast':a['faster_every']})
+               sprite=a['sprite'],chan=max(0,chan[i]),anim=a['anim_sprite'],rate=a['anim_rate'],amode=int(a['anim_moving']),anims=a.get('anims',[]),carry=a.get('carry',False),aim=a.get('aim',0),flip=a.get('anim_flip',False),dirs=a.get('anim_dirs',False),
+               pattern=a.get('pattern',0),enter=a.get('enter',0),comeback=a.get('comeback',True),hits=a.get('hits',1),**{'from':a['from_level'],'fast':a['faster_every']})
         if chan[i]<0:
             d['bob']=1; d['bobmap']=[pal_nearest(p,c) for c in p['sprites'][a['sprite']]['cols']]
         acts.append(d)
@@ -841,12 +849,14 @@ def to_builder(p):
     u=p.get('ui')
     if u and u.get('on'):
         import ui_ref
-        uu=dict(u); uu['bottom']=bool(u.get('bottom')) and not p.get('tiles_on')
+        uu=dict(u); uu['bottom']=bool(u.get('bottom')) and not p.get('tiles_on') and not p.get('scroll_dir',0)
         bp['ui']=dict(bottom=uu['bottom'],rows=u['rows'],fields=[f for f in u['fields'] if f['row']<u['rows'] and f['col']<40][:16],
                       font=(ui_ref.font_bytes(u) if u.get('font_style',0)!=0 else None),
                       panel=(ui_ref.panel_pixels(uu,p['pixels']) if u.get('frame_on',True) else None))
     if p.get('tiles_on'):
         bp['tiles']=dict(w=p['map_w'],h=p['map_h'],dig=p['tile_dig'],tiles=p['tiles'],map=p['map'],size=p.get('tile_size',16),tools=p.get('tools',[]))
+    elif p.get('scroll_dir',0):
+        bp['scroll']=dict(dir=p['scroll_dir'],speed=p.get('scroll_speed',4))
     return bp, conf
 
 def preview(p,fn):
@@ -865,18 +875,23 @@ def preview(p,fn):
         s=p['sprites'][a['sprite']]
         if chan[i]<0: oc=[pal[pal_nearest(p,c)] for c in s['cols']]        # BOB: nearest backdrop colours
         else: oc=p['sprites'][p['actors'][owner[chan[i]//2]]['sprite']]['cols']
-        for yy in range(24):
-            for xx in range(16):
-                v=s['px'][yy*16+xx]
+        if not a.get('visible',True): continue
+        sw=s.get('w',16); sh=s.get('h',24)
+        for yy in range(sh):
+            for xx in range(sw):
+                v=s['px'][yy*sw+xx]
                 if v and 0<=a['x']+xx<W and 0<=a['y']+yy<H: c=q(oc[v-1]); im.putpixel((a['x']+xx,a['y']+yy),((c>>16)&255,(c>>8)&255,c&255))
     im.resize((640,512),Image.NEAREST).save(fn)
 
 if __name__=='__main__':
     OUT=os.path.join(HERE,'out'); os.makedirs(OUT,exist_ok=True)
     sys.modules['gen_examples']=sys.modules['__main__']   # one AGA state for ex_dig_deep too
-    import ex_dig_deep
+    import ex_dig_deep, ex_shmup
+    only=sys.argv[1:]                           # e.g. python gen_examples.py nebula_strike: just that one
     for fn,make in [('gem_hunter',gem_hunter),('deep_dive',deep_dive),('star_catcher',star_catcher),('dodge_ball',dodge_ball),
-                    ('firefly_night',firefly_night),('dig_deep',ex_dig_deep.dig_deep)]:
+                    ('firefly_night',firefly_night),('dig_deep',ex_dig_deep.dig_deep),
+                    ('nebula_strike',ex_shmup.nebula_strike),('starfire',ex_shmup.starfire)]:
+      if only and fn not in only: continue
       for aga in (False,True):
         # every example also comes as an A1200 version with smooth in-between colours (<name>_a1200.adam)
         if aga: aga_begin()
