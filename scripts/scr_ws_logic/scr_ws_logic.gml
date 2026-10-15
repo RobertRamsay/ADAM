@@ -121,6 +121,8 @@ function logic_sentence(_r)
             else { _s += _an + " (thrown or shot) hits " + _bn; }
             break;
         case 12: _s += "the player picks up " + _an; break;
+        case 13: _s += "the level has run " + string(_r.n) + " seconds"; break;
+        case 14: _s += "fire is held (every " + string(_r.n) + " 50ths of a second)"; break;
     }
     _s += ", " + logic_do_phrase(_r, _names, _na);
     for (var m = 0; m < array_length(_r.more); m++)
@@ -172,6 +174,20 @@ function logic_do_phrase(_d, _names, _na)
             var _fn = "?";
             if (_d.value < _na) { _fn = _names[_d.value]; }
             _s += "shoot " + _tn + " from " + _fn;
+            break;
+        case 23:
+            switch (clamp(_d.value, 0, 3))
+            {
+                case 0: _s += "give the player more firepower"; break;
+                case 1: _s += "make the player faster"; break;
+                case 2: _s += "give the player an option"; break;
+                case 3: _s += "the player loses every power-up"; break;
+            }
+            break;
+        case 24:
+            var _en = "?";
+            if (_d.value < _na) { _en = _names[_d.value]; }
+            _s += "set off " + _tn + " at " + _en;
             break;
     }
     return _s;
@@ -410,6 +426,18 @@ function logic_do_row(_d, _rid, _x, _y, _pill, _anames, _snames, _xr)
         var _frw = max(100, min(LOGIC_ACTOR_W, _xr - _frx));
         set_val(_d, "value", ui_dropdown(_rid + "_from", _frx, _dy, _frw, 30, _anames, clamp(_d.value, 0, max(0, array_length(proj.actors) - 1)), "From which actor|The shot starts on this actor's middle and flies the way set on the shot (Actors page). WHEN 'Fire button is pressed' for the player; WHEN 'Every few seconds' or 'Actor is in view' for an enemy that fires back."), _rid + "from");
     }
+    if (_act == 23)
+    {
+        set_val(_d, "value", ui_dropdown(_rid + "_pow", _dx, _dy, 220, 30, global.POWER_NAMES, clamp(_d.value, 0, 3), "Power-up|Firepower: each one adds shots to every volley (1, 2 side by side, a 3-way spread, then 4), up to 3 times. Speed: the player moves one step faster, up to 8. Add an option: the next hidden Option actor (Actors page) joins the player and fires with it. Lose all: back to the start (when the player is hit). Power-ups carry over to the next level."), _rid + "pow");
+    }
+    if (_act == 24)
+    {
+        set_val(_d, "target", ui_dropdown(_rid + "_t", _dx, _dy, LOGIC_ACTOR_W, 30, _anames, _d.target, "Which effect|An actor with the behaviour 'Effect' (Actors page) - an explosion or a sparkle. If it is already playing, the next Effect actor after it goes instead."), _rid + "t");
+        _dx += LOGIC_ACTOR_W + 10;
+        var _efx = logic_word(_dx, _dy, "at");
+        var _efw = max(100, min(LOGIC_ACTOR_W, _xr - _efx));
+        set_val(_d, "value", ui_dropdown(_rid + "_at", _efx, _dy, _efw, 30, _anames, clamp(_d.value, 0, max(0, array_length(proj.actors) - 1)), "At which actor|The effect starts centred on this actor - the enemy that was hit, or the player."), _rid + "at");
+    }
     if (_act == 0)
     {
         set_val(_d, "value", ui_stepper(_rid + "_v", _dx, _dy, 150, _d.value, 1, 9999, "Points|How many points to add. Hold Shift for steps of 10."), _rid + "v");
@@ -542,6 +570,15 @@ function logic_rule_card(_r, i, _cx, _cy, _cw, _anames, _snames, _gnames)
         case 12:
             set_val(_r, "a", ui_dropdown(_rid + "_a", _wx, _wy, _aw, 30, _anames, _r.a, "Which actor|Fires when the player picks this actor up (it needs 'Can be carried' on the Actors page)."), _rid + "a");
             logic_word(_wx + _aw + 8, _wy, "is picked up");
+            break;
+        case 13:
+            set_val(_r, "n", ui_stepper(_rid + "_n", _wx, _wy, 120, clamp(_r.n, 1, 600), 1, 600, "Seconds|Fires once, this many seconds after each level starts - the boss arrives, a new wave comes in, the music changes."), _rid + "n");
+            logic_word(_wx + 128, _wy, "seconds in");
+            break;
+        case 14:
+            _wx = logic_word(_wx, _wy, "every");
+            set_val(_r, "n", ui_stepper(_rid + "_n", _wx, _wy, 120, clamp(_r.n, 1, 50), 1, 50, "Auto-fire rate|While fire is held the rule fires at once, then every this many 50ths of a second - 7 is a fast arcade auto-fire. Use it with DO 'Shoot' for the player's laser."), _rid + "n");
+            logic_word(_wx + 128, _wy, "50ths of a second");
             break;
         case 3:
             set_val(_r, "n", ui_stepper(_rid + "_n", _wx, _wy, 150, _r.n, 1, 9999, "Score target|The rule fires once when the score reaches this number. Hold Shift for steps of 10."), _rid + "n");

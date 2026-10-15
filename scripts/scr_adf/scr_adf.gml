@@ -6,7 +6,7 @@
 /// The data block layout is documented at the top of engine.s.
 
 #macro ADF_SIZE 901120
-#macro ADF_HDR 100
+#macro ADF_HDR 104
 #macro ADF_SONGS_MAX 4
 #macro RULES_DISK_MAX 128       // rules (cards) on the disk (engine.s RULES_MAX); each AND DO line adds 8 bytes
 #macro OS_RESERVE_KB 160
@@ -74,7 +74,7 @@ function adf_do_line(_b, _d, _ncol, _nsnd)
     if (_d.act == 8) { _val = clamp(_val, 0, _ncol - 1); }
     if (_d.act == 2) { _val = clamp(_val, 0, _nsnd - 1); }
     if (_d.act == 18) { _val = clamp(_val, 0, ADF_SONGS_MAX - 1); }
-    be16(_b, clamp(_d.act, 0, 22));
+    be16(_b, clamp(_d.act, 0, 24));
     be16(_b, clamp(_d.target, 0, ACT_MAX_ALL - 1));
     be16(_b, clamp(_val, 0, 65535));
 }
@@ -526,7 +526,7 @@ function adam_data_block_raw(_p, _measure = false)
         if (_ac.role == 9) { _up = clamp(_ac.aim, 0, 5); }    // A_UP of a shot = its aim
         be16(_b, clamp(_ac.x, 0, _ww - _aw));     // tile world: anywhere on the map
         be16(_b, clamp(_ac.y, 0, _wh - _ah));
-        be16(_b, clamp(_ac.role, 0, 9));
+        be16(_b, clamp(_ac.role, 0, 12));
         be16(_b, clamp(_ac.speed, 1, 8));
         be16(_b, _vis);
         be16(_b, _left);
@@ -557,6 +557,24 @@ function adam_data_block_raw(_p, _measure = false)
         be16(_b, _wh - _ah);             // A_YMAX
         be16(_b, _bsize);                // A_BSIZE
         be32(_b, _anim_off[a2]);         // A_ANIM
+        // shoot 'em up (version 9): A_PAT, A_ENTER (high byte bit 0 = comes back, low byte =
+        // edge 0 top 1 right 2 bottom 3 left), A_HP (hits), A_RANK (an option's place behind the player)
+        var _rank = 0;
+        if (_ac.role == 11)
+        {
+            _rank = 1;
+            for (var rk = 0; rk < a2; rk++)
+            {
+                if (_acts[rk].role == 11) { _rank += 1; }
+            }
+            _rank = min(6, _rank);
+        }
+        var _ent = clamp(_ac.enter, 0, 3);
+        if (_ac.comeback) { _ent = _ent | 0x100; }
+        be16(_b, clamp(_ac.pattern, 0, 5));
+        be16(_b, _ent);
+        be16(_b, clamp(_ac.hits, 1, 99));
+        be16(_b, _rank);
         if (_alloc.conflict[a2]) { array_push(_warn, "Actor '" + _ac.name + "' shares a sprite colour pair with different colours - it will borrow its partner's colours."); }
         if (_bob[a2] && !_ac.bob)
         {
@@ -574,7 +592,7 @@ function adam_data_block_raw(_p, _measure = false)
     {
         var _ru = _rules[r];
         var _nand = min(array_length(_ru.more), RULE_DOS_MAX - 1);
-        be16(_b, clamp(_ru.when, 0, 12));
+        be16(_b, clamp(_ru.when, 0, 14));
         be16(_b, clamp(_ru.a, 0, ACT_MAX_ALL - 1));
         be16(_b, clamp(_ru.b, 0, ACT_MAX_ALL - 1));
         be16(_b, clamp(_ru.n, 1, 65535));
@@ -669,7 +687,7 @@ function adam_data_block_raw(_p, _measure = false)
         var _nlv = 1;
         if (_lv_on) { _nlv = array_length(_p.levels); }
         var _terr = 0;
-        if (_lv_on) { _terr = 1; }
+        if (_lv_on && _p.hills_on) { _terr = 1; }
         var _goal = 0;
         if (_p.goal_on) { _goal = clamp(_p.goal, 1, 99); }
         var _tit = 0;
@@ -813,7 +831,7 @@ function adam_data_block_raw(_p, _measure = false)
         buf_align(_b, 8);
         _off_ui = buffer_tell(_b);
         var _uf = 1;
-        if (_u.bottom && !_p.tiles_on) { _uf = _uf | 2; }
+        if (_u.bottom && !_p.tiles_on && !scroll_on_disk(_p)) { _uf = _uf | 2; }     // a scrolling game: always the top
         // fields on rows the panel has, starting inside the screen (the rest are left out)
         var _ufl = [];
         for (var uq = 0; uq < array_length(_u.fields); uq++)
@@ -895,7 +913,8 @@ function adam_data_block_raw(_p, _measure = false)
     var _off_disp2 = 0;
     var _off_back = 0;
     var _nbuf = 3;
-    if (_anybob)
+    var _scr = scroll_on_disk(_p);
+    if (_anybob && !_scr)               // (a scrolling game keeps its BOBs in the scroll buffers)
     {
         buf_zeros(_b, 8);
         _off_disp2 = buffer_tell(_b);
@@ -903,6 +922,24 @@ function adam_data_block_raw(_p, _measure = false)
         _off_back = buffer_tell(_b);
         buf_zeros(_b, _depth * 10240 + 8);
         _nbuf = 5;
+    }
+    // scrolling backdrop (engine.s SC_*): direction, speed, where its buffers start (cleared
+    // memory after the data), how many (3 with BOBs: two shown in turn and the background)
+    var _off_scroll = 0;
+    var _sc_fix = 0;
+    var _sc_nbuf = 1;
+    if (_scr)
+    {
+        buf_align(_b, 8);
+        _off_scroll = buffer_tell(_b);
+        if (_anybob) { _sc_nbuf = 3; }
+        be16(_b, _p.scroll_dir);
+        be16(_b, clamp(_p.scroll_speed, 1, 16));
+        _sc_fix = buffer_tell(_b);
+        be32(_b, 0);                    // SC_BUF, filled in below
+        be16(_b, _sc_nbuf);
+        be16(_b, 0);
+        buf_align(_b, 8);
     }
     var _size = buffer_tell(_b);
 
@@ -922,6 +959,14 @@ function adam_data_block_raw(_p, _measure = false)
         poke32(_b, _tile_fix + 12, _off_tbuf);
         poke32(_b, _tile_fix + 16, _bufpl);
     }
+    if (_scr)
+    {
+        var _sbase = (_size + 7) & ~7;
+        var _spl = 36864;                               // SCR_PLH: 384 lines x 96 bytes (across)
+        if (_p.scroll_dir == 1 || _p.scroll_dir == 3) { _spl = 25600; }     // SCR_PLV: 640 lines x 40 bytes
+        _bss = _sbase - _size + _sc_nbuf * (_depth * _spl + 16);
+        poke32(_b, _sc_fix, _sbase);
+    }
 
     // header
     buffer_poke(_b, 0, buffer_u8, ord("A"));
@@ -934,7 +979,7 @@ function adam_data_block_raw(_p, _measure = false)
     if (_p.show_score) { _sc = 1; }
     var _lv = 0;
     if (_p.show_lives) { _lv = 1; }
-    poke16(_b, 4, 8);                    // data block version 8: 16-frame animation tables; 7: custom HUD (H_UI); 6: tile world (H_TILES); 5: animation tables (A_ANIM); 4: BOBs
+    poke16(_b, 4, 9);                    // data block version 9: shoot 'em up (H_SCROLL, A_PAT..A_RANK); 8: 16-frame animation tables; 7: custom HUD (H_UI); 6: tile world (H_TILES); 5: animation tables (A_ANIM); 4: BOBs
     poke16(_b, 6, _flags);
     poke16(_b, 8, _depth);
     poke16(_b, 10, _na);
@@ -964,6 +1009,7 @@ function adam_data_block_raw(_p, _measure = false)
     poke32(_b, 88, _off_back);
     poke32(_b, 92, _off_tiles);
     poke32(_b, 96, _off_ui);
+    poke32(_b, 100, _off_scroll);
 
     for (var rm = 0; rm < _nr; rm++)
     {
@@ -997,6 +1043,7 @@ function adam_data_block_raw(_p, _measure = false)
         else { array_push(_warn, "Only the first " + string(ACT_MAX_SPR) + " actors go on the disk - more actors (as BOBs) are part of ADAM Pro."); }
     }
     if (_p.tiles_on && array_length(_acts) > ACT_MAX_TILE) { array_push(_warn, "A tile world has up to " + string(ACT_MAX_TILE) + " actors (hardware sprites - the scrolling display uses sprite 8's time) - only the first " + string(ACT_MAX_TILE) + " go on the disk."); }
+    if (_p.tiles_on && _p.scroll_dir > 0) { array_push(_warn, "The backdrop does not scroll in a tile world - the map scrolls with the player instead."); }
     return { buf : _b, size : _size, warnings : _warn, sound_bytes : _snd_bytes + _mus.bytes, plane_bytes : _depth * 10240 * _nbuf, bss : _bss };
 }
 

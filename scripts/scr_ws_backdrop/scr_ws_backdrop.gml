@@ -194,7 +194,7 @@ function ws_backdrop_draw(_x1, _y1, _x2, _y2)
     ui_rrect(_ox - 6, _oy - 6, _ox + _cw + 6, _oy + _ch + 6, 8, c_black, c_black, 0.35);
     ui_scissor(_ox, _oy, _cw, _ch);
     backdrop_draw(_ox - bd_pan_x * _scale, _oy - bd_pan_y * _scale, _scale);
-    if (bd_show_hills && proj.levels_on) { terrain_draw(_ox - bd_pan_x * _scale, _oy - bd_pan_y * _scale, _scale); }
+    if (bd_show_hills && proj.levels_on && proj.hills_on) { terrain_draw(_ox - bd_pan_x * _scale, _oy - bd_pan_y * _scale, _scale); }
     if (bd_show_actors)
     {
         for (var a = 0; a < array_length(proj.actors); a++)

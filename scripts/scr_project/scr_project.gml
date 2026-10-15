@@ -15,14 +15,19 @@
 
 function project_defs_init()
 {
-    global.ROLE_NAMES = ["Player (joystick)", "Bouncer (diagonal)", "Patrol left-right", "Patrol up-down", "Chaser (follows player)", "Still (does not move)", "Platform player (walks + jumps)", "Hopper (jumps left and right)", "Faller (drops onto the ground)", "Shot (fired by a Shoot rule)"];
-    global.WHEN_NAMES = ["Actor touches actor", "Fire button is pressed", "Every few seconds", "Score reaches", "Lives run out", "The game starts", "Actor jumps", "A level starts", "Fire is held (stick still)", "Actor is in view", "Player strikes actor", "Thrown or shot actor hits", "Player picks up actor"];
+    global.ROLE_NAMES = ["Player (joystick)", "Bouncer (diagonal)", "Patrol left-right", "Patrol up-down", "Chaser (follows player)", "Still (does not move)", "Platform player (walks + jumps)", "Hopper (jumps left and right)", "Faller (drops onto the ground)", "Shot (fired by a Shoot rule)", "Flyer (shoot 'em up enemy)", "Option (flies behind the player)", "Effect (explosion, sparkle)"];
+    global.WHEN_NAMES = ["Actor touches actor", "Fire button is pressed", "Every few seconds", "Score reaches", "Lives run out", "The game starts", "Actor jumps", "A level starts", "Fire is held (stick still)", "Actor is in view", "Player strikes actor", "Thrown or shot actor hits", "Player picks up actor", "Seconds into the level", "Fire is held (auto-fire)"];
     global.DO_NAMES   = ["Add to score", "Lose a life", "Play a sound", "Flash the screen", "Send actor back to start",
                          "Move actor to a random spot", "Hide actor", "Show actor", "Change background colour",
                          "Game over", "You win!", "Speed up actor", "Slow down actor", "Add a life", "Move actor to another actor",
                          "Show actor for a moment", "Make actor safe for a while", "Count towards the level goal",
-                         "Play music", "Stop music", "Place a tile (tile world)", "Drop what is carried", "Shoot (fire a shot actor)"];
+                         "Play music", "Stop music", "Place a tile (tile world)", "Drop what is carried", "Shoot (fire a shot actor)",
+                         "Power up the player", "Set off an effect"];
     global.AIM_NAMES = ["The way the shooter moves", "Up", "Down", "Left", "Right", "At the player"];
+    global.PATTERN_NAMES = ["Straight", "Wave", "Zigzag", "Homing (drifts at the player)", "Moves with the scenery", "Comes in and stays (boss)"];
+    global.EDGE_NAMES = ["Top", "Right", "Bottom", "Left"];
+    global.POWER_NAMES = ["Firepower (more shots)", "Speed", "Add an option", "Lose all power-ups"];
+    global.SCROLL_NAMES = ["No scrolling", "Flies up", "Flies right", "Flies down", "Flies left"];
     global.WAVE_NAMES = ["Triangle (soft)", "Sawtooth (buzzy)", "Square (classic)", "Noise (crunchy)"];
     global.SFX_PRESET_NAMES = ["Coin", "Laser", "Explosion", "Jump", "Hit", "Power up", "Lose", "Blip"];
     global.TEMPLATE_NAMES = ["Player touches enemy: lose a life", "Player gets pickup: score",
@@ -120,7 +125,11 @@ function actor_new(_name)
         faster_every : 0,
         bob : false,            // ADAM Pro: drawn by the blitter instead of a hardware sprite
         carry : false,          // the player picks it up (fire on it) and throws it (fire again)
-        aim : 0                 // a shot (role 9): 0 the way the shooter moves, 1 up, 2 down, 3 left, 4 right, 5 at the player
+        aim : 0,                // a shot (role 9): 0 the way the shooter moves, 1 up, 2 down, 3 left, 4 right, 5 at the player
+        pattern : 0,            // a flyer (role 10): 0 straight, 1 wave, 2 zigzag, 3 homing, 4 with the scenery, 5 comes in and stays (boss)
+        enter : 1,              // a flyer's edge: 0 top, 1 right, 2 bottom, 3 left
+        comeback : true,        // a flyer that leaves the far edge comes in again (else it hides)
+        hits : 1                // shots it takes before WHEN 'Thrown or shot actor hits' fires (toughness)
     };
 }
 
@@ -628,6 +637,9 @@ function project_new()
         map : map_starter(64, 32),               // map_w x map_h tile numbers
         tile_dig : true,                         // the player digs (fire + direction) and places (fire)
         tools : [],                              // space bar menu tools (Tools tab), [] = none
+        scroll_dir : 0,                          // the backdrop scrolls: 0 no, the ship flies 1 up, 2 right, 3 down, 4 left (Levels page)
+        scroll_speed : 4,                        // quarter pixels per frame, 1..16
+        hills_on : true,                         // levels draw their hills over the backdrop
         ui : ui_new(),                           // ADAM Pro custom HUD (UI page)
         loadscr : loadscr_new()                  // ADAM Pro loading screen (UI page, scr_loadscr)
     };
@@ -756,6 +768,18 @@ function project_from_loaded(_raw)
                 if (is_numeric(_lact.bob)) { _bv = (_lact.bob != 0); }
                 _lact.bob = _bv;
             }
+            if (!is_numeric(_lact.pattern)) { _lact.pattern = 0; }
+            _lact.pattern = clamp(floor(_lact.pattern), 0, 5);
+            if (!is_numeric(_lact.enter)) { _lact.enter = 1; }
+            _lact.enter = clamp(floor(_lact.enter), 0, 3);
+            if (!is_bool(_lact.comeback))
+            {
+                var _cv = true;
+                if (is_numeric(_lact.comeback)) { _cv = (_lact.comeback != 0); }
+                _lact.comeback = _cv;
+            }
+            if (!is_numeric(_lact.hits)) { _lact.hits = 1; }
+            _lact.hits = clamp(floor(_lact.hits), 1, 99);
             array_push(_acts, _lact);
         }
     }
@@ -846,6 +870,16 @@ function project_from_loaded(_raw)
         }
     }
     _p.level_song = _lsv;
+    if (!is_numeric(_p.scroll_dir)) { _p.scroll_dir = 0; }
+    _p.scroll_dir = clamp(floor(_p.scroll_dir), 0, 4);
+    if (!is_numeric(_p.scroll_speed)) { _p.scroll_speed = 4; }
+    _p.scroll_speed = clamp(floor(_p.scroll_speed), 1, 16);
+    if (!is_bool(_p.hills_on))
+    {
+        var _hon = true;
+        if (is_numeric(_p.hills_on)) { _hon = (_p.hills_on != 0); }
+        _p.hills_on = _hon;
+    }
     tiles_fix(_p);                       // tile world (older files have none)
     _p.ui = ui_from_loaded(_raw[$ "ui"]);       // custom HUD (older files have none)
     _p.loadscr = loadscr_from_loaded(_raw[$ "loadscr"]);   // loading screen (older files have none)
@@ -1281,7 +1315,7 @@ function undo_keys(_ws)
     {
         case WS_HOME:     return ["name", "lives", "show_score", "show_lives", "hud_row", "hud_colour", "msg_colour", "over_text", "win_text"];
         case WS_BACKDROP: return ["pixels", "pal", "depth", "solid", "sky_on", "sky_top", "sky_mid", "sky_bot", "sky_mid_y", "hud_colour", "msg_colour", "terrain_cols"];
-        case WS_LEVELS:   return ["levels_on", "levels", "terrain_cols", "goal_on", "goal", "goal_label", "title_on", "title1", "title2", "lev_text", "level_song"];
+        case WS_LEVELS:   return ["levels_on", "levels", "terrain_cols", "goal_on", "goal", "goal_label", "title_on", "title1", "title2", "lev_text", "level_song", "scroll_dir", "scroll_speed", "hills_on"];
         case WS_SPRITES:  return ["sprites"];
         case WS_ACTORS:   return ["actors", "rules"];
         case WS_LOGIC:    return ["rules", "groups"];

@@ -57,7 +57,27 @@ H_DISP2     equ 84         ; offset: second display buffer for BOBs (depth * 102
 H_BACK      equ 88         ; offset: BOB background - backdrop + hills + HUD (depth * 10240 + 8), 0 = no BOBs
 H_TILES     equ 92         ; offset: tile world, 0 = none (version 6)
 H_UI        equ 96         ; offset: custom HUD (ADAM Pro UI editor), 0 = the standard HUD (version 7)
-HDR_SIZE    equ 100
+H_SCROLL    equ 100        ; offset: scrolling backdrop (shoot 'em ups), 0 = it stands still (version 9)
+HDR_SIZE    equ 104
+
+; scrolling backdrop (version 9): the 320 x 256 picture (backdrop + hills) loops
+; endlessly up, right, down or left behind the actors, under a HUD strip at the
+; top (copper split at v_hudlines, as in a tile world). The picture is kept
+; twice in each buffer, so moving it is only new bitplane pointers (and the fine
+; scroll across): vertically 640 lines of 40 bytes - 64 spare lines, the picture
+; at line 64 and again at 320, 64 spare; across 384 lines of 96 bytes - 64 spare
+; lines, then lines of 8 spare bytes, the picture at byte 8 and again at 48, 8
+; spare. The spare edges take BOBs that are partly off the screen.
+SC_DIR      equ 0          ; the way the player flies: 1 up (the picture moves down), 2 right,
+                           ; 3 down, 4 left
+SC_SPEED    equ 2          ; quarter pixels a frame, 1..16
+SC_BUF      equ 4          ; long offset: the buffers (cleared memory after the data), SC_NBUF of
+                           ; depth x SCR_PLV (up / down) or SCR_PLH (across) + 16 bytes each
+SC_NBUF     equ 8          ; 1, or 3 with BOBs: two displays and the background they are wiped from
+SC_SIZE     equ 12
+SCR_PLV     equ 25600      ; bytes per plane of a scroll buffer: 640 lines x 40 (up / down)
+SCR_PLH     equ 36864      ;                                     384 lines x 96 (across)
+SCR_MARG    equ 64         ; spare pixels / lines before the first copy of the picture
 
 ; custom HUD (UI_*): a panel strip of ROWS text rows at the top or bottom, its
 ; picture (the backdrop with the panel frame baked in), a font and the fields
@@ -148,7 +168,13 @@ A_XMAX      equ 42         ; furthest right it goes: 320 - width
 A_YMAX      equ 44         ; furthest down it goes: 256 - height
 A_BSIZE     equ 46         ; BOB: BLTSIZE (height << 6) | (width in words + 1), 0 for a sprite
 A_ANIM      equ 48         ; long offset of the animation table, 0 = one frame (A_SPR)
-ACT_SIZE    equ 52
+A_PAT       equ 52         ; a flyer (role 10): 0 straight, 1 wave, 2 zigzag, 3 homes in on the player,
+                           ; 4 moves with the scenery, 5 flies in to its place, then patrols across (a boss)
+A_ENTER     equ 54         ; a flyer: byte +1 = the edge it comes in from: 0 top, 1 right, 2 bottom, 3 left;
+                           ; byte 0 bit 0 = it comes back in when it has flown off the far edge
+A_HP        equ 56         ; hits a shot needs to destroy it (1 = one); until then it flashes and WHEN 11 waits
+A_RANK      equ 58         ; an option (role 11): 1 = the first behind the player, 2 the next ...
+ACT_SIZE    equ 60
 
 ; animation table (data block version 8; version 5 introduced animations): 4 entries - 0 Idle (standing still),
 ; 1 Walk (moving), 2 Jump (in the air going up), 3 Fall (in the air coming
@@ -216,15 +242,23 @@ HIT_MAX     equ 8          ; thrown-actor and shot hits remembered in a frame (W
 ROLE_SHOT   equ 9          ; a shot: hidden until a Shoot rule fires it, flies straight, hides when it
                            ; hits something or leaves the screen
 SHOT_FLY    equ 3          ; v_thr of a shot in flight
+ROLE_FLY    equ 10         ; a flyer: comes in from an edge and flies across the screen (shoot 'em up waves)
+ROLE_OPT    equ 11         ; an option (multiple): hidden until a Power up rule adds it, then it follows
+                           ; the player's trail and fires a shot whenever the player does
+ROLE_FX     equ 12         ; an effect: hidden until DO 24 sets it off, plays its Idle animation once
+                           ; where it was set off, then hides (explosions, sparks)
+OPT_GAP     equ 10         ; trail steps between the player and each option
+POWER_MAX   equ 3          ; firepower 0 one shot, 1 two side by side, 2 three spread, 3 four
+HIT_FLASH   equ 8          ; frames a tough actor flashes white when a shot hits it
 
 ; ---------------- engine variables (offsets from V) ----------------
 ; Per-actor state is one ACTV_SIZE record per actor, starting at V. a5 =
 ; V+128, so a field is v_xx(a5,Dn) with Dn = actor * ACTV_SIZE (actor << ACTV_SHIFT):
-; the field offsets (-128..-65) fit the signed 8-bit displacement and the
+; the field offsets (-128..-1) fit the signed 8-bit displacement and the
 ; index register carries the actor. Scalars follow the MAX_ACT records.
 MAX_ACT     equ 32
-ACTV_SIZE   equ 64
-ACTV_SHIFT  equ 6
+ACTV_SIZE   equ 128
+ACTV_SHIFT  equ 7
             rsset   -128
 v_ax        rs.w 1
 v_ay        rs.w 1
@@ -255,6 +289,10 @@ v_owner     rs.w 1         ; a shot: the actor that fired it (it never hits that
 v_pool      rs.w 1         ; a shot: the actor the Shoot rule names (WHEN 11 hits report this one)
 v_mdx       rs.w 1         ; the way it last moved: -1 / 0 / 1 across (a shot's aim 0)
 v_mdy       rs.w 1         ;                        -1 / 0 / 1 down
+v_base      rs.w 1         ; a flyer: the line across it weaves round (wave), where it came in
+v_hp        rs.w 1         ; shot hits it can still take (A_HP)
+v_hitf      rs.w 1         ; frames of the white hit flash left
+v_spd0      rs.w 1         ; its speed at the level start (the player: before speed power-ups)
             rsset   -128+MAX_ACT*ACTV_SIZE
 v_anim      rs.w 1
 v_joyprev   rs.w 1
@@ -333,6 +371,40 @@ v_carry     rs.w 1         ; actor the player carries, -1 = none
 v_picked    rs.w 1         ; actor picked up this frame, -1 = none (WHEN 12)
 v_hitn      rs.w 1         ; thrown-actor hits this frame
 v_hits      rs.b 2*HIT_MAX ; each: thrown actor, actor it hit
+v_hitmask   rs.l MAX_ACT   ; per shot actor: bit per actor a WHEN 11 rule names it hitting (0 = any)
+v_sblk      rs.l 1         ; scrolling backdrop block, 0 = none
+v_scr       rs.w 1         ; the way it scrolls now (SC_DIR), 0 = not scrolling
+v_sacc      rs.w 1         ; quarter pixels owed
+v_spos      rs.w 1         ; the view's place in the picture: 0..255 down / 0..319 across
+v_dpos      rs.w 1         ; BOBs: v_spos when v_draw was drawn (bob_flip shows it there)
+v_sdx       rs.w 1         ; how far the scenery moved this frame, across
+v_sdy       rs.w 1         ;                                       down
+v_sbuf      rs.l 1         ; first scroll buffer
+v_shbuf     rs.l 1         ; the buffer the split shows, and where (scroll_show)
+v_shpos     rs.w 1
+v_aimx      rs.w 1         ; act_shoot: the way the volley flies, -1 / 0 / 1 across
+v_aimy      rs.w 1         ;                                              down
+v_vside     rs.w 1         ; shoot_one: pixels to the side of the aim it starts
+v_vspr      rs.w 1         ;            -1 / 0 / 1: it veers to that side (spread)
+v_bstep     rs.l 1         ; bob_draw: bytes from one image plane to the next
+v_bcon      rs.w 1         ;           the BOB's shift (BLTCON0 bits 15-12)
+v_bflash    rs.w 1         ;           hit flash: BLTCON0 for the next plane, 0 = none
+v_sstride   rs.l 1         ; bytes from one scroll buffer to the next
+v_split     rs.w 1         ; 1 = the copper switches bitplanes under the HUD strip (tile world, scrolling)
+v_smod      rs.w 1         ; the modulo below the split
+v_bob       rs.w 1         ; 1 = BOBs are drawn now
+v_bufa      rs.l 1         ; BOBs: the two displays taken in turn
+v_bufb      rs.l 1
+v_bpr       rs.w 1         ; BOB displays: bytes per line
+v_plsz      rs.l 1         ;               bytes per plane
+v_bx0       rs.w 1         ; pixel in the BOB display at the screen's top left (scrolling)
+v_by0       rs.w 1
+v_ltime     rs.w 1         ; seconds since the level started (WHEN 13)
+v_power     rs.w 1         ; firepower 0..POWER_MAX (kept from level to level)
+v_pspd      rs.w 1         ; speed power-ups the player has
+v_nopt      rs.w 1         ; options the player has
+v_trn       rs.w 1         ; the player's trail: the newest entry
+v_trail     rs.l 64        ; x, y words
 V_SIZE      rs.b 0
 
 ; ============================================================================
@@ -378,6 +450,7 @@ in_super:   move.w  #$2700,sr               ; mask all CPU interrupts while taki
             move.w  #$2000,sr               ; supervisor, CPU interrupts allowed
             bsr     init_music
             bsr     init_display
+            bsr     hit_masks
 
 game_restart:
             lea     -128(a5),a7             ; a5 = V+128 (stack_top is too far for a PC-relative lea)
@@ -388,6 +461,10 @@ game_restart:
             bsr     clear_state
             move.l  #0,v_score(a5)
             move.w  H_LIVES(a4),v_lives(a5)
+            move.w  #0,v_power(a5)          ; a new game: no power-ups
+            move.w  #0,v_pspd(a5)
+            move.w  #0,v_nopt(a5)
+            bsr     scroll_off
             bsr     tiles_off
             bsr     hide_sprites
             bsr     restore_backdrop
@@ -412,6 +489,7 @@ game_restart:
 level_next: addq.w  #1,v_level(a5)
 level_card: lea     -128(a5),a7             ; a5 = V+128 (stack_top is too far for a PC-relative lea)
             add.l   #stack_top-V,a7
+            bsr     scroll_off
             bsr     tiles_off
             bsr     hide_sprites
             bsr     restore_backdrop
@@ -433,7 +511,10 @@ level_start:
             bsr     init_actors
             bsr     clear_latches
             move.w  #0,v_goal(a5)
+            move.w  #0,v_ltime(a5)
+            bsr     trail_reset
             bsr     tiles_start
+            bsr     scroll_on
             bsr     draw_hud
             bsr     place_sprites
             bsr     level_music             ; this level's song, before its rules
@@ -542,6 +623,26 @@ init_display:
 .nobob      move.l  d1,v_dd2(a5)
             move.l  d2,v_ddk(a5)
             bsr     set_bpl                 ; bitplane pointers
+            bsr     bob_plain               ; BOBs (if any) in the normal display
+            move.w  #0,v_split(a5)
+            move.w  #0,v_scr(a5)
+            move.l  #0,v_sblk(a5)           ; scrolling backdrop
+            move.l  H_SCROLL(a4),d1
+            beq.s   .nosc
+            lea     0(a4,d1.l),a0
+            move.l  a0,v_sblk(a5)
+            move.l  SC_BUF(a0),d1
+            add.l   a4,d1
+            move.l  d1,v_sbuf(a5)
+            move.w  #SCR_PLV,d2             ; a buffer: depth planes + 16 spare bytes
+            btst    #0,SC_DIR+1(a0)
+            bne.s   .plv
+            move.w  #SCR_PLH,d2
+.plv        move.w  H_DEPTH(a4),d1
+            mulu    d2,d1
+            add.l   #16,d1
+            move.l  d1,v_sstride(a5)
+.nosc
 
             lea     cop_spr(pc),a0          ; sprite pointers: all null first
             lea     null_spr(pc),a1
@@ -611,6 +712,32 @@ init_display:
             move.w  #$8040,$9c(a6)          ; INTREQ: BLIT set = "no blit running" (see bwait)
             rts
 
+; BOBs in the normal display (not scrolling): the two displays, their background,
+; and the text offsets that write the HUD into all three
+bob_plain:  movem.l d0-d1,-(sp)
+            move.l  v_disp(a5),v_bufa(a5)
+            move.l  v_disp2(a5),v_bufb(a5)
+            move.w  #0,v_bob(a5)
+            moveq   #0,d0
+            moveq   #0,d1
+            tst.l   v_disp2(a5)
+            beq.s   .n
+            move.w  #1,v_bob(a5)
+            move.l  H_BACK(a4),d0
+            add.l   a4,d0
+            move.l  d0,v_back(a5)
+            sub.l   v_disp(a5),d0
+            move.l  v_disp2(a5),d1
+            sub.l   v_disp(a5),d1
+.n          move.l  d1,v_dd2(a5)
+            move.l  d0,v_ddk(a5)
+            move.w  #40,v_bpr(a5)
+            move.l  #PLANE_SIZE,v_plsz(a5)
+            move.w  #0,v_bx0(a5)
+            move.w  #0,v_by0(a5)
+            movem.l (sp)+,d0-d1
+            rts
+
 ; d0 = bitplane memory -> copper bitplane pointers
 set_bpl:    movem.l d0/d7/a0,-(sp)
             lea     cop_bpl(pc),a0
@@ -646,15 +773,7 @@ wait_vbl:
 ;  game state
 ; ============================================================================
 restore_backdrop:
-            move.l  H_PLANES(a4),d0         ; original backdrop -> work copy
-            lea     0(a4,d0.l),a0
-            move.l  v_work(a5),a1
-            move.w  H_DEPTH(a4),d7
-            mulu    #PLANE_SIZE/4,d7
-            subq.l  #1,d7
-.cp         move.l  (a0)+,(a1)+
-            dbf     d7,.cp
-            bsr     draw_terrain            ; this level's hills into the work copy
+            bsr     work_fresh              ; backdrop + this level's hills
             bsr     ui_panel_blit           ; the custom HUD panel over them
             move.l  v_work(a5),a0           ; work copy -> screen
             move.l  v_disp(a5),a1
@@ -674,6 +793,17 @@ restore_backdrop:
             move.w  #1,v_bobbuf(a5)
             move.w  #0,v_drawn(a5)
 .r          rts
+
+; the original backdrop -> the work copy, with this level's hills
+work_fresh: move.l  H_PLANES(a4),d0
+            lea     0(a4,d0.l),a0
+            move.l  v_work(a5),a1
+            move.w  H_DEPTH(a4),d7
+            mulu    #PLANE_SIZE/4,d7
+            subq.l  #1,d7
+.cp         move.l  (a0)+,(a1)+
+            dbf     d7,.cp
+            bra     draw_terrain
 
 ; a0 -> a1, depth bitplanes
 copy_planes:
@@ -845,12 +975,53 @@ init_actors:
 .east       cmp.w   #ROLE_SHOT,A_ROLE(a2)   ; shots wait, hidden, for a Shoot rule
             bne.s   .notshot
             move.w  #0,v_vis(a5,d5.w)
-.notshot
-            lea     ACT_SIZE(a2),a2
+.notshot    move.w  A_HP(a2),d0             ; shot hits it can take
+            bne.s   .hp
+            moveq   #1,d0
+.hp         move.w  d0,v_hp(a5,d5.w)
+            move.w  #0,v_hitf(a5,d5.w)
+            move.w  v_spd(a5,d5.w),v_spd0(a5,d5.w)
+            move.w  A_ROLE(a2),d0
+            cmp.w   #ROLE_OPT,d0            ; options and effects wait, hidden
+            beq.s   .wait
+            cmp.w   #ROLE_FX,d0
+            beq.s   .wait
+            cmp.w   #ROLE_FLY,d0            ; flyers wait off the screen
+            bne.s   .nx
+            bsr     fly_start
+            bra.s   .nx
+.wait       move.w  #0,v_vis(a5,d5.w)
+.nx         lea     ACT_SIZE(a2),a2
             addq.w  #1,d7
             cmp.w   d6,d7
             blt     .a
+            bsr     power_apply             ; power-ups carry on to the next level
 .done       rts
+
+; the player's power-ups at a level start: its extra speed and its options
+power_apply:
+            movem.l d0-d2/d5,-(sp)
+            move.w  H_PLAYER(a4),d5
+            bmi.s   .opt
+            cmp.w   H_NACT(a4),d5
+            bhs.s   .opt
+            lsl.w   #ACTV_SHIFT,d5
+            move.w  v_spd(a5,d5.w),d0
+            add.w   v_pspd(a5),d0
+            cmp.w   #8,d0
+            ble.s   .s
+            moveq   #8,d0
+.s          move.w  d0,v_spd(a5,d5.w)
+.opt        move.w  v_nopt(a5),d2
+            moveq   #0,d1
+            bra.s   .lc
+.l          bsr     opt_add
+            beq.s   .full
+            addq.w  #1,d1
+.lc         dbf     d2,.l
+.full       move.w  d1,v_nopt(a5)           ; (a level with fewer options: the ones it has)
+            movem.l (sp)+,d0-d2/d5
+            rts
 
 clear_latches:
             lea     v_latch(a5),a0
@@ -951,9 +1122,12 @@ frame:
             blt.s   .f1
             move.w  #0,v_fcount(a5)
             move.w  #1,v_sectick(a5)
-.f1         bsr     carry_tick              ; fire picks up / throws
+            addq.w  #1,v_ltime(a5)
+.f1         bsr     scroll_tick             ; scrolling backdrop: the scenery moves on
+            bsr     carry_tick              ; fire picks up / throws
             bsr     move_actors
             bsr     carry_follow            ; what the player carries rides on its head
+            bsr     opt_follow              ; options follow the player's trail
             move.w  v_joy(a5),v_joyprev(a5)
             bsr     cam_follow              ; tile world: camera, new tiles, scroll
             bsr     cam_window
@@ -1145,7 +1319,10 @@ move_actors:
             tst.w   v_safe(a5,d5.w)         ; immunity counts down
             beq.s   .nosafe
             subq.w  #1,v_safe(a5,d5.w)
-.nosafe     tst.w   v_life(a5,d5.w)         ; shown-for-a-moment actors hide again
+.nosafe     tst.w   v_hitf(a5,d5.w)         ; the white flash of a hit fades
+            beq.s   .nohf
+            subq.w  #1,v_hitf(a5,d5.w)
+.nohf       tst.w   v_life(a5,d5.w)         ; shown-for-a-moment actors hide again
             beq.s   .nolife
             subq.w  #1,v_life(a5,d5.w)
             bne.s   .nolife
@@ -1159,6 +1336,12 @@ move_actors:
             bne     .fly
             move.w  A_ROLE(a2),d0
             beq     .player
+            cmp.w   #ROLE_FLY,d0
+            beq     .flyer
+            cmp.w   #ROLE_FX,d0
+            beq     .fx
+            cmp.w   #ROLE_OPT,d0            ; options: opt_follow places them
+            beq     .adv
             cmp.w   #6,d0
             beq     .platform
             cmp.w   #7,d0
@@ -1364,6 +1547,19 @@ move_actors:
 
 .faller     bsr     physics
             bra     .next
+
+.flyer      tst.w   v_vis(a5,d5.w)          ; hidden: it waits where it is
+            beq     .adv
+            bsr     fly_move
+            bra     .adv
+
+.fx         tst.w   v_vis(a5,d5.w)          ; an effect drifts with the scenery
+            beq     .adv
+            move.w  v_sdx(a5),d0
+            add.w   d0,v_ax(a5,d5.w)
+            move.w  v_sdy(a5),d0
+            add.w   d0,v_ay(a5,d5.w)
+            bra     .adv
 
 .fly        cmp.w   #SHOT_FLY,v_thr(a5,d5.w)
             beq     .shot
@@ -1735,7 +1931,11 @@ place_sprites:
             move.w  d0,6(a1)
             tst.w   v_vis(a5,d5.w)
             beq.s   .hid
-            tst.w   v_safe(a5,d5.w)         ; flashing while immune
+            tst.w   v_hitf(a5,d5.w)         ; hit by a shot: it blinks
+            beq.s   .nhf
+            btst    #1,v_anim+1(a5)
+            beq.s   .hid
+.nhf        tst.w   v_safe(a5,d5.w)         ; flashing while immune
             beq.s   .show
             btst    #2,v_anim+1(a5)
             beq.s   .show
@@ -1744,10 +1944,10 @@ place_sprites:
 .show       move.w  v_ay(a5,d5.w),d0
             move.w  v_ax(a5,d5.w),d1
             tst.w   v_tmode(a5)             ; tile world: where it is on the screen
-            beq.s   .scr
+            beq.s   .clip
             sub.w   v_camy(a5),d0
             sub.w   v_camx(a5),d1
-            cmp.w   #-24,d0
+.clip       cmp.w   #-24,d0                 ; (off the screen: flyers waiting to come in)
             ble     .hid
             cmp.w   #256,d0
             bge     .hid
@@ -1783,6 +1983,792 @@ place_sprites:
             cmp.w   d6,d7
             blt     .loop
 .done       rts
+
+; ============================================================================
+;  scrolling backdrop (version 9, shoot 'em ups)
+; ============================================================================
+; level start: the picture (backdrop + this level's hills, without the HUD
+; panel) twice into each buffer, the HUD strip at the top of the normal
+; display, and the copper split under it
+scroll_on:  tst.l   v_sblk(a5)
+            beq     .r
+            movem.l d0-d7/a0-a3,-(sp)
+            move.l  v_sblk(a5),a3
+            move.w  SC_DIR(a3),v_scr(a5)
+            move.w  #0,v_spos(a5)
+            move.w  #0,v_dpos(a5)
+            move.w  #0,v_sacc(a5)
+            move.w  #1,v_split(a5)
+            move.w  #0,v_hudrow(a5)
+            move.l  #SCR_PLV,v_plsz(a5)
+            move.w  #40,v_bpr(a5)
+            btst    #0,v_scr+1(a5)
+            bne.s   .pv
+            move.l  #SCR_PLH,v_plsz(a5)
+            move.w  #96,v_bpr(a5)
+.pv         bsr     work_fresh
+            move.l  v_sbuf(a5),a1
+            move.w  SC_NBUF(a3),d6
+            subq.w  #1,d6
+.buf        move.l  v_work(a5),a0
+            move.l  a1,a2                   ; a2 = this plane
+            move.w  H_DEPTH(a4),d5
+            subq.w  #1,d5
+.pl         btst    #0,v_scr+1(a5)
+            beq.s   .acr
+            lea     SCR_MARG*40(a2),a3      ; up / down: lines 64.. and 320..
+            move.w  #PLANE_SIZE/4-1,d7
+.v1         move.l  (a0),(a3)
+            move.l  (a0)+,256*40(a3)
+            addq.l  #4,a3
+            dbf     d7,.v1
+            bra.s   .pn
+.acr        lea     SCR_MARG*96+8(a2),a3    ; across: lines 64..319, bytes 8.. and 48..
+            move.w  #255,d7
+.h1         moveq   #9,d4
+.h2         move.l  (a0),(a3)
+            move.l  (a0)+,40(a3)
+            addq.l  #4,a3
+            dbf     d4,.h2
+            lea     96-40(a3),a3
+            dbf     d7,.h1
+.pn         add.l   v_plsz(a5),a2
+            dbf     d5,.pl
+            add.l   v_sstride(a5),a1
+            dbf     d6,.buf
+            bsr     ui_panel_blit           ; the HUD panel -> the normal display only
+            move.l  v_work(a5),a0
+            move.l  v_disp(a5),a1
+            bsr     copy_planes
+            btst    #0,v_scr+1(a5)
+            bne.s   .vert
+            move.w  #$0030,$92(a6)          ; across: one word early for the fine scroll,
+            move.w  #$00d0,$94(a6)          ; 16-bit fetch on AGA (as a tile world)
+            btst    #0,H_FLAGS+1(a4)
+            beq.s   .ocs
+            move.w  #$0000,$1fc(a6)
+.ocs        lea     cop_mods(pc),a0
+            move.w  #-2,2(a0)
+            move.w  #-2,6(a0)
+            move.w  #0,10(a0)
+            move.l  v_disp(a5),d0
+            subq.l  #2,d0
+            bsr     set_bpl
+            move.w  #96-42,v_smod(a5)
+            bra.s   .bobs
+.vert       move.w  #0,v_smod(a5)
+            move.l  v_disp(a5),d0
+            bsr     set_bpl
+.bobs       move.w  #0,v_bob(a5)
+            move.l  v_sblk(a5),a3
+            cmp.w   #3,SC_NBUF(a3)
+            bne.s   .txt
+            move.l  v_sbuf(a5),d0           ; BOBs: buffers 0 and 1 are shown in turn,
+            move.l  d0,v_bufa(a5)           ; 2 is the background they are wiped from
+            add.l   v_sstride(a5),d0
+            move.l  d0,v_bufb(a5)
+            move.l  d0,v_draw(a5)
+            add.l   v_sstride(a5),d0
+            move.l  d0,v_back(a5)
+            move.w  #1,v_bob(a5)
+            move.w  #1,v_bobbuf(a5)
+            move.w  #0,v_drawn(a5)
+            move.l  #0,v_bobn(a5)
+.txt        move.l  #0,v_dd2(a5)            ; text: the HUD strip only
+            move.l  #0,v_ddk(a5)
+            move.l  v_sbuf(a5),v_shbuf(a5)
+            move.w  #0,v_shpos(a5)
+            move.w  v_gradfix(a5),d1
+            bsr     build_grad
+            move.l  v_sbuf(a5),d0           ; show the first buffer
+            moveq   #0,d1
+            bsr     scroll_show
+            movem.l (sp)+,d0-d7/a0-a3
+.r          rts
+
+; back to the normal display (title, level cards, messages)
+scroll_off: tst.w   v_scr(a5)
+            beq     .r
+            move.w  #0,v_scr(a5)
+            move.w  #0,v_split(a5)
+            move.w  #0,v_sdx(a5)
+            move.w  #0,v_sdy(a5)
+            move.w  v_hudrow0(a5),v_hudrow(a5)
+            move.w  #$0038,$92(a6)
+            move.w  #$00d0,$94(a6)
+            btst    #0,H_FLAGS+1(a4)
+            beq.s   .ocs
+            move.w  #$0003,$1fc(a6)
+            move.w  #$00b8,$94(a6)
+.ocs        lea     cop_mods(pc),a0
+            move.w  #0,2(a0)
+            move.w  #0,6(a0)
+            move.w  #0,10(a0)
+            move.l  v_disp(a5),d0
+            bsr     set_bpl
+            bsr     bob_plain
+            move.w  v_gradfix(a5),d1
+            bsr     build_grad
+.r          rts
+
+; the scenery moves on: v_spos, and v_sdx / v_sdy for the actors that move with it
+scroll_tick:
+            move.w  #0,v_sdx(a5)
+            move.w  #0,v_sdy(a5)
+            move.w  v_scr(a5),d1
+            beq.s   .r
+            move.l  v_sblk(a5),a0
+            move.w  v_sacc(a5),d0
+            add.w   SC_SPEED(a0),d0
+            move.w  d0,d2
+            and.w   #3,d2
+            move.w  d2,v_sacc(a5)
+            lsr.w   #2,d0                   ; d0 = pixels this frame
+            beq.s   .r
+            move.w  v_spos(a5),d2
+            cmp.w   #1,d1
+            bne.s   .rt
+            sub.w   d0,d2                   ; flying up: the picture moves down
+            move.w  d0,v_sdy(a5)
+            bra.s   .wv
+.rt         cmp.w   #2,d1
+            bne.s   .dn
+            add.w   d0,d2                   ; flying right: it moves left
+            neg.w   d0
+            move.w  d0,v_sdx(a5)
+            bra.s   .wh
+.dn         cmp.w   #3,d1
+            bne.s   .lf
+            add.w   d0,d2                   ; flying down: it moves up
+            neg.w   d0
+            move.w  d0,v_sdy(a5)
+            bra.s   .wv
+.lf         sub.w   d0,d2                   ; flying left: it moves right
+            move.w  d0,v_sdx(a5)
+.wh         tst.w   d2                      ; across: 0..319
+            bpl.s   .h1
+            add.w   #320,d2
+.h1         cmp.w   #320,d2
+            blt.s   .set
+            sub.w   #320,d2
+            bra.s   .set
+.wv         and.w   #255,d2                 ; down: 0..255
+.set        move.w  d2,v_spos(a5)
+.r          rts
+
+; d0 = scroll buffer, d1 = the view's place in the picture -> the bitplane
+; pointers and fine scroll at the copper split
+scroll_show:
+            movem.l d0-d4/a0,-(sp)
+            move.l  d0,v_shbuf(a5)          ; (build_grad shows it again after a rebuild)
+            move.w  d1,v_shpos(a5)
+            moveq   #0,d3
+            btst    #0,v_scr+1(a5)
+            beq.s   .ac
+            move.w  d1,d3                   ; up / down: line SCR_MARG + place + the HUD's lines
+            add.w   #SCR_MARG,d3
+            add.w   v_hudlines(a5),d3
+            mulu    #40,d3
+            moveq   #0,d2                   ; no fine scroll
+            bra.s   .ptr
+.ac         move.w  d1,d4                   ; across: the screen starts at pixel X0 = SCR_MARG + place
+            add.w   #SCR_MARG,d4
+            move.w  d4,d2
+            and.w   #15,d2
+            neg.w   d2
+            add.w   #16,d2
+            and.w   #15,d2                  ; delay (16 - (X0 & 15)) & 15
+            subq.w  #1,d4
+            lsr.w   #4,d4
+            add.w   d4,d4                   ; first word fetched, one early for the fine scroll
+            move.w  v_hudlines(a5),d3
+            add.w   #SCR_MARG,d3
+            mulu    #96,d3
+            and.l   #$ffff,d4
+            add.l   d4,d3
+.ptr        add.l   d0,d3
+            move.l  v_csplit(a5),a0
+            move.w  H_DEPTH(a4),d4
+            subq.w  #1,d4
+.p          swap    d3
+            move.w  d3,2(a0)
+            swap    d3
+            move.w  d3,6(a0)
+            addq.l  #8,a0
+            add.l   v_plsz(a5),d3
+            dbf     d4,.p
+            move.w  d2,d1                   ; BPLCON1: both playfields
+            lsl.w   #4,d1
+            or.w    d2,d1
+            move.w  d1,10(a0)
+            movem.l (sp)+,d0-d4/a0
+            rts
+
+; ============================================================================
+;  flyers (role 10): shoot 'em up waves
+; ============================================================================
+; a flyer (d5, a2) to its start: where it was placed, one screen beyond the edge
+; it comes in from, so a group placed on the stage flies in keeping its shape
+fly_start:  movem.l d0-d2,-(sp)
+            move.w  A_X(a2),d0
+            move.w  A_Y(a2),d1
+            moveq   #3,d2
+            and.b   A_ENTER+1(a2),d2
+            bne.s   .r
+            sub.w   #256,d1                 ; from the top
+            bra.s   .go
+.r          cmp.w   #1,d2
+            bne.s   .b
+            add.w   #320,d0                 ; from the right
+            bra.s   .go
+.b          cmp.w   #2,d2
+            bne.s   .l
+            add.w   #256,d1                 ; from the bottom
+            bra.s   .go
+.l          sub.w   #320,d0                 ; from the left
+.go         bsr.s   fly_put
+            movem.l (sp)+,d0-d2
+            rts
+
+; a flyer (d5, a2) to d0 / d1, its pattern starting again there
+fly_put:    move.w  d0,v_ax(a5,d5.w)
+            move.w  d1,v_ay(a5,d5.w)
+            move.w  d0,v_px(a5,d5.w)
+            move.w  d1,v_py(a5,d5.w)
+            move.w  d0,v_ox(a5,d5.w)
+            move.w  d1,v_oy(a5,d5.w)
+; the line across a flyer (d5, a2) weaves round becomes where it is now
+fly_rebase: move.w  d2,-(sp)
+            moveq   #1,d2
+            and.b   A_ENTER+1(a2),d2        ; from the top or bottom: across is x
+            bne.s   .y
+            move.w  v_ax(a5,d5.w),v_base(a5,d5.w)
+            bra.s   .t
+.y          move.w  v_ay(a5,d5.w),v_base(a5,d5.w)
+.t          move.w  #0,v_tmr(a5,d5.w)
+            move.w  (sp)+,d2
+            rts
+
+; a flyer (d5, a2) comes in again at a random place across, a little beyond its edge
+fly_again:  movem.l d0-d4,-(sp)
+            moveq   #3,d3
+            and.b   A_ENTER+1(a2),d3        ; d3 = its edge
+            bsr     fly_lim                 ; d1 / d2 = the room across
+            sub.w   d1,d2
+            addq.w  #1,d2
+            bgt.s   .rm
+            moveq   #1,d2
+.rm         bsr     rand
+            and.l   #$ffff,d0
+            divu    d2,d0
+            swap    d0
+            add.w   d0,d1                   ; d1 = across
+            cmp.w   #4,A_PAT(a2)            ; one that moves with the scenery keeps its lane
+            bne.s   .lane
+            move.w  v_base(a5,d5.w),d1
+.lane
+            bsr     rand
+            and.w   #63,d0
+            move.w  d0,d4                   ; d4 = how far beyond the edge
+            tst.w   d3
+            bne.s   .r
+            move.w  d1,d0                   ; from the top: above it
+            move.w  A_YMAX(a2),d1
+            sub.w   #256,d1
+            sub.w   d4,d1
+            bra.s   .go
+.r          cmp.w   #1,d3
+            bne.s   .b
+            move.w  #320,d0                 ; from the right
+            add.w   d4,d0
+            bra.s   .go
+.b          cmp.w   #2,d3
+            bne.s   .l
+            move.w  d1,d0                   ; from the bottom
+            move.w  #256,d1
+            add.w   d4,d1
+            bra.s   .go
+.l          move.w  A_XMAX(a2),d0           ; from the left
+            sub.w   #320,d0
+            sub.w   d4,d0
+.go         bsr     fly_put
+            movem.l (sp)+,d0-d4
+            rts
+
+; d3 = a flyer's edge (a2) -> d1 / d2 = the least / most its place across can be:
+; x 0..A_XMAX, or y under the HUD strip (scrolling) .. A_YMAX
+fly_lim:    btst    #0,d3
+            bne.s   .y
+            moveq   #0,d1
+            move.w  A_XMAX(a2),d2
+            rts
+.y          moveq   #0,d1
+            tst.w   v_split(a5)
+            beq.s   .y1
+            move.w  v_hudlines(a5),d1
+.y1         move.w  A_YMAX(a2),d2
+            rts
+
+; a flyer coming in to its place (pattern 5) -> d0 = how far it still has to go (0 = there)
+fly_rest:   moveq   #3,d0
+            and.b   A_ENTER+1(a2),d0
+            beq.s   .t
+            cmp.w   #1,d0
+            beq.s   .r
+            cmp.w   #2,d0
+            beq.s   .b
+            move.w  A_X(a2),d0              ; from the left
+            sub.w   v_ax(a5,d5.w),d0
+            bra.s   .c
+.r          move.w  v_ax(a5,d5.w),d0        ; from the right
+            sub.w   A_X(a2),d0
+            bra.s   .c
+.b          move.w  v_ay(a5,d5.w),d0        ; from the bottom
+            sub.w   A_Y(a2),d0
+            bra.s   .c
+.t          move.w  A_Y(a2),d0              ; from the top
+            sub.w   v_ay(a5,d5.w),d0
+.c          tst.w   d0
+            bpl.s   .x
+            moveq   #0,d0
+.x          rts
+
+; a shown flyer (d5, d7, a2): along, away from its edge, at its speed; across by
+; its pattern. Off the far edge it comes in again (A_ENTER bit 0) or hides.
+fly_move:   movem.l d0-d4/a0,-(sp)
+            moveq   #3,d3
+            and.b   A_ENTER+1(a2),d3        ; d3 = its edge
+            move.w  A_PAT(a2),d4            ; d4 = its pattern
+            cmp.w   #4,d4                   ; 4: it moves with the scenery
+            bne.s   .own
+            move.w  v_sdx(a5),d0
+            add.w   d0,v_ax(a5,d5.w)
+            move.w  v_sdy(a5),d0
+            add.w   d0,v_ay(a5,d5.w)
+            bra     .exit
+.own        move.w  v_spd(a5,d5.w),d0       ; d0 = how far along this frame
+            cmp.w   #5,d4                   ; 5: in to its place, then across (a boss)
+            bne.s   .along
+            bsr     fly_rest
+            tst.w   d0
+            beq     .zig                    ; there: it patrols across
+            cmp.w   v_spd(a5,d5.w),d0
+            ble.s   .along
+            move.w  v_spd(a5,d5.w),d0
+.along      cmp.w   #1,d3
+            beq.s   .gr
+            cmp.w   #2,d3
+            beq.s   .gb
+            cmp.w   #3,d3
+            beq.s   .gl
+            add.w   d0,v_ay(a5,d5.w)        ; from the top: down
+            bra.s   .pat
+.gr         sub.w   d0,v_ax(a5,d5.w)        ; from the right: left
+            bra.s   .pat
+.gb         sub.w   d0,v_ay(a5,d5.w)        ; from the bottom: up
+            bra.s   .pat
+.gl         add.w   d0,v_ax(a5,d5.w)        ; from the left: right
+.pat        cmp.w   #1,d4
+            beq.s   .wave
+            cmp.w   #2,d4
+            beq.s   .zig
+            cmp.w   #3,d4
+            beq     .home
+            bra     .exit                   ; 0 straight (5 still coming in)
+
+.wave       addq.w  #1,v_tmr(a5,d5.w)       ; 1: weaves either side of the line it came in on
+            move.w  v_tmr(a5,d5.w),d0
+            and.w   #63,d0
+            lea     sine64(pc),a0
+            move.b  0(a0,d0.w),d0
+            ext.w   d0
+            add.w   v_base(a5,d5.w),d0
+            bra     .set
+
+.zig        bsr     .across                 ; 2 (and a boss in its place): across and back, edge to edge
+            move.w  v_spd(a5,d5.w),d2
+            tst.w   v_dx(a5,d5.w)
+            bne.s   .zl
+            add.w   d2,d0
+            bsr     fly_lim
+            cmp.w   d2,d0
+            ble     .set
+            move.w  d2,d0
+            move.w  #1,v_dx(a5,d5.w)
+            bra     .set
+.zl         sub.w   d2,d0
+            bsr     fly_lim
+            cmp.w   d1,d0
+            bge     .set
+            move.w  d1,d0
+            move.w  #0,v_dx(a5,d5.w)
+            bra     .set
+
+.home       move.w  d4,-(sp)                ; 3: drifts across towards the player
+            move.w  H_PLAYER(a4),d4
+            bmi.s   .hn
+            cmp.w   H_NACT(a4),d4
+            bhs.s   .hn
+            bsr     actor_rec               ; a0 = the player's record
+            lsl.w   #ACTV_SHIFT,d4
+            btst    #0,d3
+            bne.s   .hy
+            move.w  A_BX0(a0),d1            ; player's middle - its middle, across
+            add.w   A_BX1(a0),d1
+            sub.w   A_BX0(a2),d1
+            sub.w   A_BX1(a2),d1
+            asr.w   #1,d1
+            add.w   v_ax(a5,d4.w),d1
+            sub.w   v_ax(a5,d5.w),d1
+            bra.s   .hs
+.hy         move.w  A_BY0(a0),d1
+            add.w   A_BY1(a0),d1
+            sub.w   A_BY0(a2),d1
+            sub.w   A_BY1(a2),d1
+            asr.w   #1,d1
+            add.w   v_ay(a5,d4.w),d1
+            sub.w   v_ay(a5,d5.w),d1
+.hs         move.w  (sp)+,d4
+            bsr     .across
+            tst.w   d1
+            beq     .exit
+            bmi.s   .hm
+            addq.w  #1,d0
+            bra.s   .set
+.hm         subq.w  #1,d0
+            bra.s   .set
+.hn         move.w  (sp)+,d4
+            bra.s   .exit
+
+.set        move.w  d0,-(sp)                ; d0 -> its place across, kept on the screen
+            bsr     fly_lim
+            move.w  (sp)+,d0
+            cmp.w   d1,d0
+            bge.s   .s1
+            move.w  d1,d0
+.s1         cmp.w   d2,d0
+            ble.s   .s2
+            move.w  d2,d0
+.s2         btst    #0,d3
+            bne.s   .sy
+            move.w  d0,v_ax(a5,d5.w)
+            bra.s   .exit
+.sy         move.w  d0,v_ay(a5,d5.w)
+
+.exit       cmp.w   #5,d4                   ; a boss never leaves
+            beq.s   .out
+            tst.w   d3                      ; gone off the far edge?
+            bne.s   .xr
+            cmp.w   #256,v_ay(a5,d5.w)
+            blt.s   .out
+            bra.s   .gone
+.xr         cmp.w   #1,d3
+            bne.s   .xb
+            move.w  A_XMAX(a2),d0
+            sub.w   #320,d0
+            cmp.w   v_ax(a5,d5.w),d0
+            blt.s   .out
+            bra.s   .gone
+.xb         cmp.w   #2,d3
+            bne.s   .xl
+            move.w  A_YMAX(a2),d0
+            sub.w   #256,d0
+            cmp.w   v_ay(a5,d5.w),d0
+            blt.s   .out
+            bra.s   .gone
+.xl         cmp.w   #320,v_ax(a5,d5.w)
+            blt.s   .out
+.gone       btst    #0,A_ENTER(a2)          ; it comes back, or it is gone
+            beq.s   .hide
+            bsr     fly_again
+            bra.s   .out
+.hide       move.w  #0,v_vis(a5,d5.w)
+.out        movem.l (sp)+,d0-d4/a0
+            rts
+
+; d0 = its place across now
+.across     btst    #0,d3
+            bne.s   .ay
+            move.w  v_ax(a5,d5.w),d0
+            rts
+.ay         move.w  v_ay(a5,d5.w),d0
+            rts
+
+sine64:     dc.b    0,4,8,12,15,19,22,25,28,31,33,35,37,38,39,40,40,40,39,38,37,35,33,31,28,25,22,19,15,12,8,4
+            dc.b    0,-4,-8,-12,-15,-19,-22,-25,-28,-31,-33,-35,-37,-38,-39,-40,-40,-40,-39,-38,-37,-35,-33,-31,-28,-25,-22,-19,-15,-12,-8,-4
+            even
+
+; ============================================================================
+;  options (role 11) and power-ups
+; ============================================================================
+; the player's trail all at its place (level start, sent home)
+trail_reset:
+            movem.l d0-d2/a0,-(sp)
+            move.w  H_PLAYER(a4),d0
+            bmi.s   .r
+            cmp.w   H_NACT(a4),d0
+            bhs.s   .r
+            lsl.w   #ACTV_SHIFT,d0
+            move.w  v_ax(a5,d0.w),d1
+            swap    d1
+            move.w  v_ay(a5,d0.w),d1
+            lea     v_trail(a5),a0
+            moveq   #63,d2
+.f          move.l  d1,(a0)+
+            dbf     d2,.f
+.r          movem.l (sp)+,d0-d2/a0
+            rts
+
+; d4 = an actor that was moved by a rule: the player's trail starts again where it is
+trail_check:
+            cmp.w   H_PLAYER(a4),d4
+            beq.s   trail_reset
+            rts
+
+; options follow the player's trail: the trail takes the player's place whenever it
+; moves, and option k sits k x OPT_GAP steps back along it
+opt_follow: movem.l d0-d7/a0-a2,-(sp)
+            move.w  H_PLAYER(a4),d4
+            bmi     .out
+            cmp.w   H_NACT(a4),d4
+            bhs     .out
+            bsr     actor_rec
+            move.l  a0,a1                   ; a1 = the player's record
+            move.w  d4,d5
+            lsl.w   #ACTV_SHIFT,d5
+            move.w  v_ax(a5,d5.w),d0
+            move.w  v_ay(a5,d5.w),d1
+            cmp.w   v_ox(a5,d5.w),d0        ; moved this frame: a new step on the trail
+            bne.s   .step
+            cmp.w   v_oy(a5,d5.w),d1
+            beq.s   .place
+.step       move.w  v_trn(a5),d2
+            addq.w  #1,d2
+            and.w   #63,d2
+            move.w  d2,v_trn(a5)
+            lsl.w   #2,d2
+            lea     v_trail(a5),a0
+            move.w  d0,0(a0,d2.w)
+            move.w  d1,2(a0,d2.w)
+.place      move.w  H_NACT(a4),d6
+            move.l  H_ACTORS(a4),d0
+            lea     0(a4,d0.l),a2
+            moveq   #0,d7
+.o          cmp.w   #ROLE_OPT,A_ROLE(a2)
+            bne.s   .n
+            move.w  d7,d5
+            lsl.w   #ACTV_SHIFT,d5
+            tst.w   v_vis(a5,d5.w)
+            beq.s   .n
+            move.w  A_RANK(a2),d2           ; its step on the trail
+            mulu    #OPT_GAP,d2
+            neg.w   d2
+            add.w   v_trn(a5),d2
+            and.w   #63,d2
+            lsl.w   #2,d2
+            lea     v_trail(a5),a0
+            move.w  A_BX0(a1),d0            ; centred where the player's middle was
+            add.w   A_BX1(a1),d0
+            sub.w   A_BX0(a2),d0
+            sub.w   A_BX1(a2),d0
+            asr.w   #1,d0
+            add.w   0(a0,d2.w),d0
+            move.w  A_BY0(a1),d1
+            add.w   A_BY1(a1),d1
+            sub.w   A_BY0(a2),d1
+            sub.w   A_BY1(a2),d1
+            asr.w   #1,d1
+            add.w   2(a0,d2.w),d1
+            move.w  d0,v_ax(a5,d5.w)
+            move.w  d1,v_ay(a5,d5.w)
+.n          lea     ACT_SIZE(a2),a2
+            addq.w  #1,d7
+            cmp.w   d6,d7
+            blt.s   .o
+.out        movem.l (sp)+,d0-d7/a0-a2
+            rts
+
+; shows the next hidden option -> d0 = 1 (Z clear) when there was one
+opt_add:    movem.l d1/d4-d7/a0,-(sp)
+            moveq   #0,d7
+.f          cmp.w   H_NACT(a4),d7
+            bge.s   .none
+            move.w  d7,d4
+            bsr     actor_rec
+            cmp.w   #ROLE_OPT,A_ROLE(a0)
+            bne.s   .n
+            move.w  A_FROM(a0),d1
+            cmp.w   v_level(a5),d1
+            bgt.s   .n
+            move.w  d7,d5
+            lsl.w   #ACTV_SHIFT,d5
+            tst.w   v_vis(a5,d5.w)
+            bne.s   .n
+            move.w  #1,v_vis(a5,d5.w)
+            moveq   #1,d0
+            bra.s   .out
+.n          addq.w  #1,d7
+            bra.s   .f
+.none       moveq   #0,d0
+.out        movem.l (sp)+,d1/d4-d7/a0
+            tst.w   d0
+            rts
+
+; DO 23: a power-up for the player - R_VAL 0 more firepower, 1 more speed,
+; 2 one more option (a multiple), 3 loses them all (it was hit)
+act_power:  movem.l d0-d7/a0-a2,-(sp)
+            move.w  H_PLAYER(a4),d4
+            bmi     .out
+            cmp.w   H_NACT(a4),d4
+            bhs     .out
+            move.w  d4,d5
+            lsl.w   #ACTV_SHIFT,d5
+            move.w  R_VAL(a3),d0
+            bne.s   .nfire
+            cmp.w   #POWER_MAX,v_power(a5)
+            bhs     .out
+            addq.w  #1,v_power(a5)
+            bra     .out
+.nfire      cmp.w   #1,d0
+            bne.s   .nspd
+            cmp.w   #8,v_spd(a5,d5.w)
+            bhs     .out
+            addq.w  #1,v_spd(a5,d5.w)
+            addq.w  #1,v_pspd(a5)
+            bra     .out
+.nspd       cmp.w   #2,d0
+            bne.s   .nopt
+            bsr     opt_add
+            beq     .out
+            addq.w  #1,v_nopt(a5)
+            bra     .out
+.nopt       cmp.w   #3,d0
+            bne     .out
+            move.w  #0,v_power(a5)          ; lose them all
+            move.w  #0,v_pspd(a5)
+            move.w  #0,v_nopt(a5)
+            move.w  v_spd0(a5,d5.w),v_spd(a5,d5.w)
+            moveq   #0,d7
+.oh         cmp.w   H_NACT(a4),d7
+            bge.s   .out
+            move.w  d7,d4
+            bsr     actor_rec
+            cmp.w   #ROLE_OPT,A_ROLE(a0)
+            bne.s   .on
+            move.w  d7,d1
+            lsl.w   #ACTV_SHIFT,d1
+            move.w  #0,v_vis(a5,d1.w)
+.on         addq.w  #1,d7
+            bra.s   .oh
+.out        movem.l (sp)+,d0-d7/a0-a2
+            rts
+
+; ============================================================================
+;  effects (role 12): explosions and sparks
+; ============================================================================
+; DO 24: set off effect d4 on actor R_VAL. If it is already going, the next effect
+; after it goes instead (a few in a row: several at once); with all of them going
+; the one named starts again. It plays its Idle animation once round, then hides.
+act_effect: movem.l d0-d7/a0-a2,-(sp)
+            cmp.w   H_NACT(a4),d4
+            bhs     .out
+            move.w  R_VAL(a3),d6
+            cmp.w   H_NACT(a4),d6
+            bhs     .out
+            move.w  d4,d3                   ; d3 = the one named
+.find       move.w  d4,d5
+            lsl.w   #ACTV_SHIFT,d5
+            tst.w   v_vis(a5,d5.w)
+            beq.s   .got
+            addq.w  #1,d4
+            cmp.w   H_NACT(a4),d4
+            bhs.s   .named
+            bsr     actor_rec
+            cmp.w   #ROLE_FX,A_ROLE(a0)
+            beq.s   .find
+.named      move.w  d3,d4
+            move.w  d4,d5
+            lsl.w   #ACTV_SHIFT,d5
+.got        bsr     actor_rec
+            move.l  a0,a2                   ; a2 = the effect's record
+            move.w  d6,d4
+            bsr     actor_rec               ; a0 = where it goes off
+            lsl.w   #ACTV_SHIFT,d6
+            move.w  A_BX0(a0),d0            ; centred on it, kept on the screen
+            add.w   A_BX1(a0),d0
+            sub.w   A_BX0(a2),d0
+            sub.w   A_BX1(a2),d0
+            asr.w   #1,d0
+            add.w   v_ax(a5,d6.w),d0
+            bpl.s   .x0
+            moveq   #0,d0
+.x0         cmp.w   A_XMAX(a2),d0
+            ble.s   .x1
+            move.w  A_XMAX(a2),d0
+.x1         move.w  A_BY0(a0),d1
+            add.w   A_BY1(a0),d1
+            sub.w   A_BY0(a2),d1
+            sub.w   A_BY1(a2),d1
+            asr.w   #1,d1
+            add.w   v_ay(a5,d6.w),d1
+            bpl.s   .y0
+            moveq   #0,d1
+.y0         cmp.w   A_YMAX(a2),d1
+            ble.s   .y1
+            move.w  A_YMAX(a2),d1
+.y1         move.w  d0,v_ax(a5,d5.w)
+            move.w  d1,v_ay(a5,d5.w)
+            move.w  d0,v_px(a5,d5.w)
+            move.w  d1,v_py(a5,d5.w)
+            move.w  #1,v_vis(a5,d5.w)
+            move.w  #-1,v_aset(a5,d5.w)     ; its animation from the first frame
+            move.w  #MOMENT,d0              ; shown for its Idle animation once round
+            move.l  A_ANIM(a2),d1
+            beq.s   .t
+            lea     0(a4,d1.l),a0
+            move.w  AN_N(a0),d0
+            mulu    AN_RATE(a0),d0
+            addq.w  #1,d0
+.t          move.w  d0,v_life(a5,d5.w)
+.out        movem.l (sp)+,d0-d7/a0-a2
+            rts
+
+; for each shot actor: the actors a WHEN 11 rule names it hitting (a = b: anything,
+; every bit). Shots only stop at those, so they fly through options, pickups and
+; explosions. No rule for a shot: 0, it stops at anything (as it always did).
+hit_masks:  movem.l d0-d2/d6/a0-a1,-(sp)
+            lea     v_hitmask(a5),a1
+            moveq   #MAX_ACT-1,d0
+.c          move.l  #0,(a1)+
+            dbf     d0,.c
+            move.w  H_NRULE(a4),d6
+            beq.s   .r
+            subq.w  #1,d6
+            move.l  H_RULES(a4),d0
+            lea     0(a4,d0.l),a0
+            lea     v_hitmask(a5),a1
+.l          cmp.w   #11,R_WHEN(a0)
+            bne.s   .n
+            move.w  R_A(a0),d1
+            cmp.w   #MAX_ACT,d1
+            bhs.s   .n
+            lsl.w   #2,d1
+            move.w  R_B(a0),d2
+            cmp.w   R_A(a0),d2
+            bne.s   .one
+            move.l  #-1,0(a1,d1.w)
+            bra.s   .n
+.one        cmp.w   #MAX_ACT,d2
+            bhs.s   .n
+            move.l  0(a1,d1.w),d0
+            bset    d2,d0
+            move.l  d0,0(a1,d1.w)
+.n          move.w  R_NAND(a0),d0
+            lsl.w   #3,d0
+            lea     RULE_SIZE(a0,d0.w),a0
+            dbf     d6,.l
+.r          movem.l (sp)+,d0-d2/d6/a0-a1
+            rts
 
 ; ============================================================================
 ;  tile world (version 6)
@@ -1825,6 +2811,10 @@ tiles_start:
 tiles_on:   tst.l   v_tiles(a5)
             beq     .r
             move.w  #1,v_tmode(a5)
+            move.w  #1,v_split(a5)
+            move.w  v_tline(a5),d0          ; modulo under the split: the picture's line less the 42 bytes fetched
+            sub.w   #42,d0
+            move.w  d0,v_smod(a5)
             move.w  #0,v_hudrow(a5)
             move.w  #$0030,$92(a6)          ; DDFSTRT one word early: room for the fine scroll
             move.w  #$00d0,$94(a6)          ; DDFSTOP: 21 words a line
@@ -1850,6 +2840,7 @@ tiles_on:   tst.l   v_tiles(a5)
 tiles_off:  tst.w   v_tmode(a5)
             beq     .r
             move.w  #0,v_tmode(a5)
+            move.w  #0,v_split(a5)
             move.w  v_hudrow0(a5),v_hudrow(a5)
             move.w  #$0038,$92(a6)
             move.w  #$00d0,$94(a6)
@@ -2110,7 +3101,7 @@ redraw_cell:
 ; the copper moves at the HUD split: bitplane pointers and fine scroll for
 ; the camera (the picture starts HUD_LINES lines down the screen)
 cop_scroll: tst.w   v_tmode(a5)
-            beq     .r
+            beq     .sc
             movem.l d0-d4/a0,-(sp)
             move.w  v_camx(a5),d0
             move.w  d0,d1
@@ -2152,6 +3143,16 @@ cop_scroll: tst.w   v_tmode(a5)
             move.w  d1,10(a0)
             movem.l (sp)+,d0-d4/a0
 .r          rts
+.sc         tst.w   v_scr(a5)               ; a scrolling backdrop without BOBs: show it now
+            beq.s   .r                      ; (with BOBs bob_flip shows each buffer as drawn)
+            tst.w   v_bob(a5)
+            bne.s   .r
+            movem.l d0-d1,-(sp)
+            move.l  v_sbuf(a5),d0
+            move.w  v_spos(a5),d1
+            bsr     scroll_show
+            movem.l (sp)+,d0-d1
+            rts
 
 ; d0 = x, d1 = y (map pixels): Z clear when that point is in a solid tile
 ; (or off the map: the map's edges are walls)
@@ -2779,27 +3780,46 @@ bgo:        move.w  #$0040,$9c(a6)          ; INTREQ: clear BLIT
             rts
 
 bob_flip:
-            tst.l   v_disp2(a5)
+            tst.w   v_bob(a5)
             beq.s   .r
             tst.w   v_drawn(a5)
             beq.s   .r
             move.w  #0,v_drawn(a5)
             move.l  v_draw(a5),d0
-            bsr     set_bpl
-            moveq   #0,d1                   ; draw into the other one next
-            move.l  v_disp(a5),d0
+            tst.w   v_scr(a5)               ; scrolling: at the split, where it was drawn
+            beq.s   .pl
+            move.w  v_dpos(a5),d1
+            bsr     scroll_show
+            bra.s   .sw
+.pl         bsr     set_bpl
+.sw         moveq   #0,d1                   ; draw into the other one next
+            move.l  v_bufa(a5),d0
             cmp.l   v_draw(a5),d0
             bne.s   .a
             moveq   #1,d1
-            move.l  v_disp2(a5),d0
+            move.l  v_bufb(a5),d0
 .a          move.l  d0,v_draw(a5)
             move.w  d1,v_bobbuf(a5)
 .r          rts
 
 bob_draw:
-            tst.l   v_disp2(a5)
+            tst.w   v_bob(a5)
             beq     .r
             movem.l d0-d7/a0-a3,-(sp)
+            move.w  #0,v_bx0(a5)            ; the screen's top left in the display
+            move.w  #0,v_by0(a5)
+            move.w  v_scr(a5),d0
+            beq.s   .org
+            move.w  v_spos(a5),d1
+            move.w  d1,v_dpos(a5)           ; (bob_flip shows it at this place)
+            move.w  #SCR_MARG,v_by0(a5)
+            btst    #0,d0
+            beq.s   .orx
+            add.w   d1,v_by0(a5)            ; up / down: SCR_MARG + place lines down
+            bra.s   .org
+.orx        add.w   #SCR_MARG,d1            ; across: SCR_MARG + place pixels across
+            move.w  d1,v_bx0(a5)
+.org
             lea     v_bobold(a5),a3         ; a3 = this display's list of old places
             lea     v_bobn(a5),a1           ; a1 = its count
             tst.w   v_bobbuf(a5)
@@ -2821,8 +3841,8 @@ bob_draw:
             move.w  d5,d0
             and.w   #63,d0
             add.w   d0,d0
-            moveq   #40,d1
-            sub.w   d0,d1                   ; modulo: 40 - blit width in bytes
+            move.w  v_bpr(a5),d1
+            sub.w   d0,d1                   ; modulo: the line - blit width in bytes
             move.l  v_back(a5),d2
             add.l   d4,d2
             move.l  v_draw(a5),d3
@@ -2837,8 +3857,8 @@ bob_draw:
             move.l  d3,$54(a6)              ; BLTDPT
             move.w  d5,d0
             bsr     bgo
-            add.l   #PLANE_SIZE,d2
-            add.l   #PLANE_SIZE,d3
+            add.l   v_plsz(a5),d2
+            add.l   v_plsz(a5),d3
             dbf     d7,.wpl
             dbf     d6,.wipe
 .wiped      move.w  #0,(a1)
@@ -2859,15 +3879,44 @@ bob_draw:
             beq.s   .vis
             btst    #2,v_anim+1(a5)
             bne     .nxt
-.vis        move.l  v_fofs(a5,d5.w),d0
-            lea     0(a4,d0.l),a0           ; a0 = mask, the planes follow
-            moveq   #0,d0
-            move.w  v_ay(a5,d5.w),d0
-            mulu    #40,d0
-            move.w  v_ax(a5,d5.w),d1
-            lsr.w   #4,d1
-            add.w   d1,d1
-            add.w   d1,d0                   ; byte offset in a plane
+.vis        move.w  v_ax(a5,d5.w),d0        ; on the screen? Partly off only where the display
+            move.w  v_ay(a5,d5.w),d1        ; has spare edges (scrolling), else all of it
+            tst.w   v_bx0(a5)
+            bne.s   .cxs
+            tst.w   d0
+            bmi     .nxt
+            cmp.w   A_XMAX(a2),d0
+            bgt     .nxt
+            bra.s   .cy
+.cxs        move.w  A_XMAX(a2),d2           ; -width
+            sub.w   #320,d2
+            cmp.w   d2,d0
+            ble     .nxt
+            cmp.w   #320,d0
+            bge     .nxt
+.cy         tst.w   v_by0(a5)
+            bne.s   .cys
+            tst.w   d1
+            bmi     .nxt
+            cmp.w   A_YMAX(a2),d1
+            bgt     .nxt
+            bra.s   .in
+.cys        move.w  A_YMAX(a2),d2           ; -height
+            sub.w   #256,d2
+            cmp.w   d2,d1
+            ble     .nxt
+            cmp.w   #256,d1
+            bge     .nxt
+.in         add.w   v_bx0(a5),d0            ; d0 / d1 = its pixel in the display
+            add.w   v_by0(a5),d1
+            move.w  d0,d2                   ; d2 = x, for the shift
+            mulu    v_bpr(a5),d1
+            lsr.w   #4,d0
+            add.w   d0,d0
+            and.l   #$ffff,d0
+            add.l   d1,d0                   ; byte offset in a plane
+            move.l  v_fofs(a5,d5.w),d1
+            lea     0(a4,d1.l),a0           ; a0 = mask, the planes follow
             move.w  (a1),d1                 ; remember it for next time's wipe
             lsl.w   #2,d1
             move.w  d0,0(a3,d1.w)
@@ -2875,10 +3924,17 @@ bob_draw:
             addq.w  #1,(a1)
             move.l  v_draw(a5),d3
             add.l   d0,d3                   ; d3 = screen, plane 0
-            move.w  v_ax(a5,d5.w),d0
+            move.w  d2,d0
             and.w   #15,d0
             ror.w   #4,d0                   ; shift into bits 15-12
-            bsr     bwait
+            move.w  d0,v_bcon(a5)
+            move.w  #0,v_bflash(a5)         ; hit by a shot: a white flash (colour 1 under the mask)
+            tst.w   v_hitf(a5,d5.w)
+            beq.s   .nf
+            btst    #1,v_anim+1(a5)
+            bne.s   .nf
+            move.w  #$0bfa,v_bflash(a5)
+.nf         bsr     bwait
             move.w  d0,$42(a6)              ; BLTCON1: B shift
             or.w    #$0fca,d0
             move.w  d0,$40(a6)              ; BLTCON0: A shift, use ABCD, D = AB + ~AC
@@ -2889,7 +3945,7 @@ bob_draw:
             move.w  d4,d0
             and.w   #63,d0
             add.w   d0,d0                   ; blit width in bytes
-            moveq   #40,d1
+            move.w  v_bpr(a5),d1
             sub.w   d0,d1
             move.w  d1,$60(a6)              ; CMOD
             move.w  d1,$66(a6)              ; DMOD
@@ -2897,21 +3953,25 @@ bob_draw:
             move.w  d4,d1
             lsr.w   #6,d1                   ; lines
             mulu    d1,d0                   ; d0 = bytes per mask / plane
+            move.l  d0,v_bstep(a5)
             move.l  a0,d2
             add.l   d0,d2                   ; d2 = image, plane 0
             move.w  H_DEPTH(a4),d1
             subq.w  #1,d1
 .pl         bsr     bwait
-            move.l  a0,$50(a6)              ; A = mask
+            move.w  v_bflash(a5),d0         ; the flash: plane 0 set (D = A + ~AC),
+            beq.s   .pn                     ; the others cleared (D = ~AC)
+            or.w    v_bcon(a5),d0
+            move.w  d0,$40(a6)
+            move.w  #$0b0a,v_bflash(a5)
+.pn         move.l  a0,$50(a6)              ; A = mask
             move.l  d2,$4c(a6)              ; B = image plane
             move.l  d3,$48(a6)              ; C = screen
             move.l  d3,$54(a6)              ; D = screen
-            move.w  d0,-(sp)
             move.w  d4,d0
             bsr     bgo
-            move.w  (sp)+,d0
-            add.l   d0,d2
-            add.l   #PLANE_SIZE,d3
+            add.l   v_bstep(a5),d2
+            add.l   v_plsz(a5),d3
             dbf     d1,.pl
 .nxt        lea     ACT_SIZE(a2),a2
             addq.w  #1,d7
@@ -3042,6 +4102,28 @@ run_rules:
             beq     .thrown
             cmp.w   #12,d0
             beq     .pickup
+            cmp.w   #13,d0
+            beq     .ltime
+            cmp.w   #14,d0
+            beq     .auto
+            bra     .next
+
+.ltime      tst.w   v_sectick(a5)           ; N seconds into the level (once a level)
+            beq     .next
+            move.w  v_ltime(a5),d0
+            cmp.w   R_N(a3),d0
+            bne     .next
+            bsr     fire_action
+            bra     .next
+
+.auto       btst    #4,v_joy+1(a5)          ; fire held: at once, then every N frames (auto-fire)
+            beq     .clear
+            tst.w   (a2)
+            beq.s   .af
+            subq.w  #1,(a2)
+            bne     .next
+.af         move.w  R_N(a3),(a2)
+            bsr     fire_action
             bra     .next
 
 .pickup     move.w  v_picked(a5),d0         ; the player picked actor a up this frame
@@ -3221,7 +4303,7 @@ do_action:
             move.w  d5,d4
             lsl.w   #ACTV_SHIFT,d5
             move.w  R_ACT(a3),d0
-            cmp.w   #22,d0
+            cmp.w   #24,d0
             bhi     act_none
             add.w   d0,d0
             move.w  acttab(pc,d0.w),d0
@@ -3249,6 +4331,8 @@ acttab:     dc.w    act_score-acttab
             dc.w    act_ptile-acttab
             dc.w    act_drop-acttab
             dc.w    act_shoot-acttab
+            dc.w    act_power-acttab
+            dc.w    act_effect-acttab
 
 act_none:   rts
 
@@ -3424,27 +4508,62 @@ throw_hits:
 ; shot, not one that is safe - goes in v_hits as (the actor the Shoot rule named, it).
 ; Z clear when it hit something
 shot_hits:
-            movem.l d1-d6/a0,-(sp)
-            moveq   #0,d6
+            movem.l d1-d6/a0-a1,-(sp)
+            move.w  v_pool(a5,d5.w),d0      ; d3 = what this shot stops at (v_hitmask)
+            moveq   #-1,d3
+            cmp.w   #MAX_ACT,d0
+            bhs.s   .m
+            lsl.w   #2,d0
+            lea     v_hitmask(a5),a1
+            move.l  0(a1,d0.w),d3
+            bne.s   .m
+            moveq   #-1,d3                  ; no rule for it: anything
+.m          moveq   #0,d6
 .j          cmp.w   H_NACT(a4),d6
-            bge.s   .none
+            bge     .none
             cmp.w   #MAX_ACT,d6
-            bge.s   .none
+            bge     .none
             cmp.w   d7,d6
-            beq.s   .n
+            beq     .n
             cmp.w   v_owner(a5,d5.w),d6
-            beq.s   .n
+            beq     .n
+            btst    d6,d3
+            beq     .n
             move.w  d6,d4
             bsr     actor_rec
-            cmp.w   #ROLE_SHOT,A_ROLE(a0)   ; shots pass each other by
+            move.w  A_ROLE(a0),d0
+            cmp.w   #ROLE_SHOT,d0           ; shots pass each other by, and options and effects
+            beq     .n
+            cmp.w   #ROLE_OPT,d0
+            beq     .n
+            cmp.w   #ROLE_FX,d0
+            beq     .n
+            cmp.w   H_PLAYER(a4),d6         ; an option's shots pass the player by
+            bne.s   .lv
+            move.w  v_owner(a5,d5.w),d4
+            move.l  a0,-(sp)
+            bsr     actor_rec
+            cmp.w   #ROLE_OPT,A_ROLE(a0)
+            move.l  (sp)+,a0
             beq.s   .n
-            move.w  A_FROM(a0),d0
+.lv         move.w  A_FROM(a0),d0
             cmp.w   v_level(a5),d0
             bgt.s   .n
             move.w  d7,d0
             move.w  d6,d1
             bsr     touch_pair              ; both shown, neither safe, boxes overlap
             beq.s   .n
+            move.w  d6,d1                   ; a tough one: each hit but the last only flashes it
+            lsl.w   #ACTV_SHIFT,d1
+            subq.w  #1,v_hp(a5,d1.w)
+            ble.s   .down
+            move.w  #HIT_FLASH,v_hitf(a5,d1.w)
+            bra.s   .hit
+.down       move.w  A_HP(a0),d0             ; worn down: ready for the next time, and WHEN 11
+            bne.s   .hp
+            moveq   #1,d0
+.hp         move.w  d0,v_hp(a5,d1.w)
+            move.w  #0,v_hitf(a5,d1.w)
             move.w  v_hitn(a5),d0
             cmp.w   #HIT_MAX,d0
             bge.s   .hit
@@ -3456,9 +4575,9 @@ shot_hits:
 .hit        moveq   #1,d0
             bra.s   .out
 .n          addq.w  #1,d6
-            bra.s   .j
+            bra     .j
 .none       moveq   #0,d0
-.out        movem.l (sp)+,d1-d6/a0
+.out        movem.l (sp)+,d1-d6/a0-a1
             tst.w   d0
             rts
 
@@ -3474,6 +4593,8 @@ sign_w:     tst.w   d0
 ; DO 22: fire the shot d4 (d5) from actor R_VAL. When it is already flying the next
 ; actor after it that is a shot (role 9) goes instead, so a few shots in a row make
 ; rapid fire. It starts on the shooter's middle and flies its aim (A_UP) at its speed.
+; The player fires a volley as wide as its firepower (v_power), and each of its
+; options fires one more shot the same way.
 act_shoot:
             movem.l d0-d7/a0-a2,-(sp)
             move.w  d4,d3                   ; d3 = the shot the rule names
@@ -3482,74 +4603,73 @@ act_shoot:
             move.w  R_VAL(a3),d6            ; d6 = the shooter
             cmp.w   H_NACT(a4),d6
             bhs     .out
+            move.w  d6,d0                   ; shown, on this level and on the screen
+            bsr     on_screen
+            beq     .out
             move.w  d6,d7
             lsl.w   #ACTV_SHIFT,d7          ; d7 = its offset
-            tst.w   v_vis(a5,d7.w)
-            beq     .out
             move.w  d6,d4
             bsr     actor_rec
             move.l  a0,a1                   ; a1 = the shooter's record
-            move.w  A_FROM(a1),d0
-            cmp.w   v_level(a5),d0
-            bgt     .out
-            move.w  d3,d4                   ; a free shot: the one named, or a shot after it
-.find       cmp.w   H_NACT(a4),d4
-            bhs     .out
-            cmp.w   #MAX_ACT,d4
-            bhs     .out
-            cmp.w   d6,d4
-            beq     .out
-            bsr     actor_rec               ; a0 = its record
-            cmp.w   d3,d4
-            beq.s   .head
-            cmp.w   #ROLE_SHOT,A_ROLE(a0)
-            bne     .out
-.head       move.w  d4,d5
-            lsl.w   #ACTV_SHIFT,d5
-            tst.w   v_thr(a5,d5.w)          ; flying (or thrown)
-            bne.s   .nx
-            cmp.w   v_carry(a5),d4
-            beq.s   .nx
-            move.w  A_FROM(a0),d0
-            cmp.w   v_level(a5),d0
-            ble.s   .free
-.nx         addq.w  #1,d4
-            bra.s   .find
-
-.free       move.w  A_BX0(a1),d0            ; its box centred on the shooter's
-            add.w   A_BX1(a1),d0
-            sub.w   A_BX0(a0),d0
-            sub.w   A_BX1(a0),d0
-            asr.w   #1,d0
-            add.w   v_ax(a5,d7.w),d0
-            move.w  A_BY0(a1),d1
-            add.w   A_BY1(a1),d1
-            sub.w   A_BY0(a0),d1
-            sub.w   A_BY1(a0),d1
-            asr.w   #1,d1
-            add.w   v_ay(a5,d7.w),d1
-            tst.w   v_tmode(a5)
-            bne.s   .pos
-            tst.w   d0
-            bpl.s   .x0
+            move.w  d3,d4
+            bsr     actor_rec               ; a0 = the named shot's record
+            bsr     shot_aim                ; -> v_aimx / v_aimy
+            lea     vol_tab(pc),a2          ; the volley: one shot, or the player's firepower
             moveq   #0,d0
-.x0         cmp.w   A_XMAX(a0),d0
-            ble.s   .x1
-            move.w  A_XMAX(a0),d0
-.x1         tst.w   d1
-            bpl.s   .y0
-            moveq   #0,d1
-.y0         cmp.w   A_YMAX(a0),d1
-            ble.s   .pos
-            move.w  A_YMAX(a0),d1
-.pos        move.w  d0,v_ax(a5,d5.w)
-            move.w  d1,v_ay(a5,d5.w)
-            move.w  d0,v_px(a5,d5.w)
-            move.w  d1,v_py(a5,d5.w)
-            move.w  d0,v_ox(a5,d5.w)
-            move.w  d1,v_oy(a5,d5.w)
+            cmp.w   H_PLAYER(a4),d6
+            bne.s   .v0
+            move.w  v_power(a5),d0
+            add.w   d0,d0
+.v0         move.w  0(a2,d0.w),d0
+            lea     0(a2,d0.w),a2
+.vol        move.b  (a2)+,d2                ; side offset
+            cmp.b   #$7f,d2
+            beq.s   .opts
+            ext.w   d2
+            move.b  (a2)+,d4                ; spread
+            ext.w   d4
+            bsr     shoot_one
+            beq.s   .out                    ; no shot free
+            bra.s   .vol
+.opts       cmp.w   H_PLAYER(a4),d6         ; the player's options fire too
+            bne.s   .out
+            moveq   #0,d5
+.ol         cmp.w   H_NACT(a4),d5
+            bge.s   .out
+            move.w  d5,d4
+            bsr     actor_rec
+            cmp.w   #ROLE_OPT,A_ROLE(a0)
+            bne.s   .on
+            move.w  d5,d0
+            bsr     on_screen
+            beq.s   .on
+            move.w  d5,d6
+            move.w  d5,d7
+            lsl.w   #ACTV_SHIFT,d7
+            move.l  a0,a1
+            moveq   #0,d2
+            moveq   #0,d4
+            bsr     shoot_one
+            beq.s   .out
+.on         addq.w  #1,d5
+            bra.s   .ol
+.out        movem.l (sp)+,d0-d7/a0-a2
+            rts
 
-            move.w  A_UP(a0),d2             ; the aim -> d0 / d1 = -1, 0 or 1 across / down
+; the player's volleys (v_power 0..3): pairs of (pixels to the side, spread), $7f ends
+vol_tab:    dc.w    vol_1-vol_tab,vol_2-vol_tab,vol_3-vol_tab,vol_4-vol_tab
+vol_1:      dc.b    0,0,$7f
+vol_2:      dc.b    -6,0,6,0,$7f
+vol_3:      dc.b    0,0,0,-1,0,1,$7f
+vol_4:      dc.b    -6,0,6,0,0,-1,0,1,$7f
+            even
+
+; the way a volley flies (a0 = the named shot, a1 / d6 / d7 = the shooter) -> v_aimx /
+; v_aimy, each -1, 0 or 1: the shot's aim (A_UP) - 1 up, 2 down, 3 left, 4 right,
+; 5 at the player (8 directions), 0 the way the shooter goes (the player: the
+; joystick, else the way it last moved; a platform player: the way it faces)
+shot_aim:   movem.l d0-d4/a0,-(sp)
+            move.w  A_UP(a0),d2
             moveq   #0,d0
             moveq   #-1,d1
             cmp.w   #1,d2
@@ -3602,24 +4722,22 @@ act_shoot:
             bra     .go
 .atp        move.w  H_PLAYER(a4),d4         ; 5: at the player, in one of 8 directions
             bmi.s   .last
-            move.l  a0,a2                   ; a2 = the shot's record
-            bsr     actor_rec               ; a0 = the player's
+            bsr     actor_rec               ; a0 = the player's record
             lsl.w   #ACTV_SHIFT,d4
-            move.w  A_BX0(a0),d0            ; player's middle - the shot's middle
+            move.w  A_BX0(a0),d0            ; player's middle - the shooter's middle
             add.w   A_BX1(a0),d0
-            sub.w   A_BX0(a2),d0
-            sub.w   A_BX1(a2),d0
+            sub.w   A_BX0(a1),d0
+            sub.w   A_BX1(a1),d0
             asr.w   #1,d0
             add.w   v_ax(a5,d4.w),d0
-            sub.w   v_ax(a5,d5.w),d0
+            sub.w   v_ax(a5,d7.w),d0
             move.w  A_BY0(a0),d1
             add.w   A_BY1(a0),d1
-            sub.w   A_BY0(a2),d1
-            sub.w   A_BY1(a2),d1
+            sub.w   A_BY0(a1),d1
+            sub.w   A_BY1(a1),d1
             asr.w   #1,d1
             add.w   v_ay(a5,d4.w),d1
-            sub.w   v_ay(a5,d5.w),d1
-            move.l  a2,a0
+            sub.w   v_ay(a5,d7.w),d1
             move.w  d0,d2                   ; d2 / d4 = how far across / down
             bpl.s   .ax
             neg.w   d2
@@ -3643,8 +4761,83 @@ act_shoot:
             or.w    d1,d2
             bne.s   .go
             moveq   #1,d1                   ; (right on top of it: down)
+.go         move.w  d0,v_aimx(a5)
+            move.w  d1,v_aimy(a5)
+            movem.l (sp)+,d0-d4/a0
+            rts
 
-.go         move.w  v_spd(a5,d5.w),d2       ; speed; a bit less on the diagonals
+; one shot of a volley: d3 = the shot named, d6 / d7 / a1 = the shooter, d2 = pixels to
+; the side of the aim it starts, d4 = -1 / 0 / 1 it veers that way. Z set: no shot free
+shoot_one:  movem.l d0-d7/a0-a2,-(sp)
+            move.w  d2,v_vside(a5)
+            move.w  d4,v_vspr(a5)
+            move.w  d3,d4                   ; a free shot: the one named, or a shot after it
+.find       cmp.w   H_NACT(a4),d4
+            bhs     .none
+            cmp.w   #MAX_ACT,d4
+            bhs     .none
+            cmp.w   d6,d4
+            beq     .none
+            bsr     actor_rec               ; a0 = its record
+            cmp.w   d3,d4
+            beq.s   .head
+            cmp.w   #ROLE_SHOT,A_ROLE(a0)
+            bne     .none
+.head       move.w  d4,d5
+            lsl.w   #ACTV_SHIFT,d5
+            tst.w   v_thr(a5,d5.w)          ; flying (or thrown)
+            bne.s   .nx
+            cmp.w   v_carry(a5),d4
+            beq.s   .nx
+            move.w  A_FROM(a0),d0
+            cmp.w   v_level(a5),d0
+            ble.s   .free
+.nx         addq.w  #1,d4
+            bra.s   .find
+
+.free       move.w  A_BX0(a1),d0            ; its box centred on the shooter's
+            add.w   A_BX1(a1),d0
+            sub.w   A_BX0(a0),d0
+            sub.w   A_BX1(a0),d0
+            asr.w   #1,d0
+            add.w   v_ax(a5,d7.w),d0
+            move.w  A_BY0(a1),d1
+            add.w   A_BY1(a1),d1
+            sub.w   A_BY0(a0),d1
+            sub.w   A_BY1(a0),d1
+            asr.w   #1,d1
+            add.w   v_ay(a5,d7.w),d1
+            move.w  v_aimy(a5),d2           ; moved to the side: (-aim y, aim x) x pixels
+            neg.w   d2
+            muls    v_vside(a5),d2
+            add.w   d2,d0
+            move.w  v_aimx(a5),d2
+            muls    v_vside(a5),d2
+            add.w   d2,d1
+            tst.w   v_tmode(a5)
+            bne.s   .pos
+            tst.w   d0                      ; one screen: it starts on it
+            bpl.s   .x0
+            moveq   #0,d0
+.x0         cmp.w   A_XMAX(a0),d0
+            ble.s   .x1
+            move.w  A_XMAX(a0),d0
+.x1         tst.w   d1
+            bpl.s   .y0
+            moveq   #0,d1
+.y0         cmp.w   A_YMAX(a0),d1
+            ble.s   .pos
+            move.w  A_YMAX(a0),d1
+.pos        move.w  d0,v_ax(a5,d5.w)
+            move.w  d1,v_ay(a5,d5.w)
+            move.w  d0,v_px(a5,d5.w)
+            move.w  d1,v_py(a5,d5.w)
+            move.w  d0,v_ox(a5,d5.w)
+            move.w  d1,v_oy(a5,d5.w)
+
+            move.w  v_aimx(a5),d0           ; aim x speed, a bit less on the diagonals
+            move.w  v_aimy(a5),d1
+            move.w  v_spd(a5,d5.w),d2
             tst.w   d0
             beq.s   .sp
             tst.w   d1
@@ -3654,6 +4847,16 @@ act_shoot:
             sub.w   d4,d2
 .sp         muls    d2,d0
             muls    d2,d1
+            move.w  v_spd(a5,d5.w),d4       ; spread: half its speed to the side
+            lsr.w   #1,d4
+            muls    v_vspr(a5),d4
+            move.w  v_aimy(a5),d2
+            neg.w   d2
+            muls    d4,d2
+            add.w   d2,d0
+            move.w  v_aimx(a5),d2
+            muls    d4,d2
+            add.w   d2,d1
             move.w  d0,v_tvx(a5,d5.w)
             move.w  d1,v_tvy(a5,d5.w)
             move.w  #SHOT_FLY,v_thr(a5,d5.w)
@@ -3663,7 +4866,11 @@ act_shoot:
             move.w  #0,v_gnd(a5,d5.w)
             move.w  d6,v_owner(a5,d5.w)
             move.w  d3,v_pool(a5,d5.w)
-.out        movem.l (sp)+,d0-d7/a0-a2
+            moveq   #1,d0
+            bra.s   .out
+.none       moveq   #0,d0
+.out        tst.w   d0
+            movem.l (sp)+,d0-d7/a0-a2
             rts
 
 ; d0 / d1 = actors -> Z clear when both are shown and their boxes overlap
@@ -3769,7 +4976,12 @@ act_moveto: cmp.w   H_NACT(a4),d4
             move.w  v_ay(a5,d0.w),d1
             addq.w  #8,d1
             move.w  d1,v_ay(a5,d5.w)
-            bra     stop_fall
+            bsr     stop_fall
+            bsr     actor_rec
+            cmp.w   #ROLE_FLY,A_ROLE(a0)    ; a flyer carries on from there
+            bne     trail_check
+            move.l  a0,a2
+            bra     fly_rebase
 
 act_score:  moveq   #0,d0
             move.w  R_VAL(a3),d0
@@ -3803,15 +5015,23 @@ act_home:   cmp.w   H_NACT(a4),d4
             bhs     act_none
             bsr     stop_fall
             bsr     actor_rec
-            move.w  A_X(a0),v_ax(a5,d5.w)
+            cmp.w   #ROLE_FLY,A_ROLE(a0)    ; a flyer: back off the screen, to fly in again
+            bne.s   .pl
+            move.l  a0,a2
+            bra     fly_start
+.pl         move.w  A_X(a0),v_ax(a5,d5.w)
             move.w  A_Y(a0),v_ay(a5,d5.w)
-            rts
+            bra     trail_check
 
 act_random: cmp.w   H_NACT(a4),d4
             bhs     act_none
             bsr     stop_fall
             bsr     actor_rec
-            move.w  A_XMAX(a0),d2
+            cmp.w   #ROLE_FLY,A_ROLE(a0)    ; a flyer comes in again from its edge
+            bne.s   .any
+            move.l  a0,a2
+            bra     fly_again
+.any        move.w  A_XMAX(a0),d2
             addq.w  #1,d2
             move.w  A_YMAX(a0),d3
             sub.w   #15,d3
@@ -3826,7 +5046,7 @@ act_random: cmp.w   H_NACT(a4),d4
             swap    d0
             add.w   #16,d0                  ; keep clear of the top row
             move.w  d0,v_ay(a5,d5.w)
-            rts
+            bra     trail_check
 
 act_hide:   cmp.w   H_NACT(a4),d4
             bhs     act_none
@@ -3881,6 +5101,7 @@ act_win:    move.l  H_TWIN(a4),d0
 
 ; a0 = message.  Shows it, waits for fire, then restarts the game.
 end_screen:
+            bsr     scroll_off
             bsr     tiles_off
             bsr     music_stop              ; music and effects off
             move.l  a0,-(sp)
@@ -4157,7 +5378,7 @@ build_grad:
             or.w    #$07,d4
             move.w  d4,(a0)+
             move.w  #$fffe,(a0)+
-            tst.w   v_tmode(a5)             ; tile world: the scrolling picture starts here
+            tst.w   v_split(a5)             ; tile world / scrolling: the moving picture starts here
             beq.s   .nosp
             cmp.w   v_hudlines(a5),d3
             bne.s   .nosp
@@ -4182,7 +5403,7 @@ build_grad:
 .off        move.l  #$fffffffe,(a0)+
             movem.l (sp)+,d0-d5/a0-a2
             rts
-.nosky      tst.w   v_tmode(a5)             ; no sky: just the tile world split
+.nosky      tst.w   v_split(a5)             ; no sky: just the split
             beq.s   .off
             move.w  v_hudlines(a5),d0       ; wait for the end of the HUD strip
             add.w   #$2c,d0
@@ -4204,14 +5425,21 @@ build_grad:
             move.w  #0,(a0)+
             addq.w  #2,d2
             dbf     d4,.sp
-            move.w  v_tline(a5),d2          ; modulo: the picture's line less the 42 bytes fetched
-            sub.w   #42,d2
+            move.w  v_smod(a5),d2           ; modulo below the split
             move.w  #$0108,(a0)+
             move.w  d2,(a0)+
             move.w  #$010a,(a0)+
             move.w  d2,(a0)+
             move.l  #$01020000,(a0)+
-            rts
+            bsr     cop_scroll              ; the right pointers at once: rebuilding the whole list
+            tst.w   v_scr(a5)               ; (a flash) takes longer than the vertical blank, and the
+            beq.s   .spr                    ; copper must never meet empty ones
+            movem.l d0-d1,-(sp)
+            move.l  v_shbuf(a5),d0
+            move.w  v_shpos(a5),d1
+            bsr     scroll_show
+            movem.l (sp)+,d0-d1
+.spr        rts
 .col        move.w  (a1)+,d2                ; next table colour, or the fixed one
             tst.w   d1
             bmi.s   .t
@@ -4736,13 +5964,33 @@ on_screen:  movem.l d1-d2/a0,-(sp)
             add.l   d1,a0
             lsl.w   #ACTV_SHIFT,d0
             tst.w   v_vis(a5,d0.w)
-            beq.s   .no
+            beq     .no
             move.w  A_FROM(a0),d1
             cmp.w   v_level(a5),d1
-            bgt.s   .no
+            bgt     .no
             tst.w   v_tmode(a5)
-            beq.s   .yes
-            move.w  v_ax(a5,d0.w),d1        ; its right edge left of the view?
+            bne.s   .tw
+            move.w  v_ax(a5,d0.w),d1        ; one screen: inside it (flyers wait outside)
+            add.w   A_BX1(a0),d1
+            bmi     .no
+            move.w  v_ax(a5,d0.w),d1
+            add.w   A_BX0(a0),d1
+            cmp.w   #320,d1
+            bge.s   .no
+            moveq   #0,d2                   ; below the HUD strip when it scrolls
+            tst.w   v_split(a5)
+            beq.s   .tp
+            move.w  v_hudlines(a5),d2
+.tp         move.w  v_ay(a5,d0.w),d1
+            add.w   A_BY1(a0),d1
+            cmp.w   d2,d1
+            blt.s   .no
+            move.w  v_ay(a5,d0.w),d1
+            add.w   A_BY0(a0),d1
+            cmp.w   #256,d1
+            bge.s   .no
+            bra.s   .yes
+.tw         move.w  v_ax(a5,d0.w),d1        ; its right edge left of the view?
             add.w   A_BX1(a0),d1
             cmp.w   v_camx(a5),d1
             blt.s   .no

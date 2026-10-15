@@ -49,7 +49,7 @@ function level_names()
 /// Heights of the level shown in the editors, or undefined
 function level_heights_shown()
 {
-    if (!proj.levels_on || array_length(proj.levels) == 0) { return undefined; }
+    if (!proj.levels_on || !proj.hills_on || array_length(proj.levels) == 0) { return undefined; }
     return proj.levels[clamp(lvl_sel, 0, array_length(proj.levels) - 1)].heights;
 }
 
@@ -304,7 +304,7 @@ function levels_side_panel(_px, _y1, _x2, _y2)
     // the real height of what is drawn below, so the panel only scrolls when it has to
     var _endnote = "After the last level the Win message (Home page) is shown - make it a big congratulations!";
     draw_set_font(global.f_small);
-    var _content = 10 + 174 + 116 + 226 + ceil(ui_sh_ext(_endnote, _fw)) + 12;
+    var _content = 10 + 174 + 106 + 116 + 226 + ceil(ui_sh_ext(_endnote, _fw)) + 12;
     if (proj.levels_on && _nl > 0) { _content += 256; }
     var _off = ui_scroll_begin("lvl_side", _px + 4, _y1 + 46, _x2 - 4, _y2 - 6, _content);
     _y -= _off;
@@ -364,6 +364,18 @@ function levels_side_panel(_px, _y1, _x2, _y2)
         }
     }
     _y += 156;
+
+    // a scrolling backdrop (shoot 'em ups): the picture wraps round as the player flies on
+    ui_heading(_fx, _y, "Scrolling backdrop");
+    _y += 20;
+    set_val(proj, "scroll_dir", ui_dropdown("lvl_scroll", _fx, _y, _half, 30, global.SCROLL_NAMES, clamp(proj.scroll_dir, 0, 4), "Scrolling|The backdrop scrolls past for ever, the way the player flies: up for a vertical shoot 'em up, right for a side-scroller. Draw the backdrop so its left and right (or top and bottom) edges join up. The score bar stays at the top. Flying left or right uses one hardware sprite's time (7 sprites). Not in a tile world."), "scrolldir");
+    if (proj.scroll_dir > 0)
+    {
+        set_val(proj, "scroll_speed", ui_stepper("lvl_sspeed", _fx + _half + 12, _y, _half, proj.scroll_speed, 1, 16, "Scroll speed|In quarter pixels a frame: 4 is one pixel a frame (50 a second), 2 a gentle drift, 8 fast."), "scrollspeed");
+    }
+    _y += 44;
+    set_val(proj, "hills_on", ui_toggle("lvl_hills_on", _fx, _y, "Draw the hills", proj.hills_on, "Hills|With levels on, each level's hills are drawn over the backdrop. Turn off for space games and shoot 'em ups (the levels stay)."), "hillson");
+    _y += 42;
 
     ui_heading(_fx, _y, "Level goal");
     _y += 20;

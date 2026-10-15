@@ -16,7 +16,9 @@ def build(proj, aga):
     blob=bytearray()
     def align(n):
         while len(blob)%n: blob.append(0)
-    blob+= b'\0'*100                         # header (HDR_SIZE)
+    blob+= b'\0'*104                         # header (HDR_SIZE)
+    sc=proj.get('scroll')                     # scrolling backdrop: dict(dir 1 up / 2 right / 3 down / 4 left, speed 1..16)
+    if sc and (proj.get('tiles') or not sc.get('dir')): sc=None
     align(8)
     off_pal=len(blob)
     for i in range(ncol):
@@ -135,6 +137,12 @@ def build(proj, aga):
         blob+=struct.pack('>HLHHHHHHHH',a.get('chan',i),spr2_offs[i],1 if a.get('carry') else 0,aflags,a.get('from',1),a.get('fast',0),
                           1 if a.get('bob') else 0,ww-bw,wh-bh,bsize)
         blob+=struct.pack('>L',anim_offs[i])
+        # shoot 'em up (version 9): A_PAT, A_ENTER (byte: comes back, byte: edge 0 top 1 right
+        # 2 bottom 3 left), A_HP (hits to destroy), A_RANK (an option's place behind the player)
+        rank=0
+        if a['role']==11: rank=min(6,1+sum(1 for b in actors[:i] if b['role']==11))
+        blob+=struct.pack('>HHHH',max(0,min(5,a.get('pattern',0))),(256 if a.get('comeback') else 0)|(a.get('enter',0)&3),
+                          max(1,min(99,a.get('hits',1))),rank)
     align(8)
     off_rules=len(blob)
     for r in rules:
@@ -304,10 +312,19 @@ def build(proj, aga):
     off_disp=len(blob)
     blob+=b'\0'*(depth*10240)
     off_disp2=off_back=0
-    if any(a.get('bob') for a in actors):       # BOBs: second display + background, 8 spare bytes each
-        blob+=b'\0'*8
+    anybob=any(a.get('bob') for a in actors)
+    if anybob and not sc:                       # BOBs: second display + background, 8 spare bytes each
+        blob+=b'\0'*8                           # (a scrolling game keeps its BOBs in the scroll buffers)
         off_disp2=len(blob); blob+=b'\0'*(depth*10240+8)
         off_back=len(blob); blob+=b'\0'*(depth*10240+8)
+    # scrolling backdrop (engine.s SC_*): its block, then the buffers in cleared memory after the data
+    off_scroll=0
+    if sc:
+        align(8)
+        off_scroll=len(blob)
+        nbuf=3 if anybob else 1
+        blob.extend(struct.pack('>HHLHH',sc['dir'],max(1,min(16,sc.get('speed',4))),0,nbuf,0))
+        align(8)
     # tile world: the map as played and the scrolling picture go in cleared memory after the data
     bss=0
     if t:
@@ -317,15 +334,20 @@ def build(proj, aga):
         off_buf=off_wmap+(t['w']*t['h']*(2 if wcell else 1)+7)//8*8
         bss=off_buf+depth*bufpl-size_now
         struct.pack_into('>LLL',blob,tile_fix+8,off_wmap,off_buf,bufpl)
-    proj['_need']=((len(blob)+7)//8*8)+bss if t else 0     # bytes needed from the data start
+    if sc:
+        size_now=(len(blob)+7)//8*8
+        pl=25600 if sc['dir'] in (1,3) else 36864   # SCR_PLV / SCR_PLH
+        bss=nbuf*(depth*pl+16)
+        struct.pack_into('>L',blob,off_scroll+4,size_now)
+    proj['_need']=((len(blob)+7)//8*8)+bss if (t or sc) else 0     # bytes needed from the data start
     player=-1
     for i,a in enumerate(actors):
         if a['role'] in (0,6): player=i; break
-    hdr=struct.pack('>4sHHHHHHHHHHHH',b'ADAM',8,1 if aga else 0,depth,len(actors),len(rules),proj['lives'],
+    hdr=struct.pack('>4sHHHHHHHHHHHH',b'ADAM',9,1 if aga else 0,depth,len(actors),len(rules),proj['lives'],
                     int(proj['show_score']),int(proj['show_lives']),proj['hud_row'],proj['hud_col'],proj['msg_col'],player & 0xffff)+struct.pack('>L',off_game)
     hdr+=struct.pack('>LLLLLLLLLLLLLLL',off_pal,off_planes,off_act,off_rules,off_sfx,off_over,off_win,off_sprcol,off_disp,off_grad,off_ground,off_work,off_music,off_disp2,off_back)
-    hdr+=struct.pack('>LL',off_tiles,off_ui)
-    blob[0:100]=hdr
+    hdr+=struct.pack('>LLL',off_tiles,off_ui,off_scroll)
+    blob[0:104]=hdr
     return bytes(blob)
 
 # ---- animations (data block version 8, 16 frames); scr_project.gml anim_plan() does the same

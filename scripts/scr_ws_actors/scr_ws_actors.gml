@@ -97,6 +97,19 @@ function bobs_load()
     return _cyc / BOB_CYCLES_PER_PLANE;
 }
 
+/// True when the backdrop scrolls left or right (not in a tile world): the fine
+/// scroll fetches one word early and takes sprite 7's time, as in a tile world
+function scroll_across(_p)
+{
+    return !_p.tiles_on && (_p.scroll_dir == 2 || _p.scroll_dir == 4);
+}
+
+/// True when the backdrop scrolls (a shoot 'em up; not in a tile world)
+function scroll_on_disk(_p)
+{
+    return !_p.tiles_on && _p.scroll_dir > 0;
+}
+
 /// How many actors go on the disk: up to 12 in ADAM Lite, 32 in ADAM Pro
 function actors_on_disk()
 {
@@ -113,9 +126,11 @@ function actors_bob_flags()
     var _out = array_create(_n, false);
     if (!pro_on() || proj.tiles_on) { return _out; }
     var _spr = 0;
+    var _nspr = ACT_MAX_SPR;
+    if (scroll_across(proj)) { _nspr = ACT_MAX_SPR - 1; }   // the fine scroll takes sprite 7's time
     for (var i = 0; i < _n; i++)
     {
-        if (proj.actors[i].bob || _spr >= ACT_MAX_SPR || spr_is_big(proj.sprites[clamp(proj.actors[i].sprite, 0, SPR_COUNT - 1)]))
+        if (proj.actors[i].bob || _spr >= _nspr || spr_is_big(proj.sprites[clamp(proj.actors[i].sprite, 0, SPR_COUNT - 1)]))
         {
             _out[i] = true;
         }
@@ -140,7 +155,7 @@ function actors_alloc_channels()
     var _used = [0, 0, 0, 0];
     var _owner = [-1, -1, -1, -1];
     var _cap = [2, 2, 2, 2];             // actors per colour pair
-    if (proj.tiles_on) { _cap[3] = 1; }  // a tile world loses sprite 7 (the second of pair 3)
+    if (proj.tiles_on || scroll_across(proj)) { _cap[3] = 1; }  // a tile world (or a backdrop scrolling across) loses sprite 7 (the second of pair 3)
     for (var i = 0; i < _na; i++)
     {
         if (_bob[i]) { continue; }
@@ -197,7 +212,7 @@ function ws_actors_draw(_x1, _y1, _x2, _y2)
     var _by = _y2 - 130;
     var _lcontent = _na * _rowh + 8;
     var _loff = ui_scroll_begin("act_list", _x1 + 6, _y1 + 50, _x1 + _lw - 6, _by - 8, _lcontent);
-    var _role_short = ["Player", "Bouncer", "Patrol L-R", "Patrol U-D", "Chaser", "Still", "Platform player", "Hopper", "Faller", "Shot"];
+    var _role_short = ["Player", "Bouncer", "Patrol L-R", "Patrol U-D", "Chaser", "Still", "Platform player", "Hopper", "Faller", "Shot", "Flyer", "Option", "Effect"];
     for (var i = 0; i < _na; i++)
     {
         var _ac = proj.actors[i];
@@ -221,7 +236,7 @@ function ws_actors_draw(_x1, _y1, _x2, _y2)
         var _tsc = min(1, SPR_H / max(_ts.w, _ts.h));
         draw_sprite_amiga_cols(_ac.sprite, _x1 + 33 - _ts.w * _tsc / 2, _ry + 7 + (SPR_H - _ts.h * _tsc) / 2, _tsc, actor_cols_from(_alloc, i), 1);
         ui_text(_x1 + 60, _ry + 16, ui_text_fit(_ac.name, global.f_bold, _lw - 84), global.TH.text, fa_left, fa_middle, global.f_bold, 1);
-        var _sub = _role_short[clamp(_ac.role, 0, 9)];
+        var _sub = _role_short[clamp(_ac.role, 0, 12)];
         var _subc = global.TH.text_dim;
         if (i < array_length(_alloc.conflict))
         {
@@ -458,9 +473,12 @@ function ws_actors_draw(_x1, _y1, _x2, _y2)
         "Walks left and right on the ground and jumps with fire (or up). Follows the hills - set your ground colours on the Backdrop page.",
         "Hops along the ground on its own: it squats, springs up and drifts left or right in the air. Jump over it or run under it. Give it a second sprite and that one is shown while it squats.",
         "Falls until it lands on the ground, then stays there. Use 'Move actor to another actor' to drop it from a cloud.",
-        "A laser, bullet or bomb. Hidden until a rule with DO 'Shoot' fires it from another actor, then it flies straight at its speed and vanishes when it hits something or leaves the screen. For rapid fire, add a few shots in a row with the same picture: the rule uses the next free one. Score hits with WHEN 'Thrown or shot actor hits'."
+        "A laser, bullet or bomb. Hidden until a rule with DO 'Shoot' fires it from another actor, then it flies straight at its speed and vanishes when it hits something or leaves the screen. For rapid fire, add a few shots in a row with the same picture: the rule uses the next free one. Score hits with WHEN 'Thrown or shot actor hits'.",
+        "A shoot 'em up enemy. It flies in from an edge of the screen and crosses it in a pattern: straight, a wave, a zigzag, drifting at the player, moving with the scenery (a gun turret on the ground) or coming in and staying (a boss). Place a few in a row and they fly in as a formation. Hidden flyers wait until a rule shows them.",
+        "A multiple (Gradius style): it follows the player's trail and fires a shot of its own every time the player shoots. Hidden until DO 'Power up the player' with 'Add an option'. Give it a shot actor in the rule that shoots: the option fires the next free one.",
+        "An explosion, sparkle or puff of smoke. Hidden until DO 'Set off an effect' places it on an actor; it plays its Idle animation once (make it on the Animate page) and vanishes, drifting with the scenery. Add a few with the same picture for many explosions at once."
     ];
-    var _desc = _rdesc[clamp(_s.role, 0, 9)];
+    var _desc = _rdesc[clamp(_s.role, 0, 12)];
     draw_set_font(global.f_small);
     var _dh = max(50, ceil(ui_sh_ext(_desc, _fw2 - 20)) + 14);
     ui_rrect(_fx2, _y, _fx2 + _fw2, _y + _dh, 8, global.TH.inset_top, global.TH.inset_bot, 0.8);
@@ -486,6 +504,22 @@ function ws_actors_draw(_x1, _y1, _x2, _y2)
     {
         ui_heading(_fx2, _y, "Flies");
         set_val(_s, "aim", ui_dropdown("act_aim", _fx2, _y + 18, _fw2, 32, global.AIM_NAMES, clamp(_s.aim, 0, 5), "Which way it flies|'The way the shooter moves': the player shoots the way the joystick points (or it last moved; a platform player the way it faces). Up / Down / Left / Right: always that way - a rocket's laser goes up. 'At the player': an enemy aims at the player (8 directions)."), "actaim");
+        _y += 62;
+    }
+    if (_s.role == 10)
+    {
+        ui_heading(_fx2, _y, "Flight pattern");
+        set_val(_s, "pattern", ui_dropdown("act_pat", _fx2, _y + 18, _fw2, 32, global.PATTERN_NAMES, clamp(_s.pattern, 0, 5), "Flight pattern|Straight: across the screen in a line. Wave: weaves either side of the line it came in on. Zigzag: from side to side, edge to edge. Homing: drifts towards the player. Moves with the scenery: a turret or a gun on the ground (put it on a wall). Comes in and stays: flies in to where you placed it, then patrols across - a boss."), "actpat");
+        _y += 62;
+        ui_heading(_fx2, _y, "Comes in from");
+        set_val(_s, "enter", ui_dropdown("act_enter", _fx2, _y + 18, _half, 32, global.EDGE_NAMES, clamp(_s.enter, 0, 3), "Comes in from|The edge it flies in from, a screen away from where you placed it - so flyers placed in a row keep their formation. A side-scroller's enemies come from the right, a vertical one's from the top."), "actenter");
+        set_val(_s, "comeback", ui_toggle("act_comeback", _fx2 + _half + 12, _y + 22, "Comes back", _s.comeback, "Comes back|When it leaves the far edge it flies in again at a new place. Off: it hides until a rule shows it again (waves)."), "actcomeback");
+        _y += 62;
+    }
+    if (_s.role != 0 && _s.role != 6 && _s.role != 9 && _s.role != 11 && _s.role != 12)
+    {
+        ui_heading(_fx2, _y, "Toughness (hits)");
+        set_val(_s, "hits", ui_stepper("act_hits", _fx2, _y + 18, _half, _s.hits, 1, 99, "Toughness|How many shots it takes before WHEN 'Thrown or shot actor hits' fires. Each hit before that flashes it white. 1 for small fry, 40 for a boss."), "acthits");
         _y += 62;
     }
     _y += 6;
