@@ -512,19 +512,166 @@ def render_sfx(s):
         for x in fl: out.append(int(round(max(-1,min(1,x*g))*127))&255)
     return out
 
-def adf(game,need=0):
-    """need = bytes the game uses from the data start (tile world: data + cleared memory)"""
+# ---- ADAM Pro loading screen (scr_loadscr.gml / loadscr.s): the block the bootblock reads
+# before the game - loadscr.bin, the LS_* header, ADAM's copper list, an empty sprite, the
+# picture's planes and a strip of the full bar
+LS_HDR=40
+
+def ls_new(**kw):
+    l=dict(on=True,source=0,pixels=[],pal=[],depth=5,bar_x=32,bar_y=216,bar_w=256,bar_h=16,style='Metal',
+           left_w=8,mid_w=8,right_w=8,left=[],mid=[],right=[],empty=0)
+    l.update(kw)
+    return l
+
+def ls_nearest(pal,n,rgb,allow0):
+    r,g,b=(rgb>>16)&255,(rgb>>8)&255,rgb&255
+    best=0 if allow0 else 1; bd=1000000000
+    for c in range(0 if allow0 else 1,n):
+        q=pal[c]
+        d=(((q>>16)&255)-r)**2*3+(((q>>8)&255)-g)**2*4+((q&255)-b)**2*2
+        if d<bd: bd,best=d,c
+    return best
+
+def ls_picture(l,proj_px,proj_pal,proj_depth,aga):
+    md=8 if aga else 5
+    px,pal,depth=proj_px,proj_pal,max(1,min(md,proj_depth))
+    if l['source']==1 and len(l['pixels'])==320*256 and len(l['pal'])>=2:
+        px,pal,depth=l['pixels'],l['pal'],max(1,min(md,l['depth']))
+    return px,pal,depth,min(1<<depth,len(pal))
+
+def ls_pieces(l,pal,ncol):
+    if l['style']=='Custom': return l['left'],l['mid'],l['right']
+    from ui_ref import frame_rgb
+    h=l['bar_h']; ws=(l['left_w'],l['mid_w'],l['right_w'])
+    out=[[0]*(w*h) for w in ws]; cache={}
+    for py in range(h):
+        if h>=16:
+            fy=py if py<8 else (16+py-(h-8) if py>=h-8 else 8+(py-8)%8)
+        else:
+            fy=py if py<h//2 else 24-(h-py)
+        for k in range(3):
+            w=ws[k]
+            for px in range(w):
+                fx=8+px%8
+                if k==0:
+                    fx=min(px,7)
+                    if px>=8: fx=8+(px-8)%8
+                if k==2:
+                    fx=23-min(w-1-px,7)
+                    if w-1-px>=8: fx=8+px%8
+                c=frame_rgb(l['style'],fx,fy)
+                if c is None: continue
+                if c not in cache: cache[c]=ls_nearest(pal,ncol,c,False)
+                out[k][py*w+px]=cache[c]
+    return out
+
+def ls_compose(l,px,pal,ncol):
+    pc=ls_pieces(l,pal,ncol)
+    mx=ncol-1
+    screen=[min(v,mx) for v in px[:320*256]]
+    full=screen[:]
+    dark=[]
+    for c in range(ncol):
+        q=pal[c]
+        dark.append(ls_nearest(pal,ncol,(int(((q>>16)&255)*0.4)<<16)|(int(((q>>8)&255)*0.4)<<8)|int((q&255)*0.4),True))
+    for v in range(l['bar_h']):
+        for u in range(l['bar_w']):
+            if u<l['left_w']: c=pc[0][v*l['left_w']+u]
+            elif u>=l['bar_w']-l['right_w']: c=pc[2][v*l['right_w']+u-(l['bar_w']-l['right_w'])]
+            else: c=pc[1][v*l['mid_w']+(u-l['left_w'])%l['mid_w']]
+            if c<=0: continue
+            c=min(c,mx)
+            at=(l['bar_y']+v)*320+l['bar_x']+u
+            full[at]=c
+            if l['empty']==0: screen[at]=dark[c]
+    return screen,full
+
+def ls_copper(depth,aga,pal,ncol,planes_off,spr_off,sky=None):
+    c=[]
+    con0=((depth&7)<<12)|0x200
+    if depth==8: con0|=0x10
+    c+=[(0x100,con0),(0x102,0),(0x104,0),(0x8e,0x2c81),(0x90,0x2cc1),(0x92,0x38),(0x94,0xd0),(0x108,0),(0x10a,0)]
+    if aga: c+=[(0x1fc,0),(0x10c,0x0011),(0x106,0x0c00)]
+    for p in range(depth):
+        o=planes_off+p*10240
+        c+=[(0xe0+p*4,(o>>16)&0xffff),(0xe2+p*4,o&0xffff)]
+    for s in range(8): c+=[(0x120+s*4,(spr_off>>16)&0xffff),(0x122+s*4,spr_off&0xffff)]
+    hi=lambda q: (((q>>20)&15)<<8)|(((q>>12)&15)<<4)|((q>>4)&15)
+    lo=lambda q: (((q>>16)&15)<<8)|(((q>>8)&15)<<4)|(q&15)
+    if not aga:
+        for k in range(min(ncol,32)): c.append((0x180+k*2,hi(pal[k])))
+    else:
+        for b in range((ncol+31)//32):
+            c.append((0x106,(b<<13)|0x0c00))
+            for k in range(32):
+                if b*32+k>=ncol: break
+                c.append((0x180+k*2,hi(pal[b*32+k])))
+            c.append((0x106,(b<<13)|0x0e00))
+            for k in range(32):
+                if b*32+k>=ncol: break
+                c.append((0x180+k*2,lo(pal[b*32+k])))
+        c.append((0x106,0x0c00))
+    if sky:                                   # the copper sky: colour 0 on every line (build_grad)
+        for ln in range(256):
+            vl=ln+0x2c
+            if vl==0x100: c.append((0xffdf,0xfffe))
+            if ln>0: c.append((((vl&0xff)<<8)|0x07,0xfffe))
+            c.append((0x180,hi(sky[ln])))
+            if aga: c+=[(0x106,0x0e00),(0x180,lo(sky[ln])),(0x106,0x0c00)]
+    return c
+
+def loadscr_block(l,proj_px,proj_pal,proj_depth,aga,sky=None):
+    """the loading-screen block as bytes (padded to sectors), as loadscr_block in scr_loadscr.gml;
+    sky = the game's copper sky (256 colours), shown when the loading screen shows the backdrop"""
+    if l['source']!=0: sky=None
+    code=open(os.path.join(ENGINE_DIR,'loadscr.bin'),'rb').read()
+    px,pal,depth,ncol=ls_picture(l,proj_px,proj_pal,proj_depth,aga)
+    sx0=l['bar_x']>>3
+    stride=((l['bar_x']+l['bar_w']-1)>>3)-sx0+1
+    hdr=len(code); cop_off=hdr+LS_HDR
+    ncop=len(ls_copper(depth,aga,pal,ncol,0,0,sky))+1
+    spr_off=((cop_off+ncop*4+7)>>3)<<3
+    planes_off=spr_off+8
+    strip_off=planes_off+depth*10240
+    end=strip_off+stride*l['bar_h']*depth
+    size=((end+511)>>9)<<9
+    screen,full=ls_compose(l,px,pal,ncol)
+    b=bytearray(size); b[:len(code)]=code
+    struct.pack_into('>4sHHHHLLLHHHHHH',b,hdr,b'LSCR',1,1 if aga else 0,depth,0,cop_off,planes_off,strip_off,
+                     l['bar_x'],l['bar_y'],l['bar_w'],l['bar_h'],sx0,stride)
+    o=cop_off
+    for r,v in ls_copper(depth,aga,pal,ncol,planes_off,spr_off,sky)+[(0xffff,0xfffe)]:
+        struct.pack_into('>HH',b,o,r,v); o+=4
+    o=planes_off
+    for p in range(depth):
+        for y in range(256):
+            for xb in range(40):
+                v=0
+                for bit in range(8): v=(v<<1)|((screen[y*320+xb*8+bit]>>p)&1)
+                b[o]=v; o+=1
+    o=strip_off
+    for p in range(depth):
+        for r in range(l['bar_h']):
+            for sb in range(stride):
+                v=0
+                for bit in range(8): v=(v<<1)|((full[(l['bar_y']+r)*320+(sx0+sb)*8+bit]>>p)&1)
+                b[o]=v; o+=1
+    return bytes(b)
+
+def adf(game,need=0,ls=b''):
+    """need = bytes the game uses from the data start (tile world: data + cleared memory);
+    ls = a loading-screen block (loadscr_block), read before the game"""
     size=(len(game)+511)//512*512
     bss=max(0,len(ENGINE)+need-size)
     boot=bytearray(1024); boot[:len(BOOT)]=BOOT
-    struct.pack_into('>LL',boot,len(BOOT)-8,size,bss)
+    struct.pack_into('>LLLL',boot,len(BOOT)-16,len(ls),len(ls),size,bss)
     s=0
     for i in range(256):
         if i==1: continue
         s+=struct.unpack_from('>L',boot,i*4)[0]
         if s>0xffffffff: s=(s&0xffffffff)+1
     struct.pack_into('>L',boot,4,(~s)&0xffffffff)
-    img=bytearray(901120); img[:1024]=boot; img[1024:1024+len(game)]=game
+    img=bytearray(901120); img[:1024]=boot; img[1024:1024+len(ls)]=ls; img[1024+len(ls):1024+len(ls)+len(game)]=game
     return bytes(img)
 
 def test_project():

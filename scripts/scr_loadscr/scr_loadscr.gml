@@ -240,9 +240,18 @@ function loadscr_compose(_p)
     return { screen : _screen, full : _full, pal : _pic.pal, depth : _pic.depth, ncol : _pic.ncol };
 }
 
+/// The copper sky the loading screen shows: the game's, when it shows the backdrop and the
+/// game has one (256 0xRRGGBB colours, one a line), else undefined
+function loadscr_sky(_p)
+{
+    if (_p.loadscr.source == 0 && _p.sky_on) { return sky_table(_p); }
+    return undefined;
+}
+
 /// The loader's copper list as [register, value] pairs; pointer values are
-/// offsets from the block start (loadscr.s adds the block's address)
-function loadscr_copper(_depth, _aga, _pal, _ncol, _planes_off, _spr_off)
+/// offsets from the block start (loadscr.s adds the block's address). _sky: the copper
+/// sky (colour 0 on each line), or undefined. A WAIT is [line << 8 | 0x07, 0xfffe].
+function loadscr_copper(_depth, _aga, _pal, _ncol, _planes_off, _spr_off, _sky = undefined)
 {
     var _c = [];
     var _con0 = ((_depth & 7) << 12) | 0x200;
@@ -288,6 +297,23 @@ function loadscr_copper(_depth, _aga, _pal, _ncol, _planes_off, _spr_off)
         }
         array_push(_c, [0x106, 0x0c00]);
     }
+    if (!is_undefined(_sky))
+    {
+        // the copper sky: colour 0 changes on every line, as in the game (build_grad)
+        for (var _ln = 0; _ln < 256; _ln++)
+        {
+            var _vl = _ln + 0x2c;
+            if (_vl == 0x100) { array_push(_c, [0xffdf, 0xfffe]); }      // past line 255: wait for the wrap
+            if (_ln > 0) { array_push(_c, [((_vl & 0xff) << 8) | 0x07, 0xfffe]); }
+            array_push(_c, [0x180, copper_hi(_sky[_ln])]);
+            if (_aga)
+            {
+                array_push(_c, [0x106, 0x0e00]);
+                array_push(_c, [0x180, copper_lo(_sky[_ln])]);
+                array_push(_c, [0x106, 0x0c00]);
+            }
+        }
+    }
     return _c;
 }
 
@@ -308,7 +334,8 @@ function loadscr_block(_p, _measure = false)
     var _stride = ((_l.bar_x + _l.bar_w - 1) >> 3) - _sx0 + 1;
     var _hdr = _csize;
     var _cop_off = _hdr + LS_HDR;
-    var _ncop = array_length(loadscr_copper(_depth, _aga, _pic.pal, _pic.ncol, 0, 0)) + 1;
+    var _sky = loadscr_sky(_p);
+    var _ncop = array_length(loadscr_copper(_depth, _aga, _pic.pal, _pic.ncol, 0, 0, _sky)) + 1;
     var _spr_off = _cop_off + _ncop * 4;
     _spr_off = ((_spr_off + 7) >> 3) << 3;
     var _planes_off = _spr_off + 8;
@@ -348,7 +375,7 @@ function loadscr_block(_p, _measure = false)
     be16(_b, _stride);                           // LS_SSTRIDE
     // copper list
     buffer_seek(_b, buffer_seek_start, _cop_off);
-    var _cop = loadscr_copper(_depth, _aga, _cmp.pal, _cmp.ncol, _planes_off, _spr_off);
+    var _cop = loadscr_copper(_depth, _aga, _cmp.pal, _cmp.ncol, _planes_off, _spr_off, _sky);
     for (var i = 0; i < array_length(_cop); i++)
     {
         be16(_b, _cop[i][0]);
@@ -667,6 +694,8 @@ function loadscr_preview_update(_p)
     var _key = string(_l.source) + "," + string(_l.depth) + "," + string(_l.bar_x) + "," + string(_l.bar_y) + "," + string(_l.bar_w) + "," + string(_l.bar_h) + "," + _l.style + "," + string(_l.left_w) + "," + string(_l.mid_w) + "," + string(_l.right_w) + "," + string(_l.empty) + "|" + string(_hash) + "|" + string(_p.depth) + "," + string(_p.machine) + "|" + json_stringify(_l.left) + json_stringify(_l.mid) + json_stringify(_l.right);
     if (_l.source == 1) { _key += json_stringify(_l.pal); }
     else { _key += json_stringify(_p.pal); }
+    var _sky = loadscr_sky(_p);                 // colour 0: the copper sky, line by line
+    if (!is_undefined(_sky)) { _key += "|sky" + json_stringify(_sky); }
     if (_key == ls_key && surface_exists(ls_surf_empty) && surface_exists(ls_surf_full)) { return; }
     ls_key = _key;
     var _cmp = loadscr_compose(_p);
@@ -682,11 +711,30 @@ function loadscr_preview_update(_p)
     if (!buffer_exists(ls_buf)) { ls_buf = buffer_create(BD_W * BD_H * 4, buffer_fixed, 1); }
     if (!surface_exists(ls_surf_empty)) { ls_surf_empty = surface_create(BD_W, BD_H); }
     if (!surface_exists(ls_surf_full)) { ls_surf_full = surface_create(BD_W, BD_H); }
+    var _skyc = array_create(BD_H, _lut[0]);
+    if (!is_undefined(_sky))
+    {
+        for (var s = 0; s < BD_H; s++)
+        {
+            var _sm = rgb_machine(_sky[s]);
+            _skyc[s] = 0xff000000 | (rgb_r(_sm) << (_ord[0] * 8)) | (rgb_g(_sm) << (_ord[1] * 8)) | (rgb_b(_sm) << (_ord[2] * 8));
+        }
+    }
     buffer_seek(ls_buf, buffer_seek_start, 0);
-    for (var j = 0; j < BD_W * BD_H; j++) { buffer_write(ls_buf, buffer_u32, _lut[_cmp.screen[j]]); }
+    for (var j = 0; j < BD_W * BD_H; j++)
+    {
+        var _cj = _cmp.screen[j];
+        if (_cj == 0) { buffer_write(ls_buf, buffer_u32, _skyc[j div BD_W]); }
+        else { buffer_write(ls_buf, buffer_u32, _lut[_cj]); }
+    }
     buffer_set_surface(ls_buf, ls_surf_empty, 0);
     buffer_seek(ls_buf, buffer_seek_start, 0);
-    for (var k = 0; k < BD_W * BD_H; k++) { buffer_write(ls_buf, buffer_u32, _lut[_cmp.full[k]]); }
+    for (var k = 0; k < BD_W * BD_H; k++)
+    {
+        var _ck = _cmp.full[k];
+        if (_ck == 0) { buffer_write(ls_buf, buffer_u32, _skyc[k div BD_W]); }
+        else { buffer_write(ls_buf, buffer_u32, _lut[_ck]); }
+    }
     buffer_set_surface(ls_buf, ls_surf_full, 0);
 }
 

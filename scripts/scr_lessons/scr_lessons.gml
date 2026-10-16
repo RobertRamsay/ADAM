@@ -248,6 +248,24 @@ function lessons_init()
                 les_step(WS_BUILD, "build_run", "Build and play", "Build and play. Hold fire to shoot, and fly to the top of the map.", function() { return les_built(); }),
                 les_step(WS_BUILD, "", "You made a shoot 'em up!", "Map, spawners, copies, shots and rules. To see more - enemies that fire back, homing missiles, power-ups and a boss - load the Jade Serpent example.", undefined)
             ]
+        },
+        {
+            name : "Pro - A loading screen", short : "Pro Loading", mins : 8, pro : true,
+            steps : [
+                les_step(WS_HOME, "", "Lesson 7: A loading screen (ADAM Pro)", "Real Amiga games showed a picture while they loaded, with a bar creeping across. You'll give a small game one. A fresh project has been started for you.", undefined),
+                les_step(WS_BACKDROP, "bd_canvas", "A quick backdrop", "Paint a sky and some ground: pick a colour and fill the picture, then box in the ground with a second colour.", function() { return les_bd_at(0, 0) != 0 && les_bd_at(160, 250) != les_bd_at(160, 20); }),
+                les_step(WS_BACKDROP, "bd_tab_sky", "A copper sky", "Open Copper sky and pick a ready-made sky. The loading screen shows it too.", function() { return proj.sky_on; }),
+                les_step(WS_SPRITES, "spr_grid", "A hero", "Draw a hero in sprite 1 - 20 squares or more.", function() { return les_spr_px(0) >= 20; }),
+                les_step(WS_ACTORS, "act_add", "Add the hero", "Add the first actor - it becomes the player.", function() { return array_length(proj.actors) >= 1; }),
+                les_step(WS_UI, "ui_page_1", "The Loading screen tab", "On the UI page, open the Loading screen tab.", function() { return ui_page_tab == 1; }),
+                les_step(WS_UI, "ls_on", "Switch it on", "Switch the loading screen on. It shows your backdrop while the disk loads, with a bar along the bottom.", function() { return proj.loadscr.on; }),
+                les_step(WS_UI, "ls_style", "Dress the bar", "Pick a frame style for the bar - Stone, Wood, Neon... It is drawn in your picture's own colours.", function() { return proj.loadscr.style != "Metal"; }),
+                les_step(WS_UI, "ls_preview", "Place the bar", "Drag the bar on the picture to move it, or use the steppers for its place and size.", function() { return proj.loadscr.bar_x != 32 || proj.loadscr.bar_y != 216 || proj.loadscr.bar_w != 256 || proj.loadscr.bar_h != 16; }),
+                les_step(WS_UI, "ls_play", "Watch it load", "Press Play to see the bar fill as it will on the Amiga.", undefined),
+                les_step(WS_UI, "ls_src", "Your own picture", "Instead of the backdrop, the loading screen can have its own picture: switch the picture to its own and import a PNG (up to 32 colours on an A500, 256 on an A1200). Try it if you have one.", undefined),
+                les_step(WS_BUILD, "build_run", "Build and play", "Build and play, and watch the bar fill while the game loads.", function() { return les_built(); }),
+                les_step(WS_BUILD, "", "Loading in style!", "The picture loads first, then fills its bar as the game comes off the disk. Load the Dig Deep example to see a stone bar under a copper sky.", undefined)
+            ]
         }
     ];
 }
@@ -359,6 +377,8 @@ function lesson_show_step(_st)
     // the Tiles page remembers Map / Tile set - the map and spawner steps need Map
     if (_st.tab == WS_TILES && (string_pos("tile_tool_", _st.target) == 1 || _st.target == "tile_map" || string_pos("sp_", _st.target) == 1)) { tile_page = 0; }
     if (_st.tab == WS_TILES && string_pos("sp_", _st.target) == 1) { tile_tool = 4; }
+    // the loading screen steps are on the UI page's Loading screen tab
+    if (_st.tab == WS_UI && string_pos("ls_", _st.target) == 1) { ui_page_tab = 1; }
 }
 
 function lesson_finish()

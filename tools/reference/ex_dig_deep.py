@@ -510,6 +510,9 @@ def dig_deep():
     sq = [i for i, s in enumerate(p['sprites']) if s['name'] == "Slime squash"][0]
     for a in p['actors'][1:3]:
         a['anim_sprite'] = sq
+    # ADAM Pro loading screen: the backdrop with a stone bar along the bottom
+    from adf_reference import ls_new
+    p['loadscr'] = ls_new(style="Stone", bar_x=48, bar_y=224, bar_w=224, bar_h=16)
     return p
 
 def map_png(p, fn):

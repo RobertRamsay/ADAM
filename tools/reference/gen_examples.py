@@ -4,7 +4,7 @@
 import json, math, random, struct, sys, os
 from PIL import Image, ImageDraw
 import art
-from adf_reference import build, adf, ENGINE, ENGINE_DIR, HERE, REPO
+from adf_reference import build, adf, loadscr_block, ENGINE, ENGINE_DIR, HERE, REPO
 
 W,H=320,256
 def gun(v): return round(v/17)*17
@@ -990,7 +990,10 @@ if __name__=='__main__':
         bp,conf=to_builder(p)
         # build_test's pair colour rule takes the first actor on the pair
         data=build(bp,aga)
-        open(os.path.join(OUT,'%s.adf'%name),'wb').write(adf(ENGINE+data,bp.get('_need',0)))
+        ls=b''
+        if p.get('loadscr',{}).get('on'):         # ADAM Pro loading screen (read before the game)
+            ls=loadscr_block(p['loadscr'],p['pixels'],p['pal'],p['depth'],aga,bp.get('grad'))
+        open(os.path.join(OUT,'%s.adf'%name),'wb').write(adf(ENGINE+data,bp.get('_need',0),ls))
         preview(p,os.path.join(OUT,'%s.png'%name))
         if p.get('tiles_on') and not aga: ex_dig_deep.map_png(p,os.path.join(OUT,'%s_map.png'%fn))
         print(name,'conflicts' if any(conf) else 'ok', len(json.dumps(p)), 'colours', 1<<p['depth'], 'blends', len(AGA['order']) if aga else 0)
