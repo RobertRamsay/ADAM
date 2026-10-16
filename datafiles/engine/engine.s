@@ -58,7 +58,17 @@ H_BACK      equ 88         ; offset: BOB background - backdrop + hills + HUD (de
 H_TILES     equ 92         ; offset: tile world, 0 = none (version 6)
 H_UI        equ 96         ; offset: custom HUD (ADAM Pro UI editor), 0 = the standard HUD (version 7)
 H_SCROLL    equ 100        ; offset: scrolling backdrop (shoot 'em ups), 0 = it stands still (version 9)
-HDR_SIZE    equ 104
+H_PALS      equ 104        ; offset: named palettes, 0 = none (version 11)
+HDR_SIZE    equ 108
+
+; named palettes (version 11): each changes some of the backdrop colours of the
+; main palette (H_PAL); DO 27 switches to one, fading over some frames, and each
+; level can start with one. Palette 0 = the main palette.
+PS_N        equ 0          ; word: named palettes
+PS_LEVEL    equ 2          ; 10 bytes: the palette each level starts with
+PS_OFFS     equ 12         ; PS_N longs: offset of each palette - a word count, then
+                           ; { colour index word, 0 word, $00RRGGBB long } each
+PAL_FADE    equ 128        ; colours a palette can change (the A1200 backdrop's 128)
 
 ; scrolling backdrop (version 9): the 320 x 256 picture (backdrop + hills) loops
 ; endlessly up, right, down or left behind the actors, under a HUD strip at the
@@ -359,6 +369,12 @@ v_lives     rs.w 1
 v_score     rs.l 1
 v_flash     rs.w 1
 v_bg        rs.l 1
+v_pfade     rs.w 1         ; palette fade: frames left, 0 = none
+v_pftot     rs.w 1         ; and how many it takes
+v_cophold   rs.w 1         ; setcol: the caller holds the copper (AGA with a copper sky)
+v_curpal    rs.l PAL_FADE  ; the backdrop colours shown now
+v_frompal   rs.l PAL_FADE  ; a fade goes from these ...
+v_tgtpal    rs.l PAL_FADE  ; ... to these
 v_rand      rs.l 1
 v_music     rs.l 1         ; music table address, 0 = no music
 v_song      rs.w 1         ; song playing, -1 = none
@@ -587,6 +603,7 @@ level_card: lea     -128(a5),a7             ; a5 = V+128 (stack_top is too far f
             bsr     wait_fire
             bsr     restore_backdrop
 level_start:
+            bsr     level_pal               ; this level's palette, at once
             bsr     init_actors
             bsr     clear_latches
             move.w  #0,v_goal(a5)
@@ -997,6 +1014,14 @@ draw_terrain:
             rts
 
 init_palette:
+            move.w  #0,v_pfade(a5)          ; the colours shown now: the main palette
+            bsr     pal_ncol
+            move.l  H_PAL(a4),d0
+            lea     0(a4,d0.l),a2
+            lea     v_curpal(a5),a0
+            bra.s   .cc
+.cp         move.l  (a2)+,(a0)+
+.cc         dbf     d5,.cp
             move.l  H_PAL(a4),d0
             lea     0(a4,d0.l),a2
             move.l  (a2),v_bg(a5)
@@ -1200,6 +1225,8 @@ setcol:
             bra.s   .done
 .aga        tst.l   H_GRAD(a4)              ; the copper sky writes BPLCON3 on every
             beq.s   .bank                   ; line: hold the copper while we use it
+            tst.w   v_cophold(a5)
+            bne.s   .bank
             move.w  #$0080,$96(a6)          ; DMACON: copper off (it keeps its place)
 .bank       move.w  d0,d3                   ; bank select
             lsr.w   #5,d3
@@ -1224,6 +1251,8 @@ setcol:
             move.w  #$0c00,$106(a6)
             tst.l   H_GRAD(a4)
             beq.s   .done
+            tst.w   v_cophold(a5)
+            bne.s   .done
             move.w  #$8080,$96(a6)          ; copper on again
 .done       movem.l (sp)+,d0-d4
             rts
@@ -1234,6 +1263,7 @@ setcol:
 frame:
             bsr     bob_flip                ; BOBs: show last frame's drawing (copper idle here too)
             bsr     flash_tick              ; copper edits first, while the copper is idle
+            bsr     pal_tick                ; a palette fading in
             addq.w  #1,v_anim(a5)
             move.l  #0,v_jumped(a5)
             move.l  #0,v_aended(a5)
@@ -4884,7 +4914,7 @@ do_action:
             move.w  d4,d5                   ; -> d5 = offset
             lsl.w   #ACTV_SHIFT,d5
             move.w  R_ACT(a3),d0
-            cmp.w   #26,d0
+            cmp.w   #27,d0
             bhi     act_none
             add.w   d0,d0
             move.w  acttab(pc,d0.w),d0
@@ -4916,8 +4946,14 @@ acttab:     dc.w    act_score-acttab
             dc.w    act_effect-acttab
             dc.w    act_spawn-acttab
             dc.w    act_anim-acttab
+            dc.w    act_pal-acttab
 
 act_none:   rts
+
+; DO 27: switch to palette value (0 = the main one), fading over target frames (0 = at once)
+act_pal:    move.w  R_VAL(a3),d0
+            move.w  R_TGT(a3),d1
+            bra     pal_switch
 
 ; DO 26: actor d4 plays its Hit (value 0) or Die (1) animation once; WHEN 16 fires at its end
 act_anim:   cmp.w   H_NACT(a4),d4
@@ -6241,7 +6277,8 @@ act_bgcol:  move.w  R_VAL(a3),d0
             move.w  d4,v_gradfix(a5)
             move.w  d4,d1
             bra     build_grad
-.plain      moveq   #0,d0
+.plain      move.l  d1,v_curpal(a5)         ; (a palette fade starts from it)
+            moveq   #0,d0
             bra     setcol
 
 act_faster: cmp.w   H_NACT(a4),d4
@@ -6500,6 +6537,152 @@ flash_tick:
             move.l  v_bg(a5),d1
             bra     setcol
 .r          rts
+
+; ============================================================================
+;  named palettes (version 11)
+; ============================================================================
+; d5.w = the backdrop colours a palette can change (1 << depth, at most PAL_FADE); d4 is lost
+pal_ncol:   move.w  H_DEPTH(a4),d5
+            moveq   #1,d4
+            lsl.w   d5,d4
+            move.w  d4,d5
+            cmp.w   #PAL_FADE,d5
+            ble.s   .r
+            move.w  #PAL_FADE,d5
+.r          rts
+
+; at a level start: the palette the level starts with, at once
+level_pal:  movem.l d0-d1/a0,-(sp)
+            move.l  H_PALS(a4),d0
+            beq.s   .r
+            lea     0(a4,d0.l),a0
+            move.w  v_level(a5),d1
+            subq.w  #1,d1
+            cmp.w   #10,d1
+            bhs.s   .r
+            moveq   #0,d0
+            move.b  PS_LEVEL(a0,d1.w),d0
+            moveq   #0,d1
+            bsr     pal_switch
+.r          movem.l (sp)+,d0-d1/a0
+            rts
+
+; d0.w = palette (0 = the main one, 1.. the named ones), d1.w = frames to fade over (0 = at once).
+; The colours a palette leaves alone are the main palette's.
+pal_switch:
+            movem.l d0-d7/a0-a3,-(sp)
+            move.l  H_PALS(a4),d2
+            beq     .out
+            lea     0(a4,d2.l),a3           ; the palettes block
+            cmp.w   PS_N(a3),d0             ; unsigned: a bad number does nothing
+            bhi     .out
+            bsr     pal_ncol                ; d5 = colours
+            lea     v_frompal(a5),a0        ; fade from what is shown now
+            lea     v_curpal(a5),a1
+            move.w  d5,d3
+            bra.s   .fc
+.f          move.l  (a1)+,(a0)+
+.fc         dbf     d3,.f
+            lea     v_tgtpal(a5),a0         ; to the main palette ...
+            move.l  H_PAL(a4),d2
+            lea     0(a4,d2.l),a1
+            move.w  d5,d3
+            bra.s   .tc
+.t          move.l  (a1)+,(a0)+
+.tc         dbf     d3,.t
+            tst.w   d0
+            beq.s   .go
+            subq.w  #1,d0                   ; ... with this palette's colours
+            lsl.w   #2,d0
+            move.l  PS_OFFS(a3,d0.w),d2
+            lea     0(a4,d2.l),a1
+            lea     v_tgtpal(a5),a0
+            move.w  (a1)+,d3
+            bra.s   .oc
+.o          move.w  (a1)+,d2
+            addq.l  #2,a1
+            move.l  (a1)+,d4
+            cmp.w   d5,d2
+            bhs.s   .oc
+            lsl.w   #2,d2
+            move.l  d4,0(a0,d2.w)
+.oc         dbf     d3,.o
+.go         tst.w   d1
+            bgt.s   .fr
+            moveq   #1,d1
+.fr         move.w  d1,v_pftot(a5)
+            move.w  d1,v_pfade(a5)
+            cmp.w   #1,d1
+            bne.s   .out
+            bsr     pal_tick                ; at once
+.out        movem.l (sp)+,d0-d7/a0-a3
+            rts
+
+; every frame while a palette fades: each colour = from + (to - from) x step / frames
+pal_tick:
+            tst.w   v_pfade(a5)
+            beq     .r
+            movem.l d0-d7/a0-a2,-(sp)
+            move.w  v_pftot(a5),d7
+            move.w  d7,d6
+            sub.w   v_pfade(a5),d6
+            addq.w  #1,d6                   ; d6 = step 1 .. frames
+            subq.w  #1,v_pfade(a5)
+            bsr     pal_ncol                ; d5 = colours
+            lea     v_frompal(a5),a0
+            lea     v_tgtpal(a5),a1
+            lea     v_curpal(a5),a2
+            move.w  #1,v_cophold(a5)        ; AGA with a sky: the copper waits once, not per colour
+            btst    #0,H_FLAGS+1(a4)
+            beq.s   .go
+            tst.l   H_GRAD(a4)
+            beq.s   .go
+            move.w  #$0080,$96(a6)
+.go         moveq   #0,d0                   ; colour index
+.c          move.l  (a0)+,d1
+            move.l  (a1)+,d2
+            moveq   #0,d4
+            moveq   #16,d3
+            bsr.s   .comp
+            moveq   #8,d3
+            bsr.s   .comp
+            moveq   #0,d3
+            bsr.s   .comp
+            cmp.l   (a2),d4
+            beq.s   .same
+            move.l  d4,(a2)
+            move.l  d4,d1
+            bsr     setcol
+            tst.w   d0
+            bne.s   .same
+            move.l  d4,v_bg(a5)             ; colour 0: a flash comes back to it
+.same       addq.l  #4,a2
+            addq.w  #1,d0
+            cmp.w   d5,d0
+            blt.s   .c
+            move.w  #0,v_cophold(a5)
+            btst    #0,H_FLAGS+1(a4)
+            beq.s   .done
+            tst.l   H_GRAD(a4)
+            beq.s   .done
+            move.w  #$8080,$96(a6)
+.done       movem.l (sp)+,d0-d7/a0-a2
+.r          rts
+; one gun: d1 = from, d2 = to, d3 = its shift -> ORed into d4
+.comp       movem.l d1-d2,-(sp)
+            lsr.l   d3,d1
+            and.l   #$ff,d1
+            lsr.l   d3,d2
+            and.l   #$ff,d2
+            sub.w   d1,d2
+            muls    d6,d2
+            divs    d7,d2
+            add.w   d1,d2
+            and.l   #$ff,d2
+            lsl.l   d3,d2
+            or.l    d2,d4
+            movem.l (sp)+,d1-d2
+            rts
 
 ; ============================================================================
 ;  copper sky: COLOR00 changes on every display line

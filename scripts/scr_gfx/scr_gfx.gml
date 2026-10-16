@@ -218,7 +218,7 @@ function backdrop_shader_begin()
 {
     for (var i = 0; i < PAL_MAX; i++)
     {
-        var _c = rgb_machine(proj.pal[i]);
+        var _c = rgb_machine(pal_shown(i));
         bd_pal_floats[i * 3] = rgb_r(_c) / 255;
         bd_pal_floats[i * 3 + 1] = rgb_g(_c) / 255;
         bd_pal_floats[i * 3 + 2] = rgb_b(_c) / 255;

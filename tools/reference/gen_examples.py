@@ -868,7 +868,8 @@ def disk_project(p):
         a['_fire']=first[f] if 0<=f<len(first) and first[f]>=0 else -1
         acts.append(a)
     def rl(d):
-        d=dict(d); d['target']=m(d['target'])
+        d=dict(d)
+        if d['act']!=27: d['target']=m(d['target'])       # DO 27 Switch palette: fade frames
         if d['act'] in (14,22,24,25): d['value']=m(d['value'])
         return d
     rules=[]
@@ -927,6 +928,10 @@ def to_builder(p):
     bp=dict(depth=p['depth'],pal=[qm(c) for c in p['pal']],pixels=p['pixels'],sprites=spr,actors=acts,rules=p['rules'],
                 sfx=[s for s in p['sfx']],lives=p['lives'],show_score=1,show_lives=1,hud_row=0,hud_col=p['hud_colour'],msg_col=p['msg_colour'],
                 over=p['over_text'],win=p['win_text'],grad=sky_table(p,aga),ground=ground_table(p),game=game_block(p))
+    if p.get('palettes'):
+        # named palettes (version 11), in the machine's colours as scr_adf writes them
+        bp['palettes']=[dict(name=pl['name'],cols=[qm(c) if c>=0 else -1 for c in pl['cols']]) for pl in p['palettes'][:8]]
+        bp['level_pal']=p.get('level_pal',[0]*10)
     u=p.get('ui')
     if u and u.get('on'):
         import ui_ref

@@ -131,7 +131,15 @@ function pal_col(_i)
 {
     var _n = array_length(proj.pal);
     var _k = clamp(floor(_i), 0, _n - 1);
-    return amiga_col(proj.pal[_k]);
+    return amiga_col(pal_shown(_k));
+}
+
+/// Backdrop colour _k as the editor shows it: on the Backdrop page's Palettes tab, the
+/// named palette being edited
+function pal_shown(_k)
+{
+    if (ws == WS_BACKDROP && bd_panel == 2 && bd_pview > 0) { return palette_colour(bd_pview, _k); }
+    return proj.pal[_k];
 }
 
 /// Number of usable backdrop colours (2 ^ depth)

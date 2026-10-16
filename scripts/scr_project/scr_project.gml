@@ -12,6 +12,7 @@
 #macro SPR_BIG_W 64             // ADAM Pro: sprites up to 64 x 64 (drawn as BOBs)
 #macro SPR_BIG_H 64
 #macro PAL_MAX 128
+#macro PALETTE_MAX 8            // named palettes (Backdrop page, DO 27 Switch palette, per level)
 
 function project_defs_init()
 {
@@ -22,7 +23,9 @@ function project_defs_init()
                          "Game over", "You win!", "Speed up actor", "Slow down actor", "Add a life", "Move actor to another actor",
                          "Show actor for a moment", "Make actor safe for a while", "Count towards the level goal",
                          "Play music", "Stop music", "Place a tile (tile world)", "Drop what is carried", "Shoot (fire a shot actor)",
-                         "Power up the player", "Set off an effect", "Spawn actor (split into)", "Play an animation"];
+                         "Power up the player", "Set off an effect", "Spawn actor (split into)", "Play an animation", "Switch palette"];
+    global.PAL_FADES = [0, 12, 25, 50, 100, 200];   // DO 27 target: frames the fade takes
+    global.PAL_FADE_NAMES = ["at once", "fading 1/4 s", "fading 1/2 s", "fading 1 s", "fading 2 s", "fading 4 s"];
     global.HD_NAMES = ["Hit", "Die", "Hit or Die"];       // DO 26 value (0 / 1), WHEN 16 n (0 / 1 / 2 either)
     global.AIM_NAMES = ["The way the shooter moves", "Up", "Down", "Left", "Right", "At the player", "Homing missile"];
     global.FIRE_PAT_NAMES = ["The shot's own aim", "At the player", "Three at the player", "Ring of 8", "Fan of three"];
@@ -203,6 +206,12 @@ function stamp_from_loaded(_raw)
 function do_value_is_actor(_act)
 {
     return _act == 14 || _act == 22 || _act == 24 || _act == 25;
+}
+
+/// False for the DO actions whose target is not an actor (27 Switch palette: fade frames)
+function do_target_is_actor(_act)
+{
+    return _act != 27;
 }
 
 // ---------------------------------------------------------------------------
@@ -764,6 +773,8 @@ function project_new()
         sky_mid_y : 128,
         songs : [],                              // Phase 2 contract: 0..4 songs (Music page)
         level_song : array_create(LEVEL_MAX, -1), // Phase 2 contract: song per level, -1 = none
+        palettes : [],                           // named palettes: { name, cols } - cols[i] = $RRGGBB or -1 (the main palette's)
+        level_pal : array_create(LEVEL_MAX, 0),  // the palette each level starts with: 0 main, k = palettes[k - 1]
         tiles_on : false,                        // play on the tile map (Tiles page) instead of the backdrop
         tile_size : 16,                          // 8, 16, 32 or 64 pixels: every tile in the game
         tiles : tiles_default(16),               // up to TILE_MAX tiles; 0 = air
@@ -1018,6 +1029,41 @@ function project_from_loaded(_raw)
         }
     }
     _p.level_song = _lsv;
+    // named palettes (older files have none)
+    var _pals = [];
+    var _rp = _raw[$ "palettes"];
+    if (is_array(_rp))
+    {
+        for (var pq = 0; pq < min(PALETTE_MAX, array_length(_rp)); pq++)
+        {
+            var _src = _rp[pq];
+            var _np = palette_new("Palette " + string(pq + 1));
+            if (is_struct(_src))
+            {
+                if (is_string(_src[$ "name"])) { _np.name = string_copy(_src[$ "name"], 1, 20); }
+                var _sc = _src[$ "cols"];
+                if (is_array(_sc))
+                {
+                    for (var pc = 0; pc < min(PAL_MAX, array_length(_sc)); pc++)
+                    {
+                        if (is_numeric(_sc[pc]) && _sc[pc] >= 0) { _np.cols[pc] = floor(_sc[pc]) & 0xffffff; }
+                    }
+                }
+            }
+            array_push(_pals, _np);
+        }
+    }
+    _p.palettes = _pals;
+    var _lpv = array_create(LEVEL_MAX, 0);
+    var _lpr = _raw[$ "level_pal"];
+    if (is_array(_lpr))
+    {
+        for (var lp = 0; lp < min(LEVEL_MAX, array_length(_lpr)); lp++)
+        {
+            if (is_numeric(_lpr[lp])) { _lpv[lp] = clamp(floor(_lpr[lp]), 0, array_length(_pals)); }
+        }
+    }
+    _p.level_pal = _lpv;
     if (!is_numeric(_p.scroll_dir)) { _p.scroll_dir = 0; }
     _p.scroll_dir = clamp(floor(_p.scroll_dir), 0, 4);
     if (!is_numeric(_p.scroll_speed)) { _p.scroll_speed = 4; }
@@ -1457,14 +1503,95 @@ function project_after_change()
 // backdrop you painted afterwards, and so on.
 // ---------------------------------------------------------------------------
 
+/// A named palette: changes none of the main palette's colours yet
+function palette_new(_name)
+{
+    return { name : _name, cols : array_create(PAL_MAX, -1) };
+}
+
+/// "Main palette" and the named ones (DO 27 value / level_pal numbering)
+function palette_names()
+{
+    var _n = ["Main palette"];
+    for (var i = 0; i < array_length(proj.palettes); i++) { array_push(_n, proj.palettes[i].name); }
+    return _n;
+}
+
+/// Colour _i of palette _k (0 = the main one) as the game shows it
+function palette_colour(_k, _i)
+{
+    var _c = proj.pal[_i];
+    if (_k > 0 && _k <= array_length(proj.palettes))
+    {
+        var _o = proj.palettes[_k - 1].cols[_i];
+        if (_o >= 0) { _c = _o; }
+    }
+    return _c;
+}
+
+/// Removes named palette _k (1..): levels and rules that used it go back to the main one
+function palette_delete(_k)
+{
+    array_delete(proj.palettes, _k - 1, 1);
+    for (var l = 0; l < array_length(proj.level_pal); l++)
+    {
+        if (proj.level_pal[l] == _k) { proj.level_pal[l] = 0; }
+        else if (proj.level_pal[l] > _k) { proj.level_pal[l] -= 1; }
+    }
+    for (var r = 0; r < array_length(proj.rules); r++)
+    {
+        var _ru = proj.rules[r];
+        var _ds = [_ru];
+        for (var m = 0; m < array_length(_ru.more); m++) { array_push(_ds, _ru.more[m]); }
+        for (var d = 0; d < array_length(_ds); d++)
+        {
+            if (_ds[d].act == 27)
+            {
+                if (_ds[d].value == _k) { _ds[d].value = 0; }
+                else if (_ds[d].value > _k) { _ds[d].value -= 1; }
+            }
+        }
+    }
+}
+
+/// Sets every colour of named palette _k from the main palette by a quick look:
+/// 0 darker, 1 night, 2 sunset, 3 grey, 4 red alert, 5 brighter, 6 same as the main palette
+function palette_look(_k, _look)
+{
+    var _cols = proj.palettes[_k - 1].cols;
+    for (var i = 0; i < PAL_MAX; i++)
+    {
+        if (i >= pal_count() || _look == 6)
+        {
+            _cols[@ i] = -1;
+            continue;
+        }
+        var _c = proj.pal[i];
+        var _r = rgb_r(_c);
+        var _g = rgb_g(_c);
+        var _b = rgb_b(_c);
+        var _l = 0.3 * _r + 0.59 * _g + 0.11 * _b;
+        switch (_look)
+        {
+            case 0: _c = rgb_make(_r * 0.55, _g * 0.55, _b * 0.55); break;
+            case 1: _c = rgb_make(_r * 0.25 + _l * 0.1, _g * 0.3 + _l * 0.12, _b * 0.55 + _l * 0.2 + 24); break;
+            case 2: _c = rgb_make(_r * 0.9 + 40, _g * 0.7 + 10, _b * 0.5); break;
+            case 3: _c = rgb_make(_l, _l, _l); break;
+            case 4: _c = rgb_make(_l * 0.6 + 70, _l * 0.25, _l * 0.25); break;
+            case 5: _c = rgb_make(_r + (255 - _r) * 0.4, _g + (255 - _g) * 0.4, _b + (255 - _b) * 0.4); break;
+        }
+        _cols[@ i] = rgb_machine(_c);
+    }
+}
+
 /// Project fields each editor owns
 function undo_keys(_ws)
 {
     switch (_ws)
     {
         case WS_HOME:     return ["name", "lives", "show_score", "show_lives", "hud_row", "hud_colour", "msg_colour", "over_text", "win_text"];
-        case WS_BACKDROP: return ["pixels", "pal", "depth", "solid", "sky_on", "sky_top", "sky_mid", "sky_bot", "sky_mid_y", "hud_colour", "msg_colour", "terrain_cols"];
-        case WS_LEVELS:   return ["levels_on", "levels", "terrain_cols", "goal_on", "goal", "goal_label", "title_on", "title1", "title2", "lev_text", "level_song", "scroll_dir", "scroll_speed", "hills_on"];
+        case WS_BACKDROP: return ["pixels", "pal", "depth", "solid", "sky_on", "sky_top", "sky_mid", "sky_bot", "sky_mid_y", "hud_colour", "msg_colour", "terrain_cols", "palettes", "level_pal"];
+        case WS_LEVELS:   return ["levels_on", "levels", "terrain_cols", "goal_on", "goal", "goal_label", "title_on", "title1", "title2", "lev_text", "level_song", "scroll_dir", "scroll_speed", "hills_on", "level_pal"];
         case WS_SPRITES:  return ["sprites"];
         case WS_ACTORS:   return ["actors", "rules", "spawners"];
         case WS_LOGIC:    return ["rules", "groups"];
@@ -1624,12 +1751,12 @@ function actor_remove(_idx)
         var _r = proj.rules[i];
         _r.a = actor_ref_after_remove(_r.a, _idx, 0);
         _r.b = actor_ref_after_remove(_r.b, _idx, 0);
-        _r.target = actor_ref_after_remove(_r.target, _idx, 0);
+        if (do_target_is_actor(_r.act)) { _r.target = actor_ref_after_remove(_r.target, _idx, 0); }
         if (do_value_is_actor(_r.act)) { _r.value = actor_ref_after_remove(_r.value, _idx, 0); }
         for (var m = 0; m < array_length(_r.more); m++)
         {
             var _d = _r.more[m];
-            _d.target = actor_ref_after_remove(_d.target, _idx, 0);
+            if (do_target_is_actor(_d.act)) { _d.target = actor_ref_after_remove(_d.target, _idx, 0); }
             if (do_value_is_actor(_d.act)) { _d.value = actor_ref_after_remove(_d.value, _idx, 0); }
         }
     }

@@ -198,6 +198,10 @@ function logic_do_phrase(_d, _names, _na)
             _s += "a " + _tn + " comes out of " + _sn;
             break;
         case 26: _s += "play " + _tn + "'s " + string_lower(global.HD_NAMES[clamp(_d.value, 0, 1)]) + " animation"; break;
+        case 27:
+            var _pln = palette_names();
+            _s += "switch to " + _pln[clamp(_d.value, 0, array_length(_pln) - 1)] + " " + global.PAL_FADE_NAMES[pal_fade_index(_d.target)];
+            break;
     }
     return _s;
 }
@@ -453,6 +457,14 @@ function logic_do_row(_d, _rid, _x, _y, _pill, _anames, _snames, _xr)
         _dx += LOGIC_ACTOR_W + 10;
         set_val(_d, "value", ui_dropdown(_rid + "_hd", _dx, _dy, 110, 30, ["Hit", "Die"], clamp(_d.value, 0, 1), "Which animation|Hit: a flinch when it is struck. Die: its last moments - hide it or send it home when it ends (WHEN 'An animation ends')."), _rid + "hd");
     }
+    if (_act == 27)
+    {
+        var _pln = palette_names();
+        set_val(_d, "value", ui_dropdown(_rid + "_pal", _dx, _dy, 180, 30, _pln, clamp(_d.value, 0, array_length(_pln) - 1), "Which palette|The backdrop colours change to this palette (make palettes on the Backdrop page, Palettes tab). Its colours replace the main palette's; the rest are the main palette's. 'Main palette' goes back."), _rid + "pal");
+        _dx += 190;
+        var _fi = ui_dropdown(_rid + "_fade", _dx, _dy, max(100, min(150, _xr - _dx)), 30, global.PAL_FADE_NAMES, pal_fade_index(_d.target), "Fade|At once, or blend smoothly from the colours on screen over a moment - night falling, a red alert, lights going out.");
+        set_val(_d, "target", global.PAL_FADES[_fi], _rid + "fade");
+    }
     if (_act == 24)
     {
         set_val(_d, "target", ui_dropdown(_rid + "_t", _dx, _dy, LOGIC_ACTOR_W, 30, _anames, _d.target, "Which effect|An actor with the behaviour 'Effect' (Actors page) - an explosion or a sparkle. If it is already playing, the next Effect actor after it goes instead."), _rid + "t");
@@ -510,6 +522,17 @@ function logic_do_row(_d, _rid, _x, _y, _pill, _anames, _snames, _xr)
         set_val(_d, "value", ui_colour_drop(_rid + "_col", _dx, _dy, 180, 30, clamp(_d.value, 0, pal_count() - 1), "Colour|The backdrop palette colour that colour 0 (the background and border) changes to."), _rid + "col");
     }
 
+}
+
+/// The fade drop-down entry for DO 27's frames (the nearest one)
+function pal_fade_index(_frames)
+{
+    var _best = 0;
+    for (var i = 1; i < array_length(global.PAL_FADES); i++)
+    {
+        if (abs(global.PAL_FADES[i] - _frames) < abs(global.PAL_FADES[_best] - _frames)) { _best = i; }
+    }
+    return _best;
 }
 
 #macro LOGIC_DO_ROW_H 40         // each AND DO line makes a rule card this much taller

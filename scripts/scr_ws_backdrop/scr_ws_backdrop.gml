@@ -413,12 +413,18 @@ function ws_backdrop_draw(_x1, _y1, _x2, _y2)
     ui_panel(_px, _y1, _x2, _y2, "");
     var _fx = _px + 20;
     var _fw = _rw - 40;
-    var _tabw = floor((_rw - 28) / 2);
+    var _tabw = floor((_rw - 28) / 3);
     if (ui_tab("bd_tab_paint", _px + 14, _y1 + 10, _tabw, 30, "Paint", bd_panel == 0, "Paint|Tools, palette and picture import for the backdrop.")) { bd_panel = 0; }
-    if (ui_tab("bd_tab_sky", _px + 14 + _tabw, _y1 + 10, _tabw, 30, "Copper sky", bd_panel == 1, "Copper sky|The classic Amiga trick: the copper changes colour 0 on every line, giving a smooth sky behind the backdrop for free.")) { bd_panel = 1; }
+    if (ui_tab("bd_tab_pals", _px + 14 + _tabw, _y1 + 10, _tabw, 30, "Palettes", bd_panel == 2, "Palettes|Extra palettes that change some of the backdrop's colours - night, dusk, a red alert. A rule switches to one (it can fade), and each level can start with one.")) { bd_panel = 2; }
+    if (ui_tab("bd_tab_sky", _px + 14 + 2 * _tabw, _y1 + 10, _tabw, 30, "Copper sky", bd_panel == 1, "Copper sky|The classic Amiga trick: the copper changes colour 0 on every line, giving a smooth sky behind the backdrop for free.")) { bd_panel = 1; }
     if (bd_panel == 1)
     {
         backdrop_sky_panel(_fx, _y1 + 56, _fw, _y2);
+        return;
+    }
+    if (bd_panel == 2)
+    {
+        backdrop_pals_panel(_px, _fx, _y1 + 56, _fw, _x2, _y1, _y2);
         return;
     }
     // the paint tools scroll when the window is too short to show them all
@@ -564,6 +570,133 @@ function ws_backdrop_draw(_x1, _y1, _x2, _y2)
         bd_show_hills = ui_toggle("bd_hills", _fx, _y, "Show level hills", bd_show_hills, "Show hills|Draws the hills of the level selected on the Levels page over the backdrop, as the game will.");
     }
     ui_scroll_end("bd_tools", _px + 6, _y1 + 50, _x2 - 6, _y2 - 8, _tools_h);
+}
+
+/// Named palettes (right panel, "Palettes" tab): the canvas shows the one picked
+function backdrop_pals_panel(_px, _fx, _y, _fw, _x2, _y1, _y2)
+{
+    var _np = array_length(proj.palettes);
+    bd_pview = clamp(bd_pview, 0, _np);
+    var _n = pal_count();
+    var _cols = 8;
+    if (_n > 32) { _cols = 16; }
+    var _cell = floor((_fw - (_cols - 1) * 4) / _cols);
+    var _intro = "Each palette changes some of the backdrop's colours (the rest stay the main palette's). A rule switches to one - DO 'Switch palette', at once or fading - and each level can start with one (Levels page).";
+    draw_set_font(global.f_small);
+    var _ih = ceil(ui_sh_ext(_intro, _fw));
+    var _content = _ih + 16 + (_np + 1) * 36 + 46 + 30;
+    if (bd_pview > 0) { _content += 62 + ceil(_n / _cols) * (_cell + 4) + 10 + 20 + 94 + 40 + 62 + 40; }
+    if (!proj.levels_on && _np > 0) { _content += 62; }
+    var _off = ui_scroll_begin("bd_pals", _px + 6, _y1 + 50, _x2 - 6, _y2 - 8, _content);
+    _y -= _off;
+    ui_text_wrap(_fx, _y, _intro, global.TH.text_dim, _fw, global.f_small, 1);
+    _y += _ih + 16;
+    // the list: the main palette, then the named ones
+    var _names = palette_names();
+    for (var k = 0; k <= _np; k++)
+    {
+        var _st = BTN_GHOST;
+        if (bd_pview == k) { _st = BTN_ACCENT; }
+        var _lab = _names[k];
+        if (k > 0)
+        {
+            var _ch = 0;
+            for (var c = 0; c < _n; c++)
+            {
+                if (proj.palettes[k - 1].cols[c] >= 0) { _ch += 1; }
+            }
+            _lab += "   (" + string(_ch) + " changed)";
+        }
+        if (ui_button("bd_pal_row_" + string(k), _fx, _y, _fw, 30, _lab, "Palette|Click to see the backdrop in this palette and edit it. The main palette is edited on the Paint tab.", _st)) { bd_pview = k; }
+        _y += 36;
+    }
+    var _bw = floor((_fw - 8) / 2);
+    if (_np < PALETTE_MAX)
+    {
+        if (ui_button("bd_pal_new", _fx, _y, _bw, 32, "New palette", "New palette|Adds a palette that starts the same as the main one. Change its colours below, or pick a Quick look.", BTN_NORMAL))
+        {
+            undo_mark("palnew" + string(current_time));
+            array_push(proj.palettes, palette_new("Palette " + string(_np + 1)));
+            bd_pview = _np + 1;
+            proj_dirty = true;
+        }
+    }
+    if (bd_pview > 0)
+    {
+        if (ui_button("bd_pal_del", _fx + _bw + 8, _y, _bw, 32, "Delete", "Delete palette|Removes this palette. Levels and rules that used it go back to the main palette. You can Undo this.", BTN_DANGER))
+        {
+            undo_mark("paldel" + string(current_time));
+            palette_delete(bd_pview);
+            bd_pview = 0;
+            proj_dirty = true;
+        }
+    }
+    _y += 46;
+    if (bd_pview > 0)
+    {
+        var _pl = proj.palettes[bd_pview - 1];
+        ui_heading(_fx, _y, "Name");
+        set_val(_pl, "name", ui_textfield("bd_pal_name", _fx, _y + 18, _fw, 32, _pl.name, 20, "Palette name|Shown in the rules and on the Levels page."), "palname");
+        _y += 62;
+        bd_sel = ui_palette_grid("bd_pals_grid", _fx, _y, _cell, _cols, clamp(bd_sel, 0, _n - 1), "Palette colour|Click a colour to change it in this palette. A corner mark = changed from the main palette");
+        for (var m = 0; m < _n; m++)
+        {
+            if (_pl.cols[m] >= 0)
+            {
+                var _mx = _fx + (m mod _cols) * (_cell + 4);
+                var _my = _y + (m div _cols) * (_cell + 4);
+                draw_triangle_colour(_mx + 1, _my + 1, _mx + 9, _my + 1, _mx + 1, _my + 9, c_white, c_white, c_white, false);
+            }
+        }
+        _y += ceil(_n / _cols) * (_cell + 4) + 10;
+        var _was = palette_colour(bd_pview, bd_sel);
+        var _hl = "Colour " + string(bd_sel) + "   " + rgb_hex(_was);
+        if (_pl.cols[bd_sel] < 0) { _hl += "  (main)"; }
+        ui_heading(_fx, _y, _hl);
+        _y += 20;
+        var _nc = ui_rgb_sliders("bd_pal_rgb", _fx, _y, _fw, _was, "Colour in this palette|Red, green and blue for this colour while the palette is on. Moving a slider changes it from the main palette's.");
+        if (_nc != rgb_machine(_was))
+        {
+            undo_mark("palcol" + string(bd_pview) + "_" + string(bd_sel));
+            _pl.cols[bd_sel] = _nc;
+            proj_dirty = true;
+        }
+        _y += 94;
+        if (ui_button("bd_pal_same", _fx, _y, _fw, 30, "Same as the main palette", "Same as main|This colour stays the main palette's when the palette is switched on.", BTN_GHOST))
+        {
+            undo_mark("palsame" + string(current_time));
+            _pl.cols[bd_sel] = -1;
+            proj_dirty = true;
+        }
+        _y += 40;
+        ui_heading(_fx, _y, "Quick look (from the main palette)");
+        bd_pal_look = ui_dropdown("bd_pal_lookdd", _fx, _y + 18, _bw, 32, ["Darker", "Night", "Sunset", "Grey", "Red alert", "Brighter", "Same as main"], bd_pal_look, "Quick look|Makes every colour of this palette from the main palette's in one go. Then fine-tune single colours.");
+        if (ui_button("bd_pal_look", _fx + _bw + 8, _y + 18, _bw, 32, "Make it", "Make it|Sets every colour of this palette from the main palette with the look on the left. You can Undo this.", BTN_ACCENT))
+        {
+            undo_mark("pallook" + string(current_time));
+            palette_look(bd_pview, bd_pal_look);
+            proj_dirty = true;
+        }
+        _y += 62;
+        if (proj.sky_on)
+        {
+            ui_text_wrap(_fx, _y, "With the copper sky on, colour 0 is the sky: a palette doesn't change it.", global.TH.warn, _fw, global.f_small, 1);
+        }
+        _y += 40;
+    }
+    if (!proj.levels_on && _np > 0)
+    {
+        ui_heading(_fx, _y, "The game starts with");
+        var _scur = clamp(proj.level_pal[0], 0, _np);
+        var _snew = ui_dropdown("bd_pal_start", _fx, _y + 18, _fw, 30, _names, _scur, "Starting palette|The palette the game starts with (with levels on, each level picks its own on the Levels page).");
+        if (_snew != _scur)
+        {
+            undo_mark("palstart");
+            proj.level_pal[0] = _snew;
+        }
+        _y += 62;
+    }
+    ui_scroll_end("bd_pals", _px + 6, _y1 + 50, _x2 - 6, _y2 - 8, _content);
 }
 
 /// Copper sky settings (right panel, "Copper sky" tab)

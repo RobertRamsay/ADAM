@@ -16,7 +16,7 @@ def build(proj, aga):
     blob=bytearray()
     def align(n):
         while len(blob)%n: blob.append(0)
-    blob+= b'\0'*104                         # header (HDR_SIZE)
+    blob+= b'\0'*108                         # header (HDR_SIZE)
     sc=proj.get('scroll')                     # scrolling backdrop: dict(dir 1 up / 2 right / 3 down / 4 left, speed 1..16)
     if sc and (proj.get('tiles') or not sc.get('dir')): sc=None
     align(8)
@@ -364,6 +364,23 @@ def build(proj, aga):
             struct.pack_into('>LL',blob,off_map+4,off_mimg,off_cells)
             struct.pack_into('>L',blob,off_map+16,off_sp)
             struct.pack_into('>L',blob,off_scroll+12,off_map)
+    # named palettes (version 11): proj['palettes'] = [dict(name, cols=[$RRGGBB or -1 per colour])],
+    # proj['level_pal'] = the palette each level starts with (0 = the main one)
+    off_pals=0
+    pals=list(proj.get('palettes',[]))[:8]
+    if pals:
+        align(8)
+        off_pals=len(blob)
+        lp=list(proj.get('level_pal',[]))
+        blob.extend(struct.pack('>H',len(pals))+bytes(max(0,min(len(pals),lp[i] if i<len(lp) else 0)) for i in range(10)))
+        fix=len(blob)
+        blob.extend(b'\0'*4*len(pals))
+        for k,pl in enumerate(pals):
+            ents=[(i,c) for i,c in enumerate(pl['cols'][:ncol]) if c>=0]
+            struct.pack_into('>L',blob,fix+4*k,len(blob))
+            blob.extend(struct.pack('>H',len(ents)))
+            for i,c in ents: blob.extend(struct.pack('>HHL',i,0,c))
+        align(8)
     # tile world: the map as played and the scrolling picture go in cleared memory after the data
     bss=0
     if t:
@@ -383,11 +400,11 @@ def build(proj, aga):
     player=-1
     for i,a in enumerate(actors):
         if a['role'] in (0,6): player=i; break
-    hdr=struct.pack('>4sHHHHHHHHHHHH',b'ADAM',10,1 if aga else 0,depth,len(actors),len(rules),proj['lives'],
+    hdr=struct.pack('>4sHHHHHHHHHHHH',b'ADAM',11,1 if aga else 0,depth,len(actors),len(rules),proj['lives'],
                     int(proj['show_score']),int(proj['show_lives']),proj['hud_row'],proj['hud_col'],proj['msg_col'],player & 0xffff)+struct.pack('>L',off_game)
     hdr+=struct.pack('>LLLLLLLLLLLLLLL',off_pal,off_planes,off_act,off_rules,off_sfx,off_over,off_win,off_sprcol,off_disp,off_grad,off_ground,off_work,off_music,off_disp2,off_back)
-    hdr+=struct.pack('>LLL',off_tiles,off_ui,off_scroll)
-    blob[0:104]=hdr
+    hdr+=struct.pack('>LLLL',off_tiles,off_ui,off_scroll,off_pals)
+    blob[0:108]=hdr
     return bytes(blob)
 
 # ---- animations (data block version 8, 16 frames); scr_project.gml anim_plan() does the same

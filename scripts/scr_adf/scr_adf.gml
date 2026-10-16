@@ -6,7 +6,7 @@
 /// The data block layout is documented at the top of engine.s.
 
 #macro ADF_SIZE 901120
-#macro ADF_HDR 104
+#macro ADF_HDR 108
 #macro ADF_SONGS_MAX 4
 #macro RULES_DISK_MAX 128       // rules (cards) on the disk (engine.s RULES_MAX); each AND DO line adds 8 bytes
 #macro OS_RESERVE_KB 160
@@ -74,8 +74,9 @@ function adf_do_line(_b, _d, _ncol, _nsnd)
     if (_d.act == 8) { _val = clamp(_val, 0, _ncol - 1); }
     if (_d.act == 2) { _val = clamp(_val, 0, _nsnd - 1); }
     if (_d.act == 18) { _val = clamp(_val, 0, ADF_SONGS_MAX - 1); }
-    be16(_b, clamp(_d.act, 0, 26));
-    be16(_b, clamp(_d.target, 0, ACT_MAX_ALL - 1));
+    be16(_b, clamp(_d.act, 0, 27));
+    if (_d.act == 27) { be16(_b, clamp(_d.target, 0, 250)); }       // Switch palette: fade frames
+    else { be16(_b, clamp(_d.target, 0, ACT_MAX_ALL - 1)); }
     be16(_b, clamp(_val, 0, 65535));
 }
 
@@ -317,7 +318,7 @@ function disk_actor(_first, _i)
 function disk_do_line(_d, _first)
 {
     var _o = struct_overlay({}, _d);
-    _o.target = disk_actor(_first, _d.target);
+    if (do_target_is_actor(_d.act)) { _o.target = disk_actor(_first, _d.target); }
     if (do_value_is_actor(_d.act)) { _o.value = disk_actor(_first, _d.value); }
     return _o;
 }
@@ -1213,6 +1214,47 @@ function adam_data_block_raw(_p, _measure = false)
         poke32(_b, _mfix + 12, _off_msp);
         poke32(_b, _off_scroll + 12, _off_map);
     }
+
+    // named palettes (version 11): PS_N, the palette each level starts with, then each
+    // palette's changed colours { index, 0, $00RRGGBB }
+    var _off_pals = 0;
+    var _npal = min(array_length(_p.palettes), PALETTE_MAX);
+    if (_npal > 0)
+    {
+        buf_align(_b, 8);
+        _off_pals = buffer_tell(_b);
+        be16(_b, _npal);
+        for (var lpl = 0; lpl < 10; lpl++)
+        {
+            var _lpv = 0;
+            if (lpl < array_length(_p.level_pal)) { _lpv = clamp(_p.level_pal[lpl], 0, _npal); }
+            buffer_write(_b, buffer_u8, _lpv);
+        }
+        var _pfix = buffer_tell(_b);
+        for (var pf = 0; pf < _npal; pf++) { be32(_b, 0); }
+        for (var pw = 0; pw < _npal; pw++)
+        {
+            poke32(_b, _pfix + pw * 4, buffer_tell(_b));
+            var _pcs = _p.palettes[pw].cols;
+            var _pn = min(_ncol, array_length(_pcs));
+            var _ne = 0;
+            for (var pc = 0; pc < _pn; pc++)
+            {
+                if (_pcs[pc] >= 0) { _ne += 1; }
+            }
+            be16(_b, _ne);
+            for (var pe = 0; pe < _pn; pe++)
+            {
+                if (_pcs[pe] >= 0)
+                {
+                    be16(_b, pe);
+                    be16(_b, 0);
+                    be32(_b, rgb_machine(_pcs[pe]));
+                }
+            }
+        }
+        buf_align(_b, 8);
+    }
     var _size = buffer_tell(_b);
 
     // tile world: cleared memory after the data (not on the disk): the map as
@@ -1252,7 +1294,7 @@ function adam_data_block_raw(_p, _measure = false)
     if (_p.show_score) { _sc = 1; }
     var _lv = 0;
     if (_p.show_lives) { _lv = 1; }
-    poke16(_b, 4, 10);                   // data block version 10: shoot 'em up map (SC_MAP), A_TYPE..A_FPAT; 9: shoot 'em up (H_SCROLL, A_PAT..A_RANK); 8: 16-frame animation tables; 7: custom HUD (H_UI); 6: tile world (H_TILES); 5: animation tables (A_ANIM); 4: BOBs
+    poke16(_b, 4, 11);                   // data block version 11: named palettes (H_PALS); 10: shoot 'em up map (SC_MAP), A_TYPE..A_FPAT; 9: shoot 'em up (H_SCROLL, A_PAT..A_RANK); 8: 16-frame animation tables; 7: custom HUD (H_UI); 6: tile world (H_TILES); 5: animation tables (A_ANIM); 4: BOBs
     poke16(_b, 6, _flags);
     poke16(_b, 8, _depth);
     poke16(_b, 10, _na);
@@ -1283,6 +1325,7 @@ function adam_data_block_raw(_p, _measure = false)
     poke32(_b, 92, _off_tiles);
     poke32(_b, 96, _off_ui);
     poke32(_b, 100, _off_scroll);
+    poke32(_b, 104, _off_pals);
 
     for (var rm = 0; rm < _nr; rm++)
     {

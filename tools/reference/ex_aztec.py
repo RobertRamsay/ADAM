@@ -1069,7 +1069,8 @@ def jade_serpent():
                   R(when=11, a=s, b=sv, act=6, target=sv), R(when=11, a=s, b=sv, act=17),
                   R(when=11, a=s, b=sv, act=18, value=0)]
     rules += [R(when=9, a=sv, n=2, act=22, target=fire_, value=sv)]          # and spits fire at you
-    rules += [R(when=15, act=18, value=1), R(when=15, act=2, value=WARNING)]
+    rules += [R(when=15, act=18, value=1), R(when=15, act=2, value=WARNING),
+              R(when=15, act=27, target=50, value=2)]               # the alarm: a red alert, fading in over 1 s
     rules += [R(when=4, act=9), R(when=5, act=18, value=0), R(when=7, act=16, target=Q), R(when=7, act=2, value=READY),
               R(when=7, act=18, value=0)]
 
@@ -1095,4 +1096,23 @@ def jade_serpent():
     p['_gk'] = group_key(actors)
     print('jade serpent: %d tiles, %d kept' % (unique, len(tiles)))
     sh.set_depth(p)
+    # named palettes: the second temple by moonlight, and a red alert when the serpent comes
+    # (palette_look in scr_project.gml: Night and Red alert, snapped to Amiga 12-bit colours)
+    def look(kind):
+        n = 1 << p['depth']
+        q = lambda v: int(max(0, min(255, v)) / 17 + 0.5) * 17
+        out = []
+        for i in range(128):
+            if i >= n:
+                out.append(-1)
+                continue
+            c = p['pal'][i]
+            r, gg, b = c >> 16 & 255, c >> 8 & 255, c & 255
+            l = 0.3 * r + 0.59 * gg + 0.11 * b
+            if kind == 'night': r, gg, b = r * 0.25 + l * 0.1, gg * 0.3 + l * 0.12, b * 0.55 + l * 0.2 + 24
+            else: r, gg, b = l * 0.6 + 70, l * 0.25, l * 0.25
+            out.append(q(r) << 16 | q(gg) << 8 | q(b))
+        return out
+    p['palettes'] = [dict(name="Moonlight", cols=look('night')), dict(name="Red alert", cols=look('red'))]
+    p['level_pal'] = [0, 1] + [0] * 8
     return p

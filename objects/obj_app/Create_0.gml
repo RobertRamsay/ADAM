@@ -155,6 +155,8 @@ bd_pattern = 0;             // ADAM Pro: index into BD_PATTERN_LEVELS (0 = solid
 bd_grad_to = 0;             // ADAM Pro: gradient tool's end colour
 bd_grad_range = false;      // ADAM Pro: gradient goes through the palette colours in between
 bd_panel = 0;
+bd_pview = 0;               // Palettes tab: the palette being edited / shown (0 = the main one)
+bd_pal_look = 0;            // its Quick look drop-down
 // 8 x 8 Bayer matrix for ordered dithering (values 0-63)
 global.BAYER8 = [
      0, 32,  8, 40,  2, 34, 10, 42,

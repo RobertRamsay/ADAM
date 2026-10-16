@@ -306,6 +306,7 @@ function levels_side_panel(_px, _y1, _x2, _y2)
     draw_set_font(global.f_small);
     var _content = 10 + 174 + 106 + 116 + 226 + ceil(ui_sh_ext(_endnote, _fw)) + 12;
     if (proj.levels_on && _nl > 0) { _content += 256; }
+    if (proj.levels_on && _nl > 0 && array_length(proj.palettes) > 0) { _content += 62; }
     var _off = ui_scroll_begin("lvl_side", _px + 4, _y1 + 46, _x2 - 4, _y2 - 6, _content);
     _y -= _off;
     if (proj.levels_on && _nl > 0)
@@ -344,6 +345,20 @@ function levels_side_panel(_px, _y1, _x2, _y2)
             proj.level_song[lvl_sel] = _mnew - 1;
         }
         _y += 62;
+        // named palettes (Backdrop page): the colours this level starts with
+        if (array_length(proj.palettes) > 0)
+        {
+            ui_heading(_fx, _y, "Level " + string(lvl_sel + 1) + " palette");
+            var _popts = palette_names();
+            var _pcur = clamp(proj.level_pal[lvl_sel], 0, array_length(_popts) - 1);
+            var _pnew = ui_dropdown("lvl_pal", _fx, _y + 18, _fw, 30, _popts, _pcur, "Level palette|The backdrop colours this level starts with - a night level, a lava level. Make palettes on the Backdrop page (Palettes tab); a rule can switch them during the level (DO 'Switch palette').");
+            if (_pnew != _pcur)
+            {
+                undo_mark("lvlpal");
+                proj.level_pal[lvl_sel] = _pnew;
+            }
+            _y += 62;
+        }
     }
 
     ui_heading(_fx, _y, "Hill colours (all levels)");
