@@ -10,7 +10,8 @@ function examples_init()
         { file : "firefly_night.adam", file_aga : "firefly_night_a1200.adam", name : "Firefly Night", pro : true, desc : "An owl catches a swarm of 12 fireflies - BOBs - while bats hunt it." },
         { file : "dig_deep.adam", file_aga : "dig_deep_a1200.adam",    name : "Dig Deep",    pro : true,  desc : "Dig through a scrolling 128 x 64 tile world for 12 gold, Terraria style, past slimes, bats and a mole." },
         { file : "nebula_strike.adam", file_aga : "nebula_strike_a1200.adam", name : "Nebula Strike", pro : true, desc : "A side-scrolling shoot 'em up: grab Power, Speed and Multiple capsules, then take on the battleship guarding the warp gate." },
-        { file : "starfire.adam", file_aga : "starfire_a1200.adam",    name : "Starfire",    pro : true,  desc : "A vertical shoot 'em up down a space station's trench: power up your fighter, pick up options and break the mothership." }
+        { file : "starfire.adam", file_aga : "starfire_a1200.adam",    name : "Starfire",    pro : true,  desc : "A vertical shoot 'em up down a space station's trench: power up your fighter, pick up options and break the mothership." },
+        { file : "jade_serpent.adam", file_aga : "jade_serpent_a1200.adam", name : "Jade Serpent", pro : true, desc : "Fly a jade glider up a jungle river, over moss-grown ruins and a step pyramid to the serpent temple: waves from spawners, totems that split, homing missiles and a feathered serpent boss." }
     ];
 }
 

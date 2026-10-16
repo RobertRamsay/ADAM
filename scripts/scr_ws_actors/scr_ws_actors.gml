@@ -101,13 +101,14 @@ function bobs_load()
 /// scroll fetches one word early and takes sprite 7's time, as in a tile world
 function scroll_across(_p)
 {
-    return !_p.tiles_on && (_p.scroll_dir == 2 || _p.scroll_dir == 4);
+    return !_p.tiles_on && !_p.shmup_map && (_p.scroll_dir == 2 || _p.scroll_dir == 4);
 }
 
-/// True when the backdrop scrolls (a shoot 'em up; not in a tile world)
+/// True when the backdrop scrolls (a shoot 'em up; not in a tile world), or the ship
+/// flies up a shoot 'em up map (Tiles page)
 function scroll_on_disk(_p)
 {
-    return !_p.tiles_on && _p.scroll_dir > 0;
+    return !_p.tiles_on && (_p.scroll_dir > 0 || _p.shmup_map);
 }
 
 /// How many actors go on the disk: up to 12 in ADAM Lite, 32 in ADAM Pro
@@ -330,6 +331,7 @@ function ws_actors_draw(_x1, _y1, _x2, _y2)
     {
         backdrop_draw(_fx, _fy, _scale);
         terrain_draw(_fx, _fy, _scale);
+        _ox = -shmup_xoff();                // a shoot 'em up map: x is across its play area
     }
     // the ground line that walkers, hoppers and fallers stand on
     if (!proj.tiles_on && current_time - ground_cache_time > 400)
@@ -349,6 +351,14 @@ function ws_actors_draw(_x1, _y1, _x2, _y2)
         }
     }
     draw_set_alpha(1);
+    var _sxo = shmup_xoff();                // a shoot 'em up map: the sides outside the play area
+    if (_sxo > 0)
+    {
+        draw_set_alpha(0.55);
+        draw_rectangle_colour(_fx, _fy, _fx + _sxo * _scale - 1, _fy + _fh - 1, c_black, c_black, c_black, c_black, false);
+        draw_rectangle_colour(_fx + _fw - _sxo * _scale, _fy, _fx + _fw - 1, _fy + _fh - 1, c_black, c_black, c_black, c_black, false);
+        draw_set_alpha(1);
+    }
 
     var _sthelp = "Stage|Drag actors to set where they start. Hidden actors are drawn faded.";
     if (proj.tiles_on) { _sthelp = "Stage|A screen of the tile world round the selected actor: drag actors to set where they start. To place them anywhere on the map, use the Map on the Tiles page."; }
@@ -503,7 +513,7 @@ function ws_actors_draw(_x1, _y1, _x2, _y2)
     if (_s.role == 9)
     {
         ui_heading(_fx2, _y, "Flies");
-        set_val(_s, "aim", ui_dropdown("act_aim", _fx2, _y + 18, _fw2, 32, global.AIM_NAMES, clamp(_s.aim, 0, 5), "Which way it flies|'The way the shooter moves': the player shoots the way the joystick points (or it last moved; a platform player the way it faces). Up / Down / Left / Right: always that way - a rocket's laser goes up. 'At the player': an enemy aims at the player (8 directions)."), "actaim");
+        set_val(_s, "aim", ui_dropdown("act_aim", _fx2, _y + 18, _fw2, 32, global.AIM_NAMES, clamp(_s.aim, 0, 6), "Which way it flies|'The way the shooter moves': the player shoots the way the joystick points (or it last moved; a platform player the way it faces). Up / Down / Left / Right: always that way - a rocket's laser goes up. 'At the player': an enemy aims straight at the player. 'Homing missile': it steers at the nearest enemy it can hit (one a WHEN 'Thrown or shot actor hits' rule names) - the player fires as many as DO 'Power up the player' with 'Homing missiles' gave it (none to start with); give it 8-direction animations so it turns as it flies."), "actaim");
         _y += 62;
     }
     if (_s.role == 10)
@@ -521,6 +531,44 @@ function ws_actors_draw(_x1, _y1, _x2, _y2)
         ui_heading(_fx2, _y, "Toughness (hits)");
         set_val(_s, "hits", ui_stepper("act_hits", _fx2, _y + 18, _half, _s.hits, 1, 99, "Toughness|How many shots it takes before WHEN 'Thrown or shot actor hits' fires. Each hit before that flashes it white. 1 for small fry, 40 for a boss."), "acthits");
         _y += 62;
+    }
+    if (_s.role != 0 && _s.role != 6)
+    {
+        ui_heading(_fx2, _y, "Copies on the disk");
+        set_val(_s, "copies", ui_stepper("act_copies", _fx2, _y + 18, _half, _s.copies, 1, COPIES_MAX, "Copies|How many of this actor go on the disk - a pool of shots for rapid fire, a wave of enemies a spawner sends out, explosions that can go off at once. Rules name the actor and mean every copy of it (the one that touched, was hit... is the one the rule changes). Copies after the first start hidden. Each copy is an actor on the disk (up to " + string(lim_actors()) + ")."), "actcopies");
+        _y += 62;
+    }
+    if (_s.role != 0 && _s.role != 6 && _s.role != 9 && _s.role != 11 && _s.role != 12)
+    {
+        // it fires by itself: which shot, how, how often
+        ui_heading(_fx2, _y, "Fires by itself");
+        var _fids = [-1];
+        var _fnames = ["(no - only rules make it fire)"];
+        for (var fa = 0; fa < _na; fa++)
+        {
+            if (proj.actors[fa].role == 9 || fa == _s.fire)
+            {
+                array_push(_fids, fa);
+                array_push(_fnames, proj.actors[fa].name);
+            }
+        }
+        var _fcur = 0;
+        for (var fq = 0; fq < array_length(_fids); fq++)
+        {
+            if (_fids[fq] == _s.fire) { _fcur = fq; }
+        }
+        var _fsel = ui_dropdown("act_fire", _fx2, _y + 18, _fw2, 32, _fnames, _fcur, "Fires by itself|While it is on the screen it fires this Shot actor every so often - no rule needed. Give the shot Copies so several can fly at once, and make WHEN 'Thrown or shot actor hits' rules for when it hits the player.");
+        set_val(_s, "fire", _fids[_fsel], "actfire");
+        _y += 58;
+        if (_s.fire >= 0)
+        {
+            ui_heading(_fx2, _y, "How it fires");
+            set_val(_s, "fire_pat", ui_dropdown("act_fpat", _fx2, _y + 18, _fw2, 32, global.FIRE_PAT_NAMES, clamp(_s.fire_pat, 0, 4), "How it fires|The shot's own aim: the way set on the shot. At the player: straight at the player. Three at the player: a spread of three. Ring of 8: in every direction (a boss). Fan of three: a spread the shot's own way."), "actfpat");
+            _y += 58;
+            ui_heading(_fx2, _y, "Every (50ths of a second)");
+            set_val(_s, "fire_rate", ui_stepper("act_frate", _fx2, _y + 18, _half, _s.fire_rate, 10, 500, "Fire rate|50ths of a second between volleys, give or take a little (50 = once a second). Hold Shift for steps of 10."), "actfrate");
+            _y += 62;
+        }
     }
     _y += 6;
     var _sd = actor_dims(_s);

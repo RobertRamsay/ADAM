@@ -826,7 +826,87 @@ def game_block(p):
     return dict(levels=lv,terrain=p['levels_on'] and bool(p['levels']) and p.get('hills_on',True),cols=p['terrain_cols'],goal=p['goal'] if p['goal_on'] else 0,
                 title=p['title_on'],label=p['goal_label'],title1=p['title1'],title2=p['title2'],levtxt=p['lev_text'])
 
+def disk_actors(p):
+    # as actors_disk_list in scr_ws_actors: each actor, then its copies (Actors page 'Copies'),
+    # up to 32 on the disk (a tile world: 7). A run of shots with the same aim and speed, or of
+    # effects with the same picture, are copies of the first of the run too (rapid fire, several
+    # explosions at once). -> [(actor index, disk index of its type)], and each actor's first
+    # disk index (-1: not on the disk)
+    lim=7 if p.get('tiles_on') else 32
+    out=[]; first=[]
+    acts=p['actors']
+    for i,a in enumerate(acts):
+        head=len(out)
+        if head>=lim:
+            first.append(-1); continue
+        typ=head
+        if i>0 and first[i-1]>=0:
+            b=acts[i-1]
+            if (a['role']==9 and b['role']==9 and a.get('aim',0)==b.get('aim',0) and a['speed']==b['speed']) or \
+               (a['role']==12 and b['role']==12 and a['sprite']==b['sprite']):
+                typ=out[first[i-1]][1]
+        first.append(head)
+        for k in range(max(1,min(16,a.get('copies',1)))):
+            if len(out)>=lim: break
+            out.append((i,typ))
+    return out,first
+
+def disk_project(p):
+    # the project as the disk sees it: a record per actor and copy, rules naming disk actors
+    out,first=disk_actors(p)
+    def m(i):
+        if 0<=i<len(first) and first[i]>=0: return first[i]
+        return 0
+    spawned=set(s['act'] for s in p.get('spawners',[])) if p.get('shmup_map') else set()
+    acts=[]
+    for d,(i,typ) in enumerate(out):
+        a=dict(p['actors'][i])
+        k=d-first[i]
+        if k>0 or i in spawned: a['visible']=False     # copies wait for a spawner / Shoot / Spawn
+        a['_type']=typ
+        f=a.get('fire',-1)
+        a['_fire']=first[f] if 0<=f<len(first) and first[f]>=0 else -1
+        acts.append(a)
+    def rl(d):
+        d=dict(d); d['target']=m(d['target'])
+        if d['act'] in (14,22,24,25): d['value']=m(d['value'])
+        return d
+    rules=[]
+    for r in p['rules']:
+        r2=rl(r); r2['a']=m(r['a']); r2['b']=m(r['b'])
+        r2['more']=[rl(x) for x in r.get('more',[])]
+        rules.append(r2)
+    pd=dict(p,actors=acts,rules=rules)
+    pd['_first']=first
+    return pd
+
+def spawner_records(pd,p):
+    # as adf_spawners in scr_adf: each spawner of the shoot 'em up map as the engine reads it
+    # (engine.s SP_*), in the order they go off (from the bottom of the map up)
+    first=pd['_first']; rows=p['map_h']; out=[]
+    pw=p['map_w']*16                            # the play area's width (the map's tiles across)
+    for n,s in enumerate(p.get('spawners',[])):
+        ai=s.get('act',0)
+        if not (0<=ai<len(first)) or first[ai]<0: continue
+        a=p['actors'][ai]; sp=p['sprites'][a['sprite']]
+        w,h=(sp.get('w',16),sp.get('h',24)) if (a.get('bob') or sp.get('w',16)>16 or sp.get('h',24)>24) else (16,24)
+        pat=s.get('pattern',-1); pp=a.get('pattern',0) if pat<0 else pat
+        edge=s.get('edge',0)&3; x=s['x']; y=s['y']; at=s.get('at',40)
+        trig=y
+        if pp==4: trig=y+h; sx,sy=x,-h
+        elif edge==0: sx,sy=x,-h
+        elif edge==2: sx,sy=x,256
+        elif edge==3: sx,sy=-w,at
+        else: sx,sy=pw,at
+        trig=max(0,min(rows*16,trig))
+        out.append((trig,n,dict(trig=trig,x=sx,y=sy,act=first[ai],n=max(1,min(16,s.get('n',1))),gap=max(0,min(250,s.get('gap',20))),
+                                pat=0xff if pat<0 else max(0,min(5,pat)),edge=edge,dx=s.get('dx',0))))
+    out.sort(key=lambda e:(-e[0],e[1]))
+    return [e[2] for e in out]
+
 def to_builder(p):
+    p0=p
+    p=disk_project(p0)
     chan,conf,owner=alloc(p)
     aga=p.get('machine')=='A1200'
     def qm(c):
@@ -839,7 +919,8 @@ def to_builder(p):
     for i,a in enumerate(p['actors'][:32]):
         d=dict(x=a['x'],y=a['y'],role=a['role'],speed=a['speed'],visible=int(a['visible']),left=int(a['start_left']),up=int(a['start_up']),
                sprite=a['sprite'],chan=max(0,chan[i]),anim=a['anim_sprite'],rate=a['anim_rate'],amode=int(a['anim_moving']),anims=a.get('anims',[]),carry=a.get('carry',False),aim=a.get('aim',0),flip=a.get('anim_flip',False),dirs=a.get('anim_dirs',False),
-               pattern=a.get('pattern',0),enter=a.get('enter',0),comeback=a.get('comeback',True),hits=a.get('hits',1),**{'from':a['from_level'],'fast':a['faster_every']})
+               pattern=a.get('pattern',0),enter=a.get('enter',0),comeback=a.get('comeback',True),hits=a.get('hits',1),
+               type=a['_type'],fire=a['_fire'],frate=a.get('fire_rate',60),fpat=a.get('fire_pat',0),**{'from':a['from_level'],'fast':a['faster_every']})
         if chan[i]<0:
             d['bob']=1; d['bobmap']=[pal_nearest(p,c) for c in p['sprites'][a['sprite']]['cols']]
         acts.append(d)
@@ -855,6 +936,10 @@ def to_builder(p):
                       panel=(ui_ref.panel_pixels(uu,p['pixels']) if u.get('frame_on',True) else None))
     if p.get('tiles_on'):
         bp['tiles']=dict(w=p['map_w'],h=p['map_h'],dig=p['tile_dig'],tiles=p['tiles'],map=p['map'],size=p.get('tile_size',16),tools=p.get('tools',[]))
+    elif p.get('shmup_map'):
+        # a shoot 'em up map (version 10): 20 x map_h tiles of 16 that scroll past once, flying up
+        bp['scroll']=dict(dir=1,speed=p.get('scroll_speed',4),
+                          map=dict(rows=p['map_h'],cols=p['map_w'],tiles=[t['px'] for t in p['tiles']],cells=p['map'],spawners=spawner_records(p,p0)))
     elif p.get('scroll_dir',0):
         bp['scroll']=dict(dir=p['scroll_dir'],speed=p.get('scroll_speed',4))
     return bp, conf
@@ -886,11 +971,11 @@ def preview(p,fn):
 if __name__=='__main__':
     OUT=os.path.join(HERE,'out'); os.makedirs(OUT,exist_ok=True)
     sys.modules['gen_examples']=sys.modules['__main__']   # one AGA state for ex_dig_deep too
-    import ex_dig_deep, ex_shmup
+    import ex_dig_deep, ex_shmup, ex_aztec
     only=sys.argv[1:]                           # e.g. python gen_examples.py nebula_strike: just that one
     for fn,make in [('gem_hunter',gem_hunter),('deep_dive',deep_dive),('star_catcher',star_catcher),('dodge_ball',dodge_ball),
                     ('firefly_night',firefly_night),('dig_deep',ex_dig_deep.dig_deep),
-                    ('nebula_strike',ex_shmup.nebula_strike),('starfire',ex_shmup.starfire)]:
+                    ('nebula_strike',ex_shmup.nebula_strike),('starfire',ex_shmup.starfire),('jade_serpent',ex_aztec.jade_serpent)]:
       if only and fn not in only: continue
       for aga in (False,True):
         # every example also comes as an A1200 version with smooth in-between colours (<name>_a1200.adam)

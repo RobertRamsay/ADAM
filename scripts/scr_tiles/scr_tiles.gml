@@ -300,7 +300,9 @@ function tiles_fix(_p)
     _p.tiles = _t;
     if (!is_numeric(_p.map_w)) { _p.map_w = 64; }
     if (!is_numeric(_p.map_h)) { _p.map_h = 32; }
-    var _mw = clamp(floor(_p.map_w), map_w_min(_s), min(MAP_MAX, WORLD_PX_MAX div _s));
+    var _wmin = map_w_min(_s);
+    if (is_bool(_p.shmup_map) && _p.shmup_map) { _wmin = min(_wmin, SHMUP_COLS_MIN); }    // a shoot 'em up map: its play area
+    var _mw = clamp(floor(_p.map_w), _wmin, min(MAP_MAX, WORLD_PX_MAX div _s));
     var _mh = clamp(floor(_p.map_h), map_h_min(_s), min(MAP_MAX, WORLD_PX_MAX div _s));
     var _n = _mw * _mh;
     if (!is_array(_p.map) || array_length(_p.map) != floor(_p.map_w) * floor(_p.map_h))
@@ -324,6 +326,124 @@ function tiles_fix(_p)
     if (!is_bool(_p.tiles_on)) { _p.tiles_on = (is_numeric(_p.tiles_on) && _p.tiles_on != 0); }
     if (!is_bool(_p.tile_dig)) { _p.tile_dig = (is_numeric(_p.tile_dig) && _p.tile_dig != 0); }
     tools_fix(_p);
+}
+
+/// Checks a loaded project's shoot 'em up map, spawners and stamps (after tiles_fix)
+function shmup_fix(_p, _raw)
+{
+    if (!is_bool(_p.shmup_map)) { _p.shmup_map = (is_numeric(_p.shmup_map) && _p.shmup_map != 0); }
+    if (_p.tiles_on || _p.tile_size != 16 || !shmup_cols_ok(_p.map_w)) { _p.shmup_map = false; }
+    if (_p.shmup_map) { _p.scroll_dir = 1; }
+    var _sp = [];
+    var _ls = _raw[$ "spawners"];
+    if (is_array(_ls))
+    {
+        for (var i = 0; i < min(SPAWN_MAX, array_length(_ls)); i++)
+        {
+            var _s = spawner_from_loaded(_ls[i]);
+            if (_s.act < array_length(_p.actors)) { array_push(_sp, _s); }
+        }
+    }
+    _p.spawners = _sp;
+    var _st = [];
+    var _lst = _raw[$ "stamps"];
+    if (is_array(_lst))
+    {
+        for (var k = 0; k < min(STAMP_MAX, array_length(_lst)); k++)
+        {
+            var _m = stamp_from_loaded(_lst[k]);
+            if (!is_undefined(_m)) { array_push(_st, _m); }
+        }
+    }
+    _p.stamps = _st;
+}
+
+/// A shoot 'em up map's width in tiles (its play area) is even, 12 to 20
+function shmup_cols_ok(_w)
+{
+    return is_numeric(_w) && _w >= SHMUP_COLS_MIN && _w <= SHMUP_COLS_MAX && (_w mod 2) == 0;
+}
+
+/// Where the shoot 'em up map's play area starts across the screen (it is centred);
+/// 0 for anything else. Actors' x on a shoot 'em up map is across the play area.
+function shmup_xoff()
+{
+    if (proj.shmup_map && !proj.tiles_on) { return (BD_W - proj.map_w * 16) div 2; }
+    return 0;
+}
+
+/// Turns the shoot 'em up map on: tiles of 16, 12 to 20 across (a new one 12), at least
+/// 16 high, the ship flying up. The caller moves the actors into the play area.
+function shmup_map_on()
+{
+    if (proj.tile_size != 16) { tile_set_size(16); }
+    proj.tiles_on = false;
+    proj.shmup_map = true;
+    proj.scroll_dir = 1;
+    if (!shmup_cols_ok(proj.map_w) || proj.map_h < 16)
+    {
+        var _w = SHMUP_COLS_NEW;
+        if (shmup_cols_ok(proj.map_w)) { _w = proj.map_w; }
+        map_resize(proj, _w, max(16, proj.map_h));
+    }
+    tile_map_dirty = true;
+}
+
+/// The shoot 'em up map's play area _w tiles across (even, 12 to 20): columns come and go
+/// at both sides, so the middle stays put (the play area is centred on the screen);
+/// spawners and actors move with the map
+function shmup_set_cols(_w)
+{
+    _w = clamp(_w, SHMUP_COLS_MIN, SHMUP_COLS_MAX);
+    if ((_w mod 2) != 0) { _w -= 1; }
+    var _ow = proj.map_w;
+    if (_w == _ow) { return; }
+    var _d = (_w - _ow) div 2;              // columns added at each side (less than 0: cut)
+    var _h = proj.map_h;
+    var _nm = array_create(_w * _h, 0);
+    for (var my = 0; my < _h; my++)
+    {
+        for (var mx = 0; mx < _w; mx++)
+        {
+            var _src = mx - _d;
+            if (_src >= 0 && _src < _ow) { _nm[my * _w + mx] = proj.map[my * _ow + _src]; }
+        }
+    }
+    proj.map = _nm;
+    proj.map_w = _w;
+    var _px = _d * 16;
+    for (var s = 0; s < array_length(proj.spawners); s++)
+    {
+        proj.spawners[s].x = clamp(proj.spawners[s].x + _px, -64, _w * 16);
+    }
+    for (var a = 0; a < array_length(proj.actors); a++)
+    {
+        var _ad = actor_dims(proj.actors[a]);
+        proj.actors[a].x = clamp(proj.actors[a].x + _px, 0, max(0, _w * 16 - _ad[0]));
+    }
+    tile_map_dirty = true;
+}
+
+/// A shoot 'em up map _h rows high: rows come and go at the top, so the bottom (where the
+/// ship starts) stays; spawners move with the map, and go when their rows go
+function shmup_resize(_h)
+{
+    var _w = proj.map_w;
+    var _d = _h - proj.map_h;              // rows added at the top
+    var _nm = array_create(_w * _h, 0);
+    for (var my = 0; my < _h; my++)
+    {
+        var _src = my - _d;
+        if (_src < 0 || _src >= proj.map_h) { continue; }
+        for (var mx = 0; mx < _w; mx++) { _nm[my * _w + mx] = proj.map[_src * _w + mx]; }
+    }
+    proj.map = _nm;
+    proj.map_h = _h;
+    for (var s = array_length(proj.spawners) - 1; s >= 0; s--)
+    {
+        proj.spawners[s].y += _d * 16;
+        if (proj.spawners[s].y < 0) { array_delete(proj.spawners, s, 1); }
+    }
 }
 
 /// A starter world: sky, grass, dirt, stone and bedrock across the map
@@ -385,10 +505,12 @@ function tile_set_size(_new)
     tiles_mark_all();
 }
 
-/// Width and height of the world actors move in: the screen, or the tile map
+/// Width and height of the world actors move in: the screen, the tile map, or a shoot
+/// 'em up map's play area
 function world_w()
 {
     if (proj.tiles_on) { return proj.map_w * proj.tile_size; }
+    if (proj.shmup_map) { return proj.map_w * 16; }
     return BD_W;
 }
 
@@ -747,36 +869,58 @@ function ws_tiles_draw(_x1, _y1, _x2, _y2)
         _S = proj.tile_size;
     }
     _ly += 40;
-    ui_heading(_x1 + 16, _ly, "Tile world");
-    _ly += 20;
-    var _on = ui_toggle("tile_on", _x1 + 16, _ly, "Use a tile world", proj.tiles_on, "Tile world|The game plays on this map instead of the backdrop: it scrolls left, right, up and down as the player moves, and actors stand on solid tiles. The backdrop is still used for the title, the level cards and the HUD strip at the top. Up to 7 actors, all hardware sprites (the scrolling takes the 8th sprite's time).");
-    if (_on != proj.tiles_on)
+    ui_heading(_x1 + 16, _ly, "The game plays on");
+    _ly += 18;
+    var _wcur = 0;
+    if (proj.tiles_on) { _wcur = 1; }
+    if (proj.shmup_map) { _wcur = 2; }
+    var _wnew = ui_dropdown("tile_world", _x1 + 16, _ly, _lw - 32, 30, ["The backdrop", "A tile world", "A shoot 'em up map"], _wcur, "The game plays on|The backdrop: the picture from the Backdrop page (it can scroll and loop - Levels page).||A tile world: this map scrolls left, right, up and down as the player moves, and actors stand on solid tiles. Up to 7 actors, all hardware sprites (the scrolling takes the 8th sprite's time). A shoot 'em up map: the ship flies up this map once, from the bottom to the top - 12 to 20 tiles of 16 across, centred on the screen (a narrower play area is less to draw, so an A500 keeps up). Place spawners on it (Spawn tool) that send out waves of enemies as the view gets there. Scroll speed: Levels page. At the top, WHEN 'The map reaches its end' rules fire (bring on the boss). The backdrop is still used for the title, the level cards and the HUD strip at the top.");
+    if (_wnew != _wcur)
     {
         undo_mark_full("tileon" + string(current_time));
+        var _xo0 = shmup_xoff();            // (actors keep their place on the screen)
+        var _on = (_wnew == 1);
         proj.tiles_on = _on;
+        if (_wnew == 2) { shmup_map_on(); }
+        else
+        {
+            proj.shmup_map = false;
+            if (proj.scroll_dir == 1 && _wcur == 2) { proj.scroll_dir = 0; }
+            if (_on && proj.map_w < map_w_min(proj.tile_size)) { map_resize(proj, map_w_min(proj.tile_size), proj.map_h); }
+        }
         if (_on)
         {
             // actors start near the top left of the map, inside it
             for (var a = 0; a < array_length(proj.actors); a++)
             {
-                proj.actors[a].x = clamp(proj.actors[a].x, 0, world_w() - SPR_W);
+                proj.actors[a].x = clamp(proj.actors[a].x + _xo0, 0, world_w() - SPR_W);
                 proj.actors[a].y = clamp(proj.actors[a].y, 0, world_h() - SPR_H);
             }
         }
         else
         {
-            // back on the backdrop: bring actors placed deep in the map onto the screen
+            // back on the backdrop (or a shoot 'em up map's play area): bring actors placed
+            // deep in the map onto the screen
+            var _xo1 = shmup_xoff();
             for (var b = 0; b < array_length(proj.actors); b++)
             {
                 var _ad = actor_dims(proj.actors[b]);
-                proj.actors[b].x = clamp(proj.actors[b].x, 0, BD_W - _ad[0]);
+                proj.actors[b].x = clamp(proj.actors[b].x + _xo0 - _xo1, 0, world_w() - _ad[0]);
                 proj.actors[b].y = clamp(proj.actors[b].y, 0, BD_H - _ad[1]);
             }
         }
     }
-    _ly += 32;
-    set_val(proj, "tile_dig", ui_toggle("tile_dig", _x1 + 16, _ly, "Dig and place", proj.tile_dig, "Dig and place|The player digs: fire + a direction digs the tile that way (each tile says how long it takes), fire on its own puts the last tile dug back down in front of it. Up jumps. The HUD shows the tile carried and how many. With tools (Tools tab), space picks a tool and fire uses it."), "tiledig");
-    _ly += 36;
+    _ly += 38;
+    if (proj.shmup_map)
+    {
+        ui_text_wrap(_x1 + 16, _ly, "Flies up once, from the bottom. Speed: Levels page.", global.TH.text_faint, _lw - 32, global.f_small, 1);
+        _ly += 32;
+    }
+    else
+    {
+        set_val(proj, "tile_dig", ui_toggle("tile_dig", _x1 + 16, _ly, "Dig and place", proj.tile_dig, "Dig and place|The player digs: fire + a direction digs the tile that way (each tile says how long it takes), fire on its own puts the last tile dug back down in front of it. Up jumps. The HUD shows the tile carried and how many. With tools (Tools tab), space picks a tool and fire uses it."), "tiledig");
+        _ly += 36;
+    }
     ui_heading(_x1 + 16, _ly, "Map size (tiles)");
     _ly += 18;
     var _hw = floor((_lw - 32 - 8) / 2);
@@ -788,12 +932,29 @@ function ws_tiles_draw(_x1, _y1, _x2, _y2)
     if (!pro_edition()) { _prohelp = " ADAM Pro goes to " + string(min(MAP_MAX, WORLD_PX_MAX div _S)) + "."; }
     var _mwhelp = "Map width|In tiles of " + string(_S) + " pixels: " + string(map_w_min(_S)) + " to " + string(map_w_max(_S)) + " (a screen is " + string(320 div _S) + "). Hold Shift for steps of 10. Making it smaller cuts off the right-hand side." + _prohelp;
     var _mhhelp = "Map height|In tiles of " + string(_S) + " pixels: " + string(map_h_min(_S)) + " to " + string(map_h_max(_S)) + " (a screen is " + string(256 div _S) + "). Hold Shift for steps of 10. Making it smaller cuts off the bottom." + _prohelp;
-    var _nw = ui_stepper("tile_mw", _x1 + 16, _ly, _hw, proj.map_w, map_w_min(_S), _mwmax, _mwhelp);
-    var _nh = ui_stepper("tile_mh", _x1 + 16 + _hw + 8, _ly, _hw, proj.map_h, map_h_min(_S), _mhmax, _mhhelp);
+    var _mwmin = map_w_min(_S);
+    var _mhmin = map_h_min(_S);
+    if (proj.shmup_map)
+    {
+        // a shoot 'em up map's width is its play area, centred on the screen
+        _mwmin = SHMUP_COLS_MIN;
+        _mwmax = SHMUP_COLS_MAX;
+        _mhmin = 16;
+        _mwhelp = "Map width|The play area, in tiles of 16 pixels: " + string(SHMUP_COLS_MIN) + " to " + string(SHMUP_COLS_MAX) + " in steps of 2 (20 is the whole screen), centred on the screen. A narrower play area is less to draw, so an A500 keeps up with more on the screen. Columns come and go at both sides; spawners and actors move with the map.";
+        _mhhelp = "Map height|In tiles of 16 pixels: 16 is one screen; 200 is about 80 seconds of flying at speed 3. Hold Shift for steps of 10. Rows come and go at the top (the ship starts at the bottom), and the spawners move with the map.";
+    }
+    var _nw = ui_stepper("tile_mw", _x1 + 16, _ly, _hw, proj.map_w, _mwmin, _mwmax, _mwhelp);
+    var _nh = ui_stepper("tile_mh", _x1 + 16 + _hw + 8, _ly, _hw, proj.map_h, _mhmin, _mhmax, _mhhelp);
     if (_nw != proj.map_w || _nh != proj.map_h)
     {
         undo_mark("tilesize");
-        map_resize(proj, _nw, _nh);
+        if (proj.shmup_map)
+        {
+            if (_nh != proj.map_h) { shmup_resize(_nh); }
+            if (_nw > proj.map_w) { shmup_set_cols(max(_nw, proj.map_w + 2)); }      // (steps of 2)
+            if (_nw < proj.map_w) { shmup_set_cols(min(_nw, proj.map_w - 2)); }
+        }
+        else { map_resize(proj, _nw, _nh); }
         tile_map_dirty = true;
     }
     _ly += 40;
@@ -816,8 +977,18 @@ function ws_tiles_draw(_x1, _y1, _x2, _y2)
         else { tiles_map_editor(_cx1, _y1 + 50, _cx2, _y2); }
     }
 
-    // ---------------- right: the picked tile ----------------
+    // ---------------- right: the picked tile (Stamp / Spawn tools: their settings) ----------------
     var _rx = _x2 - _rw;
+    if (tile_page == 0 && tile_tool == 3)
+    {
+        tiles_stamp_panel(_rx, _y1, _x2, _y2);
+        return;
+    }
+    if (tile_page == 0 && tile_tool == 4 && proj.shmup_map)
+    {
+        tiles_spawn_panel(_rx, _y1, _x2, _y2);
+        return;
+    }
     var _t = proj.tiles[tile_sel];
     ui_panel(_rx, _y1, _x2, _y2, "Tile " + string(tile_sel) + ": " + _t.name);
     var _fx = _rx + 20;
@@ -1051,12 +1222,22 @@ function tiles_map_editor(_x1, _y1, _x2, _y2)
     var _S = proj.tile_size;
     var _mw = proj.map_w * _S;
     var _mh = proj.map_h * _S;
-    // tools
-    var _tools = ["Paint", "Box", "Pick"];
-    var _toolh = ["Paint|Left-click paints the picked tile, right-click paints air.", "Box|Drag a box to fill it with the picked tile (right-drag: air).", "Pick|Click a tile on the map to pick it."];
-    for (var tl = 0; tl < 3; tl++)
+    // tools (Spawn only on a shoot 'em up map)
+    var _shm = proj.shmup_map;
+    var _tools = ["Paint", "Box", "Pick", "Stamp"];
+    var _toolh = ["Paint|Left-click paints the picked tile, right-click paints air.", "Box|Drag a box to fill it with the picked tile (right-drag: air).", "Pick|Click a tile on the map to pick it.",
+                  "Stamp|Drag a box over the map to copy that block of tiles (a metatile: a temple, a tree, a gun platform), then click to stamp it down anywhere - as often as you like. Right-click lets go of it. Save stamps you use often (right panel)."];
+    if (_shm)
     {
-        if (ui_tab("tile_tool_" + string(tl), _x2 - 16 - (3 - tl) * 90, _y1 - 38, 86, 30, _tools[tl], tile_tool == tl, _toolh[tl])) { tile_tool = tl; }
+        array_push(_tools, "Spawn");
+        array_push(_toolh, "Spawn|Click the map to put a spawner there: when the view reaches it, it sends out a wave of an actor (right panel: which actor, how many, how they fly, where from). Drag a spawner to move it; right-click one to remove it.");
+    }
+    if (!_shm && tile_tool == 4) { tile_tool = 0; }
+    var _ntl = array_length(_tools);
+    var _tstep = min(90, floor((_x2 - 16 - (_x1 + 16 + 3 * 106 + 8)) / _ntl));
+    for (var tl = 0; tl < _ntl; tl++)
+    {
+        if (ui_tab("tile_tool_" + string(tl), _x2 - 16 - (_ntl - tl) * _tstep, _y1 - 38, _tstep - 4, 30, _tools[tl], tile_tool == tl, _toolh[tl])) { tile_tool = tl; }
     }
     var _vx1 = _x1 + 16;
     var _vy1 = _y1 + 4;
@@ -1085,13 +1266,20 @@ function tiles_map_editor(_x1, _y1, _x2, _y2)
     ui_rrect(_dx - 4, _dy - 4, _dx + _vw * _sc + 4, _dy + _vh * _sc + 4, 8, c_black, c_black, 0.35);
     tile_map_draw(_dx, _dy, tile_camx, tile_camy, _vw, _vh, _sc);
 
-    // the screen the Amiga shows at the start (round the player)
+    // the screen the Amiga shows at the start (round the player; a shoot 'em up map: the bottom)
     var _pl = -1;
     for (var a = 0; a < array_length(proj.actors); a++)
     {
         if ((proj.actors[a].role == 0 || proj.actors[a].role == 6) && _pl < 0) { _pl = a; }
     }
-    if (_pl >= 0)
+    if (_shm)
+    {
+        var _by0 = _dy + (_mh - BD_H - tile_camy) * _sc;
+        draw_set_alpha(0.6);
+        draw_rectangle_colour(_dx + (0 - tile_camx) * _sc, _by0, _dx + (_mw - tile_camx) * _sc, _by0 + BD_H * _sc, c_white, c_white, c_white, c_white, true);
+        draw_set_alpha(1);
+    }
+    else if (_pl >= 0)
     {
         var _sx = clamp(proj.actors[_pl].x + 8 - 160, 0, _mw - BD_W);
         var _sy = clamp(proj.actors[_pl].y + 12 - 136, 0, _mh - BD_H);
@@ -1102,11 +1290,14 @@ function tiles_map_editor(_x1, _y1, _x2, _y2)
         draw_set_alpha(1);
     }
 
-    // actors on the map: drag them to where they start
+    // actors on the map: drag them to where they start (on a shoot 'em up map they are
+    // on the screen, not the map: the spawners show instead)
     var _alloc = actors_alloc_channels();
     var _hover = -1;
     var _inview = ui_hit(_dx, _dy, _dx + _vw * _sc, _dy + _vh * _sc);
-    for (var d = array_length(proj.actors) - 1; d >= 0; d--)
+    var _sphover = -1;
+    if (_shm) { _sphover = spawners_draw(_dx, _dy, _vw, _vh, _sc, _alloc, _inview); }
+    for (var d = array_length(proj.actors) - 1; d >= 0 && !_shm; d--)
     {
         var _ac = proj.actors[d];
         var _ax = _dx + (_ac.x - tile_camx) * _sc;
@@ -1118,6 +1309,7 @@ function tiles_map_editor(_x1, _y1, _x2, _y2)
         if (_inview && point_in_rectangle(ui_mx, ui_my, _ax, _ay, _ax + SPR_W * _sc, _ay + SPR_H * _sc) && _hover < 0) { _hover = d; }
     }
     var _help = "Map|Paint with the tile picked on the left (right-click: air). Drag an actor to move where it starts. Mouse wheel scrolls (Shift: sideways, Ctrl: zoom); drag with the middle button or Space held to move the view. The white box is the first screen the Amiga shows.";
+    if (_shm) { _help = "Shoot 'em up map|The ship flies up it from the white box at the bottom. Paint with the tile picked on the left (right-click: air); Stamp copies blocks of tiles; Spawn places spawners (the actors on it). Mouse wheel scrolls (Ctrl: zoom); drag with the middle button or Space held to move the view."; }
     ui_register("tile_map", _dx, _dy, _dx + _vw * _sc, _dy + _vh * _sc, _help);
     var _cellx = floor((ui_mx - _dx) / _sc + tile_camx) div _S;
     var _celly = floor((ui_my - _dy) / _sc + tile_camy) div _S;
@@ -1172,8 +1364,52 @@ function tiles_map_editor(_x1, _y1, _x2, _y2)
         }
     }
 
-    // painting
-    if (!tile_pan && tile_drag_actor < 0 && _inview)
+    // spawners (Spawn tool): pick, drag, add, remove
+    if (_shm && tile_tool == 4 && !tile_pan) { spawners_edit(_dx, _dy, _sc, _sphover, _inview); }
+
+    // the stamp: a ghost of it under the mouse; click stamps it down, right-click lets go
+    var _stamping = (tile_tool == 3 && tile_stamp.w > 0);
+    if (_stamping && !tile_pan && _inview)
+    {
+        var _gx0 = _dx + (_cellx * _S - tile_camx) * _sc;
+        var _gy0 = _dy + (_celly * _S - tile_camy) * _sc;
+        draw_set_alpha(0.55);
+        for (var sr = 0; sr < tile_stamp.h; sr++)
+        {
+            for (var sc2 = 0; sc2 < tile_stamp.w; sc2++)
+            {
+                if (_cellx + sc2 >= proj.map_w || _celly + sr >= proj.map_h) { continue; }
+                tile_draw(clamp(tile_stamp.cells[sr * tile_stamp.w + sc2], 0, array_length(proj.tiles) - 1), _gx0 + sc2 * _S * _sc, _gy0 + sr * _S * _sc, _S * _sc);
+            }
+        }
+        draw_set_alpha(1);
+        draw_rectangle_colour(_gx0, _gy0, _gx0 + tile_stamp.w * _S * _sc - 1, _gy0 + tile_stamp.h * _S * _sc - 1, global.TH.accent, global.TH.accent, global.TH.accent, global.TH.accent, true);
+        if (ui_pressed)
+        {
+            ui_take_click();
+            undo_mark("tilestamp" + string(current_time));
+            for (var pr = 0; pr < tile_stamp.h; pr++)
+            {
+                for (var pc = 0; pc < tile_stamp.w; pc++)
+                {
+                    var _tc = _cellx + pc;
+                    var _trow = _celly + pr;
+                    if (_tc < 0 || _trow < 0 || _tc >= proj.map_w || _trow >= proj.map_h) { continue; }
+                    proj.map[_trow * proj.map_w + _tc] = clamp(tile_stamp.cells[pr * tile_stamp.w + pc], 0, array_length(proj.tiles) - 1);
+                }
+            }
+            proj_dirty = true;
+            tile_map_dirty = true;
+        }
+        if (ui_rpressed)
+        {
+            ui_take_click();
+            tile_stamp = { name : "", w : 0, h : 0, cells : [] };
+        }
+    }
+
+    // painting (Paint, Box, Pick - and Stamp's box that copies a block)
+    if (!tile_pan && tile_drag_actor < 0 && _inview && (tile_tool <= 2 || (tile_tool == 3 && !_stamping)))
     {
         if (_cellx >= 0 && _celly >= 0 && _cellx < proj.map_w && _celly < proj.map_h)
         {
@@ -1184,6 +1420,12 @@ function tiles_map_editor(_x1, _y1, _x2, _y2)
             {
                 ui_take_click();
                 if (tile_tool == 2) { tile_sel = proj.map[_celly * proj.map_w + _cellx]; }
+                else if (tile_tool == 3)
+                {
+                    tile_painting = true;
+                    tile_box_c = _cellx;
+                    tile_box_r = _celly;
+                }
                 else if (tile_sel >= lim_tiles() && !ui_rpressed)
                 {
                     lim_toast("Tiles past " + string(lim_tiles()) + " are air on the disk", string(TILE_MAX) + " tiles");
@@ -1212,7 +1454,7 @@ function tiles_map_editor(_x1, _y1, _x2, _y2)
             }
         }
     }
-    if (tile_painting && tile_tool == 1)
+    if (tile_painting && (tile_tool == 1 || tile_tool == 3))
     {
         var _c0 = min(tile_box_c, _cellx);
         var _c1 = max(tile_box_c, _cellx);
@@ -1223,7 +1465,24 @@ function tiles_map_editor(_x1, _y1, _x2, _y2)
         var _bx2 = _dx + ((_c1 + 1) * _S - tile_camx) * _sc;
         var _by2 = _dy + ((_r1 + 1) * _S - tile_camy) * _sc;
         draw_rectangle_colour(_bx1, _by1, _bx2, _by2, global.TH.accent, global.TH.accent, global.TH.accent, global.TH.accent, true);
-        if (!ui_held && !ui_rheld)
+        if (tile_tool == 3 && !ui_held && !ui_rheld)
+        {
+            // Stamp: copy the block (up to 64 x 64 tiles)
+            _c0 = clamp(_c0, 0, proj.map_w - 1);
+            _r0 = clamp(_r0, 0, proj.map_h - 1);
+            _c1 = clamp(_c1, _c0, min(proj.map_w - 1, _c0 + 63));
+            _r1 = clamp(_r1, _r0, min(proj.map_h - 1, _r0 + 63));
+            var _sw = _c1 - _c0 + 1;
+            var _shh = _r1 - _r0 + 1;
+            var _cells = array_create(_sw * _shh, 0);
+            for (var cr = 0; cr < _shh; cr++)
+            {
+                for (var cc = 0; cc < _sw; cc++) { _cells[cr * _sw + cc] = proj.map[(_r0 + cr) * proj.map_w + _c0 + cc]; }
+            }
+            tile_stamp = { name : "", w : _sw, h : _shh, cells : _cells };
+            tile_painting = false;
+        }
+        else if (!ui_held && !ui_rheld)
         {
             for (var br = max(0, _r0); br <= min(proj.map_h - 1, _r1); br++)
             {
@@ -1242,6 +1501,322 @@ function tiles_map_editor(_x1, _y1, _x2, _y2)
         var _under = proj.map[_celly * proj.map_w + _cellx];
         _st += "  -  column " + string(_cellx) + ", row " + string(_celly) + ": " + proj.tiles[_under].name;
     }
-    if (!proj.tiles_on) { _st += "  -  switch 'Use a tile world' on (left) to play on this map"; }
+    if (_shm)
+    {
+        if (_inview && _celly >= 0 && _celly < proj.map_h) { _st += "  -  map line " + string(floor((ui_my - _dy) / _sc + tile_camy)); }
+        _st += "  -  " + string(array_length(proj.spawners)) + " spawners";
+    }
+    else if (!proj.tiles_on) { _st += "  -  pick 'A tile world' or 'A shoot 'em up map' (left) to play on this map"; }
     ui_text(_x1 + 20, _y2 - 20, ui_text_fit(_st, global.f_small, _x2 - _x1 - 40), global.TH.text_dim, fa_left, fa_middle, global.f_small, 1);
+}
+
+// ---------------------------------------------------------------------------
+// Shoot 'em up map: spawners (Spawn tool) and stamps (Stamp tool)
+// ---------------------------------------------------------------------------
+
+
+/// Where spawner _s's first actor shows on the map: { x, y, w, h } in map pixels (where it
+/// comes into view when the view's top reaches the spawner's line)
+function spawner_rect(_s)
+{
+    var _a = proj.actors[clamp(_s.act, 0, array_length(proj.actors) - 1)];
+    var _d = actor_dims(_a);
+    var _pp = _s.pattern;
+    if (_pp < 0) { _pp = _a.pattern; }
+    var _rx = _s.x;
+    var _ry = _s.y - _d[1];
+    if (_pp == 4) { _ry = _s.y; }                       // on the ground: it sits there
+    else if (_s.edge == 1)
+    {
+        _rx = world_w() - _d[0];
+        _ry = _s.y + _s.at;
+    }
+    else if (_s.edge == 3)
+    {
+        _rx = 0;
+        _ry = _s.y + _s.at;
+    }
+    else if (_s.edge == 2) { _ry = _s.y + BD_H; }
+    return { x : _rx, y : _ry, w : _d[0], h : _d[1] };
+}
+
+/// Draws the spawners on the map view; returns the one under the mouse (-1 none)
+function spawners_draw(_dx, _dy, _vw, _vh, _sc, _alloc, _inview)
+{
+    var _na = array_length(proj.actors);
+    if (_na == 0) { return -1; }
+    var _hover = -1;
+    var _edit = (tile_tool == 4);
+    for (var i = 0; i < array_length(proj.spawners); i++)
+    {
+        var _s = proj.spawners[i];
+        if (_s.act < 0 || _s.act >= _na) { continue; }
+        var _a = proj.actors[_s.act];
+        var _r = spawner_rect(_s);
+        var _ax = _dx + (_r.x - tile_camx) * _sc;
+        var _ay = _dy + (_r.y - tile_camy) * _sc;
+        if (_ay > _dy + _vh * _sc || _ay + _r.h * _sc < _dy) { continue; }
+        var _alpha = 1;
+        if (!_edit) { _alpha = 0.55; }
+        var _spr = actor_preview_sprite(_a);
+        var _cols = actor_cols_from(_alloc, _s.act);
+        if (_s.edge == 0 || _s.edge == 2)
+        {
+            // the rest of the wave, spaced across, fainter
+            for (var k = min(_s.n, 8) - 1; k >= 1; k--)
+            {
+                var _kx = _ax + k * _s.dx * _sc;
+                if (_s.dx == 0) { _kx = _ax + k * 3 * _sc; }
+                draw_sprite_amiga_cols(_spr, _kx, _ay, _sc, _cols, _alpha * 0.35);
+            }
+        }
+        draw_sprite_amiga_cols(_spr, _ax, _ay, _sc, _cols, _alpha);
+        var _lab = _a.name;
+        if (_s.n > 1) { _lab = string(_s.n) + " x " + _lab; }
+        if (_edit || i == tile_spawn_sel) { ui_text(_ax, _ay - 2, _lab, global.TH.text, fa_left, fa_bottom, global.f_small, _alpha); }
+        if (i == tile_spawn_sel && _edit)
+        {
+            draw_rectangle_colour(_ax - 2, _ay - 2, _ax + _r.w * _sc + 1, _ay + _r.h * _sc + 1, global.TH.accent, global.TH.accent, global.TH.accent, global.TH.accent, true);
+            var _ly = _dy + (_s.y - tile_camy) * _sc;    // the line it goes off at
+            draw_set_alpha(0.5);
+            draw_line_colour(_dx, _ly, _dx + _vw * _sc, _ly, global.TH.accent, global.TH.accent);
+            draw_set_alpha(1);
+        }
+        if (_inview && _hover < 0 && point_in_rectangle(ui_mx, ui_my, _ax, _ay, _ax + _r.w * _sc, _ay + _r.h * _sc)) { _hover = i; }
+    }
+    return _hover;
+}
+
+/// The Spawn tool on the map: click a spawner to pick it and drag it, click elsewhere to
+/// put a new one there, right-click one to remove it
+function spawners_edit(_dx, _dy, _sc, _hover, _inview)
+{
+    var _na = array_length(proj.actors);
+    if (_na == 0) { return; }
+    var _mx = (ui_mx - _dx) / _sc + tile_camx;
+    var _my = (ui_my - _dy) / _sc + tile_camy;
+    if (_inview && ui_pressed)
+    {
+        ui_take_click();
+        if (_hover >= 0)
+        {
+            tile_spawn_sel = _hover;
+            undo_mark("spmove" + string(current_time));
+        }
+        else if (array_length(proj.spawners) >= SPAWN_MAX)
+        {
+            toast("A map has up to " + string(SPAWN_MAX) + " spawners", 1);
+            tile_spawn_sel = -1;
+        }
+        else
+        {
+            undo_mark("spadd" + string(current_time));
+            var _act = tile_spawn_act;
+            if (_act < 0 || _act >= _na)
+            {
+                // the first flyer, else the first actor that is not the player
+                _act = 0;
+                for (var a = _na - 1; a >= 0; a--)
+                {
+                    if (proj.actors[a].role == 10) { _act = a; }
+                }
+                if (proj.actors[_act].role != 10 && _na > 1) { _act = 1; }
+            }
+            var _d = actor_dims(proj.actors[_act]);
+            var _ns = spawner_new(0, _act);
+            _ns.x = clamp(round(_mx - _d[0] / 2), -64, world_w());
+            if (proj.actors[_act].pattern == 4) { _ns.y = round(_my - _d[1] / 2); }
+            else { _ns.y = round(_my + _d[1] / 2); }
+            _ns.y = clamp(_ns.y, 0, proj.map_h * 16);
+            array_push(proj.spawners, _ns);
+            tile_spawn_sel = array_length(proj.spawners) - 1;
+        }
+        if (tile_spawn_sel >= 0)
+        {
+            tile_spawn_drag = true;
+            tile_spawn_dx = _mx - proj.spawners[tile_spawn_sel].x;
+            tile_spawn_dy = _my - proj.spawners[tile_spawn_sel].y;
+        }
+    }
+    if (_inview && ui_rpressed && _hover >= 0)
+    {
+        ui_take_click();
+        undo_mark("spdel" + string(current_time));
+        array_delete(proj.spawners, _hover, 1);
+        tile_spawn_sel = -1;
+        tile_spawn_drag = false;
+    }
+    if (tile_spawn_drag)
+    {
+        if (!ui_held) { tile_spawn_drag = false; }
+        else if (tile_spawn_sel >= 0 && tile_spawn_sel < array_length(proj.spawners))
+        {
+            var _sp = proj.spawners[tile_spawn_sel];
+            _sp.x = clamp(round(_mx - tile_spawn_dx), -64, world_w());
+            _sp.y = clamp(round(_my - tile_spawn_dy), 0, proj.map_h * 16);
+            proj_dirty = true;
+        }
+    }
+}
+
+/// Right panel with the Spawn tool: the spawner picked (or what new ones send out)
+function tiles_spawn_panel(_x1, _y1, _x2, _y2)
+{
+    var _n = array_length(proj.spawners);
+    ui_panel(_x1, _y1, _x2, _y2, "Spawners (" + string(_n) + " / " + string(SPAWN_MAX) + ")");
+    var _fx = _x1 + 20;
+    var _fw = _x2 - _x1 - 40;
+    var _y = _y1 + 56;
+    var _na = array_length(proj.actors);
+    if (_na == 0)
+    {
+        ui_text_wrap(_fx, _y, "Make some actors first (Actors page): a spawner sends out copies of one.", global.TH.text_dim, _fw, global.f_body, 1);
+        return;
+    }
+    var _names = actor_names();
+    tile_spawn_sel = clamp(tile_spawn_sel, -1, _n - 1);
+    if (tile_spawn_sel < 0)
+    {
+        var _intro = "Click the map to put a spawner there. When the view climbs to it, it sends out a wave of an actor: its copies (Actors page, Copies), one after another, flying a pattern. Enemies 'On the ground' stay where you put them and scroll past with the map - gun turrets, idols. Drag a spawner to move it; right-click it to remove it.";
+        ui_text_wrap(_fx, _y, _intro, global.TH.text_dim, _fw, global.f_body, 1);
+        draw_set_font(global.f_body);
+        _y += ceil(ui_sh_ext(_intro, _fw)) + 14;
+        ui_heading(_fx, _y, "New spawners send out");
+        var _cur = tile_spawn_act;
+        if (_cur < 0 || _cur >= _na) { _cur = 0; }
+        tile_spawn_act = ui_dropdown("sp_newact", _fx, _y + 18, _fw, 30, _names, _cur, "New spawners send out|The actor a new spawner sends out. Change it for each spawner afterwards too.");
+        return;
+    }
+    var _s = proj.spawners[tile_spawn_sel];
+    var _half = floor((_fw - 12) / 2);
+    ui_heading(_fx, _y, "Sends out");
+    set_val(_s, "act", ui_dropdown("sp_act", _fx, _y + 18, _fw, 30, _names, clamp(_s.act, 0, _na - 1), "Sends out|The actor of the wave. It goes on the disk hidden and comes out when the view reaches the spawner. Give it Copies (Actors page) to send out more than one at once."), "spact");
+    tile_spawn_act = _s.act;
+    var _a = proj.actors[clamp(_s.act, 0, _na - 1)];
+    _y += 58;
+    ui_heading(_fx, _y, "How many");
+    ui_heading(_fx + _half + 12, _y, "Frames apart");
+    set_val(_s, "n", ui_stepper("sp_n", _fx, _y + 18, _half, _s.n, 1, COPIES_MAX, "How many|The wave: this many of the actor, one after another. Each one is a copy that is not out yet - give the actor enough Copies (Actors page)."), "spn");
+    set_val(_s, "gap", ui_stepper("sp_gap", _fx + _half + 12, _y + 18, _half, _s.gap, 0, 250, "Frames apart|50ths of a second between one and the next: 0 sends them all at once (side by side, 'Spacing'), 20 is a quick line."), "spgap");
+    _y += 62;
+    ui_heading(_fx, _y, "Flight pattern");
+    var _fpn = global.PATTERN_NAMES;
+    var _pn = ["The actor's own (" + _fpn[clamp(_a.pattern, 0, 5)] + ")"];
+    for (var pq = 0; pq < 6; pq++) { array_push(_pn, _fpn[pq]); }
+    var _pi = ui_dropdown("sp_pat", _fx, _y + 18, _fw, 30, _pn, _s.pattern + 1, "Flight pattern|How this wave flies (it only changes this wave, not the actor). On the ground: it sits on the map where you put it and scrolls past (turrets) - it still fires. Comes in and stays: it flies in to its place (the actor's place on the Actors page) and patrols there (a boss).");
+    set_val(_s, "pattern", _pi - 1, "sppat");
+    _y += 58;
+    var _pp = _s.pattern;
+    if (_pp < 0) { _pp = _a.pattern; }
+    if (_pp != 4)
+    {
+        ui_heading(_fx, _y, "Comes in from");
+        set_val(_s, "edge", ui_dropdown("sp_edge", _fx, _y + 18, _fw, 30, ["The top", "The right", "Behind (the bottom)", "The left"], _s.edge, "Comes in from|The edge of the screen the wave comes in from."), "spedge");
+        _y += 58;
+    }
+    if (_pp == 4 || _s.edge == 0 || _s.edge == 2)
+    {
+        ui_heading(_fx, _y, "Across (pixels)");
+        ui_heading(_fx + _half + 12, _y, "Spacing");
+        set_val(_s, "x", ui_stepper("sp_x", _fx, _y + 18, _half, _s.x, -64, world_w(), "Across|Where the first one is across the play area, in pixels (0 left, " + string(world_w() - 16) + " right for one 16 wide). Hold Shift for steps of 10."), "spx");
+        set_val(_s, "dx", ui_stepper("sp_dx", _fx + _half + 12, _y + 18, _half, _s.dx, -160, 160, "Spacing|Each next one comes in this many pixels further across (negative: to the left) - a line or a V across the screen."), "spdx");
+    }
+    else
+    {
+        ui_heading(_fx, _y, "Height on the screen");
+        set_val(_s, "at", ui_stepper("sp_at", _fx, _y + 18, _fw, _s.at, 0, 255, "Height on the screen|How far down the screen the wave comes in from the side, in pixels (0 top, 232 bottom). Hold Shift for steps of 10."), "spat");
+    }
+    _y += 62;
+    ui_heading(_fx, _y, "Map line (where it goes off)");
+    set_val(_s, "y", ui_stepper("sp_y", _fx, _y + 18, _fw, _s.y, 0, proj.map_h * 16, "Map line|It goes off when the top of the view reaches this line of the map (0 is the top of the map, where the boss waits). Or drag it on the map. Hold Shift for steps of 10."), "spy");
+    _y += 62;
+    if (_a.copies < _s.n)
+    {
+        var _cw = " copies";
+        if (_a.copies == 1) { _cw = " copy"; }
+        var _warnc = _a.name + " has " + string(_a.copies) + _cw + " - the wave sends out the ones that are free. More: Actors page, Copies.";
+        ui_text_wrap(_fx, _y, _warnc, global.TH.warn, _fw, global.f_small, 1);
+        draw_set_font(global.f_small);
+        _y += ceil(ui_sh_ext(_warnc, _fw)) + 8;
+    }
+    if (ui_button("sp_dup", _fx, _y, _half, 30, "Copy", "Copy this spawner|A copy of it a screen further up the map.", BTN_NORMAL))
+    {
+        if (array_length(proj.spawners) < SPAWN_MAX)
+        {
+            undo_mark("spdup" + string(current_time));
+            var _cp = struct_overlay(spawner_new(0, 0), _s);
+            _cp.y = max(0, _s.y - 256);
+            array_push(proj.spawners, _cp);
+            tile_spawn_sel = array_length(proj.spawners) - 1;
+        }
+    }
+    if (ui_button("sp_del", _fx + _half + 12, _y, _half, 30, "Remove", "Remove this spawner|You can Undo it.", BTN_DANGER))
+    {
+        undo_mark("spdel" + string(current_time));
+        array_delete(proj.spawners, tile_spawn_sel, 1);
+        tile_spawn_sel = -1;
+    }
+    _y += 40;
+    if (ui_button("sp_none", _fx, _y, _fw, 30, "Done (pick none)", "Pick none|Lets go of this spawner, to set what new ones send out.", BTN_GHOST)) { tile_spawn_sel = -1; }
+}
+
+/// Right panel with the Stamp tool: the block held, saving it, and the saved stamps
+function tiles_stamp_panel(_x1, _y1, _x2, _y2)
+{
+    var _n = array_length(proj.stamps);
+    ui_panel(_x1, _y1, _x2, _y2, "Stamps (" + string(_n) + ")");
+    var _fx = _x1 + 20;
+    var _fw = _x2 - _x1 - 40;
+    var _y = _y1 + 56;
+    var _intro = "Drag a box on the map to copy that block of tiles, then click to stamp it down - a temple, a tree, a gun platform built once and used again. Right-click lets go of it.";
+    ui_text_wrap(_fx, _y, _intro, global.TH.text_dim, _fw, global.f_body, 1);
+    draw_set_font(global.f_body);
+    _y += ceil(ui_sh_ext(_intro, _fw)) + 12;
+    if (tile_stamp.w > 0)
+    {
+        ui_heading(_fx, _y, "Holding " + string(tile_stamp.w) + " x " + string(tile_stamp.h) + " tiles");
+        _y += 20;
+        var _cell = max(2, min(16, floor(_fw / tile_stamp.w), floor(96 / tile_stamp.h)));
+        for (var r = 0; r < tile_stamp.h; r++)
+        {
+            for (var c = 0; c < tile_stamp.w; c++) { tile_draw(clamp(tile_stamp.cells[r * tile_stamp.w + c], 0, array_length(proj.tiles) - 1), _fx + c * _cell, _y + r * _cell, _cell); }
+        }
+        _y += tile_stamp.h * _cell + 10;
+        if (ui_button("stamp_save", _fx, _y, _fw, 30, "Save as a stamp", "Save this stamp|Keeps it in the list below, to pick again whenever you need it (it is saved with the project).", BTN_NORMAL))
+        {
+            if (_n < STAMP_MAX)
+            {
+                undo_mark("stampsave" + string(current_time));
+                var _cells = array_create(array_length(tile_stamp.cells), 0);
+                array_copy(_cells, 0, tile_stamp.cells, 0, array_length(tile_stamp.cells));
+                array_push(proj.stamps, { name : "Stamp " + string(_n + 1), w : tile_stamp.w, h : tile_stamp.h, cells : _cells });
+            }
+            else { toast("Up to " + string(STAMP_MAX) + " stamps", 1); }
+        }
+        _y += 42;
+    }
+    ui_heading(_fx, _y, "Saved stamps");
+    _y += 20;
+    var _del = -1;
+    for (var i = 0; i < _n; i++)
+    {
+        if (_y + 30 > _y2 - 10) { break; }
+        var _st = proj.stamps[i];
+        var _nm = ui_textfield("stamp_nm" + string(i), _fx, _y, _fw - 128, 30, _st.name, 24, "Stamp name|Click to rename it.");
+        set_val(_st, "name", _nm, "stampname" + string(i));
+        if (ui_button("stamp_use" + string(i), _fx + _fw - 120, _y, 70, 30, "Use", "Use this stamp|" + string(_st.w) + " x " + string(_st.h) + " tiles: click the map to stamp it down.", BTN_NORMAL))
+        {
+            var _cc = array_create(array_length(_st.cells), 0);
+            array_copy(_cc, 0, _st.cells, 0, array_length(_st.cells));
+            tile_stamp = { name : _st.name, w : _st.w, h : _st.h, cells : _cc };
+        }
+        if (ui_button("stamp_del" + string(i), _fx + _fw - 42, _y, 42, 30, "X", "Remove this stamp|You can Undo it.", BTN_DANGER)) { _del = i; }
+        _y += 38;
+    }
+    if (_del >= 0)
+    {
+        undo_mark("stampdel" + string(current_time));
+        array_delete(proj.stamps, _del, 1);
+    }
+    if (_n == 0) { ui_text_wrap(_fx, _y, "None yet.", global.TH.text_faint, _fw, global.f_small, 1); }
 }

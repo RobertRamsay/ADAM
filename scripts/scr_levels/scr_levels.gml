@@ -368,8 +368,17 @@ function levels_side_panel(_px, _y1, _x2, _y2)
     // a scrolling backdrop (shoot 'em ups): the picture wraps round as the player flies on
     ui_heading(_fx, _y, "Scrolling backdrop");
     _y += 20;
-    set_val(proj, "scroll_dir", ui_dropdown("lvl_scroll", _fx, _y, _half, 30, global.SCROLL_NAMES, clamp(proj.scroll_dir, 0, 4), "Scrolling|The backdrop scrolls past for ever, the way the player flies: up for a vertical shoot 'em up, right for a side-scroller. Draw the backdrop so its left and right (or top and bottom) edges join up. The score bar stays at the top. Flying left or right uses one hardware sprite's time (7 sprites). Not in a tile world."), "scrolldir");
-    if (proj.scroll_dir > 0)
+    if (proj.shmup_map)
+    {
+        // the ship flies up the shoot 'em up map (Tiles page) instead
+        ui_register("lvl_scroll_map", _fx, _y, _fx + _half, _y + 30, "Scrolling|The ship flies up the shoot 'em up map made on the Tiles page, once, from the bottom to the top. Pick 'The backdrop' there to scroll the backdrop instead.");
+        ui_text(_fx, _y + 15, ui_text_fit("Up the map (Tiles page)", global.f_body, _half), global.TH.text_dim, fa_left, fa_middle, global.f_body, 1);
+    }
+    else
+    {
+        set_val(proj, "scroll_dir", ui_dropdown("lvl_scroll", _fx, _y, _half, 30, global.SCROLL_NAMES, clamp(proj.scroll_dir, 0, 4), "Scrolling|The backdrop scrolls past for ever, the way the player flies: up for a vertical shoot 'em up, right for a side-scroller. Draw the backdrop so its left and right (or top and bottom) edges join up. The score bar stays at the top. Flying left or right uses one hardware sprite's time (7 sprites). Not in a tile world. For a level you fly through once, with waves placed along it, make a shoot 'em up map on the Tiles page."), "scrolldir");
+    }
+    if (proj.scroll_dir > 0 || proj.shmup_map)
     {
         set_val(proj, "scroll_speed", ui_stepper("lvl_sspeed", _fx + _half + 12, _y, _half, proj.scroll_speed, 1, 16, "Scroll speed|In quarter pixels a frame: 4 is one pixel a frame (50 a second), 2 a gentle drift, 8 fast."), "scrollspeed");
     }

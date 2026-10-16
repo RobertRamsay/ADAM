@@ -123,6 +123,7 @@ function logic_sentence(_r)
         case 12: _s += "the player picks up " + _an; break;
         case 13: _s += "the level has run " + string(_r.n) + " seconds"; break;
         case 14: _s += "fire is held (every " + string(_r.n) + " 50ths of a second)"; break;
+        case 15: _s += "the shoot 'em up map reaches its end"; break;
     }
     _s += ", " + logic_do_phrase(_r, _names, _na);
     for (var m = 0; m < array_length(_r.more); m++)
@@ -176,18 +177,24 @@ function logic_do_phrase(_d, _names, _na)
             _s += "shoot " + _tn + " from " + _fn;
             break;
         case 23:
-            switch (clamp(_d.value, 0, 3))
+            switch (clamp(_d.value, 0, 4))
             {
                 case 0: _s += "give the player more firepower"; break;
                 case 1: _s += "make the player faster"; break;
                 case 2: _s += "give the player an option"; break;
                 case 3: _s += "the player loses every power-up"; break;
+                case 4: _s += "give the player a homing missile"; break;
             }
             break;
         case 24:
             var _en = "?";
             if (_d.value < _na) { _en = _names[_d.value]; }
             _s += "set off " + _tn + " at " + _en;
+            break;
+        case 25:
+            var _sn = "?";
+            if (_d.value < _na) { _sn = _names[_d.value]; }
+            _s += "a " + _tn + " comes out of " + _sn;
             break;
     }
     return _s;
@@ -428,7 +435,15 @@ function logic_do_row(_d, _rid, _x, _y, _pill, _anames, _snames, _xr)
     }
     if (_act == 23)
     {
-        set_val(_d, "value", ui_dropdown(_rid + "_pow", _dx, _dy, 220, 30, global.POWER_NAMES, clamp(_d.value, 0, 3), "Power-up|Firepower: each one adds shots to every volley (1, 2 side by side, a 3-way spread, then 4), up to 3 times. Speed: the player moves one step faster, up to 8. Add an option: the next hidden Option actor (Actors page) joins the player and fires with it. Lose all: back to the start (when the player is hit). Power-ups carry over to the next level."), _rid + "pow");
+        set_val(_d, "value", ui_dropdown(_rid + "_pow", _dx, _dy, 220, 30, global.POWER_NAMES, clamp(_d.value, 0, 4), "Power-up|Firepower: each one adds shots to every volley (1, 2 side by side, a 3-way spread, then 4), up to 3 times. Speed: the player moves one step faster, up to 8. Add an option: the next hidden Option actor (Actors page) joins the player and fires with it. Lose all: back to the start (when the player is hit). Homing missiles: a Shoot rule firing a shot with the aim 'Homing missile' sends one missile, then two - they steer at the nearest enemy the shot can hit. Power-ups carry over to the next level."), _rid + "pow");
+    }
+    if (_act == 25)
+    {
+        set_val(_d, "target", ui_dropdown(_rid + "_t", _dx, _dy, LOGIC_ACTOR_W, 30, _anames, _d.target, "Which actor comes out|A copy of this actor that is not out yet comes out (give it Copies on the Actors page). A big enemy that splits into small ones, a hatch that lets out a fighter. It flies its pattern from there; each next one zigzags off the other way."), _rid + "t");
+        _dx += LOGIC_ACTOR_W + 10;
+        var _spx = logic_word(_dx, _dy, "at");
+        var _spw = max(100, min(LOGIC_ACTOR_W, _xr - _spx));
+        set_val(_d, "value", ui_dropdown(_rid + "_spat", _spx, _dy, _spw, 30, _anames, clamp(_d.value, 0, max(0, array_length(proj.actors) - 1)), "At which actor|It comes out centred on this actor - the one that was hit (WHEN 'Thrown or shot actor hits')."), _rid + "spat");
     }
     if (_act == 24)
     {

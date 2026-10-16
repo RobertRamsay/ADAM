@@ -195,7 +195,13 @@ sel_actor = 0;
 tile_page = 0;              // 0 = Map, 1 = Tile set, 2 = Tools
 tile_sel = 1;               // tile picked
 tile_pen = 1;               // colour the tile editor draws with
-tile_tool = 0;              // map: 0 paint, 1 box, 2 pick
+tile_tool = 0;              // map: 0 paint, 1 box, 2 pick, 3 stamp, 4 spawn (shoot 'em up map)
+tile_stamp = { name : "", w : 0, h : 0, cells : [] };    // the Stamp tool's block of cells (w 0 = none yet: drag a box to copy one)
+tile_spawn_sel = -1;        // the spawner picked (Spawn tool)
+tile_spawn_drag = false;    // dragging it
+tile_spawn_dx = 0;          // where it was grabbed
+tile_spawn_dy = 0;
+tile_spawn_act = -1;        // the actor a new spawner sends out (-1: the first flyer)
 tile_zoom = 2;              // map view: 0.25, 0.5, 1, 2, 3 or 4
 tile_camx = 0;              // map pixel at the top left of the map view
 tile_camy = 0;

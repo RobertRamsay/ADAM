@@ -16,17 +16,18 @@
 function project_defs_init()
 {
     global.ROLE_NAMES = ["Player (joystick)", "Bouncer (diagonal)", "Patrol left-right", "Patrol up-down", "Chaser (follows player)", "Still (does not move)", "Platform player (walks + jumps)", "Hopper (jumps left and right)", "Faller (drops onto the ground)", "Shot (fired by a Shoot rule)", "Flyer (shoot 'em up enemy)", "Option (flies behind the player)", "Effect (explosion, sparkle)"];
-    global.WHEN_NAMES = ["Actor touches actor", "Fire button is pressed", "Every few seconds", "Score reaches", "Lives run out", "The game starts", "Actor jumps", "A level starts", "Fire is held (stick still)", "Actor is in view", "Player strikes actor", "Thrown or shot actor hits", "Player picks up actor", "Seconds into the level", "Fire is held (auto-fire)"];
+    global.WHEN_NAMES = ["Actor touches actor", "Fire button is pressed", "Every few seconds", "Score reaches", "Lives run out", "The game starts", "Actor jumps", "A level starts", "Fire is held (stick still)", "Actor is in view", "Player strikes actor", "Thrown or shot actor hits", "Player picks up actor", "Seconds into the level", "Fire is held (auto-fire)", "The map reaches its end"];
     global.DO_NAMES   = ["Add to score", "Lose a life", "Play a sound", "Flash the screen", "Send actor back to start",
                          "Move actor to a random spot", "Hide actor", "Show actor", "Change background colour",
                          "Game over", "You win!", "Speed up actor", "Slow down actor", "Add a life", "Move actor to another actor",
                          "Show actor for a moment", "Make actor safe for a while", "Count towards the level goal",
                          "Play music", "Stop music", "Place a tile (tile world)", "Drop what is carried", "Shoot (fire a shot actor)",
-                         "Power up the player", "Set off an effect"];
-    global.AIM_NAMES = ["The way the shooter moves", "Up", "Down", "Left", "Right", "At the player"];
+                         "Power up the player", "Set off an effect", "Spawn actor (split into)"];
+    global.AIM_NAMES = ["The way the shooter moves", "Up", "Down", "Left", "Right", "At the player", "Homing missile"];
+    global.FIRE_PAT_NAMES = ["The shot's own aim", "At the player", "Three at the player", "Ring of 8", "Fan of three"];
     global.PATTERN_NAMES = ["Straight", "Wave", "Zigzag", "Homing (drifts at the player)", "Moves with the scenery", "Comes in and stays (boss)"];
     global.EDGE_NAMES = ["Top", "Right", "Bottom", "Left"];
-    global.POWER_NAMES = ["Firepower (more shots)", "Speed", "Add an option", "Lose all power-ups"];
+    global.POWER_NAMES = ["Firepower (more shots)", "Speed", "Add an option", "Lose all power-ups", "Homing missiles"];
     global.SCROLL_NAMES = ["No scrolling", "Flies up", "Flies right", "Flies down", "Flies left"];
     global.WAVE_NAMES = ["Triangle (soft)", "Sawtooth (buzzy)", "Square (classic)", "Noise (crunchy)"];
     global.SFX_PRESET_NAMES = ["Coin", "Laser", "Explosion", "Jump", "Hit", "Power up", "Lose", "Blip"];
@@ -129,8 +130,78 @@ function actor_new(_name)
         pattern : 0,            // a flyer (role 10): 0 straight, 1 wave, 2 zigzag, 3 homing, 4 with the scenery, 5 comes in and stays (boss)
         enter : 1,              // a flyer's edge: 0 top, 1 right, 2 bottom, 3 left
         comeback : true,        // a flyer that leaves the far edge comes in again (else it hides)
-        hits : 1                // shots it takes before WHEN 'Thrown or shot actor hits' fires (toughness)
+        hits : 1,               // shots it takes before WHEN 'Thrown or shot actor hits' fires (toughness)
+        copies : 1,             // how many of it go on the disk (a wave, a pool of shots); rules name them all
+        fire : -1,              // the shot (role 9) it fires by itself while on the screen, -1 = none
+        fire_rate : 60,         // frames between its volleys (a little random is added)
+        fire_pat : 0            // 0 the shot's own aim, 1 at the player, 2 three at the player, 3 ring of 8, 4 fan of three
     };
+}
+
+#macro COPIES_MAX 16            // copies of one actor on the disk
+#macro SPAWN_MAX 128            // spawners on a shoot 'em up map
+#macro STAMP_MAX 64             // saved stamps (metatiles) on the Tiles page
+#macro SHMUP_COLS_MIN 12        // a shoot 'em up map's play area: 12 to 20 tiles of 16 across, an even
+#macro SHMUP_COLS_MAX 20        // number, centred on the screen (20 = the whole screen)
+#macro SHMUP_COLS_NEW 12        // a new map: less to draw, so an A500 keeps up
+
+/// A spawner on the shoot 'em up map (Tiles page): when the view reaches map line y it
+/// sends out n copies of actor act, gap frames apart, from an edge (0 top, 1 right, 3 left)
+/// at x (top) or at height 'at' (sides), each dx pixels further across; pattern -1 = the
+/// actor's own flight pattern (4 = it sits on the map where it was placed)
+function spawner_new(_y, _act)
+{
+    return { y : _y, act : _act, n : 1, gap : 20, pattern : -1, edge : 0, x : 152, dx : 0, at : 40 };
+}
+
+/// A loaded spawner, made safe
+function spawner_from_loaded(_raw)
+{
+    var _s = spawner_new(0, 0);
+    if (!is_struct(_raw)) { return _s; }
+    var _keys = ["y", "act", "n", "gap", "pattern", "edge", "x", "dx", "at"];
+    for (var i = 0; i < array_length(_keys); i++)
+    {
+        var _v = _raw[$ _keys[i]];
+        if (is_numeric(_v)) { _s[$ _keys[i]] = floor(_v); }
+    }
+    _s.act = clamp(_s.act, 0, ACT_MAX_ALL - 1);
+    _s.n = clamp(_s.n, 1, COPIES_MAX);
+    _s.gap = clamp(_s.gap, 0, 250);
+    _s.pattern = clamp(_s.pattern, -1, 5);
+    _s.edge = clamp(_s.edge, 0, 3);
+    _s.x = clamp(_s.x, -64, 320);
+    _s.dx = clamp(_s.dx, -160, 160);
+    _s.at = clamp(_s.at, 0, 255);
+    _s.y = max(0, _s.y);
+    return _s;
+}
+
+/// A loaded stamp (a block of map cells saved on the Tiles page), made safe; undefined if broken
+function stamp_from_loaded(_raw)
+{
+    if (!is_struct(_raw)) { return undefined; }
+    var _w = _raw[$ "w"];
+    var _h = _raw[$ "h"];
+    var _c = _raw[$ "cells"];
+    if (!is_numeric(_w) || !is_numeric(_h) || !is_array(_c)) { return undefined; }
+    _w = floor(_w);
+    _h = floor(_h);
+    if (_w < 1 || _h < 1 || _w > 64 || _h > 64 || array_length(_c) != _w * _h) { return undefined; }
+    var _name = "Stamp";
+    if (is_string(_raw[$ "name"])) { _name = string_copy(_raw.name, 1, 24); }
+    var _cells = array_create(_w * _h, 0);
+    for (var i = 0; i < _w * _h; i++)
+    {
+        if (is_numeric(_c[i])) { _cells[i] = max(0, floor(_c[i])); }
+    }
+    return { name : _name, w : _w, h : _h, cells : _cells };
+}
+
+/// Does DO action _act use its value as an actor (move to, shoot, set off, spawn)?
+function do_value_is_actor(_act)
+{
+    return _act == 14 || _act == 22 || _act == 24 || _act == 25;
 }
 
 // ---------------------------------------------------------------------------
@@ -639,6 +710,9 @@ function project_new()
         tools : [],                              // space bar menu tools (Tools tab), [] = none
         scroll_dir : 0,                          // the backdrop scrolls: 0 no, the ship flies 1 up, 2 right, 3 down, 4 left (Levels page)
         scroll_speed : 4,                        // quarter pixels per frame, 1..16
+        shmup_map : false,                       // the ship flies up a map of tiles (Tiles page) instead of a looping backdrop
+        spawners : [],                           // shoot 'em up map: spawner_new, sent out as the view reaches them
+        stamps : [],                             // Tiles page: saved blocks of map cells { name, w, h, cells }
         hills_on : true,                         // levels draw their hills over the backdrop
         ui : ui_new(),                           // ADAM Pro custom HUD (UI page)
         loadscr : loadscr_new()                  // ADAM Pro loading screen (UI page, scr_loadscr)
@@ -780,6 +854,16 @@ function project_from_loaded(_raw)
             }
             if (!is_numeric(_lact.hits)) { _lact.hits = 1; }
             _lact.hits = clamp(floor(_lact.hits), 1, 99);
+            if (!is_numeric(_lact.aim)) { _lact.aim = 0; }
+            _lact.aim = clamp(floor(_lact.aim), 0, 6);
+            if (!is_numeric(_lact.copies)) { _lact.copies = 1; }
+            _lact.copies = clamp(floor(_lact.copies), 1, COPIES_MAX);
+            if (!is_numeric(_lact.fire)) { _lact.fire = -1; }
+            _lact.fire = clamp(floor(_lact.fire), -1, ACT_MAX_ALL - 1);
+            if (!is_numeric(_lact.fire_rate)) { _lact.fire_rate = 60; }
+            _lact.fire_rate = clamp(floor(_lact.fire_rate), 10, 500);
+            if (!is_numeric(_lact.fire_pat)) { _lact.fire_pat = 0; }
+            _lact.fire_pat = clamp(floor(_lact.fire_pat), 0, 4);
             array_push(_acts, _lact);
         }
     }
@@ -881,6 +965,7 @@ function project_from_loaded(_raw)
         _p.hills_on = _hon;
     }
     tiles_fix(_p);                       // tile world (older files have none)
+    shmup_fix(_p, _raw);                 // shoot 'em up map, spawners, stamps (older files have none)
     _p.ui = ui_from_loaded(_raw[$ "ui"]);       // custom HUD (older files have none)
     _p.loadscr = loadscr_from_loaded(_raw[$ "loadscr"]);   // loading screen (older files have none)
     return _p;
@@ -1317,12 +1402,12 @@ function undo_keys(_ws)
         case WS_BACKDROP: return ["pixels", "pal", "depth", "solid", "sky_on", "sky_top", "sky_mid", "sky_bot", "sky_mid_y", "hud_colour", "msg_colour", "terrain_cols"];
         case WS_LEVELS:   return ["levels_on", "levels", "terrain_cols", "goal_on", "goal", "goal_label", "title_on", "title1", "title2", "lev_text", "level_song", "scroll_dir", "scroll_speed", "hills_on"];
         case WS_SPRITES:  return ["sprites"];
-        case WS_ACTORS:   return ["actors", "rules"];
+        case WS_ACTORS:   return ["actors", "rules", "spawners"];
         case WS_LOGIC:    return ["rules", "groups"];
         case WS_SOUND:    return ["sfx", "sound_groups"];
         case WS_MUSIC:    return ["songs", "level_song"];
         case WS_ANIMATE:  return ["actors"];
-        case WS_TILES:    return ["tiles_on", "tile_size", "tiles", "map_w", "map_h", "map", "tile_dig", "tools", "actors"];
+        case WS_TILES:    return ["tiles_on", "tile_size", "tiles", "map_w", "map_h", "map", "tile_dig", "tools", "actors", "shmup_map", "spawners", "stamps", "scroll_dir"];
         case WS_UI:       return ["ui", "loadscr"];
     }
     return [];
@@ -1457,19 +1542,41 @@ function set_val(_struct, _key, _value, _tag)
     return false;
 }
 
-/// Removes an actor and repairs rule references
+/// An actor reference after actor _idx is removed (_gone: what one to _idx becomes)
+function actor_ref_after_remove(_v, _idx, _gone)
+{
+    if (_v == _idx) { return _gone; }
+    if (_v > _idx) { return _v - 1; }
+    return _v;
+}
+
+/// Removes an actor and repairs references to actors: rules (and their AND DO lines,
+/// values that name an actor), the shots actors fire, spawners (theirs are removed)
 function actor_remove(_idx)
 {
     array_delete(proj.actors, _idx, 1);
     for (var i = 0; i < array_length(proj.rules); i++)
     {
         var _r = proj.rules[i];
-        if (_r.a == _idx) { _r.a = 0; }
-        else { if (_r.a > _idx) { _r.a -= 1; } }
-        if (_r.b == _idx) { _r.b = 0; }
-        else { if (_r.b > _idx) { _r.b -= 1; } }
-        if (_r.target == _idx) { _r.target = 0; }
-        else { if (_r.target > _idx) { _r.target -= 1; } }
+        _r.a = actor_ref_after_remove(_r.a, _idx, 0);
+        _r.b = actor_ref_after_remove(_r.b, _idx, 0);
+        _r.target = actor_ref_after_remove(_r.target, _idx, 0);
+        if (do_value_is_actor(_r.act)) { _r.value = actor_ref_after_remove(_r.value, _idx, 0); }
+        for (var m = 0; m < array_length(_r.more); m++)
+        {
+            var _d = _r.more[m];
+            _d.target = actor_ref_after_remove(_d.target, _idx, 0);
+            if (do_value_is_actor(_d.act)) { _d.value = actor_ref_after_remove(_d.value, _idx, 0); }
+        }
+    }
+    for (var a = 0; a < array_length(proj.actors); a++)
+    {
+        if (proj.actors[a].fire >= 0) { proj.actors[a].fire = actor_ref_after_remove(proj.actors[a].fire, _idx, -1); }
+    }
+    for (var s = array_length(proj.spawners) - 1; s >= 0; s--)
+    {
+        if (proj.spawners[s].act == _idx) { array_delete(proj.spawners, s, 1); }
+        else if (proj.spawners[s].act > _idx) { proj.spawners[s].act -= 1; }
     }
 }
 

@@ -74,10 +74,39 @@ SC_SPEED    equ 2          ; quarter pixels a frame, 1..16
 SC_BUF      equ 4          ; long offset: the buffers (cleared memory after the data), SC_NBUF of
                            ; depth x SCR_PLV (up / down) or SCR_PLH (across) + 16 bytes each
 SC_NBUF     equ 8          ; 1, or 3 with BOBs: two displays and the background they are wiped from
-SC_SIZE     equ 12
+SC_MAP      equ 12         ; long offset: a map that scrolls past once (MP_*; flying up), 0 = the
+                           ; picture loops (version 10)
+SC_SIZE     equ 16
 SCR_PLV     equ 25600      ; bytes per plane of a scroll buffer: 640 lines x 40 (up / down)
 SCR_PLH     equ 36864      ;                                     384 lines x 96 (across)
 SCR_MARG    equ 64         ; spare pixels / lines before the first copy of the picture
+
+; scrolling map (version 10, flying up): MP_COLS tiles of 16 x 16 across (12..20, even; the
+; play area, in the middle of the screen - the sides stay black, so there is less to fetch
+; and draw) and MP_H down. It scrolls past once, from its bottom to its top, then stops
+; (WHEN 15: the boss). Each map line is drawn as it comes into view: map line y goes to ring
+; line y & 255 of the picture, in both copies, in every scroll buffer (lines MP_COLS x 2
+; bytes). Actor x is across the play area (0 = its left edge). Spawners bring the waves on.
+MP_H        equ 0          ; rows of tiles (at least 16)
+MP_NT       equ 2          ; tile pictures
+MP_IMG      equ 4          ; long offset: NT x depth planes x 16 lines x 2 bytes
+MP_MAP      equ 8          ; long offset: H x COLS cells (bytes, or words: MP_FLAGS), the top row first
+MP_NSP      equ 12         ; spawners
+MP_FLAGS    equ 14         ; bit 0 = map cells are words (more than 256 tiles), else bytes
+MP_SP       equ 16         ; long offset: NSP x SP_SIZE, in the order they go off
+MP_COLS     equ 20         ; tiles across: the play area (12..20, even)
+MP_SIZE     equ 24
+SP_TRIG     equ 0          ; it goes off when the view's top (map pixel line) reaches this
+SP_X        equ 2          ; where the first one starts on the screen
+SP_Y        equ 4
+SP_ACT      equ 6          ; the actor (its copies come out in turn)
+SP_N        equ 8          ; how many, one after another
+SP_GAP      equ 10         ; frames between them
+SP_PAT      equ 12         ; byte: flight pattern 0..5, $ff = the actor's own
+SP_EDGE     equ 13         ; byte: the edge it comes in from, 0 top 1 right 2 bottom 3 left
+SP_DX       equ 14         ; each next one starts this many pixels further along its edge
+SP_SIZE     equ 16
+SPQ_MAX     equ 8          ; waves going out at once
 
 ; custom HUD (UI_*): a panel strip of ROWS text rows at the top or bottom, its
 ; picture (the backdrop with the panel frame baked in), a font and the fields
@@ -150,7 +179,8 @@ A_SPD       equ 6
 A_VIS       equ 8
 A_LEFT      equ 10
 A_UP        equ 12         ; a shot (role 9): its aim - 0 the way the shooter goes, 1 up, 2 down,
-                           ; 3 left, 4 right, 5 at the player
+                           ; 3 left, 4 right, 5 at the player, 6 a homing missile (seeks the
+                           ; nearest thing it can hit; the player fires v_miss of them)
 A_BX0       equ 14
 A_BY0       equ 16
 A_BX1       equ 18
@@ -174,7 +204,13 @@ A_ENTER     equ 54         ; a flyer: byte +1 = the edge it comes in from: 0 top
                            ; byte 0 bit 0 = it comes back in when it has flown off the far edge
 A_HP        equ 56         ; hits a shot needs to destroy it (1 = one); until then it flashes and WHEN 11 waits
 A_RANK      equ 58         ; an option (role 11): 1 = the first behind the player, 2 the next ...
-ACT_SIZE    equ 60
+A_TYPE      equ 60         ; the first of its copies (itself when it has none). Rules, spawners and
+                           ; shots name the first; a rule acts on the copy that made it fire (v10)
+A_FIRE      equ 62         ; the shot it fires by itself, -1 = none
+A_FRATE     equ 64         ; frames between its volleys
+A_FPAT      equ 66         ; its volley: 0 the shot's own aim, 1 at the player, 2 three at the
+                           ; player, 3 a ring of 8, 4 three fanned the shot's own way
+ACT_SIZE    equ 68
 
 ; animation table (data block version 8; version 5 introduced animations): 4 entries - 0 Idle (standing still),
 ; 1 Walk (moving), 2 Jump (in the air going up), 3 Fall (in the air coming
@@ -250,6 +286,7 @@ ROLE_FX     equ 12         ; an effect: hidden until DO 24 sets it off, plays it
 OPT_GAP     equ 10         ; trail steps between the player and each option
 POWER_MAX   equ 3          ; firepower 0 one shot, 1 two side by side, 2 three spread, 3 four
 HIT_FLASH   equ 8          ; frames a tough actor flashes white when a shot hits it
+MISS_MAX    equ 2          ; homing missiles the player can fire at once
 
 ; ---------------- engine variables (offsets from V) ----------------
 ; Per-actor state is one ACTV_SIZE record per actor, starting at V. a5 =
@@ -293,6 +330,14 @@ v_base      rs.w 1         ; a flyer: the line across it weaves round (wave), wh
 v_hp        rs.w 1         ; shot hits it can still take (A_HP)
 v_hitf      rs.w 1         ; frames of the white hit flash left
 v_spd0      rs.w 1         ; its speed at the level start (the player: before speed power-ups)
+v_pat       rs.w 1         ; a flyer: its pattern (A_PAT, or its spawner's)
+v_edge      rs.w 1         ; a flyer: byte +1 its edge, bit 8 = it comes back (A_ENTER, or its spawner's)
+v_ftmr      rs.w 1         ; frames until it fires by itself again
+v_xsub      rs.w 1         ; a shot: 1/16 pixels owed across (v_ysub: down)
+v_ael       rs.w 1         ; its animation: 50ths counted since it started (place_sprites)
+v_arem      rs.w 1         ;   50ths into this step
+v_astep     rs.w 1         ;   steps since it started
+v_afr       rs.w 1         ;   steps into its cycle (loop: n, ping-pong: 2n - 2)
             rsset   -128+MAX_ACT*ACTV_SIZE
 v_anim      rs.w 1
 v_joyprev   rs.w 1
@@ -405,6 +450,35 @@ v_pspd      rs.w 1         ; speed power-ups the player has
 v_nopt      rs.w 1         ; options the player has
 v_trn       rs.w 1         ; the player's trail: the newest entry
 v_trail     rs.l 64        ; x, y words
+v_map       rs.l 1         ; scrolling map block, 0 = none
+v_mimg      rs.l 1         ; its tile pictures
+v_mmap      rs.l 1         ; its map
+v_tbm       rs.w 1         ; bytes a tile picture (depth x 32)
+v_mword     rs.w 1         ; 1 = map cells are words
+v_mcols     rs.w 1         ; the map's tiles across
+v_arec      rs.l MAX_ACT   ; each actor's record (actor_rec reads it: no multiply)
+v_hbx0      rs.w 1         ; shot_hits: the shot's box
+v_hbx1      rs.w 1
+v_hby0      rs.w 1
+v_hby1      rs.w 1
+v_pw        rs.w 1         ; the play area's width in pixels (320, or a map's MP_COLS x 16)
+v_xoff      rs.w 1         ; its left edge on the screen (sprites)
+v_sbpr      rs.w 1         ; scroll buffers: bytes per line
+v_splsz     rs.l 1         ;                 bytes per plane
+v_ddfs      rs.w 1         ; a narrow map: DDFSTRT / DDFSTOP under the HUD split (0 = full width)
+v_ddfe      rs.w 1
+v_spn       rs.w 1         ; the next spawner to go off
+v_spq       rs.l 2*SPQ_MAX ; waves going out: spawner address, then words left, frames to the next
+v_mend      rs.w 1         ; 1 = the map has scrolled to its top (WHEN 15)
+v_miss      rs.w 1         ; homing missiles the player fires at once (0..MISS_MAX)
+v_aprec     rs.w 1         ; shoot_one: 1 = fly v_avx / v_avy, not v_aimx / v_aimy
+v_avx       rs.w 1         ;            1/16 pixels a frame across
+v_avy       rs.w 1         ;                                down
+v_rta       rs.w 1         ; the rule firing: its actors a / b
+v_rtb       rs.w 1
+v_cta       rs.w 1         ; the copies of them that made it fire, -1 = none
+v_ctb       rs.w 1
+v_spalt     rs.w 1         ; DO 25: the way the next one breaks off
 V_SIZE      rs.b 0
 
 ; ============================================================================
@@ -464,6 +538,7 @@ game_restart:
             move.w  #0,v_power(a5)          ; a new game: no power-ups
             move.w  #0,v_pspd(a5)
             move.w  #0,v_nopt(a5)
+            move.w  #0,v_miss(a5)
             bsr     scroll_off
             bsr     tiles_off
             bsr     hide_sprites
@@ -626,26 +701,57 @@ init_display:
             bsr     bob_plain               ; BOBs (if any) in the normal display
             move.w  #0,v_split(a5)
             move.w  #0,v_scr(a5)
+            move.w  #320,v_pw(a5)           ; the play area: the whole screen
+            move.w  #0,v_xoff(a5)
+            move.w  #0,v_ddfs(a5)
             move.l  #0,v_sblk(a5)           ; scrolling backdrop
+            move.l  #0,v_map(a5)
             move.l  H_SCROLL(a4),d1
-            beq.s   .nosc
+            beq     .nosc
             lea     0(a4,d1.l),a0
             move.l  a0,v_sblk(a5)
             move.l  SC_BUF(a0),d1
             add.l   a4,d1
             move.l  d1,v_sbuf(a5)
             move.w  #SCR_PLV,d2             ; a buffer: depth planes + 16 spare bytes
+            move.w  #40,v_sbpr(a5)
             btst    #0,SC_DIR+1(a0)
             bne.s   .plv
             move.w  #SCR_PLH,d2
-.plv        move.w  H_DEPTH(a4),d1
+            move.w  #96,v_sbpr(a5)
+.plv        move.l  SC_MAP(a0),d1           ; a map: lines of MP_COLS words
+            beq.s   .pls
+            move.w  MP_COLS(a4,d1.l),d2
+            add.w   d2,d2
+            move.w  d2,v_sbpr(a5)
+            mulu    #640,d2
+.pls        and.l   #$ffff,d2
+            move.l  d2,v_splsz(a5)
+            move.w  H_DEPTH(a4),d1
             mulu    d2,d1
             add.l   #16,d1
             move.l  d1,v_sstride(a5)
+            move.l  SC_MAP(a0),d1           ; a map that scrolls past
+            beq.s   .nosc
+            lea     0(a4,d1.l),a1
+            move.l  a1,v_map(a5)
+            move.w  MP_COLS(a1),v_mcols(a5)
+            move.l  MP_IMG(a1),d1
+            add.l   a4,d1
+            move.l  d1,v_mimg(a5)
+            move.l  MP_MAP(a1),d1
+            add.l   a4,d1
+            move.l  d1,v_mmap(a5)
+            moveq   #1,d1
+            and.w   MP_FLAGS(a1),d1
+            move.w  d1,v_mword(a5)
+            move.w  H_DEPTH(a4),d1
+            lsl.w   #5,d1
+            move.w  d1,v_tbm(a5)
 .nosc
 
-            lea     cop_spr(pc),a0          ; sprite pointers: all null first
-            lea     null_spr(pc),a1
+            lea     cop_spr-V-128(a5),a0          ; sprite pointers: all null first
+            lea     null_spr-V-128(a5),a1
             move.l  a1,d0
             swap    d0
             moveq   #7,d7
@@ -662,7 +768,7 @@ init_display:
             lea     0(a4,d0.l),a2
 .spr        tst.w   A_BOB(a2)               ; BOBs use no sprite channel
             bne.s   .sprnx
-            lea     cop_spr(pc),a0
+            lea     cop_spr-V-128(a5),a0
             move.w  A_CHAN(a2),d1
             and.w   #7,d1
             lsl.w   #3,d1
@@ -705,7 +811,7 @@ init_display:
             move.w  #$00ff,$10c(a6)         ; BPLCON4 - sprite colours 240-255
             bra.s   .cop
 .ocs        move.w  d1,$100(a6)
-.cop        lea     copper(pc),a0
+.cop        lea     copper-V-128(a5),a0
             move.l  a0,$80(a6)              ; COP1LC
             move.w  d0,$88(a6)              ; COPJMP1 strobe
             move.w  #$83e0,$96(a6)          ; DMAEN BPLEN COPEN BLTEN SPREN
@@ -740,7 +846,7 @@ bob_plain:  movem.l d0-d1,-(sp)
 
 ; d0 = bitplane memory -> copper bitplane pointers
 set_bpl:    movem.l d0/d7/a0,-(sp)
-            lea     cop_bpl(pc),a0
+            lea     cop_bpl-V-128(a5),a0
             moveq   #7,d7
 .b          swap    d0
             move.w  d0,2(a0)
@@ -919,6 +1025,15 @@ init_palette:
             rts
 
 init_actors:
+            movem.l d0-d1/a0-a1,-(sp)       ; the record of each actor, once
+            move.l  H_ACTORS(a4),d0
+            lea     0(a4,d0.l),a0
+            lea     v_arec(a5),a1
+            moveq   #MAX_ACT-1,d1
+.ar         move.l  a0,(a1)+
+            lea     ACT_SIZE(a0),a0
+            dbf     d1,.ar
+            movem.l (sp)+,d0-d1/a0-a1
             move.w  H_NACT(a4),d6
             beq     .done
             move.l  H_ACTORS(a4),d0
@@ -981,6 +1096,12 @@ init_actors:
 .hp         move.w  d0,v_hp(a5,d5.w)
             move.w  #0,v_hitf(a5,d5.w)
             move.w  v_spd(a5,d5.w),v_spd0(a5,d5.w)
+            move.w  A_PAT(a2),v_pat(a5,d5.w)
+            move.w  A_ENTER(a2),v_edge(a5,d5.w)
+            move.w  A_FRATE(a2),d0          ; its first volley a while after it comes on
+            lsr.w   #1,d0
+            move.w  d0,v_ftmr(a5,d5.w)
+            move.w  #0,v_xsub(a5,d5.w)
             move.w  A_ROLE(a2),d0
             cmp.w   #ROLE_OPT,d0            ; options and effects wait, hidden
             beq.s   .wait
@@ -1124,6 +1245,7 @@ frame:
             move.w  #1,v_sectick(a5)
             addq.w  #1,v_ltime(a5)
 .f1         bsr     scroll_tick             ; scrolling backdrop: the scenery moves on
+            bsr     spawn_tick              ; a scrolling map's spawners
             bsr     carry_tick              ; fire picks up / throws
             bsr     move_actors
             bsr     carry_follow            ; what the player carries rides on its head
@@ -1314,7 +1436,24 @@ move_actors:
             moveq   #0,d7
 .loop       move.w  d7,d5
             lsl.w   #ACTV_SHIFT,d5
-            move.w  v_ax(a5,d5.w),v_ox(a5,d5.w)
+            tst.w   v_vis(a5,d5.w)          ; a hidden shot, flyer or effect with nothing
+            bne.s   .live                   ; counting down: nothing to do (most of a
+            move.w  A_ROLE(a2),d0           ; shoot 'em up's actors, most of the time)
+            cmp.w   #ROLE_SHOT,d0
+            beq.s   .idle
+            cmp.w   #ROLE_FLY,d0
+            beq.s   .idle
+            cmp.w   #ROLE_FX,d0
+            bne.s   .live
+.idle       tst.w   v_thr(a5,d5.w)
+            bne.s   .live
+            tst.w   v_life(a5,d5.w)
+            bne.s   .live
+            tst.w   v_safe(a5,d5.w)
+            bne.s   .live
+            tst.w   v_hitf(a5,d5.w)
+            beq     .adv2
+.live       move.w  v_ax(a5,d5.w),v_ox(a5,d5.w)
             move.w  v_ay(a5,d5.w),v_oy(a5,d5.w)
             tst.w   v_safe(a5,d5.w)         ; immunity counts down
             beq.s   .nosafe
@@ -1592,10 +1731,23 @@ move_actors:
             bsr     throw_hits
             bra     .adv
 
-.shot       move.w  v_ax(a5,d5.w),d0        ; a shot flies straight
-            add.w   v_tvx(a5,d5.w),d0
-            move.w  v_ay(a5,d5.w),d1
-            add.w   v_tvy(a5,d5.w),d1
+.shot       cmp.w   #6,A_UP(a2)             ; a homing missile turns towards its target
+            bne.s   .shmv
+            bsr     missile_steer
+.shmv       move.w  v_tvx(a5,d5.w),d0       ; a shot flies straight, 1/16 pixels a frame
+            add.w   v_xsub(a5,d5.w),d0
+            move.w  d0,d1
+            and.w   #15,d1
+            move.w  d1,v_xsub(a5,d5.w)
+            asr.w   #4,d0
+            add.w   v_ax(a5,d5.w),d0
+            move.w  v_tvy(a5,d5.w),d1
+            add.w   v_ysub(a5,d5.w),d1
+            move.w  d1,d2
+            and.w   #15,d2
+            move.w  d2,v_ysub(a5,d5.w)
+            asr.w   #4,d1
+            add.w   v_ay(a5,d5.w),d1
             move.w  d0,v_ax(a5,d5.w)
             move.w  d1,v_ay(a5,d5.w)
             tst.w   v_tmode(a5)
@@ -1626,7 +1778,10 @@ move_actors:
             bge.s   .adv
             bsr     tile_hres
             bsr     tile_vres
-.adv        lea     ACT_SIZE(a2),a2
+.adv        tst.w   A_FIRE(a2)              ; it fires by itself
+            bmi.s   .adv2
+            bsr     foe_fire
+.adv2       lea     ACT_SIZE(a2),a2
             addq.w  #1,d7
             cmp.w   d6,d7
             blt     .loop
@@ -1731,7 +1886,14 @@ place_sprites:
             moveq   #0,d7
 .loop       move.w  d7,d5
             lsl.w   #ACTV_SHIFT,d5
-            tst.w   v_swing(a5)             ; the player swinging: it keeps facing the way it struck
+            tst.w   v_vis(a5,d5.w)          ; a hidden BOB (a shot or a wave waiting): no frame to pick
+            bne.s   .shown
+            tst.w   A_BOB(a2)
+            beq.s   .shown
+            move.w  v_ax(a5,d5.w),v_px(a5,d5.w)
+            move.w  v_ay(a5,d5.w),v_py(a5,d5.w)
+            bra     .next
+.shown      tst.w   v_swing(a5)             ; the player swinging: it keeps facing the way it struck
             beq.s   .fc
             cmp.w   H_PLAYER(a4),d7
             beq.s   .faced
@@ -1844,6 +2006,10 @@ place_sprites:
             beq.s   .same
             move.w  d2,v_aset(a5,d5.w)
             move.w  v_anim(a5),v_astart(a5,d5.w)
+            move.w  #0,v_ael(a5,d5.w)
+            move.w  #0,v_arem(a5,d5.w)
+            move.w  #0,v_astep(a5,d5.w)
+            move.w  #0,v_afr(a5,d5.w)
 .same       mulu    #ANIM_SIZE,d2
             add.l   d2,d1
             lea     0(a4,d1.l),a0           ; a0 = this animation
@@ -1856,39 +2022,54 @@ place_sprites:
             add.l   d2,d1
             move.l  AN_RIGHT(a4,d1.l),d0
             bra     .frame
-.tick
-            moveq   #0,d3
-            move.w  v_anim(a5),d3
-            sub.w   v_astart(a5,d5.w),d3    ; 50ths since it started
-            move.w  AN_RATE(a0),d4
+.tick       move.w  AN_RATE(a0),d4          ; d4 = 50ths a step
             bne.s   .rt
             moveq   #8,d4
-.rt         divu    d4,d3                   ; d3 = steps
-            and.l   #$ffff,d3
-            move.w  AN_N(a0),d4             ; frames 1..16
+.rt         move.w  AN_N(a0),d1             ; d1 = its cycle in steps: n (loop), 2n - 2
+            cmp.w   #2,AN_MODE(a0)          ; (ping-pong)
+            bne.s   .pd
+            add.w   d1,d1
+            subq.w  #2,d1
+.pd         move.w  v_anim(a5),d3           ; the steps, counted as they come (no divide)
+            sub.w   v_astart(a5,d5.w),d3    ; d3 = 50ths since it started
+            sub.w   v_ael(a5,d5.w),d3       ; d3 = 50ths not counted yet
+            beq.s   .cnt
+            add.w   d3,v_ael(a5,d5.w)
+            cmp.w   #255,d3                 ; (a long gap - the tool menu: it goes on from here)
+            bhi.s   .cnt
+            subq.w  #1,d3
+.u1         addq.w  #1,v_arem(a5,d5.w)
+            cmp.w   v_arem(a5,d5.w),d4
+            bhi.s   .u2
+            move.w  #0,v_arem(a5,d5.w)
+            cmp.w   #$7fff,v_astep(a5,d5.w)
+            bhs.s   .u3
+            addq.w  #1,v_astep(a5,d5.w)
+.u3         addq.w  #1,v_afr(a5,d5.w)
+            cmp.w   v_afr(a5,d5.w),d1
+            bhi.s   .u2
+            move.w  #0,v_afr(a5,d5.w)
+.u2         dbf     d3,.u1
+.cnt        move.w  AN_N(a0),d4             ; frames 1..16
             move.w  AN_MODE(a0),d2
             beq.s   .mloop
             cmp.w   #1,d2
             beq.s   .monce
             cmp.w   #1,d4                   ; ping-pong: 0 1 2 .. n-1 n-2 .. 1
             ble.s   .mf0
-            move.w  d4,d2
-            add.w   d2,d2
-            subq.w  #2,d2                   ; period 2n - 2
-            divu    d2,d3
-            swap    d3
+            move.w  v_afr(a5,d5.w),d3
             cmp.w   d4,d3
             blt.s   .mfi
             neg.w   d3
-            add.w   d2,d3
+            add.w   d1,d3
             bra.s   .mfi
-.monce      cmp.w   d4,d3                   ; once: stays on the last frame
-            blt.s   .mfi
+.monce      move.w  v_astep(a5,d5.w),d3     ; once: stays on the last frame
+            cmp.w   d4,d3
+            blo.s   .mfi
             move.w  d4,d3
             subq.w  #1,d3
             bra.s   .mfi
-.mloop      divu    d4,d3
-            swap    d3
+.mloop      move.w  v_afr(a5,d5.w),d3
             bra.s   .mfi
 .mf0        moveq   #0,d3
 .mfi        and.w   #15,d3
@@ -1920,7 +2101,7 @@ place_sprites:
             bra     .next
 .hw         lea     0(a4,d0.l),a0           ; a0 = sprite block to show
             move.l  a0,d0                   ; point this channel at it
-            lea     cop_spr(pc),a1
+            lea     cop_spr-V-128(a5),a1
             move.w  A_CHAN(a2),d1
             and.w   #7,d1
             lsl.w   #3,d1
@@ -1953,10 +2134,11 @@ place_sprites:
             bge     .hid
             cmp.w   #-16,d1
             ble     .hid
-            cmp.w   #320,d1
+            cmp.w   v_pw(a5),d1
             bge     .hid
 .scr        add.w   #$2c,d0                 ; VSTART
-            add.w   #128,d1                 ; HSTART
+            add.w   #128,d1                 ; HSTART (a narrow map's play area starts v_xoff in)
+            add.w   v_xoff(a5),d1
             move.w  d0,d2
             add.w   #SPR_H,d2               ; VSTOP
             move.w  d0,d3
@@ -2000,14 +2182,32 @@ scroll_on:  tst.l   v_sblk(a5)
             move.w  #0,v_sacc(a5)
             move.w  #1,v_split(a5)
             move.w  #0,v_hudrow(a5)
-            move.l  #SCR_PLV,v_plsz(a5)
-            move.w  #40,v_bpr(a5)
-            btst    #0,v_scr+1(a5)
-            bne.s   .pv
-            move.l  #SCR_PLH,v_plsz(a5)
-            move.w  #96,v_bpr(a5)
+            move.l  v_splsz(a5),v_plsz(a5)
+            move.w  v_sbpr(a5),v_bpr(a5)
+            tst.l   v_map(a5)               ; a map: its play area in the middle of the screen
+            beq.s   .pv
+            move.w  v_mcols(a5),d0
+            lsl.w   #4,d0
+            move.w  d0,v_pw(a5)
+            neg.w   d0
+            add.w   #320,d0
+            lsr.w   #1,d0
+            move.w  d0,v_xoff(a5)           ; (20 - cols) x 8 pixels
+            move.w  #0,v_ddfs(a5)
+            lsr.w   #1,d0                   ; DDF: 8 per word of 16 pixels
+            beq.s   .pv
+            move.w  d0,d1
+            add.w   #$0038,d1
+            move.w  d1,v_ddfs(a5)
+            neg.w   d0
+            add.w   #$00d0,d0
+            move.w  d0,v_ddfe(a5)
 .pv         bsr     work_fresh
-            move.l  v_sbuf(a5),a1
+            tst.l   v_map(a5)               ; a map: its first screen, from its bottom
+            beq.s   .pic
+            bsr     map_start
+            bra     .pdone
+.pic        move.l  v_sbuf(a5),a1
             move.w  SC_NBUF(a3),d6
             subq.w  #1,d6
 .buf        move.l  v_work(a5),a0
@@ -2036,7 +2236,7 @@ scroll_on:  tst.l   v_sblk(a5)
             dbf     d5,.pl
             add.l   v_sstride(a5),a1
             dbf     d6,.buf
-            bsr     ui_panel_blit           ; the HUD panel -> the normal display only
+.pdone      bsr     ui_panel_blit           ; the HUD panel -> the normal display only
             move.l  v_work(a5),a0
             move.l  v_disp(a5),a1
             bsr     copy_planes
@@ -2047,7 +2247,7 @@ scroll_on:  tst.l   v_sblk(a5)
             btst    #0,H_FLAGS+1(a4)
             beq.s   .ocs
             move.w  #$0000,$1fc(a6)
-.ocs        lea     cop_mods(pc),a0
+.ocs        lea     cop_mods-V-128(a5),a0
             move.w  #-2,2(a0)
             move.w  #-2,6(a0)
             move.w  #0,10(a0)
@@ -2057,7 +2257,17 @@ scroll_on:  tst.l   v_sblk(a5)
             move.w  #96-42,v_smod(a5)
             bra.s   .bobs
 .vert       move.w  #0,v_smod(a5)
-            move.l  v_disp(a5),d0
+            tst.w   v_ddfs(a5)              ; a narrow map: the HUD fetches the whole width,
+            beq.s   .vfull                  ; the play area (from the split) only its middle;
+            move.w  #$0038,$92(a6)          ; 16-bit fetch on AGA
+            move.w  #$00d0,$94(a6)
+            btst    #0,H_FLAGS+1(a4)
+            beq.s   .vocs
+            move.w  #$0000,$1fc(a6)
+.vocs       lea     cop_ddf-V-128(a5),a0    ; the copper puts the HUD's back each frame
+            move.l  #$00920038,(a0)
+            move.l  #$009400d0,4(a0)
+.vfull      move.l  v_disp(a5),d0
             bsr     set_bpl
 .bobs       move.w  #0,v_bob(a5)
             move.l  v_sblk(a5),a3
@@ -2077,11 +2287,12 @@ scroll_on:  tst.l   v_sblk(a5)
 .txt        move.l  #0,v_dd2(a5)            ; text: the HUD strip only
             move.l  #0,v_ddk(a5)
             move.l  v_sbuf(a5),v_shbuf(a5)
-            move.w  #0,v_shpos(a5)
+            move.w  v_spos(a5),v_shpos(a5)
+            move.w  v_spos(a5),v_dpos(a5)
             move.w  v_gradfix(a5),d1
             bsr     build_grad
             move.l  v_sbuf(a5),d0           ; show the first buffer
-            moveq   #0,d1
+            move.w  v_spos(a5),d1
             bsr     scroll_show
             movem.l (sp)+,d0-d7/a0-a3
 .r          rts
@@ -2093,6 +2304,12 @@ scroll_off: tst.w   v_scr(a5)
             move.w  #0,v_split(a5)
             move.w  #0,v_sdx(a5)
             move.w  #0,v_sdy(a5)
+            move.w  #320,v_pw(a5)
+            move.w  #0,v_xoff(a5)
+            move.w  #0,v_ddfs(a5)
+            lea     cop_ddf-V-128(a5),a0    ; (copper no-ops again)
+            move.l  #$01fe0000,(a0)
+            move.l  #$01fe0000,4(a0)
             move.w  v_hudrow0(a5),v_hudrow(a5)
             move.w  #$0038,$92(a6)
             move.w  #$00d0,$94(a6)
@@ -2100,7 +2317,7 @@ scroll_off: tst.w   v_scr(a5)
             beq.s   .ocs
             move.w  #$0003,$1fc(a6)
             move.w  #$00b8,$94(a6)
-.ocs        lea     cop_mods(pc),a0
+.ocs        lea     cop_mods-V-128(a5),a0
             move.w  #0,2(a0)
             move.w  #0,6(a0)
             move.w  #0,10(a0)
@@ -2125,6 +2342,8 @@ scroll_tick:
             move.w  d2,v_sacc(a5)
             lsr.w   #2,d0                   ; d0 = pixels this frame
             beq.s   .r
+            tst.l   v_map(a5)
+            bne     map_tick
             move.w  v_spos(a5),d2
             cmp.w   #1,d1
             bne.s   .rt
@@ -2156,6 +2375,279 @@ scroll_tick:
 .set        move.w  d2,v_spos(a5)
 .r          rts
 
+; ============================================================================
+;  scrolling map (version 10): drawn line by line as the view climbs it
+; ============================================================================
+; the view moves d0 lines up the map, drawing each line as it comes in; at the top it stops
+map_tick:   move.w  v_camy(a5),d2
+            sub.w   d0,d2
+            bgt.s   .m1
+            moveq   #0,d2                   ; the top: the end of the map
+            move.w  #1,v_mend(a5)
+.m1         move.w  v_camy(a5),d1
+            sub.w   d2,d1                   ; d1 = lines it really moves
+            beq.s   .r
+            move.w  d1,v_sdy(a5)
+            move.w  d2,v_camy(a5)
+            move.w  d2,d0
+            subq.w  #1,d1
+.l          bsr     map_line
+            addq.w  #1,d0
+            dbf     d1,.l
+            and.w   #255,d2
+            move.w  d2,v_spos(a5)
+.r          rts
+
+; level start: the view at the bottom of the map, its first screen drawn, no waves out yet
+map_start:  movem.l d0-d1/a0,-(sp)
+            move.l  v_map(a5),a0
+            move.w  MP_H(a0),d0
+            lsl.w   #4,d0
+            sub.w   #256,d0
+            bpl.s   .h
+            moveq   #0,d0
+.h          move.w  d0,v_camy(a5)
+            and.w   #255,d0
+            move.w  d0,v_spos(a5)
+            move.w  #0,v_spn(a5)
+            move.w  #0,v_mend(a5)
+            lea     v_spq(a5),a0
+            moveq   #SPQ_MAX*2-1,d1
+.q          move.l  #0,(a0)+
+            dbf     d1,.q
+            move.w  v_camy(a5),d0
+            move.w  #255,d1
+.l          bsr     map_line
+            addq.w  #1,d0
+            dbf     d1,.l
+            movem.l (sp)+,d0-d1/a0
+            rts
+
+; map line d0 (pixels from the top of the map) -> ring line d0 & 255, both copies of the
+; picture, every scroll buffer: drawn once (buffer 0, first copy), then copied
+map_line:   movem.l d0-d7/a0-a3,-(sp)
+            move.w  d0,d1
+            lsr.w   #4,d1
+            mulu    v_mcols(a5),d1
+            tst.w   v_mword(a5)
+            beq.s   .bc
+            add.l   d1,d1                   ; (word cells)
+.bc         move.l  v_mmap(a5),a0
+            add.l   d1,a0                   ; a0 = its row of the map
+            move.w  d0,d2
+            and.w   #15,d2
+            add.w   d2,d2                   ; d2 = the line in a tile picture (bytes)
+            and.l   #255,d0
+            add.w   #SCR_MARG,d0
+            mulu    v_bpr(a5),d0            ; d0 = the line in a buffer (bytes)
+            move.l  v_sbuf(a5),a2
+            add.l   d0,a2                   ; a2 = buffer 0, this line
+            move.l  v_plsz(a5),d3           ; d3 = a plane
+            move.w  H_DEPTH(a4),d6
+            subq.w  #1,d6                   ; d6 = planes - 1
+            move.w  v_tbm(a5),d7
+            move.l  v_mimg(a5),a1
+            add.w   d2,a1                   ; a1 = line d2 of tile 0, plane 0
+            move.l  a2,d4
+            move.w  v_mcols(a5),d5
+            subq.w  #1,d5
+.col        moveq   #0,d1
+            tst.w   v_mword(a5)
+            beq.s   .cb
+            move.w  (a0)+,d1
+            bra.s   .cw
+.cb         move.b  (a0)+,d1
+.cw         mulu    d7,d1
+            lea     0(a1,d1.l),a3           ; this tile's line, plane 0
+            move.l  a2,-(sp)
+            move.w  d6,d2
+.pl         move.w  (a3),(a2)
+            lea     32(a3),a3
+            add.l   d3,a2
+            dbf     d2,.pl
+            move.l  (sp)+,a2
+            addq.l  #2,a2
+            dbf     d5,.col
+            move.l  d4,a2                   ; the line drawn, each plane -> the second copy,
+            move.w  v_bpr(a5),d5            ; and both copies in the other buffers
+            lsr.w   #2,d5
+            subq.w  #1,d5                   ; d5 = longs a line - 1 (an even number of tiles)
+            move.w  v_bpr(a5),d7
+            mulu    #256,d7                 ; d7 = the second copy, 256 lines on
+            move.l  v_sblk(a5),a3
+            move.w  SC_NBUF(a3),d4
+            subq.w  #1,d4                   ; d4 = buffers - 1
+            move.w  d6,d2
+.cpl        move.l  a2,a0                   ; a0 = the line in this plane of buffer 0
+            move.w  d4,d1
+            move.l  a2,a1
+            bra.s   .c2
+.cbuf       add.l   v_sstride(a5),a1        ; the next buffer: its first copy too
+            move.l  a0,a3
+            move.l  a1,a2
+            move.w  d5,d0
+.cw1        move.l  (a3)+,(a2)+
+            dbf     d0,.cw1
+.c2         move.l  a0,a3                   ; and its second copy
+            lea     0(a1,d7.l),a2
+            move.w  d5,d0
+.cw2        move.l  (a3)+,(a2)+
+            dbf     d0,.cw2
+            dbf     d1,.cbuf
+            move.l  a0,a2
+            add.l   d3,a2                   ; the next plane
+            dbf     d2,.cpl
+            movem.l (sp)+,d0-d7/a0-a3
+            rts
+
+; the map's spawners: each goes off when the view reaches it and sends out its wave,
+; one every SP_GAP frames
+spawn_tick: tst.l   v_map(a5)
+            beq     .r
+            tst.w   v_scr(a5)
+            beq     .r
+            movem.l d0-d7/a0-a3,-(sp)
+            move.l  v_map(a5),a3
+.trig       move.w  v_spn(a5),d0
+            cmp.w   MP_NSP(a3),d0
+            bhs.s   .run
+            lsl.w   #4,d0                   ; x SP_SIZE
+            move.l  MP_SP(a3),d1
+            add.l   a4,d1
+            move.l  d1,a0
+            add.w   d0,a0                   ; a0 = the next spawner
+            move.w  v_camy(a5),d1
+            cmp.w   SP_TRIG(a0),d1
+            bgt.s   .run                    ; not reached yet
+            addq.w  #1,v_spn(a5)
+            lea     v_spq(a5),a1            ; a free place for its wave
+            moveq   #SPQ_MAX-1,d2
+.q          tst.l   (a1)
+            beq.s   .put
+            addq.l  #8,a1
+            dbf     d2,.q
+            bra.s   .trig                   ; (all busy: this wave is lost)
+.put        move.l  a0,(a1)
+            move.w  SP_N(a0),4(a1)
+            move.w  #0,6(a1)
+            bra.s   .trig
+.run        lea     v_spq(a5),a1
+            moveq   #SPQ_MAX-1,d2
+.w          tst.l   (a1)
+            beq.s   .wn
+            tst.w   6(a1)
+            beq.s   .go
+            subq.w  #1,6(a1)
+            bra.s   .wn
+.go         move.l  (a1),a0
+            move.w  SP_N(a0),d3
+            sub.w   4(a1),d3                ; d3 = which one of the wave
+            bsr     spawn_one
+            move.w  SP_GAP(a0),6(a1)
+            subq.w  #1,4(a1)
+            bgt.s   .wn
+            move.l  #0,(a1)
+.wn         addq.l  #8,a1
+            dbf     d2,.w
+            movem.l (sp)+,d0-d7/a0-a3
+.r          rts
+
+; one of a wave: spawner a0, d3 = which one (0 = the first)
+spawn_one:  movem.l d0-d7/a0-a2,-(sp)
+            move.w  SP_ACT(a0),d4
+            cmp.w   H_NACT(a4),d4
+            bhs     .out
+            move.l  a0,a1                   ; a1 = the spawner
+            bsr     free_copy
+            beq     .out
+            move.w  d4,d5
+            lsl.w   #ACTV_SHIFT,d5
+            bsr     actor_rec
+            move.l  a0,a2                   ; a2 = the actor
+            moveq   #0,d0
+            move.b  SP_PAT(a1),d0
+            cmp.b   #$ff,d0
+            bne.s   .p
+            move.w  A_PAT(a2),d0
+.p          move.w  d0,v_pat(a5,d5.w)
+            moveq   #0,d0
+            move.b  SP_EDGE(a1),d0
+            move.w  d0,v_edge(a5,d5.w)
+            move.w  SP_DX(a1),d2            ; along its edge: which one x the spacing
+            muls    d3,d2
+            move.w  SP_X(a1),d0
+            move.w  SP_Y(a1),d1
+            btst    #0,SP_EDGE(a1)
+            bne.s   .side
+            add.w   d2,d0
+            bra.s   .pos
+.side       add.w   d2,d1
+.pos        cmp.w   #4,v_pat(a5,d5.w)       ; on the ground: where its spot on the map is now
+            bne.s   .put
+            add.w   SP_TRIG(a1),d1
+            sub.w   v_camy(a5),d1
+.put        bsr     come_out
+            move.w  d3,d0                   ; every other one zigzags off the other way
+            and.w   #1,d0
+            move.w  d0,v_dx(a5,d5.w)
+            move.w  d3,d0                   ; each one weaves a quarter wave on from the one
+            lsl.w   #4,d0                   ; before, so a wave does not fly one track
+            and.w   #63,d0
+            move.w  d0,v_tmr(a5,d5.w)
+.out        movem.l (sp)+,d0-d7/a0-a2
+            rts
+
+; d4 = an actor -> d4 = a copy of it that is not out (Z clear), Z set: all out. Uses d0
+free_copy:  movem.l d1-d2/a0,-(sp)
+            bsr     actor_rec
+            move.w  A_TYPE(a0),d2           ; d2 = its type (the first copy)
+            move.w  d2,d4
+.l          cmp.w   H_NACT(a4),d4
+            bhs.s   .no
+            bsr     actor_rec
+            cmp.w   A_TYPE(a0),d2
+            bne.s   .no
+            move.w  d4,d1
+            lsl.w   #ACTV_SHIFT,d1
+            tst.w   v_vis(a5,d1.w)
+            beq.s   .yes
+            addq.w  #1,d4
+            bra.s   .l
+.no         moveq   #0,d0
+            bra.s   .o
+.yes        moveq   #1,d0
+.o          movem.l (sp)+,d1-d2/a0
+            tst.w   d0
+            rts
+
+; actor d5 / a2 comes out at d0 / d1: shown, unhurt, its animation from the start. A
+; flyer starts its pattern there (v_pat / v_edge) and is gone when it leaves
+come_out:   move.w  #1,v_vis(a5,d5.w)
+            move.w  #0,v_life(a5,d5.w)
+            move.w  #0,v_safe(a5,d5.w)
+            move.w  #0,v_thr(a5,d5.w)
+            move.w  #0,v_hitf(a5,d5.w)
+            move.w  #-1,v_aset(a5,d5.w)
+            and.w   #$00ff,v_edge(a5,d5.w)
+            move.w  d0,-(sp)
+            move.w  A_HP(a2),d0
+            bne.s   .hp
+            moveq   #1,d0
+.hp         move.w  d0,v_hp(a5,d5.w)
+            move.w  A_FRATE(a2),d0
+            lsr.w   #1,d0
+            move.w  d0,v_ftmr(a5,d5.w)
+            move.w  (sp)+,d0
+            cmp.w   #ROLE_FLY,A_ROLE(a2)
+            beq     fly_put
+            move.w  d0,v_ax(a5,d5.w)
+            move.w  d1,v_ay(a5,d5.w)
+            move.w  d0,v_px(a5,d5.w)
+            move.w  d1,v_py(a5,d5.w)
+            move.w  d0,v_ox(a5,d5.w)
+            move.w  d1,v_oy(a5,d5.w)
+            rts
+
 ; d0 = scroll buffer, d1 = the view's place in the picture -> the bitplane
 ; pointers and fine scroll at the copper split
 scroll_show:
@@ -2168,7 +2660,7 @@ scroll_show:
             move.w  d1,d3                   ; up / down: line SCR_MARG + place + the HUD's lines
             add.w   #SCR_MARG,d3
             add.w   v_hudlines(a5),d3
-            mulu    #40,d3
+            mulu    v_bpr(a5),d3
             moveq   #0,d2                   ; no fine scroll
             bra.s   .ptr
 .ac         move.w  d1,d4                   ; across: the screen starts at pixel X0 = SCR_MARG + place
@@ -2213,19 +2705,19 @@ fly_start:  movem.l d0-d2,-(sp)
             move.w  A_X(a2),d0
             move.w  A_Y(a2),d1
             moveq   #3,d2
-            and.b   A_ENTER+1(a2),d2
+            and.b   v_edge+1(a5,d5.w),d2
             bne.s   .r
             sub.w   #256,d1                 ; from the top
             bra.s   .go
 .r          cmp.w   #1,d2
             bne.s   .b
-            add.w   #320,d0                 ; from the right
+            add.w   v_pw(a5),d0             ; from the right
             bra.s   .go
 .b          cmp.w   #2,d2
             bne.s   .l
             add.w   #256,d1                 ; from the bottom
             bra.s   .go
-.l          sub.w   #320,d0                 ; from the left
+.l          sub.w   v_pw(a5),d0             ; from the left
 .go         bsr.s   fly_put
             movem.l (sp)+,d0-d2
             rts
@@ -2240,7 +2732,7 @@ fly_put:    move.w  d0,v_ax(a5,d5.w)
 ; the line across a flyer (d5, a2) weaves round becomes where it is now
 fly_rebase: move.w  d2,-(sp)
             moveq   #1,d2
-            and.b   A_ENTER+1(a2),d2        ; from the top or bottom: across is x
+            and.b   v_edge+1(a5,d5.w),d2        ; from the top or bottom: across is x
             bne.s   .y
             move.w  v_ax(a5,d5.w),v_base(a5,d5.w)
             bra.s   .t
@@ -2252,7 +2744,7 @@ fly_rebase: move.w  d2,-(sp)
 ; a flyer (d5, a2) comes in again at a random place across, a little beyond its edge
 fly_again:  movem.l d0-d4,-(sp)
             moveq   #3,d3
-            and.b   A_ENTER+1(a2),d3        ; d3 = its edge
+            and.b   v_edge+1(a5,d5.w),d3        ; d3 = its edge
             bsr     fly_lim                 ; d1 / d2 = the room across
             sub.w   d1,d2
             addq.w  #1,d2
@@ -2263,7 +2755,7 @@ fly_again:  movem.l d0-d4,-(sp)
             divu    d2,d0
             swap    d0
             add.w   d0,d1                   ; d1 = across
-            cmp.w   #4,A_PAT(a2)            ; one that moves with the scenery keeps its lane
+            cmp.w   #4,v_pat(a5,d5.w)            ; one that moves with the scenery keeps its lane
             bne.s   .lane
             move.w  v_base(a5,d5.w),d1
 .lane
@@ -2279,7 +2771,7 @@ fly_again:  movem.l d0-d4,-(sp)
             bra.s   .go
 .r          cmp.w   #1,d3
             bne.s   .b
-            move.w  #320,d0                 ; from the right
+            move.w  v_pw(a5),d0             ; from the right
             add.w   d4,d0
             bra.s   .go
 .b          cmp.w   #2,d3
@@ -2289,7 +2781,7 @@ fly_again:  movem.l d0-d4,-(sp)
             add.w   d4,d1
             bra.s   .go
 .l          move.w  A_XMAX(a2),d0           ; from the left
-            sub.w   #320,d0
+            sub.w   v_pw(a5),d0
             sub.w   d4,d0
 .go         bsr     fly_put
             movem.l (sp)+,d0-d4
@@ -2311,7 +2803,7 @@ fly_lim:    btst    #0,d3
 
 ; a flyer coming in to its place (pattern 5) -> d0 = how far it still has to go (0 = there)
 fly_rest:   moveq   #3,d0
-            and.b   A_ENTER+1(a2),d0
+            and.b   v_edge+1(a5,d5.w),d0
             beq.s   .t
             cmp.w   #1,d0
             beq.s   .r
@@ -2337,8 +2829,8 @@ fly_rest:   moveq   #3,d0
 ; its pattern. Off the far edge it comes in again (A_ENTER bit 0) or hides.
 fly_move:   movem.l d0-d4/a0,-(sp)
             moveq   #3,d3
-            and.b   A_ENTER+1(a2),d3        ; d3 = its edge
-            move.w  A_PAT(a2),d4            ; d4 = its pattern
+            and.b   v_edge+1(a5,d5.w),d3        ; d3 = its edge
+            move.w  v_pat(a5,d5.w),d4       ; d4 = its pattern
             cmp.w   #4,d4                   ; 4: it moves with the scenery
             bne.s   .own
             move.w  v_sdx(a5),d0
@@ -2465,7 +2957,7 @@ fly_move:   movem.l d0-d4/a0,-(sp)
 .xr         cmp.w   #1,d3
             bne.s   .xb
             move.w  A_XMAX(a2),d0
-            sub.w   #320,d0
+            sub.w   v_pw(a5),d0
             cmp.w   v_ax(a5,d5.w),d0
             blt.s   .out
             bra.s   .gone
@@ -2476,9 +2968,10 @@ fly_move:   movem.l d0-d4/a0,-(sp)
             cmp.w   v_ay(a5,d5.w),d0
             blt.s   .out
             bra.s   .gone
-.xl         cmp.w   #320,v_ax(a5,d5.w)
+.xl         move.w  v_ax(a5,d5.w),d0
+            cmp.w   v_pw(a5),d0
             blt.s   .out
-.gone       btst    #0,A_ENTER(a2)          ; it comes back, or it is gone
+.gone       btst    #0,v_edge(a5,d5.w)      ; it comes back, or it is gone
             beq.s   .hide
             bsr     fly_again
             bra.s   .out
@@ -2642,8 +3135,15 @@ act_power:  movem.l d0-d7/a0-a2,-(sp)
             beq     .out
             addq.w  #1,v_nopt(a5)
             bra     .out
-.nopt       cmp.w   #3,d0
+.nopt       cmp.w   #4,d0                   ; 4: homing missiles (one, then two at a time)
+            bne.s   .nmis
+            cmp.w   #MISS_MAX,v_miss(a5)
+            bhs     .out
+            addq.w  #1,v_miss(a5)
+            bra     .out
+.nmis       cmp.w   #3,d0
             bne     .out
+            move.w  #0,v_miss(a5)
             move.w  #0,v_power(a5)          ; lose them all
             move.w  #0,v_pspd(a5)
             move.w  #0,v_nopt(a5)
@@ -2672,7 +3172,8 @@ act_power:  movem.l d0-d7/a0-a2,-(sp)
 act_effect: movem.l d0-d7/a0-a2,-(sp)
             cmp.w   H_NACT(a4),d4
             bhs     .out
-            move.w  R_VAL(a3),d6
+            bsr     ctx_val
+            move.w  d0,d6
             cmp.w   H_NACT(a4),d6
             bhs     .out
             move.w  d4,d3                   ; d3 = the one named
@@ -2684,7 +3185,7 @@ act_effect: movem.l d0-d7/a0-a2,-(sp)
             cmp.w   H_NACT(a4),d4
             bhs.s   .named
             bsr     actor_rec
-            cmp.w   #ROLE_FX,A_ROLE(a0)
+            cmp.w   A_TYPE(a0),d3           ; its copies
             beq.s   .find
 .named      move.w  d3,d4
             move.w  d4,d5
@@ -2760,9 +3261,9 @@ hit_masks:  movem.l d0-d2/d6/a0-a1,-(sp)
             bra.s   .n
 .one        cmp.w   #MAX_ACT,d2
             bhs.s   .n
-            move.l  0(a1,d1.w),d0
-            bset    d2,d0
-            move.l  d0,0(a1,d1.w)
+            move.w  d2,d0                   ; every copy of it
+            bsr     type_mask
+            or.l    d0,0(a1,d1.w)
 .n          move.w  R_NAND(a0),d0
             lsl.w   #3,d0
             lea     RULE_SIZE(a0,d0.w),a0
@@ -2821,7 +3322,7 @@ tiles_on:   tst.l   v_tiles(a5)
             btst    #0,H_FLAGS+1(a4)
             beq.s   .ocs
             move.w  #$0000,$1fc(a6)         ; AGA: FMODE 16-bit fetch while scrolling
-.ocs        lea     cop_mods(pc),a0
+.ocs        lea     cop_mods-V-128(a5),a0
             move.w  #-2,2(a0)               ; HUD lines: 21 words fetched, 20 shown
             move.w  #-2,6(a0)
             move.w  #0,10(a0)
@@ -2848,7 +3349,7 @@ tiles_off:  tst.w   v_tmode(a5)
             beq.s   .ocs
             move.w  #$0003,$1fc(a6)
             move.w  #$00b8,$94(a6)
-.ocs        lea     cop_mods(pc),a0
+.ocs        lea     cop_mods-V-128(a5),a0
             move.w  #0,2(a0)
             move.w  #0,6(a0)
             move.w  #0,10(a0)
@@ -3827,6 +4328,8 @@ bob_draw:
             lea     MAX_ACT*4(a3),a3
             addq.l  #2,a1
 .b0
+            move.w  #$8400,$96(a6)          ; DMACON: BLTPRI - the CPU only waits for the blitter here
+            move.l  v_plsz(a5),a2           ; a2 = a plane (until the actors)
             ; ---- wipe last time's BOBs: background -> display
             bsr     bwait
             move.l  #$09f00000,$40(a6)      ; BLTCON0/1: D = A
@@ -3849,16 +4352,18 @@ bob_draw:
             add.l   d4,d3
             move.w  H_DEPTH(a4),d7
             subq.w  #1,d7
-            bsr     bwait
+.ww         btst    #6,$1f(a6)              ; (bwait)
+            beq.s   .ww
             move.w  d1,$64(a6)              ; AMOD
             move.w  d1,$66(a6)              ; DMOD
-.wpl        bsr     bwait
+.wpl        btst    #6,$1f(a6)              ; (bwait)
+            beq.s   .wpl
             move.l  d2,$50(a6)              ; BLTAPT
             move.l  d3,$54(a6)              ; BLTDPT
-            move.w  d5,d0
-            bsr     bgo
-            add.l   v_plsz(a5),d2
-            add.l   v_plsz(a5),d3
+            move.w  #$0040,$9c(a6)          ; (bgo)
+            move.w  d5,$58(a6)
+            add.l   a2,d2
+            add.l   a2,d3
             dbf     d7,.wpl
             dbf     d6,.wipe
 .wiped      move.w  #0,(a1)
@@ -3958,7 +4463,23 @@ bob_draw:
             add.l   d0,d2                   ; d2 = image, plane 0
             move.w  H_DEPTH(a4),d1
             subq.w  #1,d1
-.pl         bsr     bwait
+            tst.w   v_bflash(a5)
+            bne.s   .pl
+            move.l  v_plsz(a5),d5           ; (d5 = a plane: the actor's offset is done with)
+.pq         btst    #6,$1f(a6)              ; (bwait)
+            beq.s   .pq
+            move.l  a0,$50(a6)              ; A = mask
+            move.l  d2,$4c(a6)              ; B = image plane
+            move.l  d3,$48(a6)              ; C = screen
+            move.l  d3,$54(a6)              ; D = screen
+            move.w  #$0040,$9c(a6)          ; (bgo)
+            move.w  d4,$58(a6)
+            add.l   d0,d2
+            add.l   d5,d3
+            dbf     d1,.pq
+            bra.s   .nxt
+.pl         btst    #6,$1f(a6)              ; (bwait)
+            beq.s   .pl
             move.w  v_bflash(a5),d0         ; the flash: plane 0 set (D = A + ~AC),
             beq.s   .pn                     ; the others cleared (D = ~AC)
             or.w    v_bcon(a5),d0
@@ -3968,8 +4489,8 @@ bob_draw:
             move.l  d2,$4c(a6)              ; B = image plane
             move.l  d3,$48(a6)              ; C = screen
             move.l  d3,$54(a6)              ; D = screen
-            move.w  d4,d0
-            bsr     bgo
+            move.w  #$0040,$9c(a6)          ; (bgo)
+            move.w  d4,$58(a6)
             add.l   v_bstep(a5),d2
             add.l   v_plsz(a5),d3
             dbf     d1,.pl
@@ -3978,6 +4499,7 @@ bob_draw:
             cmp.w   d6,d7
             blt     .act
 .done       bsr     bwait
+            move.w  #$0400,$96(a6)          ; DMACON: BLTPRI off
             move.w  #1,v_drawn(a5)
             movem.l (sp)+,d0-d7/a0-a3
 .r          rts
@@ -3994,17 +4516,8 @@ touch_pair:
             bhs     .no
             cmp.w   d2,d1
             bhs     .no
-            move.l  H_ACTORS(a4),d2
-            lea     0(a4,d2.l),a0
-            move.l  a0,a1
-            move.w  d0,d4
-            mulu    #ACT_SIZE,d4
-            add.w   d4,a0                   ; record a
-            move.w  d1,d4
-            mulu    #ACT_SIZE,d4
-            add.w   d4,a1                   ; record b
-            move.w  d0,d4
-            lsl.w   #ACTV_SHIFT,d4
+            move.w  d0,d4                   ; both shown, neither safe (before the records:
+            lsl.w   #ACTV_SHIFT,d4          ; most pairs stop here)
             move.w  d1,d5
             lsl.w   #ACTV_SHIFT,d5
             tst.w   v_vis(a5,d4.w)
@@ -4015,6 +4528,15 @@ touch_pair:
             bne     .no
             tst.w   v_safe(a5,d5.w)
             bne     .no
+            lea     v_arec(a5),a1
+            move.w  d0,d2
+            add.w   d2,d2
+            add.w   d2,d2
+            move.l  0(a1,d2.w),a0           ; record a
+            move.w  d1,d2
+            add.w   d2,d2
+            add.w   d2,d2
+            move.l  0(a1,d2.w),a1           ; record b
             move.w  v_ax(a5,d4.w),d2        ; a.left > b.right ?
             add.w   A_BX0(a0),d2
             move.w  v_ax(a5,d5.w),d3
@@ -4080,33 +4602,19 @@ run_rules:
             add.w   d5,d5                   ; latch offset
             lea     v_latch(a5),a2
             add.w   d5,a2                   ; a2 = this rule's latch
+            move.l  #-1,v_cta(a5)           ; no copies matched yet (v_cta and v_ctb)
             move.w  R_WHEN(a3),d0
-            beq     .touch
-            cmp.w   #1,d0
-            beq     .fire
-            cmp.w   #2,d0
-            beq     .timer
-            cmp.w   #3,d0
-            beq     .score
-            cmp.w   #4,d0
-            beq     .lives
-            cmp.w   #6,d0
-            beq     .jump
-            cmp.w   #8,d0
-            beq     .hold
-            cmp.w   #9,d0
-            beq     .inview
-            cmp.w   #10,d0
-            beq     .strike
-            cmp.w   #11,d0
-            beq     .thrown
-            cmp.w   #12,d0
-            beq     .pickup
-            cmp.w   #13,d0
-            beq     .ltime
-            cmp.w   #14,d0
-            beq     .auto
-            bra     .next
+            cmp.w   #15,d0
+            bhi     .next
+            add.w   d0,d0
+            move.w  .jt(pc,d0.w),d0
+            jmp     .jt(pc,d0.w)
+.jt         dc.w    .touch-.jt,.fire-.jt,.timer-.jt,.score-.jt,.lives-.jt,.next-.jt,.jump-.jt,.next-.jt
+            dc.w    .hold-.jt,.inview-.jt,.strike-.jt,.thrown-.jt,.pickup-.jt,.ltime-.jt,.auto-.jt,.mapend-.jt
+
+.mapend     tst.w   v_mend(a5)              ; the scrolling map has reached its top (once)
+            beq     .clear
+            bra     .edge
 
 .ltime      tst.w   v_sectick(a5)           ; N seconds into the level (once a level)
             beq     .next
@@ -4126,10 +4634,15 @@ run_rules:
             bsr     fire_action
             bra     .next
 
-.pickup     move.w  v_picked(a5),d0         ; the player picked actor a up this frame
+.pickup     move.w  v_picked(a5),d4         ; the player picked (a copy of) actor a up this frame
             bmi     .next
-            cmp.w   R_A(a3),d0
+            move.w  d4,d0
+            cmp.w   R_A(a3),d4              ; the actor named, or a copy of it
+            beq.s   .pka
+            bsr     type_of
+            cmp.w   R_A(a3),d4
             bne     .next
+.pka        move.w  d0,v_cta(a5)
             bsr     fire_action
             bra     .next
 
@@ -4137,38 +4650,51 @@ run_rules:
             beq     .next
             subq.w  #1,d1
             lea     v_hits(a5),a0
-.th         moveq   #0,d0
+.th         moveq   #0,d0                   ; each hit it matches fires it (two copies hit at once)
             move.b  (a0)+,d0
             moveq   #0,d2
             move.b  (a0)+,d2
-            cmp.w   R_A(a3),d0
+            cmp.w   R_A(a3),d0              ; the actor named, or a copy of it
+            beq.s   .tha
+            move.w  d0,d4
+            bsr     type_of
+            cmp.w   R_A(a3),d4
             bne.s   .thn
-            move.w  R_B(a3),d0
-            cmp.w   R_A(a3),d0
+.tha        move.w  R_B(a3),d4
+            cmp.w   R_A(a3),d4
             beq.s   .thy
-            cmp.w   d0,d2
+            cmp.w   d4,d2
             beq.s   .thy
+            move.w  d2,d4
+            bsr     type_of
+            cmp.w   R_B(a3),d4
+            bne.s   .thn
+.thy        move.w  d0,v_cta(a5)
+            move.w  d2,v_ctb(a5)
+            movem.l d1/a0,-(sp)
+            bsr     fire_action
+            movem.l (sp)+,d1/a0
 .thn        dbf     d1,.th
             bra     .next
-.thy        bsr     fire_action
-            bra     .next
 
-.strike     move.l  v_struck(a5),d0         ; the player's weapon struck actor b this frame
+.strike     move.l  v_struck(a5),d0         ; the player's weapon struck (a copy of) actor b this frame
             move.w  R_B(a3),d1
-            btst    d1,d0
+            bsr     type_bit
             beq     .next
+            move.w  d1,v_ctb(a5)
             bsr     fire_action
             bra     .next
 
-.inview     tst.w   v_sectick(a5)           ; every N seconds while actor a is on the screen
+.inview     tst.w   v_sectick(a5)           ; every N seconds while (a copy of) actor a is on the screen
             beq     .next
             move.w  R_A(a3),d0
-            bsr     on_screen
+            bsr     type_on_screen
             bne.s   .iv
             move.w  R_N(a3),(a2)            ; out of view: ring a second after it comes back
             subq.w  #1,(a2)
             bra     .next
-.iv         addq.w  #1,(a2)
+.iv         move.w  d1,v_cta(a5)
+            addq.w  #1,(a2)
             move.w  (a2),d0
             cmp.w   R_N(a3),d0
             blt     .next
@@ -4190,21 +4716,18 @@ run_rules:
             bsr     fire_action
             bra     .next
 
-.jump       move.l  v_jumped(a5),d0         ; actor a jumped this frame
+.jump       move.l  v_jumped(a5),d0         ; (a copy of) actor a jumped this frame
             move.w  R_A(a3),d1
-            btst    d1,d0
+            bsr     type_bit
             beq     .next
+            move.w  d1,v_cta(a5)
             bsr     fire_action
             bra     .next
 
-.touch      move.w  R_A(a3),d0
+.touch      move.w  R_A(a3),d0              ; a copy of a touches a copy of b (b = a: anything)
             move.w  R_B(a3),d1
-            cmp.w   d0,d1
-            bne.s   .two
-            bsr     touch_any
-            bra.s   .tt
-.two        bsr     touch_pair
-.tt         beq.s   .clear
+            bsr     touch_types
+            beq.s   .clear
 .edge       tst.w   (a2)
             bne     .next
             move.w  #1,(a2)
@@ -4244,7 +4767,9 @@ run_rules:
             move.w  #1,(a2)
             bsr     fire_action
 
-.next       bsr     rule_next
+.next       move.w  R_NAND(a3),d0           ; (rule_next)
+            lsl.w   #3,d0
+            lea     RULE_SIZE(a3,d0.w),a3
             addq.w  #1,d7
             cmp.w   d6,d7
             blt     .r
@@ -4261,6 +4786,7 @@ run_when_rules:
 .r          cmp.w   R_WHEN(a3),d4
             bne.s   .n
             move.w  d4,-(sp)
+            move.l  #-1,v_cta(a5)
             bsr     fire_action
             move.w  (sp)+,d4
 .n          bsr     rule_next
@@ -4281,6 +4807,8 @@ rule_next:  move.l  d0,-(sp)
 ; so a3 points AND_SIZE before each line: its act / target / value sit at 8 / 10 / 12)
 fire_action:
             movem.l d5-d7/a2-a3,-(sp)
+            move.w  R_A(a3),v_rta(a5)       ; (do_action turns them into the copies that matched)
+            move.w  R_B(a3),v_rtb(a5)
             move.w  R_NAND(a3),d7
             move.l  a3,a2
             movem.l d7/a2,-(sp)
@@ -4299,11 +4827,12 @@ fire_action:
 
 ; a3 = rule
 do_action:
-            move.w  R_TGT(a3),d5            ; target actor -> d5 = offset
-            move.w  d5,d4
+            move.w  R_TGT(a3),d4            ; target actor (the copy that made the rule fire)
+            bsr     ctx_actor
+            move.w  d4,d5                   ; -> d5 = offset
             lsl.w   #ACTV_SHIFT,d5
             move.w  R_ACT(a3),d0
-            cmp.w   #24,d0
+            cmp.w   #25,d0
             bhi     act_none
             add.w   d0,d0
             move.w  acttab(pc,d0.w),d0
@@ -4333,8 +4862,488 @@ acttab:     dc.w    act_score-acttab
             dc.w    act_shoot-acttab
             dc.w    act_power-acttab
             dc.w    act_effect-acttab
+            dc.w    act_spawn-acttab
 
 act_none:   rts
+
+; d4 = an actor a rule names -> d4 = the copy of it that made the rule fire (when one did)
+ctx_actor:  tst.w   v_cta(a5)
+            bmi.s   .b
+            cmp.w   v_rta(a5),d4
+            bne.s   .b
+            move.w  v_cta(a5),d4
+            rts
+.b          tst.w   v_ctb(a5)
+            bmi.s   .r
+            cmp.w   v_rtb(a5),d4
+            bne.s   .r
+            move.w  v_ctb(a5),d4
+.r          rts
+
+; R_VAL as an actor -> d0 (the copy that made the rule fire, when one did)
+ctx_val:    move.w  d4,-(sp)
+            move.w  R_VAL(a3),d4
+            bsr.s   ctx_actor
+            move.w  d4,d0
+            move.w  (sp)+,d4
+            rts
+
+; d4 = an actor -> d4 = its type (A_TYPE: the first of its copies)
+type_of:    movem.l d0/a0,-(sp)
+            bsr     actor_rec
+            move.w  A_TYPE(a0),d4
+            movem.l (sp)+,d0/a0
+            rts
+
+; d0 = a bit per actor, d1 = a type -> d1 = its first copy with its bit set (Z clear); Z set: none
+type_bit:   movem.l d2-d4/a0,-(sp)
+            move.l  d0,d3
+            move.w  d1,d2
+.l          cmp.w   H_NACT(a4),d1
+            bhs.s   .no
+            cmp.w   #MAX_ACT,d1
+            bhs.s   .no
+            cmp.w   d2,d1                   ; the actor named, then its copies
+            beq.s   .tb1
+            move.w  d1,d4
+            bsr     actor_rec
+            cmp.w   A_TYPE(a0),d2
+            bne.s   .no
+.tb1        btst    d1,d3
+            bne.s   .yes
+            addq.w  #1,d1
+            bra.s   .l
+.no         moveq   #0,d2
+            bra.s   .o
+.yes        moveq   #1,d2
+.o          move.l  d3,d0
+            tst.w   d2
+            movem.l (sp)+,d2-d4/a0
+            rts
+
+; d0 = a type -> d0 = a bit for each of its copies
+type_mask:  movem.l d1-d4/a0,-(sp)
+            move.w  d0,d2
+            move.w  d0,d1
+            moveq   #0,d3
+.l          cmp.w   H_NACT(a4),d1
+            bhs.s   .o
+            cmp.w   #MAX_ACT,d1
+            bhs.s   .o
+            cmp.w   d2,d1                   ; the actor named, then its copies
+            beq.s   .tm1
+            move.w  d1,d4
+            bsr     actor_rec
+            cmp.w   A_TYPE(a0),d2
+            bne.s   .o
+.tm1        bset    d1,d3
+            addq.w  #1,d1
+            bra.s   .l
+.o          move.l  d3,d0
+            movem.l (sp)+,d1-d4/a0
+            rts
+
+; d0 = a type -> Z clear when a copy of it is on the screen (d1 = that copy)
+type_on_screen:
+            movem.l d2/d4/a0,-(sp)
+            move.w  d0,d2
+            move.w  d0,d1
+.l          cmp.w   H_NACT(a4),d1
+            bhs.s   .no
+            cmp.w   d2,d1                   ; the actor named, then its copies
+            beq.s   .ts1
+            move.w  d1,d4
+            bsr     actor_rec
+            cmp.w   A_TYPE(a0),d2
+            bne.s   .no
+.ts1        move.w  d1,d0
+            bsr     on_screen
+            bne.s   .yes
+            addq.w  #1,d1
+            bra.s   .l
+.no         moveq   #0,d0
+            bra.s   .o
+.yes        moveq   #1,d0
+.o          movem.l (sp)+,d2/d4/a0
+            tst.w   d0
+            rts
+
+; d0 / d1 = types a / b -> Z clear when a copy of a touches a copy of b (b = a: anything
+; but itself); the pair goes in v_cta / v_ctb. Both shown, neither safe (as touch_pair).
+touch_types:
+            movem.l d1-d6/a0-a1,-(sp)
+            move.w  d0,d2                   ; d2 = type a, d3 = type b
+            move.w  d1,d3
+            lea     v_arec(a5),a1
+            move.w  d2,d6                   ; d6 = a copy of a
+.ia         cmp.w   H_NACT(a4),d6
+            bhs     .no
+            move.w  d6,d0
+            add.w   d0,d0
+            add.w   d0,d0
+            move.l  0(a1,d0.w),a0
+            cmp.w   d2,d6                   ; the actor named, then its copies
+            beq.s   .ia1
+            cmp.w   A_TYPE(a0),d2
+            bne     .no
+.ia1        move.w  d6,d5
+            lsl.w   #ACTV_SHIFT,d5
+            tst.w   v_vis(a5,d5.w)          ; hidden or safe: nothing to test
+            beq     .na
+            tst.w   v_safe(a5,d5.w)
+            bne     .na
+            move.w  v_ax(a5,d5.w),d0        ; its box
+            move.w  d0,d1
+            add.w   A_BX0(a0),d0
+            move.w  d0,v_hbx0(a5)
+            add.w   A_BX1(a0),d1
+            move.w  d1,v_hbx1(a5)
+            move.w  v_ay(a5,d5.w),d0
+            move.w  d0,d1
+            add.w   A_BY0(a0),d0
+            move.w  d0,v_hby0(a5)
+            add.w   A_BY1(a0),d1
+            move.w  d1,v_hby1(a5)
+            moveq   #0,d5                   ; anything: every actor
+            cmp.w   d2,d3
+            beq.s   .ib
+            move.w  d3,d5                   ; else the copies of b
+.ib         cmp.w   H_NACT(a4),d5
+            bhs     .na
+            move.w  d5,d0
+            add.w   d0,d0
+            add.w   d0,d0
+            move.l  0(a1,d0.w),a0
+            cmp.w   d2,d3
+            bne.s   .tb
+            cmp.w   d5,d6
+            beq     .nb
+            bra.s   .tp
+.tb         cmp.w   d3,d5
+            beq.s   .tp
+            cmp.w   A_TYPE(a0),d3
+            bne     .na
+.tp         move.w  d5,d4
+            lsl.w   #ACTV_SHIFT,d4
+            tst.w   v_vis(a5,d4.w)
+            beq.s   .nb
+            tst.w   v_safe(a5,d4.w)
+            bne.s   .nb
+            move.w  v_ax(a5,d4.w),d0
+            move.w  d0,d1
+            add.w   A_BX0(a0),d0            ; b's left past a's right?
+            cmp.w   v_hbx1(a5),d0
+            bgt.s   .nb
+            add.w   A_BX1(a0),d1            ; b's right before a's left?
+            cmp.w   v_hbx0(a5),d1
+            blt.s   .nb
+            move.w  v_ay(a5,d4.w),d0
+            move.w  d0,d1
+            add.w   A_BY0(a0),d0
+            cmp.w   v_hby1(a5),d0
+            bgt.s   .nb
+            add.w   A_BY1(a0),d1
+            cmp.w   v_hby0(a5),d1
+            bge.s   .yes
+.nb         addq.w  #1,d5
+            bra     .ib
+.na         addq.w  #1,d6
+            bra     .ia
+.no         moveq   #0,d0
+            bra.s   .o
+.yes        move.w  d6,v_cta(a5)
+            move.w  d5,v_ctb(a5)
+            moveq   #1,d0
+.o          movem.l (sp)+,d1-d6/a0-a1
+            tst.w   d0
+            rts
+
+; DO 25: a copy of actor d4 that is not out yet comes out on actor R_VAL - a big one
+; breaks into small ones, a hatch lets a fighter out. A flyer starts its pattern there;
+; each next one zigzags off the other way. It is gone when it leaves the screen.
+act_spawn:  movem.l d0-d7/a0-a2,-(sp)
+            cmp.w   H_NACT(a4),d4
+            bhs     .out
+            bsr     ctx_val
+            move.w  d0,d6                   ; d6 = where
+            cmp.w   H_NACT(a4),d6
+            bhs     .out
+            bsr     free_copy
+            beq     .out
+            move.w  d4,d5
+            lsl.w   #ACTV_SHIFT,d5
+            bsr     actor_rec
+            move.l  a0,a2                   ; a2 = the one that comes out
+            move.w  A_PAT(a2),v_pat(a5,d5.w)
+            move.w  A_ENTER(a2),v_edge(a5,d5.w)
+            move.w  d6,d4
+            bsr     actor_rec               ; a0 = where it comes out
+            lsl.w   #ACTV_SHIFT,d6
+            move.w  A_BX0(a0),d0            ; centred on it
+            add.w   A_BX1(a0),d0
+            sub.w   A_BX0(a2),d0
+            sub.w   A_BX1(a2),d0
+            asr.w   #1,d0
+            add.w   v_ax(a5,d6.w),d0
+            move.w  A_BY0(a0),d1
+            add.w   A_BY1(a0),d1
+            sub.w   A_BY0(a2),d1
+            sub.w   A_BY1(a2),d1
+            asr.w   #1,d1
+            add.w   v_ay(a5,d6.w),d1
+            bsr     come_out
+            eor.w   #1,v_spalt(a5)
+            move.w  v_spalt(a5),v_dx(a5,d5.w)
+.out        movem.l (sp)+,d0-d7/a0-a2
+            rts
+
+; an actor that fires by itself (A_FIRE; d5 / d7 / a2): every A_FRATE frames, give or take,
+; while it is on the screen, a volley of its shot (A_FPAT)
+foe_fire:   movem.l d0-d7/a0-a3,-(sp)
+            tst.w   v_vis(a5,d5.w)
+            beq     .out
+            tst.w   v_ftmr(a5,d5.w)
+            beq.s   .go
+            subq.w  #1,v_ftmr(a5,d5.w)
+            bra     .out
+.go         move.w  d7,d0
+            bsr     on_screen
+            beq     .out
+            bsr     rand
+            and.w   #15,d0
+            add.w   A_FRATE(a2),d0
+            move.w  d0,v_ftmr(a5,d5.w)
+            move.w  A_FIRE(a2),d3           ; d3 = the shot
+            cmp.w   H_NACT(a4),d3
+            bhs     .out
+            move.w  d7,d6                   ; d6 / d7 / a1 = the shooter
+            move.w  d5,d7
+            move.l  a2,a1
+            move.w  d3,d4
+            bsr     actor_rec               ; a0 = the shot's record
+            move.w  A_FPAT(a1),d0
+            beq.s   .own
+            cmp.w   #3,d0
+            beq.s   .ring
+            cmp.w   #4,d0
+            beq.s   .fan
+            bsr     aim_player              ; 1 / 2: at the player
+            beq     .out
+            moveq   #0,d2
+            moveq   #0,d4
+            bsr     shoot_one
+            cmp.w   #2,A_FPAT(a1)
+            bne     .out
+            moveq   #-1,d4
+            bsr     shoot_one
+            moveq   #1,d4
+            bsr     shoot_one
+            bra.s   .out
+.own        bsr     shot_aim
+            bra.s   .one
+.fan        bsr     shot_aim
+            moveq   #0,d2
+            moveq   #-1,d4
+            bsr     shoot_one
+            moveq   #1,d4
+            bsr     shoot_one
+.one        moveq   #0,d2
+            moveq   #0,d4
+            bsr     shoot_one
+            bra.s   .out
+.ring       move.w  #0,v_aprec(a5)
+            lea     ring8(pc),a3
+            moveq   #7,d5
+.rl         move.b  (a3)+,d0
+            ext.w   d0
+            move.w  d0,v_aimx(a5)
+            move.b  (a3)+,d0
+            ext.w   d0
+            move.w  d0,v_aimy(a5)
+            moveq   #0,d2
+            moveq   #0,d4
+            bsr     shoot_one
+            dbf     d5,.rl
+.out        movem.l (sp)+,d0-d7/a0-a3
+            rts
+
+ring8:      dc.b    0,-1,1,-1,1,0,1,1,0,1,-1,1,-1,0,-1,-1
+
+; a shot d3 aimed straight at the player from the shooter (a1 / d7): v_avx / v_avy at
+; the shot's speed, v_aprec = 1. Z set: no player
+aim_player: movem.l d0-d5/a0,-(sp)
+            move.w  H_PLAYER(a4),d4
+            bmi     .no
+            cmp.w   H_NACT(a4),d4
+            bhs     .no
+            move.w  d3,d5
+            lsl.w   #ACTV_SHIFT,d5
+            move.w  v_spd(a5,d5.w),d5
+            lsl.w   #4,d5                   ; d5 = its speed, 1/16 pixels a frame
+            bsr     actor_rec               ; a0 = the player's record
+            lsl.w   #ACTV_SHIFT,d4
+            move.w  A_BX0(a0),d0            ; player's middle - the shooter's middle
+            add.w   A_BX1(a0),d0
+            sub.w   A_BX0(a1),d0
+            sub.w   A_BX1(a1),d0
+            asr.w   #1,d0
+            add.w   v_ax(a5,d4.w),d0
+            sub.w   v_ax(a5,d7.w),d0
+            move.w  A_BY0(a0),d1
+            add.w   A_BY1(a0),d1
+            sub.w   A_BY0(a1),d1
+            sub.w   A_BY1(a1),d1
+            asr.w   #1,d1
+            add.w   v_ay(a5,d4.w),d1
+            sub.w   v_ay(a5,d7.w),d1
+            bsr     vec_speed
+            move.w  d0,v_avx(a5)
+            move.w  d1,v_avy(a5)
+            bsr     sign_w
+            move.w  d0,v_aimx(a5)
+            move.w  d1,d0
+            bsr     sign_w
+            move.w  d0,v_aimy(a5)
+            move.w  #1,v_aprec(a5)
+            moveq   #1,d0
+            bra.s   .o
+.no         moveq   #0,d0
+.o          movem.l (sp)+,d0-d5/a0
+            rts
+
+; d0 / d1 = a way (pixels), d5 = a speed -> d0 / d1 that way at that speed (octagon length)
+vec_speed:  movem.l d2-d4,-(sp)
+            move.w  d0,d2
+            bpl.s   .a
+            neg.w   d2
+.a          move.w  d1,d3
+            bpl.s   .b
+            neg.w   d3
+.b          cmp.w   d3,d2                   ; d2 = the longer, d3 = the shorter
+            bge.s   .c
+            exg     d2,d3
+.c          move.w  d3,d4
+            add.w   d4,d4
+            add.w   d3,d4
+            lsr.w   #3,d4
+            add.w   d4,d2                   ; length ~ longer + 3/8 shorter
+            bne.s   .d
+            moveq   #0,d0
+            move.w  d5,d1                   ; (right on top of it: down)
+            bra.s   .o
+.d          muls    d5,d0
+            divs    d2,d0
+            muls    d5,d1
+            divs    d2,d1
+.o          movem.l (sp)+,d2-d4
+            rts
+
+; a homing missile (d5, a2): every other frame it turns a quarter of the way towards the
+; nearest thing it can hit that is on the screen (its hit mask); with nothing there it
+; flies on
+missile_steer:
+            movem.l d0-d7/a0-a1,-(sp)
+            btst    #0,v_anim+1(a5)
+            bne     .out
+            lea     -10(sp),sp              ; (sp) nearest so far, 2 / 4 its way, 6 / 8 this one's
+            move.w  #$7fff,(sp)
+            move.w  v_pool(a5,d5.w),d0      ; d3 = what it can hit
+            moveq   #-1,d3
+            cmp.w   #MAX_ACT,d0
+            bhs.s   .m
+            lsl.w   #2,d0
+            lea     v_hitmask(a5),a1
+            move.l  0(a1,d0.w),d3
+            bne.s   .m
+            moveq   #-1,d3
+.m          move.w  A_BX0(a2),d6            ; d6 / d7 = its middle
+            add.w   A_BX1(a2),d6
+            asr.w   #1,d6
+            add.w   v_ax(a5,d5.w),d6
+            move.w  A_BY0(a2),d7
+            add.w   A_BY1(a2),d7
+            asr.w   #1,d7
+            add.w   v_ay(a5,d5.w),d7
+            lea     v_arec(a5),a1
+            moveq   #0,d4
+.j          tst.l   d3                      ; the actors in its mask, in turn
+            beq     .pick
+            lsr.l   #1,d3
+            bcc     .n
+            cmp.w   H_NACT(a4),d4
+            bhs     .pick
+            cmp.w   H_PLAYER(a4),d4
+            beq     .n
+            move.w  d4,d1
+            lsl.w   #ACTV_SHIFT,d1
+            tst.w   v_vis(a5,d1.w)
+            beq     .n
+            tst.w   v_safe(a5,d1.w)
+            bne     .n
+            move.w  d4,d0
+            add.w   d0,d0
+            add.w   d0,d0
+            move.l  0(a1,d0.w),a0
+            move.w  A_ROLE(a0),d0
+            cmp.w   #ROLE_SHOT,d0
+            beq     .n
+            cmp.w   #ROLE_OPT,d0
+            beq     .n
+            cmp.w   #ROLE_FX,d0
+            beq     .n
+            move.w  A_FROM(a0),d0
+            cmp.w   v_level(a5),d0
+            bgt     .n
+            move.w  A_BX0(a0),d0            ; its middle, on the screen?
+            add.w   A_BX1(a0),d0
+            asr.w   #1,d0
+            add.w   v_ax(a5,d1.w),d0
+            bmi     .n
+            cmp.w   v_pw(a5),d0
+            bge     .n
+            move.w  A_BY0(a0),d2
+            add.w   A_BY1(a0),d2
+            asr.w   #1,d2
+            add.w   v_ay(a5,d1.w),d2
+            cmp.w   v_hudlines(a5),d2
+            blt     .n
+            cmp.w   #256,d2
+            bge     .n
+            sub.w   d6,d0                   ; its way to that one's middle
+            sub.w   d7,d2
+            move.w  d0,6(sp)
+            move.w  d2,8(sp)
+            tst.w   d0
+            bpl.s   .a1
+            neg.w   d0
+.a1         tst.w   d2
+            bpl.s   .a2
+            neg.w   d2
+.a2         add.w   d2,d0
+            cmp.w   (sp),d0
+            bge.s   .n
+            move.w  d0,(sp)
+            move.w  6(sp),2(sp)
+            move.w  8(sp),4(sp)
+.n          addq.w  #1,d4
+            bra     .j
+.pick       cmp.w   #$7fff,(sp)
+            beq.s   .done
+            move.w  2(sp),d0
+            move.w  4(sp),d1
+            move.w  d5,d7
+            move.w  v_spd(a5,d7.w),d5
+            lsl.w   #4,d5
+            bsr     vec_speed
+            sub.w   v_tvx(a5,d7.w),d0       ; a quarter of the way round
+            asr.w   #2,d0
+            add.w   d0,v_tvx(a5,d7.w)
+            sub.w   v_tvy(a5,d7.w),d1
+            asr.w   #2,d1
+            add.w   d1,v_tvy(a5,d7.w)
+.done       lea     10(sp),sp
+.out        movem.l (sp)+,d0-d7/a0-a1
+            rts
 
 ; DO 21: the player drops what it carries (it falls, harmless)
 act_drop:   move.w  v_carry(a5),d0
@@ -4506,7 +5515,8 @@ throw_hits:
 
 ; the shot d7 (d5, a2): the first actor it hits - not the one that fired it, not another
 ; shot, not one that is safe - goes in v_hits as (the actor the Shoot rule named, it).
-; Z clear when it hit something
+; Z clear when it hit something. Only the actors in its hit mask are looked at: the
+; boxes first, the rest only when they overlap.
 shot_hits:
             movem.l d1-d6/a0-a1,-(sp)
             move.w  v_pool(a5,d5.w),d0      ; d3 = what this shot stops at (v_hitmask)
@@ -4518,19 +5528,56 @@ shot_hits:
             move.l  0(a1,d0.w),d3
             bne.s   .m
             moveq   #-1,d3                  ; no rule for it: anything
-.m          moveq   #0,d6
-.j          cmp.w   H_NACT(a4),d6
-            bge     .none
-            cmp.w   #MAX_ACT,d6
-            bge     .none
-            cmp.w   d7,d6
+.m          move.w  v_ax(a5,d5.w),d0        ; the shot's box
+            move.w  d0,d1
+            add.w   A_BX0(a2),d0
+            move.w  d0,v_hbx0(a5)
+            add.w   A_BX1(a2),d1
+            move.w  d1,v_hbx1(a5)
+            move.w  v_ay(a5,d5.w),d0
+            move.w  d0,d1
+            add.w   A_BY0(a2),d0
+            move.w  d0,v_hby0(a5)
+            add.w   A_BY1(a2),d1
+            move.w  d1,v_hby1(a5)
+            lea     v_arec(a5),a1
+            moveq   #0,d6
+.j          tst.l   d3
+            beq     .none
+            lsr.l   #1,d3
+            bcc     .n
+            cmp.w   H_NACT(a4),d6
+            bhs     .none
+            move.w  d6,d1
+            lsl.w   #ACTV_SHIFT,d1          ; d1 = its offset
+            tst.w   v_vis(a5,d1.w)
+            beq     .n
+            move.w  d6,d0
+            add.w   d0,d0
+            add.w   d0,d0
+            move.l  0(a1,d0.w),a0           ; a0 = its record
+            move.w  v_ax(a5,d1.w),d2        ; its left past the shot's right?
+            move.w  d2,d4
+            add.w   A_BX0(a0),d2
+            cmp.w   v_hbx1(a5),d2
+            bgt     .n
+            add.w   A_BX1(a0),d4            ; its right before the shot's left?
+            cmp.w   v_hbx0(a5),d4
+            blt     .n
+            move.w  v_ay(a5,d1.w),d2
+            move.w  d2,d4
+            add.w   A_BY0(a0),d2
+            cmp.w   v_hby1(a5),d2
+            bgt     .n
+            add.w   A_BY1(a0),d4
+            cmp.w   v_hby0(a5),d4
+            blt     .n
+            cmp.w   d7,d6                   ; they overlap: is it something it can hit?
             beq     .n
             cmp.w   v_owner(a5,d5.w),d6
             beq     .n
-            btst    d6,d3
-            beq     .n
-            move.w  d6,d4
-            bsr     actor_rec
+            tst.w   v_safe(a5,d1.w)
+            bne     .n
             move.w  A_ROLE(a0),d0
             cmp.w   #ROLE_SHOT,d0           ; shots pass each other by, and options and effects
             beq     .n
@@ -4549,13 +5596,7 @@ shot_hits:
 .lv         move.w  A_FROM(a0),d0
             cmp.w   v_level(a5),d0
             bgt.s   .n
-            move.w  d7,d0
-            move.w  d6,d1
-            bsr     touch_pair              ; both shown, neither safe, boxes overlap
-            beq.s   .n
-            move.w  d6,d1                   ; a tough one: each hit but the last only flashes it
-            lsl.w   #ACTV_SHIFT,d1
-            subq.w  #1,v_hp(a5,d1.w)
+            subq.w  #1,v_hp(a5,d1.w)        ; a tough one: each hit but the last only flashes it
             ble.s   .down
             move.w  #HIT_FLASH,v_hitf(a5,d1.w)
             bra.s   .hit
@@ -4600,7 +5641,8 @@ act_shoot:
             move.w  d4,d3                   ; d3 = the shot the rule names
             cmp.w   H_NACT(a4),d3
             bhs     .out
-            move.w  R_VAL(a3),d6            ; d6 = the shooter
+            bsr     ctx_val
+            move.w  d0,d6                   ; d6 = the shooter
             cmp.w   H_NACT(a4),d6
             bhs     .out
             move.w  d6,d0                   ; shown, on this level and on the screen
@@ -4619,7 +5661,12 @@ act_shoot:
             cmp.w   H_PLAYER(a4),d6
             bne.s   .v0
             move.w  v_power(a5),d0
-            add.w   d0,d0
+            cmp.w   #6,A_UP(a0)             ; homing missiles: as many as it has picked up
+            bne.s   .v1
+            move.w  v_miss(a5),d0
+            beq     .out
+            addq.w  #3,d0
+.v1         add.w   d0,d0
 .v0         move.w  0(a2,d0.w),d0
             lea     0(a2,d0.w),a2
 .vol        move.b  (a2)+,d2                ; side offset
@@ -4631,8 +5678,10 @@ act_shoot:
             bsr     shoot_one
             beq.s   .out                    ; no shot free
             bra.s   .vol
-.opts       cmp.w   H_PLAYER(a4),d6         ; the player's options fire too
+.opts       cmp.w   H_PLAYER(a4),d6         ; the player's options fire too (not missiles)
             bne.s   .out
+            cmp.w   #6,A_UP(a0)
+            beq.s   .out
             moveq   #0,d5
 .ol         cmp.w   H_NACT(a4),d5
             bge.s   .out
@@ -4657,11 +5706,13 @@ act_shoot:
             rts
 
 ; the player's volleys (v_power 0..3): pairs of (pixels to the side, spread), $7f ends
-vol_tab:    dc.w    vol_1-vol_tab,vol_2-vol_tab,vol_3-vol_tab,vol_4-vol_tab
+vol_tab:    dc.w    vol_1-vol_tab,vol_2-vol_tab,vol_3-vol_tab,vol_4-vol_tab,vol_m1-vol_tab,vol_m2-vol_tab
 vol_1:      dc.b    0,0,$7f
 vol_2:      dc.b    -6,0,6,0,$7f
 vol_3:      dc.b    0,0,0,-1,0,1,$7f
 vol_4:      dc.b    -6,0,6,0,0,-1,0,1,$7f
+vol_m1:     dc.b    0,0,$7f                 ; homing missiles
+vol_m2:     dc.b    -10,0,10,0,$7f
             even
 
 ; the way a volley flies (a0 = the named shot, a1 / d6 / d7 = the shooter) -> v_aimx /
@@ -4669,8 +5720,26 @@ vol_4:      dc.b    -6,0,6,0,0,-1,0,1,$7f
 ; 5 at the player (8 directions), 0 the way the shooter goes (the player: the
 ; joystick, else the way it last moved; a platform player: the way it faces)
 shot_aim:   movem.l d0-d4/a0,-(sp)
+            move.w  #0,v_aprec(a5)
             move.w  A_UP(a0),d2
+            cmp.w   #6,d2                   ; 6: a missile sets off the way the screen scrolls
+            bne.s   .n6
             moveq   #0,d0
+            moveq   #-1,d1                  ; (up when it does not)
+            move.w  v_scr(a5),d2
+            cmp.w   #2,d2
+            bne.s   .s3
+            moveq   #1,d0
+            moveq   #0,d1
+.s3         cmp.w   #3,d2
+            bne.s   .s4
+            moveq   #1,d1
+.s4         cmp.w   #4,d2
+            bne     .go
+            moveq   #-1,d0
+            moveq   #0,d1
+            bra     .go
+.n6         moveq   #0,d0
             moveq   #-1,d1
             cmp.w   #1,d2
             beq     .go                     ; up
@@ -4781,7 +5850,7 @@ shoot_one:  movem.l d0-d7/a0-a2,-(sp)
             bsr     actor_rec               ; a0 = its record
             cmp.w   d3,d4
             beq.s   .head
-            cmp.w   #ROLE_SHOT,A_ROLE(a0)
+            cmp.w   A_TYPE(a0),d3           ; its copies
             bne     .none
 .head       move.w  d4,d5
             lsl.w   #ACTV_SHIFT,d5
@@ -4835,6 +5904,8 @@ shoot_one:  movem.l d0-d7/a0-a2,-(sp)
             move.w  d0,v_ox(a5,d5.w)
             move.w  d1,v_oy(a5,d5.w)
 
+            tst.w   v_aprec(a5)             ; a worked-out way (aimed at the player)
+            bne.s   .prec
             move.w  v_aimx(a5),d0           ; aim x speed, a bit less on the diagonals
             move.w  v_aimy(a5),d1
             move.w  v_spd(a5,d5.w),d2
@@ -4845,20 +5916,24 @@ shoot_one:  movem.l d0-d7/a0-a2,-(sp)
             move.w  d2,d4
             lsr.w   #2,d4
             sub.w   d4,d2
-.sp         muls    d2,d0
+.sp         lsl.w   #4,d2                   ; 1/16 pixels a frame
+            muls    d2,d0
             muls    d2,d1
-            move.w  v_spd(a5,d5.w),d4       ; spread: half its speed to the side
-            lsr.w   #1,d4
+            bra.s   .spr
+.prec       move.w  v_avx(a5),d0
+            move.w  v_avy(a5),d1
+.spr        move.w  d0,d2                   ; spread: half its speed to the side
+            move.w  d1,d4
+            asr.w   #1,d2
+            asr.w   #1,d4
+            muls    v_vspr(a5),d2
             muls    v_vspr(a5),d4
-            move.w  v_aimy(a5),d2
-            neg.w   d2
-            muls    d4,d2
-            add.w   d2,d0
-            move.w  v_aimx(a5),d2
-            muls    d4,d2
+            sub.w   d4,d0
             add.w   d2,d1
             move.w  d0,v_tvx(a5,d5.w)
             move.w  d1,v_tvy(a5,d5.w)
+            move.w  #0,v_xsub(a5,d5.w)
+            move.w  #0,v_ysub(a5,d5.w)
             move.w  #SHOT_FLY,v_thr(a5,d5.w)
             move.w  #1,v_vis(a5,d5.w)
             move.w  #0,v_life(a5,d5.w)
@@ -4968,7 +6043,7 @@ stop_fall:  move.w  #0,v_vy(a5,d5.w)
 ; target (d4/d5) goes to the place where actor R_VAL is
 act_moveto: cmp.w   H_NACT(a4),d4
             bhs     act_none
-            move.w  R_VAL(a3),d0
+            bsr     ctx_val
             cmp.w   H_NACT(a4),d0
             bhs     act_none
             lsl.w   #ACTV_SHIFT,d0
@@ -5051,7 +6126,25 @@ act_random: cmp.w   H_NACT(a4),d4
 act_hide:   cmp.w   H_NACT(a4),d4
             bhs     act_none
             move.w  #0,v_vis(a5,d5.w)
-            rts
+            cmp.l   #-1,v_cta(a5)           ; no copy made the rule fire: every copy hides
+            bne.s   .r                      ; (v_cta and v_ctb both -1)
+            movem.l d0-d2/a0,-(sp)
+            move.w  d4,d2
+            move.w  d4,d1
+.l          addq.w  #1,d1
+            cmp.w   H_NACT(a4),d1
+            bhs.s   .o
+            move.w  d1,d4
+            bsr     actor_rec
+            cmp.w   A_TYPE(a0),d2
+            bne.s   .o
+            move.w  d1,d0
+            lsl.w   #ACTV_SHIFT,d0
+            move.w  #0,v_vis(a5,d0.w)
+            bra.s   .l
+.o          move.w  d2,d4
+            movem.l (sp)+,d0-d2/a0
+.r          rts
 
 act_show:   cmp.w   H_NACT(a4),d4
             bhs     act_none
@@ -5101,10 +6194,10 @@ act_win:    move.l  H_TWIN(a4),d0
 
 ; a0 = message.  Shows it, waits for fire, then restarts the game.
 end_screen:
+            move.l  a0,-(sp)                ; (scroll_off uses a0)
             bsr     scroll_off
             bsr     tiles_off
             bsr     music_stop              ; music and effects off
-            move.l  a0,-(sp)
             bsr     hide_sprites
             move.l  (sp)+,a0
             moveq   #0,d0
@@ -5281,12 +6374,13 @@ big_char:   movem.l d0-d7/a0-a3,-(sp)
             movem.l (sp)+,d0-d7/a0-a3
             rts
 
-; d4 = actor index -> a0 = actor record
-actor_rec:  move.l  H_ACTORS(a4),d0
-            lea     0(a4,d0.l),a0
-            move.w  d4,d0
-            mulu    #ACT_SIZE,d0
-            add.w   d0,a0
+; d4 = actor index -> a0 = actor record (d0 is changed)
+actor_rec:  move.w  d4,d0
+            and.w   #MAX_ACT-1,d0
+            add.w   d0,d0
+            add.w   d0,d0
+            lea     v_arec(a5),a0
+            move.l  0(a0,d0.w),a0
             rts
 
 ; xorshift32 -> d0.l
@@ -5345,7 +6439,7 @@ flash_tick:
 ;  gets 24-bit colour. One fixed colour (d1 >= 0) only needs the first write.
 build_grad:
             movem.l d0-d5/a0-a2,-(sp)
-            lea     cop_grad(pc),a0
+            lea     cop_grad-V-128(a5),a0
             move.l  H_GRAD(a4),d0
             beq     .nosky
             lea     0(a4,d0.l),a1           ; high nibbles
@@ -5431,7 +6525,13 @@ build_grad:
             move.w  #$010a,(a0)+
             move.w  d2,(a0)+
             move.l  #$01020000,(a0)+
-            bsr     cop_scroll              ; the right pointers at once: rebuilding the whole list
+            move.w  v_ddfs(a5),d2           ; a narrow map: fetch only the play area
+            beq.s   .spw
+            move.w  #$0092,(a0)+
+            move.w  d2,(a0)+
+            move.w  #$0094,(a0)+
+            move.w  v_ddfe(a5),(a0)+
+.spw        bsr     cop_scroll              ; the right pointers at once: rebuilding the whole list
             tst.w   v_scr(a5)               ; (a flash) takes longer than the vertical blank, and the
             beq.s   .spr                    ; copper must never meet empty ones
             movem.l d0-d1,-(sp)
@@ -5957,14 +7057,14 @@ hud_digging:
 on_screen:  movem.l d1-d2/a0,-(sp)
             cmp.w   H_NACT(a4),d0
             bhs     .no
-            move.l  H_ACTORS(a4),d1
-            lea     0(a4,d1.l),a0
             move.w  d0,d1
-            mulu    #ACT_SIZE,d1
-            add.l   d1,a0
             lsl.w   #ACTV_SHIFT,d0
             tst.w   v_vis(a5,d0.w)
             beq     .no
+            add.w   d1,d1
+            add.w   d1,d1
+            lea     v_arec(a5),a0
+            move.l  0(a0,d1.w),a0
             move.w  A_FROM(a0),d1
             cmp.w   v_level(a5),d1
             bgt     .no
@@ -5975,7 +7075,7 @@ on_screen:  movem.l d1-d2/a0,-(sp)
             bmi     .no
             move.w  v_ax(a5,d0.w),d1
             add.w   A_BX0(a0),d1
-            cmp.w   #320,d1
+            cmp.w   v_pw(a5),d1
             bge.s   .no
             moveq   #0,d2                   ; below the HUD strip when it scrolls
             tst.w   v_split(a5)
@@ -6104,8 +7204,9 @@ strike_mask:
             subq.w  #1,d1
 .l          cmp.w   #10,R_WHEN(a0)
             bne.s   .n
-            move.w  R_B(a0),d0
-            bset    d0,d2
+            move.w  R_B(a0),d0              ; every copy of it
+            bsr     type_mask
+            or.l    d0,d2
 .n          move.w  R_NAND(a0),d0
             lsl.w   #3,d0
             lea     RULE_SIZE(a0,d0.w),a0
@@ -6234,6 +7335,7 @@ cop_spr:    dc.w    $0120,0,$0122,0
             dc.w    $0134,0,$0136,0
             dc.w    $0138,0,$013a,0
             dc.w    $013c,0,$013e,0
+cop_ddf:    dc.w    $01fe,0,$01fe,0         ; a narrow map: the HUD's DDFSTRT / DDFSTOP (else no-ops)
 cop_mods:   dc.w    $0108,0,$010a,0,$0102,0 ; modulos and fine scroll from the top (tile world: HUD strip)
 cop_grad:   dc.w    $ffff,$fffe             ; sky lines are built here at run time
             ds.b    256*20+32+128           ; AGA: wait + 4 moves per line; + the tile world split

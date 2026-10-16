@@ -74,7 +74,7 @@ function adf_do_line(_b, _d, _ncol, _nsnd)
     if (_d.act == 8) { _val = clamp(_val, 0, _ncol - 1); }
     if (_d.act == 2) { _val = clamp(_val, 0, _nsnd - 1); }
     if (_d.act == 18) { _val = clamp(_val, 0, ADF_SONGS_MAX - 1); }
-    be16(_b, clamp(_d.act, 0, 24));
+    be16(_b, clamp(_d.act, 0, 25));
     be16(_b, clamp(_d.target, 0, ACT_MAX_ALL - 1));
     be16(_b, clamp(_val, 0, 65535));
 }
@@ -285,9 +285,10 @@ function adf_bob_dims(_p, _a)
 /// limits (lite_trim): the project itself is not changed.
 function adam_data_block(_p, _measure = false)
 {
-    if (pro_edition()) { return adam_data_block_raw(_p, _measure); }
     var _lwarn = [];
-    var _q = lite_trim(_p, _lwarn);
+    var _q = _p;
+    if (!pro_edition()) { _q = lite_trim(_p, _lwarn); }
+    _q = disk_expand(_q);
     var _keep = proj;
     proj = _q;                      // the helpers (actors_on_disk, anim_plan ...) read proj
     var _r = undefined;
@@ -305,17 +306,190 @@ function adam_data_block(_p, _measure = false)
     return _r;
 }
 
+/// Actor _i of the project -> its first actor on the disk (0 when it is not on the disk)
+function disk_actor(_first, _i)
+{
+    if (_i >= 0 && _i < array_length(_first) && _first[_i] >= 0) { return _first[_i]; }
+    return 0;
+}
+
+/// A DO line (a rule or an AND DO line) naming disk actors
+function disk_do_line(_d, _first)
+{
+    var _o = struct_overlay({}, _d);
+    _o.target = disk_actor(_first, _d.target);
+    if (do_value_is_actor(_d.act)) { _o.value = disk_actor(_first, _d.value); }
+    return _o;
+}
+
+/// The project as the disk sees it (as disk_project in gen_examples.py): each actor, then
+/// its copies (Actors page 'Copies'), as many as go on the disk. A run of shots with the
+/// same aim and speed, or of effects with the same sprite, are copies of the first of the
+/// run too (rapid fire, several explosions at once). Copies after the first, and actors a
+/// spawner sends out, start hidden. Rules name disk actors (a rule names an actor and all
+/// its copies). Returns a shallow copy of _p: .actors / .rules replaced (each actor with
+/// disk_type = the disk actor of the first of its copies, disk_fire = the shot it fires),
+/// .disk_first[i] = actor i's first disk actor (-1 = not on the disk), .src_actors = _p.actors
+function disk_expand(_p)
+{
+    var _q = struct_overlay({}, _p);
+    var _lim = lim_actors();
+    if (_p.tiles_on) { _lim = ACT_MAX_TILE; }
+    var _acts = _p.actors;
+    var _out = [];                  // [actor, type] for each disk actor
+    var _first = [];
+    for (var i = 0; i < array_length(_acts); i++)
+    {
+        var _a = _acts[i];
+        var _head = array_length(_out);
+        if (_head >= _lim)
+        {
+            array_push(_first, -1);
+            continue;
+        }
+        var _typ = _head;
+        if (i > 0 && _first[i - 1] >= 0)
+        {
+            var _b = _acts[i - 1];
+            var _shots = (_a.role == 9 && _b.role == 9 && _a.aim == _b.aim && _a.speed == _b.speed);
+            var _fx = (_a.role == 12 && _b.role == 12 && _a.sprite == _b.sprite);
+            if (_shots || _fx) { _typ = _out[_first[i - 1]][1]; }
+        }
+        array_push(_first, _head);
+        var _nc = clamp(_a.copies, 1, COPIES_MAX);
+        for (var k = 0; k < _nc; k++)
+        {
+            if (array_length(_out) >= _lim) { break; }
+            array_push(_out, [i, _typ]);
+        }
+    }
+    var _spawned = array_create(array_length(_acts), false);
+    if (_p.shmup_map && !_p.tiles_on)
+    {
+        for (var s = 0; s < array_length(_p.spawners); s++)
+        {
+            var _sa = _p.spawners[s].act;
+            if (_sa >= 0 && _sa < array_length(_acts)) { _spawned[_sa] = true; }
+        }
+    }
+    var _dacts = [];
+    for (var d = 0; d < array_length(_out); d++)
+    {
+        var _ai = _out[d][0];
+        var _ac = struct_overlay({}, _acts[_ai]);
+        if (d > _first[_ai] || _spawned[_ai]) { _ac.visible = false; }     // copies wait for a spawner / Shoot / Spawn
+        _ac.disk_type = _out[d][1];
+        _ac.disk_fire = -1;
+        var _f = _acts[_ai].fire;
+        if (_f >= 0 && _f < array_length(_first) && _first[_f] >= 0) { _ac.disk_fire = _first[_f]; }
+        array_push(_dacts, _ac);
+    }
+    var _rules = [];
+    for (var r = 0; r < array_length(_p.rules); r++)
+    {
+        var _ru = _p.rules[r];
+        var _r2 = disk_do_line(_ru, _first);
+        _r2.a = disk_actor(_first, _ru.a);
+        _r2.b = disk_actor(_first, _ru.b);
+        var _mo = [];
+        for (var m = 0; m < array_length(_ru.more); m++) { array_push(_mo, disk_do_line(_ru.more[m], _first)); }
+        _r2.more = _mo;
+        array_push(_rules, _r2);
+    }
+    _q.actors = _dacts;
+    _q.rules = _rules;
+    _q.disk_first = _first;
+    _q.src_actors = _acts;
+    return _q;
+}
+
+/// The shoot 'em up map's spawners as the engine reads them (engine.s SP_*, as
+/// spawner_records in gen_examples.py), in the order they go off: from the bottom of the
+/// map up. _p is a disk_expand project. Each: { trig (the view's top line when it goes
+/// off), x, y (where on the screen they come in), act (disk actor), n, gap, pat (0xff =
+/// the actor's own), edge, dx }
+function adf_spawner_records(_p)
+{
+    var _first = _p.disk_first;
+    var _src = _p.src_actors;
+    var _rows = _p.map_h;
+    var _recs = [];
+    for (var n = 0; n < array_length(_p.spawners); n++)
+    {
+        var _s = _p.spawners[n];
+        var _ai = _s.act;
+        if (_ai < 0 || _ai >= array_length(_first) || _first[_ai] < 0) { continue; }
+        var _a = _src[_ai];
+        var _sp = _p.sprites[clamp(_a.sprite, 0, SPR_COUNT - 1)];
+        var _w = SPR_W;
+        var _h = SPR_H;
+        if (_a.bob || _sp.w > SPR_W || _sp.h > SPR_H)
+        {
+            _w = _sp.w;
+            _h = _sp.h;
+        }
+        var _pat = _s.pattern;
+        var _pp = _pat;
+        if (_pat < 0) { _pp = _a.pattern; }
+        var _edge = _s.edge & 3;
+        var _trig = _s.y;
+        var _sx = _p.map_w * 16;        // the right edge of the play area
+        var _sy = _s.at;
+        if (_pp == 4)
+        {
+            _trig = _s.y + _h;          // it sits on the map: it comes in at the top when the view gets there
+            _sx = _s.x;
+            _sy = -_h;
+        }
+        else if (_edge == 0)
+        {
+            _sx = _s.x;
+            _sy = -_h;
+        }
+        else if (_edge == 2)
+        {
+            _sx = _s.x;
+            _sy = 256;
+        }
+        else if (_edge == 3)
+        {
+            _sx = -_w;
+        }
+        var _pt = 0xff;
+        if (_pat >= 0) { _pt = clamp(_pat, 0, 5); }
+        array_push(_recs, { trig : clamp(_trig, 0, _rows * 16), idx : n, x : _sx, y : _sy, act : _first[_ai],
+                            n : clamp(_s.n, 1, COPIES_MAX), gap : clamp(_s.gap, 0, 250), pat : _pt, edge : _edge, dx : _s.dx });
+    }
+    array_sort(_recs, function(_ea, _eb)
+    {
+        if (_ea.trig != _eb.trig) { return _eb.trig - _ea.trig; }
+        return _ea.idx - _eb.idx;
+    });
+    return _recs;
+}
+
+/// A shoot 'em up map goes on the disk: tiles of 16, an even 12 to 20 across, a screen high
+/// at least (else the backdrop scrolls, with a warning)
+function shmup_map_disk(_p)
+{
+    return scroll_on_disk(_p) && _p.shmup_map && _p.tile_size == 16 && shmup_cols_ok(_p.map_w) && _p.map_h >= BD_H div 16;
+}
+
 function adam_data_block_raw(_p, _measure = false)
 {
     var _warn = [];
     var _m = machine_get(_p.machine);
     var _depth = clamp(_p.depth, 1, _m.max_depth);
-    var _ww = BD_W;                       // where actors can be: the screen, or the tile map
-    var _wh = BD_H;
+    var _ww = BD_W;                       // where actors can be: the screen, the tile map, or a
+    var _wh = BD_H;                       // shoot 'em up map's play area
     if (_p.tiles_on)
     {
         _ww = _p.map_w * _p.tile_size;
         _wh = _p.map_h * _p.tile_size;
+    }
+    else if (shmup_map_disk(_p))
+    {
+        _ww = _p.map_w * 16;
     }
     var _ncol = 1 << _depth;
     var _acts = _p.actors;
@@ -523,7 +697,7 @@ function adam_data_block_raw(_p, _measure = false)
         if (_ac.start_left) { _left = 1; }
         var _up = 0;
         if (_ac.start_up) { _up = 1; }
-        if (_ac.role == 9) { _up = clamp(_ac.aim, 0, 5); }    // A_UP of a shot = its aim
+        if (_ac.role == 9) { _up = clamp(_ac.aim, 0, 6); }    // A_UP of a shot = its aim (6 = homing missile)
         be16(_b, clamp(_ac.x, 0, _ww - _aw));     // tile world: anywhere on the map
         be16(_b, clamp(_ac.y, 0, _wh - _ah));
         be16(_b, clamp(_ac.role, 0, 12));
@@ -575,6 +749,14 @@ function adam_data_block_raw(_p, _measure = false)
         be16(_b, _ent);
         be16(_b, clamp(_ac.hits, 1, 99));
         be16(_b, _rank);
+        // version 10: A_TYPE (the first of its copies - rules name them all), A_FIRE (the shot it
+        // fires by itself, -1 none), A_FRATE (frames between volleys), A_FPAT (how it fires)
+        var _fire = _ac.disk_fire;
+        if (_fire < 0 || _fire >= _na) { _fire = -1; }
+        be16(_b, clamp(_ac.disk_type, 0, _na - 1));
+        be16(_b, _fire & 0xffff);
+        be16(_b, clamp(_ac.fire_rate, 10, 500));
+        be16(_b, clamp(_ac.fire_pat, 0, 4));
         if (_alloc.conflict[a2]) { array_push(_warn, "Actor '" + _ac.name + "' shares a sprite colour pair with different colours - it will borrow its partner's colours."); }
         if (_bob[a2] && !_ac.bob)
         {
@@ -592,7 +774,7 @@ function adam_data_block_raw(_p, _measure = false)
     {
         var _ru = _rules[r];
         var _nand = min(array_length(_ru.more), RULE_DOS_MAX - 1);
-        be16(_b, clamp(_ru.when, 0, 14));
+        be16(_b, clamp(_ru.when, 0, 15));
         be16(_b, clamp(_ru.a, 0, ACT_MAX_ALL - 1));
         be16(_b, clamp(_ru.b, 0, ACT_MAX_ALL - 1));
         be16(_b, clamp(_ru.n, 1, 65535));
@@ -928,18 +1110,106 @@ function adam_data_block_raw(_p, _measure = false)
     var _off_scroll = 0;
     var _sc_fix = 0;
     var _sc_nbuf = 1;
+    var _shm = _scr && _p.shmup_map;
+    if (_shm && !shmup_map_disk(_p))
+    {
+        array_push(_warn, "A shoot 'em up map needs tiles of 16 x 16 and a map " + string(SHMUP_COLS_MIN) + " to " + string(SHMUP_COLS_MAX) + " tiles across (an even number) and at least 16 high (Tiles page) - the backdrop scrolls instead.");
+        _shm = false;
+    }
+    var _sdir = _p.scroll_dir;
+    if (_shm) { _sdir = 1; }            // a shoot 'em up map: the ship flies up it
     if (_scr)
     {
         buf_align(_b, 8);
         _off_scroll = buffer_tell(_b);
         if (_anybob) { _sc_nbuf = 3; }
-        be16(_b, _p.scroll_dir);
+        be16(_b, _sdir);
         be16(_b, clamp(_p.scroll_speed, 1, 16));
         _sc_fix = buffer_tell(_b);
         be32(_b, 0);                    // SC_BUF, filled in below
         be16(_b, _sc_nbuf);
         be16(_b, 0);
+        be32(_b, 0);                    // SC_MAP, filled in below
         buf_align(_b, 8);
+    }
+    if (_shm)
+    {
+        // the shoot 'em up map (version 10, engine.s MP_*): map_w x map_h tiles of 16 that the
+        // view climbs once - the tile pictures (depth planes x 16 lines x 2 bytes), the cells
+        // (words with more than 256 tiles), the spawners (SP_*) in the order they go off. map_w
+        // is the play area's width in tiles, centred on the screen
+        var _off_map = buffer_tell(_b);
+        var _mnt = array_length(_p.tiles);
+        var _mword = (_mnt > 256);
+        var _sps = adf_spawner_records(_p);
+        var _mrows = _p.map_h;
+        be16(_b, _mrows);
+        be16(_b, _mnt);
+        var _mfix = buffer_tell(_b);
+        be32(_b, 0);                    // MP_IMG, MP_MAP: filled in below
+        be32(_b, 0);
+        be16(_b, array_length(_sps));
+        if (_mword) { be16(_b, 1); }
+        else { be16(_b, 0); }
+        be32(_b, 0);                    // MP_SP
+        be16(_b, _p.map_w);             // MP_COLS
+        be16(_b, 0);
+        buf_align(_b, 8);
+        var _off_mimg = buffer_tell(_b);
+        if (_measure) { buf_zeros(_b, _mnt * _depth * 32); }
+        for (var mt = 0; mt < _mnt && !_measure; mt++)
+        {
+            var _mpx = _p.tiles[mt].px;
+            for (var mpl = 0; mpl < _depth; mpl++)
+            {
+                for (var my = 0; my < 16; my++)
+                {
+                    var _mw16 = 0;
+                    for (var mx = 0; mx < 16; mx++)
+                    {
+                        if (((_mpx[my * 16 + mx] >> mpl) & 1) != 0) { _mw16 = _mw16 | (0x8000 >> mx); }
+                    }
+                    be16(_b, _mw16);
+                }
+            }
+        }
+        buf_align(_b, 8);
+        var _off_mcells = buffer_tell(_b);
+        var _mcn = _p.map_w * _mrows;
+        if (_measure)
+        {
+            if (_mword) { buf_zeros(_b, _mcn * 2); }
+            else { buf_zeros(_b, _mcn); }
+        }
+        else
+        {
+            for (var mc3 = 0; mc3 < _mcn; mc3++)
+            {
+                var _cv = clamp(_p.map[mc3], 0, _mnt - 1);
+                if (_mword) { be16(_b, _cv); }
+                else { buffer_write(_b, buffer_u8, _cv); }
+            }
+        }
+        buf_align(_b, 8);
+        var _off_msp = buffer_tell(_b);
+        for (var se = 0; se < array_length(_sps); se++)
+        {
+            var _e = _sps[se];
+            be16(_b, _e.trig);
+            be16(_b, _e.x & 0xffff);
+            be16(_b, _e.y & 0xffff);
+            be16(_b, _e.act);
+            be16(_b, _e.n);
+            be16(_b, _e.gap);
+            buffer_write(_b, buffer_u8, _e.pat);
+            buffer_write(_b, buffer_u8, _e.edge);
+            be16(_b, _e.dx & 0xffff);
+        }
+        buf_align(_b, 8);
+        poke32(_b, _mfix, _off_mimg);
+        poke32(_b, _mfix + 4, _off_mcells);
+        poke32(_b, _mfix + 12, _off_msp);
+        poke32(_b, _off_scroll + 12, _off_map);
     }
     var _size = buffer_tell(_b);
 
@@ -963,7 +1233,8 @@ function adam_data_block_raw(_p, _measure = false)
     {
         var _sbase = (_size + 7) & ~7;
         var _spl = 36864;                               // SCR_PLH: 384 lines x 96 bytes (across)
-        if (_p.scroll_dir == 1 || _p.scroll_dir == 3) { _spl = 25600; }     // SCR_PLV: 640 lines x 40 bytes
+        if (_sdir == 1 || _sdir == 3) { _spl = 25600; }     // SCR_PLV: 640 lines x 40 bytes
+        if (_shm) { _spl = 640 * _p.map_w * 2; }            // a map: 640 lines of its play area's width
         _bss = _sbase - _size + _sc_nbuf * (_depth * _spl + 16);
         poke32(_b, _sc_fix, _sbase);
     }
@@ -979,7 +1250,7 @@ function adam_data_block_raw(_p, _measure = false)
     if (_p.show_score) { _sc = 1; }
     var _lv = 0;
     if (_p.show_lives) { _lv = 1; }
-    poke16(_b, 4, 9);                    // data block version 9: shoot 'em up (H_SCROLL, A_PAT..A_RANK); 8: 16-frame animation tables; 7: custom HUD (H_UI); 6: tile world (H_TILES); 5: animation tables (A_ANIM); 4: BOBs
+    poke16(_b, 4, 10);                   // data block version 10: shoot 'em up map (SC_MAP), A_TYPE..A_FPAT; 9: shoot 'em up (H_SCROLL, A_PAT..A_RANK); 8: 16-frame animation tables; 7: custom HUD (H_UI); 6: tile world (H_TILES); 5: animation tables (A_ANIM); 4: BOBs
     poke16(_b, 6, _flags);
     poke16(_b, 8, _depth);
     poke16(_b, 10, _na);

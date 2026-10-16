@@ -250,8 +250,8 @@ function lite_trim(_p, _warn)
         array_push(_warn, "Custom fonts are part of ADAM Pro - the game uses the ADAM font and keeps your custom HUD.");
     }
 
-    // tile world: 96 tile types, a map up to 256 x 256 tiles
-    if (_p.tiles_on)
+    // tile world or shoot 'em up map: 96 tile types, a map up to 256 x 256 tiles
+    if (_p.tiles_on || _p.shmup_map)
     {
         var _nt = min(LITE_TILES, array_length(_p.tiles));
         var _mw = min(_p.map_w, LITE_MAP_W);

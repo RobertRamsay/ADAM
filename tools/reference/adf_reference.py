@@ -129,6 +129,8 @@ def build(proj, aga):
         bsize=(bh<<6)|(bw//16+1) if a.get('bob') else 0
         ts=proj['tiles'].get('size',16) if proj.get('tiles') else 16
         ww,wh=(proj['tiles']['w']*ts,proj['tiles']['h']*ts) if proj.get('tiles') else (320,256)
+        smap=(proj.get('scroll') or {}).get('map')
+        if smap and not proj.get('tiles'): ww=smap.get('cols',20)*16      # a shoot 'em up map: its play area
         up=a.get('aim',0) if a['role']==9 else int(a['up'])   # A_UP of a shot (role 9) = its aim
         blob+=struct.pack('>HHHHHHHHHHHL',min(a['x'],ww-bw),min(a['y'],wh-bh),a['role'],a['speed'],int(a['visible']),int(a['left']),up,bx0,by0,bx1,by1,spr_offs[i])
         aflags=0                                       # A_AMODE bit 0: 8 directions, bit 1: Fire
@@ -143,6 +145,10 @@ def build(proj, aga):
         if a['role']==11: rank=min(6,1+sum(1 for b in actors[:i] if b['role']==11))
         blob+=struct.pack('>HHHH',max(0,min(5,a.get('pattern',0))),(256 if a.get('comeback') else 0)|(a.get('enter',0)&3),
                           max(1,min(99,a.get('hits',1))),rank)
+        # version 10: A_TYPE (the first of its copies), A_FIRE (-1 none), A_FRATE, A_FPAT
+        fire=a.get('fire',-1)
+        if not (0<=fire<len(actors)): fire=-1
+        blob+=struct.pack('>HhHH',a.get('type',i),fire,max(10,min(500,a.get('frate',60))),max(0,min(4,a.get('fpat',0))))
     align(8)
     off_rules=len(blob)
     for r in rules:
@@ -323,8 +329,38 @@ def build(proj, aga):
         align(8)
         off_scroll=len(blob)
         nbuf=3 if anybob else 1
-        blob.extend(struct.pack('>HHLHH',sc['dir'],max(1,min(16,sc.get('speed',4))),0,nbuf,0))
+        blob.extend(struct.pack('>HHLHHL',sc['dir'],max(1,min(16,sc.get('speed',4))),0,nbuf,0,0))
         align(8)
+        m=sc.get('map')
+        if m and sc['dir']==1:
+            # the shoot 'em up map (engine.s MP_*): tile pictures (depth planes x 16 lines x 2
+            # bytes), cols x rows cells (words with more than 256 tiles), the spawners (SP_*)
+            # in the order they go off; cols = the play area's width in tiles (12..20, even)
+            off_map=len(blob)
+            sps=m['spawners']
+            mword=len(m['tiles'])>256
+            blob.extend(struct.pack('>HHLLHHLHH',m['rows'],len(m['tiles']),0,0,len(sps),1 if mword else 0,0,m.get('cols',20),0))
+            align(8)
+            off_mimg=len(blob)
+            for tp in m['tiles']:
+                for pl in range(depth):
+                    for y in range(16):
+                        w=0
+                        for x in range(16):
+                            if (tp[y*16+x]>>pl)&1: w|=0x8000>>x
+                        blob.extend(struct.pack('>H',w))
+            align(8)
+            off_cells=len(blob)
+            if mword: blob.extend(b''.join(struct.pack('>H',max(0,min(len(m['tiles'])-1,c))) for c in m['cells']))
+            else: blob.extend(bytes(max(0,min(len(m['tiles'])-1,c)) for c in m['cells']))
+            align(8)
+            off_sp=len(blob)
+            for e in sps:
+                blob.extend(struct.pack('>hhhHHHBBh',e['trig'],e['x'],e['y'],e['act'],e['n'],e['gap'],e['pat'],e['edge'],e['dx']))
+            align(8)
+            struct.pack_into('>LL',blob,off_map+4,off_mimg,off_cells)
+            struct.pack_into('>L',blob,off_map+16,off_sp)
+            struct.pack_into('>L',blob,off_scroll+12,off_map)
     # tile world: the map as played and the scrolling picture go in cleared memory after the data
     bss=0
     if t:
@@ -337,13 +373,14 @@ def build(proj, aga):
     if sc:
         size_now=(len(blob)+7)//8*8
         pl=25600 if sc['dir'] in (1,3) else 36864   # SCR_PLV / SCR_PLH
+        if sc.get('map') and sc['dir']==1: pl=640*sc['map'].get('cols',20)*2     # a map: lines of cols words
         bss=nbuf*(depth*pl+16)
         struct.pack_into('>L',blob,off_scroll+4,size_now)
     proj['_need']=((len(blob)+7)//8*8)+bss if (t or sc) else 0     # bytes needed from the data start
     player=-1
     for i,a in enumerate(actors):
         if a['role'] in (0,6): player=i; break
-    hdr=struct.pack('>4sHHHHHHHHHHHH',b'ADAM',9,1 if aga else 0,depth,len(actors),len(rules),proj['lives'],
+    hdr=struct.pack('>4sHHHHHHHHHHHH',b'ADAM',10,1 if aga else 0,depth,len(actors),len(rules),proj['lives'],
                     int(proj['show_score']),int(proj['show_lives']),proj['hud_row'],proj['hud_col'],proj['msg_col'],player & 0xffff)+struct.pack('>L',off_game)
     hdr+=struct.pack('>LLLLLLLLLLLLLLL',off_pal,off_planes,off_act,off_rules,off_sfx,off_over,off_win,off_sprcol,off_disp,off_grad,off_ground,off_work,off_music,off_disp2,off_back)
     hdr+=struct.pack('>LLL',off_tiles,off_ui,off_scroll)
