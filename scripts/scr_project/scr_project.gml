@@ -775,6 +775,7 @@ function project_new()
         level_song : array_create(LEVEL_MAX, -1), // Phase 2 contract: song per level, -1 = none
         palettes : [],                           // named palettes: { name, cols } - cols[i] = $RRGGBB or -1 (the main palette's)
         level_pal : array_create(LEVEL_MAX, 0),  // the palette each level starts with: 0 main, k = palettes[k - 1]
+        disk2_music : false,                     // the songs levels start with go on disk 2 (Build page)
         tiles_on : false,                        // play on the tile map (Tiles page) instead of the backdrop
         tile_size : 16,                          // 8, 16, 32 or 64 pixels: every tile in the game
         tiles : tiles_default(16),               // up to TILE_MAX tiles; 0 = air
@@ -1064,6 +1065,7 @@ function project_from_loaded(_raw)
         }
     }
     _p.level_pal = _lpv;
+    _p.disk2_music = (_raw[$ "disk2_music"] == true);
     if (!is_numeric(_p.scroll_dir)) { _p.scroll_dir = 0; }
     _p.scroll_dir = clamp(floor(_p.scroll_dir), 0, 4);
     if (!is_numeric(_p.scroll_speed)) { _p.scroll_speed = 4; }

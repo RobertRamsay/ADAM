@@ -414,6 +414,7 @@ build_log = [];
 build_listing = [];
 build_warnings = [];
 build_ok = false;
+build_disk2 = "";           // the last build's disk 2 (.adf), "" = a one-disk game
 build_stamp = -1;           // current_time of the last good build (lessons check it)
 build_msg = "";
 build_size = 0;

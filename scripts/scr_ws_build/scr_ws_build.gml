@@ -165,6 +165,7 @@ function ws_build_draw(_x1, _y1, _x2, _y2)
         else { array_push(_items, "Nothing finishes a level - add a 'Count towards the level goal' rule"); array_push(_kinds, 1); }
     }
     if (proj.show_lives && !_lose) { array_push(_items, "Lives are shown but no rule takes a life away"); array_push(_kinds, 1); }
+    if (build_ok && build_disk2 != "") { array_push(_items, "Two disks: " + filename_name(build_disk2) + " holds the level music (FS-UAE puts it in DF1)"); array_push(_kinds, 0); }
 
     // long checklist lines wrap instead of being cut short; the column scrolls
     // when it is taller than the panel (a 760-high window, a long checklist)
@@ -178,7 +179,7 @@ function ws_build_draw(_x1, _y1, _x2, _y2)
         array_push(_ih, _ihk);
         _content += _ihk;
     }
-    _content += 10 + 54 + 62 + 60 + 132 + 68 + 20 + 34 + 16 + 12;
+    _content += 10 + 54 + 62 + 60 + 36 + 132 + 68 + 20 + 34 + 16 + 12;
     var _sx1 = _x1 + 2;
     var _sy1 = _y1 + 46;
     var _sx2 = _x1 + _lw - 2;
@@ -221,6 +222,14 @@ function ws_build_draw(_x1, _y1, _x2, _y2)
         build_choose_output();
     }
     _y += 60;
+    var _two = ui_toggle("build_disk2", _fx, _y, "Level music on a second disk", proj.disk2_music, "Second disk|Puts the songs your levels start with on disk 2 (" + "<name>_disk2.adf, next to the game disk), leaving the game disk more room. The game asks for disk 2 the first time a level needs it - or reads it from a second drive (DF1) - while the level card is up. ADAM does this by itself when a game does not fit on one disk. Songs a 'play music' rule plays stay on the game disk.");
+    if (_two != proj.disk2_music)
+    {
+        proj.disk2_music = _two;
+        proj_dirty = true;
+        mem_mark_stale();
+    }
+    _y += 36;
     // FS-UAE: the user's own copy, ADAM's test copy, or an install found on disk
     ui_heading(_fx, _y, "FS-UAE emulator");
     var _btn_w = 88;

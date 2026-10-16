@@ -59,7 +59,18 @@ H_TILES     equ 92         ; offset: tile world, 0 = none (version 6)
 H_UI        equ 96         ; offset: custom HUD (ADAM Pro UI editor), 0 = the standard HUD (version 7)
 H_SCROLL    equ 100        ; offset: scrolling backdrop (shoot 'em ups), 0 = it stands still (version 9)
 H_PALS      equ 104        ; offset: named palettes, 0 = none (version 11)
-HDR_SIZE    equ 108
+H_DISK2     equ 108        ; offset: disk 2 block, 0 = a one-disk game (version 12)
+HDR_SIZE    equ 112
+
+; disk 2 (version 12): level songs that did not go on the game disk. A song's
+; music table offset with bit 31 set is a byte offset on disk 2 (a track start).
+; Disk 2's first sector holds 'ADM2' and D2_ID. The engine reads it itself (the
+; OS is gone): raw MFM tracks by disk DMA from DF1 or DF0, decoded here.
+D2_ID       equ 0          ; long: the id disk 2 must carry
+D2_RAW      equ 4          ; long: offset (cleared memory after the data) of the raw track buffer
+D2_BUF      equ 8          ; long: offset of the song buffer (the biggest disk 2 song, whole tracks)
+TRK_BYTES   equ 5632       ; 11 sectors of 512
+RAW_WORDS   equ 6400       ; read a whole turn of the disk and a bit (12800 bytes)
 
 ; named palettes (version 11): each changes some of the backdrop colours of the
 ; main palette (H_PAL); DO 27 switches to one, fading over some frames, and each
@@ -372,6 +383,9 @@ v_bg        rs.l 1
 v_pfade     rs.w 1         ; palette fade: frames left, 0 = none
 v_pftot     rs.w 1         ; and how many it takes
 v_cophold   rs.w 1         ; setcol: the caller holds the copper (AGA with a copper sky)
+v_d2song    rs.w 1         ; disk 2: the song in the buffer, -1 = none
+v_d2drv     rs.w 1         ; the drive disk 2 was last found in, -1 = not yet
+v_dcyl      rs.w 4         ; each drive's head: cylinder, -1 = not known
 v_curpal    rs.l PAL_FADE  ; the backdrop colours shown now
 v_frompal   rs.l PAL_FADE  ; a fade goes from these ...
 v_tgtpal    rs.l PAL_FADE  ; ... to these
@@ -543,6 +557,7 @@ in_super:   move.w  #$2700,sr               ; mask all CPU interrupts while taki
             move.w  #$c000,$9a(a6)          ; INTENA master on (only EXTER is enabled)
             move.w  #$2000,sr               ; supervisor, CPU interrupts allowed
             bsr     init_music
+            bsr     disk2_init
             bsr     init_display
             bsr     hit_masks
 
@@ -588,6 +603,7 @@ level_card: lea     -128(a5),a7             ; a5 = V+128 (stack_top is too far f
             bsr     tiles_off
             bsr     hide_sprites
             bsr     restore_backdrop
+            bsr     level_disk2             ; this level's song from disk 2, if it lives there
             move.l  v_game(a5),d0
             beq.s   level_start
             move.l  d0,a0
@@ -6848,7 +6864,15 @@ music_play:
             move.l  (a0)+,d1                ; offset of the MOD bytes
             tst.l   (a0)                    ; length
             beq.s   .out
-            move.w  d0,v_song(a5)
+            tst.l   d1
+            bpl.s   .mem
+            bsr     song_fetch              ; on disk 2: read it in (if it is not already)
+            cmp.w   v_d2song(a5),d0
+            bne.s   .out                    ; could not
+            move.l  H_DISK2(a4),d1
+            lea     0(a4,d1.l),a0
+            move.l  D2_BUF(a0),d1
+.mem        move.w  d0,v_song(a5)
             lea     0(a4,d1.l),a0           ; a0 = MOD
             sub.l   a1,a1                   ; samples follow the patterns
             moveq   #0,d0                   ; from the first song position
@@ -6856,6 +6880,339 @@ music_play:
             lea     _mt_Enable(pc),a0
             st      (a0)                    ; go
 .out        movem.l (sp)+,d0-d1/a0-a1
+            rts
+
+; ============================================================================
+;  disk 2 (version 12)
+; ============================================================================
+disk2_init: move.w  #-1,v_d2song(a5)
+            move.w  #-1,v_d2drv(a5)
+            move.l  #-1,v_dcyl(a5)
+            move.l  #-1,v_dcyl+4(a5)
+            rts
+
+; at a level card: when this level's song lives on disk 2, read it in now (asking for
+; the disk if it is in no drive), so the level starts with it
+level_disk2:
+            movem.l d0-d1/a0,-(sp)
+            tst.l   H_DISK2(a4)
+            beq.s   .out
+            move.l  v_music(a5),d0
+            beq.s   .out
+            move.l  d0,a0
+            move.w  v_level(a5),d1
+            subq.w  #1,d1
+            cmp.w   #9,d1
+            bls.s   .lv
+            moveq   #0,d1
+.lv         moveq   #0,d0
+            move.b  M_LEVEL(a0,d1.w),d0
+            cmp.w   #$ff,d0
+            beq.s   .out
+            bsr     song_fetch
+.out        movem.l (sp)+,d0-d1/a0
+            rts
+
+; d0.w = song: when it lives on disk 2 and is not in the buffer, find disk 2 and read it
+; in (v_d2song = d0 when it worked). The music stops while the disk is read.
+song_fetch:
+            movem.l d0-d7/a0-a3,-(sp)
+            move.l  v_music(a5),d1
+            beq     .out
+            move.l  d1,a0
+            cmp.w   M_NSONGS(a0),d0
+            bhs     .out
+            cmp.w   v_d2song(a5),d0
+            beq     .out                    ; in the buffer already
+            move.w  d0,d7                   ; d7 = song
+            lsl.w   #3,d0
+            move.l  M_SONGS(a0,d0.w),d5     ; offset
+            bpl     .out                    ; on the game disk: in memory
+            move.l  M_SONGS+4(a0,d0.w),d6   ; length
+            beq     .out
+            and.l   #$7fffffff,d5
+            bsr     music_stop
+            move.w  #-1,v_d2song(a5)
+            bsr     disk2_find              ; -> d0 drive
+            lea     str_loading(pc),a0
+            moveq   #15,d2
+            bsr     say
+            move.l  d5,d1
+            divu    #TRK_BYTES,d1           ; d1.w = its first track
+            add.l   #TRK_BYTES-1,d6
+            divu    #TRK_BYTES,d6           ; d6.w = tracks
+            move.l  H_DISK2(a4),d2
+            lea     0(a4,d2.l),a2
+            move.l  D2_BUF(a2),d2
+            lea     0(a4,d2.l),a2           ; a2 = the song buffer
+            subq.w  #1,d6
+.trk        bsr     track_read
+            bne.s   .bad
+            lea     TRK_BYTES(a2),a2
+            addq.w  #1,d1
+            dbf     d6,.trk
+            move.w  d7,v_d2song(a5)
+            bra.s   .done
+.bad        bsr     drive_off               ; a damaged disk 2: say so, then play on without it
+            lea     str_d2err(pc),a0
+            moveq   #17,d2
+            bsr     say
+            bsr     wait_fire
+.done       bsr     drive_off
+            bsr     restore_backdrop
+.out        movem.l (sp)+,d0-d7/a0-a3
+            rts
+
+; a0 = text, d2 = row: a message on the screen (registers kept)
+say:        movem.l d0-d7/a0-a3,-(sp)
+            bsr     centre_text
+            movem.l (sp)+,d0-d7/a0-a3
+            rts
+
+; -> d0.w = the drive disk 2 is in: where it was last, then DF1, then DF0; while it is
+; in none of them the screen asks for it
+disk2_find:
+            movem.l d1-d7/a0-a3,-(sp)
+            moveq   #0,d7                   ; 1 once the screen asks
+.again      move.w  v_d2drv(a5),d0
+            bmi.s   .try1
+            bsr     disk2_check
+            beq.s   .found
+.try1       moveq   #1,d0
+            bsr     disk2_check
+            beq.s   .found
+            moveq   #0,d0
+            bsr     disk2_check
+            beq.s   .found
+            bsr     drive_off
+            tst.w   d7
+            bne.s   .wait
+            moveq   #1,d7
+            lea     str_disk2(pc),a0
+            moveq   #15,d2
+            bsr     say
+.wait       moveq   #24,d6                  ; half a second, then look again
+.w          bsr     wait_vbl
+            dbf     d6,.w
+            bra.s   .again
+.found      move.w  d0,v_d2drv(a5)
+            tst.w   d7
+            beq.s   .r
+            bsr     restore_backdrop        ; the request goes
+.r          movem.l (sp)+,d1-d7/a0-a3
+            rts
+
+; d0.w = drive: Z set when disk 2 (its 'ADM2' sector with D2_ID) is in it
+disk2_check:
+            movem.l d0-d2/a0-a2,-(sp)
+            move.l  H_DISK2(a4),d1
+            lea     0(a4,d1.l),a1
+            move.l  D2_BUF(a1),d1
+            lea     0(a4,d1.l),a2           ; read track 0 into the song buffer
+            moveq   #0,d1
+            bsr     track_read
+            bne.s   .no
+            cmp.l   #'ADM2',(a2)
+            bne.s   .no
+            move.l  D2_ID(a1),d1
+            cmp.l   4(a2),d1
+.no         movem.l (sp)+,d0-d2/a0-a2       ; (movem keeps the flags)
+            rts
+
+; d0.w = drive, d1.w = track 0..159, a2 = 5632 bytes: reads the track's 11 sectors.
+; Z set when they all came in (three tries).
+track_read:
+            movem.l d0-d7/a0-a3,-(sp)
+            moveq   #2,d7
+.try        bsr     drive_on
+            move.w  d1,d2
+            lsr.w   #1,d2
+            bsr     seek
+            btst    #0,d1
+            bne.s   .up
+            bset    #2,$bfd100              ; /SIDE high: the lower head (side 0)
+            bra.s   .rd
+.up         bclr    #2,$bfd100              ; the upper head (side 1)
+.rd         bsr     raw_read
+            bne.s   .fail
+            bsr     decode_track
+            beq.s   .ok
+.fail       dbf     d7,.try
+            moveq   #1,d0                   ; Z clear
+            bra.s   .out
+.ok         moveq   #0,d0                   ; Z set
+.out        movem.l (sp)+,d0-d7/a0-a3
+            rts
+
+; d0.w = drive 0..3: selected with its motor on; waits (at most ~0.6 s) for it to be ready
+drive_on:   movem.l d0-d2,-(sp)
+            moveq   #3,d1
+            add.w   d0,d1                   ; its /SELx bit
+            or.b    #$78,$bfd100            ; no drive selected
+            bclr    #7,$bfd100              ; motor on ...
+            bclr    d1,$bfd100              ; ... latched as it is selected
+            move.w  #300,d2
+.rdy        btst    #5,$bfe001              ; /RDY
+            beq.s   .r
+            moveq   #31,d0                  ; ~2 ms
+            bsr     lines_wait
+            dbf     d2,.rdy
+.r          movem.l (sp)+,d0-d2
+            rts
+
+; every drive's motor off, none selected
+drive_off:  movem.l d0-d1,-(sp)
+            moveq   #3,d1
+.m          or.b    #$78,$bfd100
+            bset    #7,$bfd100              ; motor off ...
+            move.w  d1,d0
+            addq.w  #3,d0
+            bclr    d0,$bfd100              ; ... latched as it is selected
+            or.b    #$78,$bfd100
+            dbf     d1,.m
+            movem.l (sp)+,d0-d1
+            rts
+
+; d0.w = drive (selected), d2.w = cylinder: moves its head there (the first time from cylinder 0)
+seek:       movem.l d0-d4/a0,-(sp)
+            lea     v_dcyl(a5),a0
+            add.w   d0,d0
+            add.w   d0,a0
+            move.w  (a0),d3                 ; where its head is, -1 = not known
+            bpl.s   .known
+            bset    #1,$bfd100              ; outwards, to cylinder 0
+            moveq   #89,d4
+.zero       btst    #4,$bfe001              ; /TK0
+            beq.s   .at0
+            bsr.s   .step
+            dbf     d4,.zero
+.at0        moveq   #0,d3
+.known      cmp.w   d3,d2
+            beq.s   .there
+            bhi.s   .in
+            bset    #1,$bfd100              ; out
+            subq.w  #1,d3
+            bra.s   .st
+.in         bclr    #1,$bfd100              ; in
+            addq.w  #1,d3
+.st         bsr.s   .step
+            bra.s   .known
+.there      move.w  d3,(a0)
+            move.w  #300,d0                 ; the head settles (~19 ms)
+            bsr     lines_wait
+            movem.l (sp)+,d0-d4/a0
+            rts
+.step       bclr    #0,$bfd100              ; a step pulse
+            bset    #0,$bfd100
+            move.w  #47,d0                  ; ~3 ms
+            bra     lines_wait
+
+; d0.w = raster lines to wait (64 us each)
+lines_wait: movem.l d0-d1,-(sp)
+.l          move.b  6(a6),d1
+.s          cmp.b   6(a6),d1
+            beq.s   .s
+            dbf     d0,.l
+            movem.l (sp)+,d0-d1
+            rts
+
+; reads one turn of the selected drive's track by disk DMA, from the first sync word.
+; -> a0 = the raw buffer, Z set when it came in
+raw_read:   movem.l d0-d1,-(sp)
+            move.l  H_DISK2(a4),d0
+            lea     0(a4,d0.l),a0
+            move.l  D2_RAW(a0),d0
+            lea     0(a4,d0.l),a0
+            move.w  #$4000,$24(a6)          ; DSKLEN: no disk DMA
+            move.w  #$8210,$96(a6)          ; DMACON: disk DMA on
+            move.w  #$7f00,$9e(a6)          ; ADKCON: precomp off ...
+            move.w  #$9500,$9e(a6)          ; ... MFM, word sync, 2 us cells
+            move.w  #$4489,$7e(a6)          ; DSKSYNC
+            move.l  a0,$20(a6)              ; DSKPT
+            move.w  #$0002,$9c(a6)          ; INTREQ: DSKBLK clear
+            move.w  #$8000+RAW_WORDS,$24(a6)
+            move.w  #$8000+RAW_WORDS,$24(a6) ; (written twice to start)
+            move.w  #250,d1                 ; at most ~0.5 s
+.w          btst    #1,$1f(a6)              ; INTREQR: DSKBLK
+            bne.s   .done
+            moveq   #31,d0
+            bsr     lines_wait
+            dbf     d1,.w
+            move.w  #$4000,$24(a6)
+            movem.l (sp)+,d0-d1
+            andi.b  #$fb,ccr                ; Z clear: nothing came
+            rts
+.done       move.w  #$4000,$24(a6)
+            move.w  #$0002,$9c(a6)
+            movem.l (sp)+,d0-d1
+            ori.b   #$04,ccr                ; Z set
+            rts
+
+; a0 = raw track, a2 = 5632 bytes, d1.w = track: decodes its sectors (AmigaDOS: after
+; the sync, info long, label, header checksum, data checksum, 512 data bytes - odd
+; bits then even bits). Z set when all 11 came in with good checksums.
+decode_track:
+            movem.l d0-d7/a0-a3,-(sp)
+            moveq   #0,d6                   ; a bit per sector decoded
+            move.l  #$55555555,d5
+            lea     RAW_WORDS*2-1088(a0),a3 ; the last place a whole sector can start
+.find       cmp.l   a3,a0
+            bhs     .end
+            cmp.w   #$4489,(a0)+
+            bne.s   .find
+.sync       cmp.w   #$4489,(a0)
+            bne.s   .hdr
+            addq.l  #2,a0
+            bra.s   .sync
+.hdr        move.l  (a0),d0                 ; info, odd bits
+            move.l  4(a0),d2                ;       even bits
+            and.l   d5,d0
+            and.l   d5,d2
+            add.l   d0,d0
+            or.l    d2,d0                   ; $ff, track, sector, sectors to the gap
+            move.l  d0,d2
+            swap    d2
+            cmp.b   d1,d2
+            bne.s   .find                   ; another track
+            lsr.w   #8,d0
+            and.w   #$ff,d0                 ; d0 = sector
+            cmp.w   #11,d0
+            bhs.s   .find
+            move.l  48(a0),d3               ; data checksum
+            move.l  52(a0),d2
+            and.l   d5,d3
+            and.l   d5,d2
+            add.l   d3,d3
+            or.l    d2,d3
+            lea     56(a0),a1
+            moveq   #0,d4
+            move.w  #255,d2
+.ck         move.l  (a1)+,d7
+            eor.l   d7,d4
+            dbf     d2,.ck
+            and.l   d5,d4
+            cmp.l   d3,d4
+            bne.s   .find                   ; damaged: the next try reads it again
+            move.l  a3,-(sp)
+            lea     56(a0),a1
+            move.w  d0,d2
+            mulu    #512,d2
+            lea     0(a2,d2.l),a3
+            moveq   #127,d2
+.dc         move.l  512(a1),d4              ; even bits
+            move.l  (a1)+,d3                ; odd bits
+            and.l   d5,d3
+            and.l   d5,d4
+            add.l   d3,d3
+            or.l    d4,d3
+            move.l  d3,(a3)+
+            dbf     d2,.dc
+            move.l  (sp)+,a3
+            bset    d0,d6
+            lea     1080(a0),a0
+            bra     .find
+.end        cmp.w   #$07ff,d6
+            movem.l (sp)+,d0-d7/a0-a3
             rts
 
 ; stops the music and any sound effects
@@ -7552,6 +7909,9 @@ hud_tools:  tst.w   v_tmode(a5)
 str_score:  dc.b    "SCORE ",0
 str_lives:  dc.b    "LIVES ",0
 str_fire:   dc.b    "PRESS FIRE",0
+str_disk2:  dc.b    "PLEASE INSERT DISK 2",0
+str_loading: dc.b   "LOADING",0
+str_d2err:  dc.b    "DISK 2 ERROR - PRESS FIRE",0
             even
 
 font:

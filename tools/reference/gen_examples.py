@@ -928,6 +928,15 @@ def to_builder(p):
     bp=dict(depth=p['depth'],pal=[qm(c) for c in p['pal']],pixels=p['pixels'],sprites=spr,actors=acts,rules=p['rules'],
                 sfx=[s for s in p['sfx']],lives=p['lives'],show_score=1,show_lives=1,hud_row=0,hud_col=p['hud_colour'],msg_col=p['msg_colour'],
                 over=p['over_text'],win=p['win_text'],grad=sky_table(p,aga),ground=ground_table(p),game=game_block(p))
+    if p.get('disk2_music'):
+        # disk 2 (version 12): the songs levels start with that no 'play music' rule plays
+        ns=min(4,len(p.get('songs',[])))
+        nl=max(1,min(10,len(p['levels']))) if p.get('levels_on') else 1
+        d2=set(v for v in p.get('level_song',[])[:nl] if 0<=v<ns)
+        for r in p['rules']:
+            for d in [r]+list(r.get('more',[])):
+                if d['act']==18: d2.discard(d['value'])
+        bp['d2songs']=sorted(d2)
     if p.get('palettes'):
         # named palettes (version 11), in the machine's colours as scr_adf writes them
         bp['palettes']=[dict(name=pl['name'],cols=[qm(c) if c>=0 else -1 for c in pl['cols']]) for pl in p['palettes'][:8]]
@@ -999,6 +1008,7 @@ if __name__=='__main__':
         if p.get('loadscr',{}).get('on'):         # ADAM Pro loading screen (read before the game)
             ls=loadscr_block(p['loadscr'],p['pixels'],p['pal'],p['depth'],aga,bp.get('grad'),p['sprites'])
         open(os.path.join(OUT,'%s.adf'%name),'wb').write(adf(ENGINE+data,bp.get('_need',0),ls))
+        if bp.get('_disk2'): open(os.path.join(OUT,'%s_disk2.adf'%name),'wb').write(bp['_disk2'])
         preview(p,os.path.join(OUT,'%s.png'%name))
         if p.get('tiles_on') and not aga: ex_dig_deep.map_png(p,os.path.join(OUT,'%s_map.png'%fn))
         print(name,'conflicts' if any(conf) else 'ok', len(json.dumps(p)), 'colours', 1<<p['depth'], 'blends', len(AGA['order']) if aga else 0)

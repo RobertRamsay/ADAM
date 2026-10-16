@@ -6,7 +6,9 @@
 /// The data block layout is documented at the top of engine.s.
 
 #macro ADF_SIZE 901120
-#macro ADF_HDR 108
+#macro ADF_HDR 112
+#macro D2_TRACK 5632            // disk 2: songs start on a track (11 sectors of 512)
+#macro D2_RAW_BYTES 12800       // engine.s RAW_WORDS x 2: the raw track buffer
 #macro ADF_SONGS_MAX 4
 #macro RULES_DISK_MAX 128       // rules (cards) on the disk (engine.s RULES_MAX); each AND DO line adds 8 bytes
 #macro OS_RESERVE_KB 160
@@ -284,12 +286,14 @@ function adf_bob_dims(_p, _a)
 /// _measure = true only sizes it (the memory bar): the backdrop planes are left blank.
 /// The game data block for project _p. ADAM Lite writes a copy trimmed to its
 /// limits (lite_trim): the project itself is not changed.
-function adam_data_block(_p, _measure = false)
+/// _two: put the level songs on disk 2 even when the project does not ask (it does not fit)
+function adam_data_block(_p, _measure = false, _two = false)
 {
     var _lwarn = [];
     var _q = _p;
     if (!pro_edition()) { _q = lite_trim(_p, _lwarn); }
     _q = disk_expand(_q);
+    _q.d2_on = (_p.disk2_music || _two);
     var _keep = proj;
     proj = _q;                      // the helpers (actors_on_disk, anim_plan ...) read proj
     var _r = undefined;
@@ -1080,7 +1084,7 @@ function adam_data_block_raw(_p, _measure = false)
     }
 
     // music: the songs as ProTracker MODs, played by ptplayer in the engine
-    var _mus = adf_music_table(_b, _p, _warn);
+    var _mus = adf_music_table(_b, _p, _warn, _rules);
     var _off_music = _mus.off;
 
     // the backdrop + hills working copy (score text is restored from it)
@@ -1255,6 +1259,17 @@ function adam_data_block_raw(_p, _measure = false)
         }
         buf_align(_b, 8);
     }
+    // disk 2 (version 12): D2_ID, then where the raw track buffer and the song buffer are
+    var _off_d2 = 0;
+    if (!is_undefined(_mus.d2))
+    {
+        buf_align(_b, 8);
+        _off_d2 = buffer_tell(_b);
+        be32(_b, _mus.d2_id);
+        be32(_b, 0);
+        be32(_b, 0);
+        buf_align(_b, 8);
+    }
     var _size = buffer_tell(_b);
 
     // tile world: cleared memory after the data (not on the disk): the map as
@@ -1282,6 +1297,14 @@ function adam_data_block_raw(_p, _measure = false)
         _bss = _sbase - _size + _sc_nbuf * (_depth * _spl + 16);
         poke32(_b, _sc_fix, _sbase);
     }
+    if (_off_d2 > 0)
+    {
+        // disk 2: the raw track buffer, then room for its biggest song (whole tracks)
+        var _d2base = (_size + _bss + 7) & ~7;
+        poke32(_b, _off_d2 + 4, _d2base);
+        poke32(_b, _off_d2 + 8, _d2base + D2_RAW_BYTES);
+        _bss = _d2base + D2_RAW_BYTES + ceil(_mus.d2_max / D2_TRACK) * D2_TRACK - _size;
+    }
 
     // header
     buffer_poke(_b, 0, buffer_u8, ord("A"));
@@ -1294,7 +1317,7 @@ function adam_data_block_raw(_p, _measure = false)
     if (_p.show_score) { _sc = 1; }
     var _lv = 0;
     if (_p.show_lives) { _lv = 1; }
-    poke16(_b, 4, 11);                   // data block version 11: named palettes (H_PALS); 10: shoot 'em up map (SC_MAP), A_TYPE..A_FPAT; 9: shoot 'em up (H_SCROLL, A_PAT..A_RANK); 8: 16-frame animation tables; 7: custom HUD (H_UI); 6: tile world (H_TILES); 5: animation tables (A_ANIM); 4: BOBs
+    poke16(_b, 4, 12);                   // data block version 12: disk 2 (H_DISK2); 11: named palettes (H_PALS); 10: shoot 'em up map (SC_MAP), A_TYPE..A_FPAT; 9: shoot 'em up (H_SCROLL, A_PAT..A_RANK); 8: 16-frame animation tables; 7: custom HUD (H_UI); 6: tile world (H_TILES); 5: animation tables (A_ANIM); 4: BOBs
     poke16(_b, 6, _flags);
     poke16(_b, 8, _depth);
     poke16(_b, 10, _na);
@@ -1326,6 +1349,7 @@ function adam_data_block_raw(_p, _measure = false)
     poke32(_b, 96, _off_ui);
     poke32(_b, 100, _off_scroll);
     poke32(_b, 104, _off_pals);
+    poke32(_b, 108, _off_d2);
 
     for (var rm = 0; rm < _nr; rm++)
     {
@@ -1360,16 +1384,62 @@ function adam_data_block_raw(_p, _measure = false)
     }
     if (_p.tiles_on && array_length(_acts) > ACT_MAX_TILE) { array_push(_warn, "A tile world has up to " + string(ACT_MAX_TILE) + " actors (hardware sprites - the scrolling display uses sprite 8's time) - only the first " + string(ACT_MAX_TILE) + " go on the disk."); }
     if (_p.tiles_on && _p.scroll_dir > 0) { array_push(_warn, "The backdrop does not scroll in a tile world - the map scrolls with the player instead."); }
-    return { buf : _b, size : _size, warnings : _warn, sound_bytes : _snd_bytes + _mus.bytes, plane_bytes : _depth * 10240 * _nbuf, bss : _bss };
+    return { buf : _b, size : _size, warnings : _warn, sound_bytes : _snd_bytes + _mus.bytes, plane_bytes : _depth * 10240 * _nbuf, bss : _bss,
+             d2 : _mus.d2, d2_bytes : _mus.d2_bytes };
+}
+
+/// The songs that go on disk 2 (version 12): with _on, every song a level starts with
+/// that no 'play music' rule plays - they are read at the level card, so a game never
+/// waits for the disk in the middle of a level
+function disk2_song_flags(_p, _rules, _ns, _on)
+{
+    var _f = array_create(_ns, false);
+    if (!_on) { return _f; }
+    var _nl = 1;
+    if (_p.levels_on) { _nl = clamp(array_length(_p.levels), 1, LEVEL_MAX); }
+    for (var lv = 0; lv < _nl; lv++)
+    {
+        if (!is_array(_p.level_song) || lv >= array_length(_p.level_song)) { break; }
+        var _ls = _p.level_song[lv];
+        if (is_numeric(_ls) && _ls >= 0 && _ls < _ns) { _f[floor(_ls)] = true; }
+    }
+    for (var r = 0; r < array_length(_rules); r++)
+    {
+        var _ru = _rules[r];
+        if (_ru.act == 18 && _ru.value >= 0 && _ru.value < _ns) { _f[floor(_ru.value)] = false; }
+        for (var m = 0; m < array_length(_ru.more); m++)
+        {
+            var _d = _ru.more[m];
+            if (_d.act == 18 && _d.value >= 0 && _d.value < _ns) { _f[floor(_d.value)] = false; }
+        }
+    }
+    return _f;
+}
+
+/// Disk 2's id (D2_ID): from the length of each song on it and every 256th byte
+/// (adf_reference.py disk2_id does the same)
+function disk2_id_add(_id, _mb, _len)
+{
+    var _h = ((_id * 31) + _len) & 0xffffffff;
+    for (var k = 0; k < _len; k += 256) { _h = ((_h * 31) + buffer_peek(_mb, k, buffer_u8)) & 0xffffffff; }
+    return _h;
+}
+
+/// <disk>_disk2.adf next to the game's disk
+function adf_disk2_path(_path)
+{
+    return filename_change_ext(_path, "") + "_disk2.adf";
 }
 
 /// Writes the music table and the songs (as ProTracker MODs) at the end of _b.
 /// Layout (engine.s M_*): word nsongs, word 0, 10 bytes song per level ($ff = none),
-/// word 0, then nsongs x { long offset of the MOD bytes, long length }.
-/// Returns { off (0 = no music), bytes, nsongs }.
-function adf_music_table(_b, _p, _warn)
+/// word 0, then nsongs x { long offset of the MOD bytes, long length }. A song on disk 2
+/// (_p.d2_on, disk2_song_flags) has bit 31 of its offset set: the rest is where it starts
+/// on disk 2 (a track; the disk's first track holds 'ADM2' and its id).
+/// Returns { off (0 = no music), bytes, nsongs, d2 (disk 2's bytes, or undefined), d2_max, d2_id, d2_bytes }.
+function adf_music_table(_b, _p, _warn, _rules)
 {
-    var _res = { off : 0, bytes : 0, nsongs : 0 };
+    var _res = { off : 0, bytes : 0, nsongs : 0, d2 : undefined, d2_max : 0, d2_id : 0, d2_bytes : 0 };
     if (!is_array(_p.songs)) { return _res; }
     var _ns = min(ADF_SONGS_MAX, array_length(_p.songs));
     if (_ns <= 0) { return _res; }
@@ -1390,6 +1460,9 @@ function adf_music_table(_b, _p, _warn)
     be16(_b, 0);
     var _tab = buffer_tell(_b);
     buf_zeros(_b, _ns * 8);
+    var _d2f = disk2_song_flags(_p, _rules, _ns, _p.d2_on);
+    var _d2pos = D2_TRACK;
+    var _d2id = 0x41444d32;
 
     for (var s = 0; s < _ns; s++)
     {
@@ -1416,6 +1489,30 @@ function adf_music_table(_b, _p, _warn)
             if (_have) { buffer_delete(_mb); }
             continue;
         }
+        if (_d2f[s])
+        {
+            // on disk 2, from a track start
+            if (_d2pos + _len > ADF_SIZE)
+            {
+                array_push(_warn, "Disk 2 is full - a song is left out (silent).");
+                buffer_delete(_mb);
+                continue;
+            }
+            if (is_undefined(_res.d2))
+            {
+                _res.d2 = buffer_create(ADF_SIZE, buffer_fixed, 1);
+                buffer_fill(_res.d2, 0, buffer_u8, 0, ADF_SIZE);
+            }
+            buffer_copy(_mb, 0, _len, _res.d2, _d2pos);
+            _d2id = disk2_id_add(_d2id, _mb, _len);
+            buffer_delete(_mb);
+            poke32(_b, _tab + s * 8, 0x80000000 | _d2pos);
+            poke32(_b, _tab + s * 8 + 4, _len);
+            _res.d2_max = max(_res.d2_max, _len);
+            _res.d2_bytes += _len;
+            _d2pos += ceil(_len / D2_TRACK) * D2_TRACK;
+            continue;
+        }
         // the MOD starts on an even address (samples must be word aligned for Paula)
         buf_align(_b, 8);
         var _pos = buffer_tell(_b);
@@ -1428,6 +1525,16 @@ function adf_music_table(_b, _p, _warn)
         _res.bytes += _len;
     }
     buf_align(_b, 8);
+    if (!is_undefined(_res.d2))
+    {
+        if (_d2id == 0) { _d2id = 1; }
+        _res.d2_id = _d2id;
+        buffer_poke(_res.d2, 0, buffer_u8, ord("A"));       // disk 2's first sector: 'ADM2', the id
+        buffer_poke(_res.d2, 1, buffer_u8, ord("D"));
+        buffer_poke(_res.d2, 2, buffer_u8, ord("M"));
+        buffer_poke(_res.d2, 3, buffer_u8, ord("2"));
+        poke32(_res.d2, 4, _d2id);
+    }
     _res.off = _off;
     _res.nsongs = _ns;
     return _res;
@@ -1466,6 +1573,7 @@ function mem_measure()
         mem_plane_size = _data.plane_bytes;
         mem_sound_size = _data.sound_bytes;
         buffer_delete(_data.buf);
+        if (!is_undefined(_data.d2)) { buffer_delete(_data.d2); }
         mem_ok = true;
     }
     catch (_e)
@@ -1546,6 +1654,19 @@ function build_adf(_path)
     var _esize = buffer_get_size(_eng);
     var _bsize = buffer_get_size(_boot);
     var _data = adam_data_block(proj);
+    build_disk2 = "";
+    if (ceil((_esize + _data.size) / 512) * 512 > ADF_SIZE - 1024 && !proj.disk2_music && is_array(proj.songs) && array_length(proj.songs) > 0)
+    {
+        // too big for one disk: try the songs the levels start with on disk 2
+        var _two = adam_data_block(proj, false, true);
+        if (!is_undefined(_two.d2))
+        {
+            buffer_delete(_data.buf);
+            _data = _two;
+            array_push(_data.warnings, "The game did not fit on one disk, so the level music went on disk 2.");
+        }
+        else { buffer_delete(_two.buf); }
+    }
     var _game = _esize + _data.size;
     var _load = ceil(_game / 512) * 512;
     var _need = _game + _data.bss;      // chip RAM: tile worlds use cleared memory after the data
@@ -1571,6 +1692,7 @@ function build_adf(_path)
         buffer_delete(_eng);
         buffer_delete(_boot);
         buffer_delete(_data.buf);
+        if (!is_undefined(_data.d2)) { buffer_delete(_data.d2); }
         if (!is_undefined(_ls)) { buffer_delete(_ls.buf); }
         build_ok = false;
         build_msg = "Build failed - the game is " + string(_game div 1024) + " KB and does not fit on one floppy disk.";
@@ -1584,6 +1706,7 @@ function build_adf(_path)
         buffer_delete(_eng);
         buffer_delete(_boot);
         buffer_delete(_data.buf);
+        if (!is_undefined(_data.d2)) { buffer_delete(_data.d2); }
         if (!is_undefined(_ls)) { buffer_delete(_ls.buf); }
         build_ok = false;
         build_msg = "Build failed - the game needs " + string(_need div 1024) + " KB of chip RAM; the " + _m.name + " has about " + string(_chip_free div 1024) + " KB free. Use fewer colours, a smaller tile map or shorter sounds.";
@@ -1618,6 +1741,12 @@ function build_adf(_path)
     buffer_delete(_eng);
     buffer_delete(_boot);
     buffer_delete(_data.buf);
+    if (!is_undefined(_data.d2))
+    {
+        build_disk2 = adf_disk2_path(_path);
+        buffer_save(_data.d2, build_disk2);
+        buffer_delete(_data.d2);
+    }
 
     build_ok = true;
     build_stamp = current_time;
@@ -1627,6 +1756,7 @@ function build_adf(_path)
     build_sound_size = _data.sound_bytes;
     build_chip_free = _chip_free;
     build_msg = "Built " + filename_name(_path) + " for the " + _m.name + " - " + string(ceil(_need / 1024)) + " KB of chip RAM";
+    if (build_disk2 != "") { build_msg += ", and " + filename_name(build_disk2) + " (" + string(ceil(_data.d2_bytes / 1024)) + " KB of level music)"; }
     if (!_m.aga && _need > (A500_512K_CHIP_KB - OS_RESERVE_KB) * 1024)
     {
         array_push(build_warnings, "Too big for an A500 with only 512KB of chip RAM (about " + string(A500_512K_CHIP_KB - OS_RESERVE_KB) + " KB free) - it will show a red screen there. Fine on 1MB machines.");
@@ -2047,6 +2177,13 @@ function kick_path_set(_path)
     settings_save();
 }
 
+/// " --floppy_drive_1=..." when the last build of _adf has a disk 2 (the game reads it from DF1)
+function fsuae_disk2_arg(_adf)
+{
+    if (build_disk2 == "" || build_disk2 != adf_disk2_path(_adf) || !file_exists(build_disk2)) { return ""; }
+    return " --floppy_drive_1=\"" + build_disk2 + "\"";
+}
+
 /// Called from the Step event once the old emulator has had time to close
 function launch_fsuae_now(_adf)
 {
@@ -2059,6 +2196,7 @@ function launch_fsuae_now(_adf)
         + " --slow_memory=0 --fast_memory=0"
         + " --floppy_drive_0=\"" + _adf + "\""
         + " --floppy_drive_speed=0"
+        + fsuae_disk2_arg(_adf)
         + " --fullscreen=0"
         + " --window_width=960 --window_height=720"
         + " --automatic_input_grab=0 --initial_input_grab=0";
@@ -2148,6 +2286,7 @@ function launch_fsuae_mac(_adf)
     {
         array_push(_lines, "kickstart_file = " + _kick);
     }
+    if (fsuae_disk2_arg(_adf) != "") { array_push(_lines, "floppy_drive_1 = " + build_disk2); }
     for (var i = 0; i < array_length(_lines); i++)
     {
         file_text_write_string(_f, _lines[i]);

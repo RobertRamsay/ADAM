@@ -16,7 +16,7 @@ def build(proj, aga):
     blob=bytearray()
     def align(n):
         while len(blob)%n: blob.append(0)
-    blob+= b'\0'*108                         # header (HDR_SIZE)
+    blob+= b'\0'*112                         # header (HDR_SIZE)
     sc=proj.get('scroll')                     # scrolling backdrop: dict(dir 1 up / 2 right / 3 down / 4 left, speed 1..16)
     if sc and (proj.get('tiles') or not sc.get('dir')): sc=None
     align(8)
@@ -298,6 +298,8 @@ def build(proj, aga):
     # proj['level_song'] = song index per level (10 entries, -1 = none)
     off_music=0
     songs=list(proj.get('songs',[]))[:4]
+    d2set=set(proj.get('d2songs',()))            # disk 2 (version 12): these songs go on a second disk
+    disk2=None; d2pos=5632; d2max=0; d2id=0x41444d32
     if songs:
         align(8)
         off_music=len(blob)
@@ -311,6 +313,13 @@ def build(proj, aga):
         blob.extend(b'\0'*(8*len(songs)))
         for i,m in enumerate(songs):
             if len(m)<1084: continue          # not a MOD: the engine keeps quiet
+            if i in d2set and d2pos+len(m)<=901120:
+                if disk2 is None: disk2=bytearray(901120)
+                disk2[d2pos:d2pos+len(m)]=m
+                d2id=disk2_id_add(d2id,m)
+                struct.pack_into('>LL',blob,tab+i*8,0x80000000|d2pos,len(m))
+                d2max=max(d2max,len(m)); d2pos+=(len(m)+5631)//5632*5632
+                continue
             align(8)
             struct.pack_into('>LL',blob,tab+i*8,len(blob),len(m))
             blob.extend(m)
@@ -381,6 +390,15 @@ def build(proj, aga):
             blob.extend(struct.pack('>H',len(ents)))
             for i,c in ents: blob.extend(struct.pack('>HHL',i,0,c))
         align(8)
+    off_d2=0
+    if disk2 is not None:                       # D2_ID, raw track buffer, song buffer (fixed below)
+        d2id=d2id or 1
+        disk2[0:8]=b'ADM2'+struct.pack('>L',d2id)
+        align(8)
+        off_d2=len(blob)
+        blob.extend(struct.pack('>LLL',d2id,0,0))
+        align(8)
+    proj['_disk2']=bytes(disk2) if disk2 is not None else None
     # tile world: the map as played and the scrolling picture go in cleared memory after the data
     bss=0
     if t:
@@ -396,15 +414,20 @@ def build(proj, aga):
         if sc.get('map') and sc['dir']==1: pl=640*sc['map'].get('cols',20)*2     # a map: lines of cols words
         bss=nbuf*(depth*pl+16)
         struct.pack_into('>L',blob,off_scroll+4,size_now)
-    proj['_need']=((len(blob)+7)//8*8)+bss if (t or sc) else 0     # bytes needed from the data start
+    if off_d2:
+        size_now=(len(blob)+7)//8*8
+        base=(size_now+bss+7)//8*8
+        struct.pack_into('>LL',blob,off_d2+4,base,base+12800)
+        bss=base+12800+(d2max+5631)//5632*5632-size_now
+    proj['_need']=((len(blob)+7)//8*8)+bss if (t or sc or off_d2) else 0     # bytes needed from the data start
     player=-1
     for i,a in enumerate(actors):
         if a['role'] in (0,6): player=i; break
-    hdr=struct.pack('>4sHHHHHHHHHHHH',b'ADAM',11,1 if aga else 0,depth,len(actors),len(rules),proj['lives'],
+    hdr=struct.pack('>4sHHHHHHHHHHHH',b'ADAM',12,1 if aga else 0,depth,len(actors),len(rules),proj['lives'],
                     int(proj['show_score']),int(proj['show_lives']),proj['hud_row'],proj['hud_col'],proj['msg_col'],player & 0xffff)+struct.pack('>L',off_game)
     hdr+=struct.pack('>LLLLLLLLLLLLLLL',off_pal,off_planes,off_act,off_rules,off_sfx,off_over,off_win,off_sprcol,off_disp,off_grad,off_ground,off_work,off_music,off_disp2,off_back)
-    hdr+=struct.pack('>LLLL',off_tiles,off_ui,off_scroll,off_pals)
-    blob[0:108]=hdr
+    hdr+=struct.pack('>LLLLL',off_tiles,off_ui,off_scroll,off_pals,off_d2)
+    blob[0:112]=hdr
     return bytes(blob)
 
 # ---- animations (data block version 8, 16 frames); scr_project.gml anim_plan() does the same
@@ -731,6 +754,12 @@ def loadscr_block(l,proj_px,proj_pal,proj_depth,aga,sky=None,sprites=()):
                     for bit in range(8): v=(v<<1)|((shown[(y+r)*320+(c0+cb)*8+bit]>>p)&1)
                     b[dat]=v; dat+=1
     return bytes(b)
+
+def disk2_id_add(h,m):
+    """disk 2's id (D2_ID): the length of each song on it and every 256th byte (scr_adf disk2_id_add)"""
+    h=(h*31+len(m))&0xffffffff
+    for k in range(0,len(m),256): h=(h*31+m[k])&0xffffffff
+    return h
 
 def adf(game,need=0,ls=b''):
     """need = bytes the game uses from the data start (tile world: data + cleared memory);
