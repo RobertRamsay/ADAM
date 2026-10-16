@@ -218,8 +218,68 @@ function lessons_init()
                 les_step(WS_BUILD, "build_run", "Build and play", "Build and play. The Build checklist counts your sprites and BOBs. Each BOB costs blitter time every frame: on the A500 about 20 is plenty, the A1200 copes with more.", function() { return les_built(); }),
                 les_step(WS_BUILD, "", "That's a swarm!", "BOBs give you as many moving things as a real Amiga game. To see them in a finished game, load the Firefly Night example: 12 fireflies are BOBs, the owl and the bats are sprites.", undefined)
             ]
+        },
+        {
+            name : "Pro - Shoot 'em up: Sky Raid", short : "Pro Shmup", mins : 20, pro : true,
+            steps : [
+                les_step(WS_HOME, "", "Lesson 6: A shoot 'em up (ADAM Pro)", "You'll make Sky Raid: a ship flies up a long scrolling map, waves of enemies come at it, and it shoots them down. You'll paint the map with tiles, place spawners that send out the waves, and write the shooting rules. A fresh project has been started for you.", undefined),
+                les_step(WS_SPRITES, "spr_grid", "Draw your ship", "Draw your ship in sprite 1, nose up - 20 squares or more.", function() { return les_spr_px(0) >= 20; }),
+                les_step(WS_SPRITES, "spr_slot_1", "An enemy and a shot", "Draw an enemy in sprite 2 and a small shot in sprite 3 (a short line is enough).", function() { return les_spr_px(1) >= 12 && les_spr_px(2) >= 2; }),
+                les_step(WS_ACTORS, "act_add", "Add your ship", "Add the first actor - it becomes the player.", function() { return array_length(proj.actors) >= 1; }),
+                les_step(WS_ACTORS, "act_add", "Add the enemy", "Add a second actor (it picks sprite 2), then set its behaviour to Flyer. Flyers wait off the screen until something sends them in.", function() { return les_role_has(10); }),
+                les_step(WS_ACTORS, "act_pat", "How it flies", "Pick a flight pattern for the enemy - Wave weaves from side to side as it comes down.", undefined),
+                les_step(WS_ACTORS, "act_copies", "Copies", "Set Copies to 4. One actor, four of them in the game: a whole wave from one set of settings, and every rule that names the enemy works for all four.", function() { for (var i = 0; i < array_length(proj.actors); i++) { if (proj.actors[i].role == 10 && proj.actors[i].copies >= 3) { return true; } } return false; }),
+                les_step(WS_ACTORS, "act_add", "Your shot", "Add a third actor (sprite 3) and set its behaviour to Shot, aimed Up. Give it Copies of 3 so several can fly at once.", function() { for (var i = 0; i < array_length(proj.actors); i++) { if (proj.actors[i].role == 9 && proj.actors[i].aim == 1) { return true; } } return false; }),
+                les_step(WS_TILES, "tile_world", "A shoot 'em up map", "The game can play on a scrolling map instead of the backdrop. Choose 'A shoot 'em up map': the ship flies up it once, from the bottom to the top.", function() { return proj.shmup_map; }),
+                les_step(WS_TILES, "tile_mw", "The play area", "Map width is the play area, centred on the screen: 12 to 20 tiles. Narrower is less for the Amiga to draw, so an A500 keeps up with more on the screen. 12 is a good start.", undefined),
+                les_step(WS_TILES, "tile_mh", "A long flight", "Make the map at least 48 tiles high - three screens of flying.", function() { return proj.shmup_map && proj.map_h >= 48; }),
+                les_step(WS_TILES, "tile_tab_1", "Draw some tiles", "Open Tile set, add tiles and draw them: ground, water, a wall - at least three.", function() { return les_tiles_drawn() >= 3; }),
+                les_step(WS_TILES, "tile_map", "Paint the map", "Back on Map, paint the ground the ship flies over. Paint plenty - at least 150 squares.", function() { return les_map_painted() >= 150; }),
+                les_step(WS_TILES, "tile_tool_3", "Stamps", "The Stamp tool copies a block of the map - a building, a gun platform - and stamps it down again wherever you click. Try it if you like.", undefined),
+                les_step(WS_TILES, "tile_tool_4", "Spawners", "Pick the Spawn tool and click the map to place a spawner. When the view reaches it, it sends out a wave.", function() { return array_length(proj.spawners) >= 1; }),
+                les_step(WS_TILES, "sp_n", "A wave", "In the right panel, make the spawner send out the enemy, 4 of them.", function() { for (var i = 0; i < array_length(proj.spawners); i++) { if (proj.spawners[i].n >= 3) { return true; } } return false; }),
+                les_step(WS_TILES, "tile_map", "More waves", "Place at least two more spawners further up the map. Try a different edge or pattern for each.", function() { return array_length(proj.spawners) >= 3; }),
+                les_step(WS_LOGIC, "logic_add", "Fire!", "Add a rule: WHEN 'Fire is held (auto-fire)' every 8 frames, DO 'Shoot (fire a shot actor)' - the shot, from your ship.", function() { return les_rule_has(14, 22); }),
+                les_step(WS_LOGIC, "logic_add", "Hit them", "Add: WHEN 'Thrown or shot actor hits' - your shot hits the enemy - DO 'Add to score', and AND DO 'Hide actor' (the enemy).", function() { return les_rule_has(11, 0) && les_rule_has(11, 6); }),
+                les_step(WS_LOGIC, "logic_add", "Don't crash", "Add: WHEN the player touches the enemy, DO 'Lose a life' and AND DO 'Make actor safe for a while' (the player).", function() { return les_rule_has(0, 1); }),
+                les_step(WS_LOGIC, "logic_add", "The end of the map", "Add: WHEN 'The map reaches its end', DO 'You win!' (or show a boss there).", function() { return les_rule_has(15, -1); }),
+                les_step(WS_LOGIC, "logic_tpl_3", "Game over", "This recipe ends the game when the lives run out.", function() { return les_rule_has(4, 9); }),
+                les_step(WS_LEVELS, "lvl_sspeed", "Scroll speed", "Set how fast the map scrolls. 3 is steady; faster is harder.", undefined),
+                les_step(WS_BUILD, "build_run", "Build and play", "Build and play. Hold fire to shoot, and fly to the top of the map.", function() { return les_built(); }),
+                les_step(WS_BUILD, "", "You made a shoot 'em up!", "Map, spawners, copies, shots and rules. To see more - enemies that fire back, homing missiles, power-ups and a boss - load the Jade Serpent example.", undefined)
+            ]
         }
     ];
+}
+
+/// How many tiles (after air) have some pixels drawn
+function les_tiles_drawn()
+{
+    var _n = 0;
+    for (var i = 1; i < array_length(proj.tiles); i++)
+    {
+        var _px = proj.tiles[i].px;
+        for (var k = 0; k < array_length(_px); k++)
+        {
+            if (_px[k] != 0)
+            {
+                _n += 1;
+                break;
+            }
+        }
+    }
+    return _n;
+}
+
+/// How many map cells are not air
+function les_map_painted()
+{
+    var _n = 0;
+    for (var i = 0; i < array_length(proj.map); i++)
+    {
+        if (proj.map[i] != 0) { _n += 1; }
+    }
+    return _n;
 }
 
 /// How many actors are set to BOB
@@ -296,6 +356,9 @@ function lesson_show_step(_st)
     if (ws != _st.tab) { ws_set(_st.tab); }
     // the Backdrop page remembers Paint / Copper sky - its paint steps need Paint
     if (_st.tab == WS_BACKDROP && _st.target != "bd_tab_sky") { bd_panel = 0; }
+    // the Tiles page remembers Map / Tile set - the map and spawner steps need Map
+    if (_st.tab == WS_TILES && (string_pos("tile_tool_", _st.target) == 1 || _st.target == "tile_map" || string_pos("sp_", _st.target) == 1)) { tile_page = 0; }
+    if (_st.tab == WS_TILES && string_pos("sp_", _st.target) == 1) { tile_tool = 4; }
 }
 
 function lesson_finish()
