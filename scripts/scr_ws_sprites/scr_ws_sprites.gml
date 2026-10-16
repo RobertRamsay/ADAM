@@ -94,6 +94,57 @@ function spr_transform(_s, _kind)
     }
 }
 
+/// The onion skin's frames for sprite _k: [before, after] (-1 = none). When an animation
+/// (Animate page) uses it, its neighbours in the first one found (wrapping round); else
+/// the bank slots either side.
+function spr_onion_pair(_k)
+{
+    for (var i = 0; i < array_length(proj.actors); i++)
+    {
+        var _an = proj.actors[i].anims;
+        for (var j = 0; j < array_length(_an); j++)
+        {
+            var _fr = _an[j].frames;
+            var _n = array_length(_fr);
+            if (_n < 2) { continue; }
+            for (var f = 0; f < _n; f++)
+            {
+                if (_fr[f] == _k)
+                {
+                    return [_fr[(f + _n - 1) mod _n], _fr[(f + 1) mod _n]];
+                }
+            }
+        }
+    }
+    var _b = -1;
+    var _a = -1;
+    if (_k > 0) { _b = _k - 1; }
+    if (_k < spr_bank_size() - 1) { _a = _k + 1; }
+    return [_b, _a];
+}
+
+/// Draws sprite _k's pixels ghosted on the canvas at _gx, _gy (cells _ps big, cut to _w x _h),
+/// in its own colours tinted towards _tint
+function spr_onion_draw(_k, _gx, _gy, _ps, _w, _h, _tint, _alpha)
+{
+    if (_k < 0 || _k >= array_length(proj.sprites)) { return; }
+    var _o = proj.sprites[_k];
+    draw_set_alpha(_alpha);
+    for (var py = 0; py < min(_h, _o.h); py++)
+    {
+        for (var px = 0; px < min(_w, _o.w); px++)
+        {
+            var _v = spr_get_px(_o, px, py);
+            if (_v != 0)
+            {
+                draw_set_colour(merge_colour(amiga_col(_o.cols[_v - 1]), _tint, 0.45));
+                draw_rectangle(_gx + px * _ps, _gy + py * _ps, _gx + px * _ps + _ps - 1, _gy + py * _ps + _ps - 1, false);
+            }
+        }
+    }
+    draw_set_alpha(1);
+}
+
 function ws_sprites_draw(_x1, _y1, _x2, _y2)
 {
     var _lw = 230;
@@ -152,15 +203,19 @@ function ws_sprites_draw(_x1, _y1, _x2, _y2)
     var _cx1 = _x1 + _lw + 12;
     var _cx2 = _x2 - _rw - 12;
     ui_panel(_cx1, _y1, _cx2, _y2, "");
-    var _ps = floor(min((_cx2 - _cx1 - 40) / _s.w, (_y2 - _y1 - 70) / _s.h));
+    var _ps = floor(min((_cx2 - _cx1 - 40) / _s.w, (_y2 - _y1 - 120) / _s.h));
     _ps = max(4, _ps);
     var _gw = _s.w * _ps;
     var _gh = _s.h * _ps;
     var _gx = floor((_cx1 + _cx2 - _gw) / 2);
-    var _gy = floor(_y1 + 20 + ((_y2 - _y1 - 40) - _gh) / 2);
+    var _gy = floor(_y1 + 20 + ((_y2 - _y1 - 90) - _gh) / 2);
     ui_rrect(_gx - 8, _gy - 8, _gx + _gw + 8, _gy + _gh + 8, 10, c_black, c_black, 0.35);
     draw_set_colour(pal_col(0));
     draw_rectangle(_gx, _gy, _gx + _gw - 1, _gy + _gh - 1, false);
+    // onion skin: the frame before (tinted red) and after (tinted green), under this one
+    var _onp = spr_onion_pair(spr_sel);
+    if (spr_onion == 2) { spr_onion_draw(_onp[1], _gx, _gy, _ps, _s.w, _s.h, c_lime, 0.3); }
+    if (spr_onion >= 1) { spr_onion_draw(_onp[0], _gx, _gy, _ps, _s.w, _s.h, c_red, 0.4); }
     for (var py = 0; py < _s.h; py++)
     {
         for (var px = 0; px < _s.w; px++)
@@ -217,6 +272,25 @@ function ws_sprites_draw(_x1, _y1, _x2, _y2)
         }
     }
     if (!ui_held && !ui_rheld) { spr_drawing = false; }
+
+    // onion skin: see the frames either side while drawing an animation
+    var _ow = 230;
+    var _ox1 = _cx2 - 16 - _ow;
+    var _oy1 = _y2 - 46;
+    ui_text(_ox1 - 10, _oy1 + 15, "Onion skin", global.TH.text_dim, fa_right, fa_middle, global.f_small, 1);
+    spr_onion = ui_dropdown("spr_onion", _ox1, _oy1, _ow, 30, ["Off", "Frame before", "Frames before and after"], spr_onion,
+        "Onion skin|Shows the frame before (tinted red) and after (tinted green) faintly under the canvas, so you can line up an animation. The frames come from the first animation that uses this sprite (Animate page), or else the sprite slots either side.");
+    if (spr_onion > 0)
+    {
+        var _onl = "";
+        if (_onp[0] >= 0) { _onl = "Before: " + proj.sprites[_onp[0]].name; }
+        if (spr_onion == 2 && _onp[1] >= 0)
+        {
+            if (_onl != "") { _onl += "   "; }
+            _onl += "After: " + proj.sprites[_onp[1]].name;
+        }
+        ui_text(_ox1 + _ow, _oy1 - 6, ui_text_fit(_onl, global.f_small, _cx2 - _cx1 - 40), global.TH.text_dim, fa_right, fa_bottom, global.f_small, 1);
+    }
 
     // ---------------- properties ----------------
     var _px2 = _x2 - _rw;

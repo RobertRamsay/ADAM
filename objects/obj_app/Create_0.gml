@@ -184,6 +184,7 @@ spr_drawing = false;
 spr_last_x = 0;             // last cell painted in this stroke (strokes are joined up)
 spr_last_y = 0;
 spr_clip = "";
+spr_onion = 0;              // onion skin: 0 off, 1 the frame before, 2 before and after
 spr_surf = [];
 for (var i = 0; i < SPR_COUNT; i++) { array_push(spr_surf, [-1, -1, -1]); }
 spr_dirty = array_create(SPR_COUNT, true);
