@@ -512,7 +512,10 @@ def dig_deep():
         a['anim_sprite'] = sq
     # ADAM Pro loading screen: the backdrop with a stone bar along the bottom
     from adf_reference import ls_new
-    p['loadscr'] = ls_new(style="Stone", bar_x=48, bar_y=224, bar_w=224, bar_h=16)
+    # and the cast turns up in the sky as it loads (pictures at a percentage)
+    p['loadscr'] = ls_new(style="Stone", bar_x=48, bar_y=224, bar_w=224, bar_h=16,
+                          pics=[dict(spr=0, x=64, y=96, pct=20), dict(spr=2, x=140, y=48, pct=45),
+                                dict(spr=1, x=216, y=100, pct=70), dict(spr=3, x=272, y=96, pct=90)])
     return p
 
 def map_png(p, fn):

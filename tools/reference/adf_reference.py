@@ -515,11 +515,12 @@ def render_sfx(s):
 # ---- ADAM Pro loading screen (scr_loadscr.gml / loadscr.s): the block the bootblock reads
 # before the game - loadscr.bin, the LS_* header, ADAM's copper list, an empty sprite, the
 # picture's planes and a strip of the full bar
-LS_HDR=40
+LS_HDR=48
+LS_PI=16
 
 def ls_new(**kw):
     l=dict(on=True,source=0,pixels=[],pal=[],depth=5,bar_x=32,bar_y=216,bar_w=256,bar_h=16,style='Metal',
-           left_w=8,mid_w=8,right_w=8,left=[],mid=[],right=[],empty=0)
+           left_w=8,mid_w=8,right_w=8,left=[],mid=[],right=[],empty=0,mode=0,pics=[])
     l.update(kw)
     return l
 
@@ -586,6 +587,26 @@ def ls_compose(l,px,pal,ncol):
             if l['empty']==0: screen[at]=dark[c]
     return screen,full
 
+def ls_pics(l,sprites,pal,ncol):
+    """the pictures in the order they show: (thr, x, y, w, h, px) in the picture's nearest colours"""
+    out=[]
+    for i,q in enumerate(l.get('pics',[])):
+        if not 0<=q['spr']<len(sprites): continue
+        sp=sprites[q['spr']]; sw=sp.get('w',16); sh=sp.get('h',24)
+        w=min(sw,320-q['x']); h=min(sh,256-q['y'])
+        if w<1 or h<1: continue
+        m=[0]+[ls_nearest(pal,ncol,c,False) for c in sp['cols'][:3]]
+        px=[m[max(1,min(3,sp['px'][y*sw+x]))] if sp['px'][y*sw+x]>0 else 0 for y in range(h) for x in range(w)]
+        out.append(((max(0,min(100,q['pct']))*1024)//100,i,q['x'],q['y'],w,h,px))
+    out.sort(key=lambda e:(e[0],e[1]))
+    return [(t,x,y,w,h,px) for t,i,x,y,w,h,px in out]
+
+def ls_pic_draw(a,q):
+    t,x,y,w,h,px=q
+    for yy in range(h):
+        for xx in range(w):
+            if px[yy*w+xx]: a[(y+yy)*320+x+xx]=px[yy*w+xx]
+
 def ls_copper(depth,aga,pal,ncol,planes_off,spr_off,sky=None):
     c=[]
     con0=((depth&7)<<12)|0x200
@@ -620,7 +641,7 @@ def ls_copper(depth,aga,pal,ncol,planes_off,spr_off,sky=None):
             if aga: c+=[(0x106,0x0e00),(0x180,lo(sky[ln])),(0x106,0x0c00)]
     return c
 
-def loadscr_block(l,proj_px,proj_pal,proj_depth,aga,sky=None):
+def loadscr_block(l,proj_px,proj_pal,proj_depth,aga,sky=None,sprites=()):
     """the loading-screen block as bytes (padded to sectors), as loadscr_block in scr_loadscr.gml;
     sky = the game's copper sky (256 colours), shown when the loading screen shows the backdrop"""
     if l['source']!=0: sky=None
@@ -634,11 +655,17 @@ def loadscr_block(l,proj_px,proj_pal,proj_depth,aga,sky=None):
     planes_off=spr_off+8
     strip_off=planes_off+depth*10240
     end=strip_off+stride*l['bar_h']*depth
+    pics=ls_pics(l,sprites,pal,ncol)
+    pics_off=0
+    if pics:
+        pics_off=(end+7)//8*8
+        end=pics_off+len(pics)*LS_PI+sum((((x+w-1)>>3)-(x>>3)+1)*h*depth for t,x,y,w,h,_ in pics)
     size=((end+511)>>9)<<9
     screen,full=ls_compose(l,px,pal,ncol)
+    for q in pics: ls_pic_draw(full,q)
     b=bytearray(size); b[:len(code)]=code
-    struct.pack_into('>4sHHHHLLLHHHHHH',b,hdr,b'LSCR',1,1 if aga else 0,depth,0,cop_off,planes_off,strip_off,
-                     l['bar_x'],l['bar_y'],l['bar_w'],l['bar_h'],sx0,stride)
+    struct.pack_into('>4sHHHHLLLHHHHHHHHL',b,hdr,b'LSCR',2,1 if aga else 0,depth,l.get('mode',0),cop_off,planes_off,strip_off,
+                     l['bar_x'],l['bar_y'],l['bar_w'],l['bar_h'],sx0,stride,len(pics),0,pics_off)
     o=cop_off
     for r,v in ls_copper(depth,aga,pal,ncol,planes_off,spr_off,sky)+[(0xffff,0xfffe)]:
         struct.pack_into('>HH',b,o,r,v); o+=4
@@ -656,6 +683,19 @@ def loadscr_block(l,proj_px,proj_pal,proj_depth,aga,sky=None):
                 v=0
                 for bit in range(8): v=(v<<1)|((full[(l['bar_y']+r)*320+(sx0+sb)*8+bit]>>p)&1)
                 b[o]=v; o+=1
+    shown=screen[:]                           # each picture: the screen with it (and the ones before) drawn in
+    dat=pics_off+len(pics)*LS_PI
+    for k,q in enumerate(pics):
+        t,x,y,w,h,_=q
+        ls_pic_draw(shown,q)
+        c0=x>>3; wb=((x+w-1)>>3)-c0+1
+        struct.pack_into('>HHHHHHL',b,pics_off+k*LS_PI,t,c0,y,wb,h,0,dat)
+        for p in range(depth):
+            for r in range(h):
+                for cb in range(wb):
+                    v=0
+                    for bit in range(8): v=(v<<1)|((shown[(y+r)*320+(c0+cb)*8+bit]>>p)&1)
+                    b[dat]=v; dat+=1
     return bytes(b)
 
 def adf(game,need=0,ls=b''):

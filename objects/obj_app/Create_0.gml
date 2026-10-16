@@ -254,6 +254,11 @@ ls_drag_dx = 0;
 ls_drag_dy = 0;
 ls_pic = { pixels : [], pal : [0, 0], depth : 1, ncol : 2 };  // loadscr_picture() the preview was drawn from
 ls_pc = { left : [], mid : [], right : [] };                   // the bar pieces it was drawn with
+ls_pic_surfs = [];          // the preview's pictures at a percentage: { surf, x, y, w, h, thr }
+ls_psel = 0;                // the picture picked on the Loading screen tab
+ls_pdrag = false;           // dragging it on the preview
+ls_pdrag_dx = 0;
+ls_pdrag_dy = 0;
 
 // Animate page
 anim_sel = 0;               // 0 Idle, 1 Walk, 2 Jump, 3 Fall

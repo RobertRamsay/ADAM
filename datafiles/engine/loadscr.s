@@ -11,8 +11,11 @@
 ;
 ;  The bar: ADAM draws the empty bar into the picture and keeps a strip of the
 ;  same screen area with the full bar (whole bytes, so the edge bytes already
-;  hold the right picture pixels). Progress copies the newly reached pixel
-;  columns of the strip onto the screen, masking the edge byte.
+;  hold the right picture pixels). Progress copies the newly reached part of
+;  the strip onto the screen: pixel columns (left to right or right to left,
+;  masking the edge byte) or whole rows (bottom to top, top to bottom).
+;  Pictures (version 2): each shows when the progress reaches its threshold -
+;  ADAM keeps them in order and stores each as the screen bytes it covers.
 ;
 ;  The copper list is ADAM's: plain MOVEs and WAITs. A MOVE to BPLxPTH or
 ;  SPRxPTH holds the high word of an offset from the block start and the next
@@ -21,10 +24,10 @@
 ;  Assemble:  vasmm68k_mot -Fbin -pic -m68000 -no-opt -o loadscr.bin loadscr.s
 ; ============================================================================
 LS_MAGIC    equ 0          ; 'LSCR'
-LS_VER      equ 4          ; word: 1
+LS_VER      equ 4          ; word: 2
 LS_FLAGS    equ 6          ; word: bit 0 AGA
 LS_DEPTH    equ 8          ; word: bitplanes 1..8
-LS_MODE     equ 10         ; word: reveal 0 = left to right
+LS_MODE     equ 10         ; word: fill 0 left to right, 1 right to left, 2 bottom to top, 3 top to bottom
 LS_COPPER   equ 12         ; long: copper list (offset from the block)
 LS_PLANES   equ 16         ; long: picture, plane after plane, 40 x 256 bytes each
 LS_STRIP    equ 20         ; long: the full bar, plane after plane, LS_SSTRIDE x LS_BARH bytes each
@@ -34,7 +37,16 @@ LS_BARW     equ 28         ; word: bar width in pixels
 LS_BARH     equ 30         ; word: bar height in lines
 LS_SX0      equ 32         ; word: the strip's first byte column on the screen
 LS_SSTRIDE  equ 34         ; word: bytes per strip row
-LS_SIZE     equ 40
+LS_NPIC     equ 36         ; word: pictures (PI_*), in the order they show
+LS_PICS     equ 40         ; long: the pictures (offset from the block)
+LS_SIZE     equ 48
+PI_THR      equ 0          ; word: shows when the progress (0..1024) reaches this
+PI_COL      equ 2          ; word: its first byte column on the screen
+PI_Y        equ 4          ; word: its top line
+PI_WB       equ 6          ; word: bytes across
+PI_H        equ 8          ; word: lines
+PI_DATA     equ 12         ; long: its bytes, plane after plane (offset from the block)
+PI_SIZE     equ 16
 PLANE_BYTES equ 10240      ; 40 bytes x 256 lines
 
             bra.w   ls_init
@@ -72,6 +84,8 @@ ls_init:    lea     ls_data(pc),a1
             bra.s   .fix
 .fixed      lea     ls_px(pc),a3
             clr.w   (a3)
+            lea     ls_pic(pc),a3
+            clr.w   (a3)
             move.l  a2,$80(a5)              ; COP1LC
             move.w  d0,$88(a5)              ; COPJMP1
             move.w  #$8380,$96(a5)          ; DMACON: master, bitplanes, copper on
@@ -84,19 +98,34 @@ ls_prog:    lea     ls_data(pc),a1
             cmp.w   #1024,d0
             bls.s   .inrange
             move.w  #1024,d0
-.inrange    mulu    LS_BARW(a1),d0
+.inrange    move.w  d0,-(sp)                ; (the pictures want it after the bar)
+            move.w  LS_BARW(a1),d1          ; columns, or rows for the up / down fills
+            cmp.w   #2,LS_MODE(a1)
+            blo.s   .len
+            move.w  LS_BARH(a1),d1
+.len        mulu    d1,d0
             lsr.l   #8,d0
-            lsr.l   #2,d0                   ; pixels of the bar that are full
+            lsr.l   #2,d0                   ; d0 = columns / rows of the bar that are full
             lea     ls_px(pc),a2
-            move.w  (a2),d1                 ; pixels already shown
+            move.w  (a2),d1                 ; d1 = how many were already shown
             cmp.w   d1,d0
-            bls     .out
+            bls     .pics
             move.w  d0,(a2)
-            move.w  LS_BARX(a1),d3
+            move.w  LS_MODE(a1),d2
+            cmp.w   #2,d2
+            bhs     .rows
+            move.w  LS_BARX(a1),d3          ; columns: d3 = first new pixel, d4 = end
+            tst.w   d2
+            bne.s   .rtl
             move.w  d3,d4
-            add.w   d1,d3                   ; d3 = first new pixel (screen x)
-            add.w   d0,d4                   ; d4 = end, exclusive
-            move.w  LS_SSTRIDE(a1),d2
+            add.w   d1,d3
+            add.w   d0,d4
+            bra.s   .cols
+.rtl        add.w   LS_BARW(a1),d3          ; right to left: from the bar's right edge
+            move.w  d3,d4
+            sub.w   d1,d4
+            sub.w   d0,d3
+.cols       move.w  LS_SSTRIDE(a1),d2
             mulu    LS_BARH(a1),d2
             move.l  d2,a2                   ; a2 = bytes per strip plane
             move.w  d3,d5
@@ -152,6 +181,88 @@ ls_prog:    lea     ls_data(pc),a1
             lsl.w   #3,d2
             cmp.w   d4,d2
             blt     .col
+            bra     .pics
+
+.rows       cmp.w   #3,d2                   ; rows: d3 = first new row of the bar, d4 = end
+            beq.s   .ttb
+            move.w  LS_BARH(a1),d3          ; bottom to top
+            move.w  d3,d4
+            sub.w   d0,d3
+            sub.w   d1,d4
+            bra.s   .rw
+.ttb        move.w  d1,d3
+            move.w  d0,d4
+.rw         move.w  LS_SSTRIDE(a1),d2
+            mulu    LS_BARH(a1),d2
+            move.l  d2,a2                   ; a2 = bytes per strip plane
+            move.l  LS_PLANES(a1),a3
+            add.l   a0,a3
+            move.w  LS_BARY(a1),d1
+            add.w   d3,d1
+            mulu    #40,d1
+            add.l   d1,a3
+            add.w   LS_SX0(a1),a3           ; a3 = screen, plane 0, the first new row
+            move.l  LS_STRIP(a1),a4
+            add.l   a0,a4
+            move.w  d3,d1
+            mulu    LS_SSTRIDE(a1),d1
+            add.l   d1,a4                   ; a4 = strip, plane 0, the first new row
+            sub.w   d3,d4
+            subq.w  #1,d4                   ; d4 = rows - 1
+            move.w  LS_SSTRIDE(a1),d5
+            move.w  LS_DEPTH(a1),d0
+            subq.w  #1,d0
+.rpl        move.l  a3,a5
+            move.l  a4,a6
+            move.w  d4,d1
+.rrow       move.w  d5,d2
+            subq.w  #1,d2
+.rb         move.b  (a6)+,(a5)+
+            dbf     d2,.rb
+            lea     40(a5),a5
+            sub.w   d5,a5                   ; the next line, back to the first column
+            dbf     d1,.rrow
+            add.l   #PLANE_BYTES,a3
+            add.l   a2,a4
+            dbf     d0,.rpl
+
+.pics       move.w  (sp)+,d0                ; the pictures the progress has reached
+.pnext      move.w  LS_NPIC(a1),d7
+            beq     .out
+            lea     ls_pic(pc),a2
+            move.w  (a2),d6                 ; how many are showing
+            cmp.w   d7,d6
+            bhs     .out
+            move.l  LS_PICS(a1),a3
+            add.l   a0,a3
+            lsl.w   #4,d6                   ; x PI_SIZE
+            add.w   d6,a3                   ; a3 = the next one
+            cmp.w   PI_THR(a3),d0
+            blo     .out
+            addq.w  #1,(a2)
+            move.l  PI_DATA(a3),a4
+            add.l   a0,a4                   ; a4 = its bytes
+            move.l  LS_PLANES(a1),a5
+            add.l   a0,a5
+            move.w  PI_Y(a3),d1
+            mulu    #40,d1
+            add.l   d1,a5
+            add.w   PI_COL(a3),a5           ; a5 = the screen under it, plane 0
+            move.w  LS_DEPTH(a1),d5
+            subq.w  #1,d5
+.ppl        move.l  a5,a6
+            move.w  PI_H(a3),d4
+            subq.w  #1,d4
+.prow       move.l  a6,a2
+            move.w  PI_WB(a3),d2
+            subq.w  #1,d2
+.pb         move.b  (a4)+,(a2)+
+            dbf     d2,.pb
+            lea     40(a6),a6
+            dbf     d4,.prow
+            add.l   #PLANE_BYTES,a5
+            dbf     d5,.ppl
+            bra     .pnext
 .out        rts
 
 ; ---------------------------------------------------------------------------
@@ -160,7 +271,8 @@ ls_done:    move.w  #$0180,$96(a5)          ; DMACON: bitplanes and copper off
             move.w  #0,$180(a5)             ; COLOR00 black
             rts
 
-ls_px:      dc.w    0                       ; bar pixels shown so far
+ls_px:      dc.w    0                       ; bar columns / rows shown so far
+ls_pic:     dc.w    0                       ; pictures showing
 
             cnop    0,8
 ls_data:                                    ; ADAM's data follows (LS_*)

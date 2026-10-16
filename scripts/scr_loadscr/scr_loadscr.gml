@@ -7,7 +7,9 @@
 #macro LS_BAR_H_MIN 4
 #macro LS_BAR_H_MAX 64
 #macro LS_PIECE_W_MAX 32
-#macro LS_HDR 40                 // loadscr.s LS_SIZE
+#macro LS_HDR 48                 // loadscr.s LS_SIZE
+#macro LS_PIC_MAX 16             // pictures that show at a percentage
+#macro LS_PI_SIZE 16             // loadscr.s PI_SIZE
 
 function loadscr_new()
 {
@@ -28,8 +30,16 @@ function loadscr_new()
         left : [],                        // left_w x bar_h colour numbers, 0 = see-through
         mid : [],                         // mid_w x bar_h, repeated along the bar
         right : [],                       // right_w x bar_h
-        empty : 0                         // the empty bar: 0 = a darker copy of the full one, 1 = the picture
+        empty : 0,                        // the empty bar: 0 = a darker copy of the full one, 1 = the picture
+        mode : 0,                         // how it fills: 0 left to right, 1 right to left, 2 bottom to top, 3 top to bottom
+        pics : []                         // pictures that show at a percentage: { spr, x, y, pct } (loadscr_pic_new)
     };
+}
+
+/// A picture on the loading screen: sprite _spr at (_x, _y), shown once _pct % has loaded
+function loadscr_pic_new(_spr, _x, _y, _pct)
+{
+    return { spr : _spr, x : _x, y : _y, pct : _pct };
 }
 
 function loadscr_from_loaded(_raw)
@@ -38,7 +48,7 @@ function loadscr_from_loaded(_raw)
     if (!is_struct(_raw)) { return _l; }
     var _on = _raw[$ "on"];
     if (is_numeric(_on)) { _l.on = (_on != 0); }
-    var _nums = ["source", "depth", "bar_x", "bar_y", "bar_w", "bar_h", "left_w", "mid_w", "right_w", "empty"];
+    var _nums = ["source", "depth", "bar_x", "bar_y", "bar_w", "bar_h", "left_w", "mid_w", "right_w", "empty", "mode"];
     for (var i = 0; i < array_length(_nums); i++)
     {
         var _v = _raw[$ _nums[i]];
@@ -48,6 +58,28 @@ function loadscr_from_loaded(_raw)
     _l.source = clamp(_l.source, 0, 1);
     _l.depth = clamp(_l.depth, 1, 8);
     _l.empty = clamp(_l.empty, 0, 1);
+    _l.mode = clamp(_l.mode, 0, 3);
+    var _lp = _raw[$ "pics"];
+    if (is_array(_lp))
+    {
+        for (var k = 0; k < min(LS_PIC_MAX, array_length(_lp)); k++)
+        {
+            var _r = _lp[k];
+            if (!is_struct(_r)) { continue; }
+            var _q = loadscr_pic_new(0, 0, 0, 50);
+            var _pk = ["spr", "x", "y", "pct"];
+            for (var j = 0; j < 4; j++)
+            {
+                var _pv = _r[$ _pk[j]];
+                if (is_numeric(_pv)) { _q[$ _pk[j]] = floor(_pv); }
+            }
+            _q.spr = max(0, _q.spr);
+            _q.x = clamp(_q.x, 0, BD_W - 16);
+            _q.y = clamp(_q.y, 0, BD_H - 16);
+            _q.pct = clamp(_q.pct, 0, 100);
+            array_push(_l.pics, _q);
+        }
+    }
     _l.bar_h = clamp(_l.bar_h, LS_BAR_H_MIN, LS_BAR_H_MAX);
     _l.left_w = clamp(_l.left_w, 1, LS_PIECE_W_MAX);
     _l.mid_w = clamp(_l.mid_w, 1, LS_PIECE_W_MAX);
@@ -240,6 +272,55 @@ function loadscr_compose(_p)
     return { screen : _screen, full : _full, pal : _pic.pal, depth : _pic.depth, ncol : _pic.ncol };
 }
 
+/// The loading screen's pictures in the order they show (by percentage, then list
+/// order), each { thr (0..1024), x, y, w, h, px (colour numbers, 0 = see-through) }
+/// in the picture's nearest colours, cut to the screen
+function loadscr_pics(_p, _pic)
+{
+    var _l = _p.loadscr;
+    var _out = [];
+    for (var i = 0; i < array_length(_l.pics); i++)
+    {
+        var _q = _l.pics[i];
+        if (_q.spr < 0 || _q.spr >= array_length(_p.sprites)) { continue; }
+        var _sp = _p.sprites[_q.spr];
+        var _w = min(_sp.w, BD_W - _q.x);
+        var _h = min(_sp.h, BD_H - _q.y);
+        if (_w < 1 || _h < 1) { continue; }
+        var _map = [0, 0, 0, 0];
+        for (var c = 0; c < 3; c++) { _map[c + 1] = loadscr_nearest(_pic.pal, _pic.ncol, _sp.cols[c], false); }
+        var _px = array_create(_w * _h, 0);
+        for (var _py = 0; _py < _h; _py++)
+        {
+            for (var _pxx = 0; _pxx < _w; _pxx++)
+            {
+                var _v = _sp.px[_py * _sp.w + _pxx];
+                if (_v > 0) { _px[_py * _w + _pxx] = _map[clamp(_v, 1, 3)]; }
+            }
+        }
+        array_push(_out, { thr : (clamp(_q.pct, 0, 100) * 1024) div 100, x : _q.x, y : _q.y, w : _w, h : _h, px : _px, idx : i });
+    }
+    array_sort(_out, function(_ea, _eb)
+    {
+        if (_ea.thr != _eb.thr) { return _ea.thr - _eb.thr; }
+        return _ea.idx - _eb.idx;
+    });
+    return _out;
+}
+
+/// Draws picture _q (loadscr_pics) into 320 x 256 colour numbers _a
+function loadscr_pic_draw(_a, _q)
+{
+    for (var _py = 0; _py < _q.h; _py++)
+    {
+        for (var _pxx = 0; _pxx < _q.w; _pxx++)
+        {
+            var _v = _q.px[_py * _q.w + _pxx];
+            if (_v > 0) { _a[@ (_q.y + _py) * BD_W + _q.x + _pxx] = _v; }
+        }
+    }
+}
+
 /// The copper sky the loading screen shows: the game's, when it shows the backdrop and the
 /// game has one (256 0xRRGGBB colours, one a line), else undefined
 function loadscr_sky(_p)
@@ -341,6 +422,21 @@ function loadscr_block(_p, _measure = false)
     var _planes_off = _spr_off + 8;
     var _strip_off = _planes_off + _depth * 10240;
     var _end = _strip_off + _stride * _l.bar_h * _depth;
+    // the pictures: their records, then each one's screen bytes, plane after plane
+    var _pics = loadscr_pics(_p, _pic);
+    var _np = array_length(_pics);
+    var _pics_off = 0;
+    if (_np > 0)
+    {
+        _pics_off = ((_end + 7) >> 3) << 3;
+        _end = _pics_off + _np * LS_PI_SIZE;
+        for (var q = 0; q < _np; q++)
+        {
+            var _qa = _pics[q];
+            var _wb = ((_qa.x + _qa.w - 1) >> 3) - (_qa.x >> 3) + 1;
+            _end += _wb * _qa.h * _depth;
+        }
+    }
     var _size = ((_end + 511) >> 9) << 9;
     if (_measure)
     {
@@ -348,6 +444,8 @@ function loadscr_block(_p, _measure = false)
         return { buf : -1, size : _size, mem : _size };
     }
     var _cmp = loadscr_compose(_p);
+    // a picture shows on top of the ones before it, and the full bar keeps them
+    for (var q2 = 0; q2 < _np; q2++) { loadscr_pic_draw(_cmp.full, _pics[q2]); }
     var _b = buffer_create(_size, buffer_fixed, 1);
     buffer_fill(_b, 0, buffer_u8, 0, _size);
     buffer_copy(_code, 0, _csize, _b, 0);
@@ -358,12 +456,12 @@ function loadscr_block(_p, _measure = false)
     buffer_write(_b, buffer_u8, ord("S"));
     buffer_write(_b, buffer_u8, ord("C"));
     buffer_write(_b, buffer_u8, ord("R"));
-    be16(_b, 1);                                 // LS_VER
+    be16(_b, 2);                                 // LS_VER
     var _flags = 0;
     if (_aga) { _flags = 1; }
     be16(_b, _flags);                            // LS_FLAGS
     be16(_b, _depth);                            // LS_DEPTH
-    be16(_b, 0);                                 // LS_MODE: left to right
+    be16(_b, _l.mode);                           // LS_MODE: 0 left to right, 1 right to left, 2 bottom to top, 3 top to bottom
     be32(_b, _cop_off);                          // LS_COPPER
     be32(_b, _planes_off);                       // LS_PLANES
     be32(_b, _strip_off);                        // LS_STRIP
@@ -373,6 +471,9 @@ function loadscr_block(_p, _measure = false)
     be16(_b, _l.bar_h);
     be16(_b, _sx0);                              // LS_SX0
     be16(_b, _stride);                           // LS_SSTRIDE
+    be16(_b, _np);                               // LS_NPIC
+    be16(_b, 0);
+    be32(_b, _pics_off);                         // LS_PICS
     // copper list
     buffer_seek(_b, buffer_seek_start, _cop_off);
     var _cop = loadscr_copper(_depth, _aga, _cmp.pal, _cmp.ncol, _planes_off, _spr_off, _sky);
@@ -414,6 +515,44 @@ function loadscr_block(_p, _measure = false)
             }
         }
     }
+    if (_np > 0)
+    {
+        // each picture's bytes: the screen with it (and the ones before it) drawn in
+        var _shown = array_create(BD_W * BD_H, 0);
+        array_copy(_shown, 0, _cmp.screen, 0, BD_W * BD_H);
+        var _dat = _pics_off + _np * LS_PI_SIZE;
+        for (var q3 = 0; q3 < _np; q3++)
+        {
+            var _qb = _pics[q3];
+            loadscr_pic_draw(_shown, _qb);
+            var _c0 = _qb.x >> 3;
+            var _wb2 = ((_qb.x + _qb.w - 1) >> 3) - _c0 + 1;
+            buffer_seek(_b, buffer_seek_start, _pics_off + q3 * LS_PI_SIZE);
+            be16(_b, _qb.thr);                   // PI_THR
+            be16(_b, _c0);                       // PI_COL
+            be16(_b, _qb.y);                     // PI_Y
+            be16(_b, _wb2);                      // PI_WB
+            be16(_b, _qb.h);                     // PI_H
+            be16(_b, 0);
+            be32(_b, _dat);                      // PI_DATA
+            buffer_seek(_b, buffer_seek_start, _dat);
+            for (var p3 = 0; p3 < _depth; p3++)
+            {
+                for (var _r3 = 0; _r3 < _qb.h; _r3++)
+                {
+                    var _row3 = (_qb.y + _r3) * BD_W;
+                    for (var _cb = 0; _cb < _wb2; _cb++)
+                    {
+                        var _v3 = 0;
+                        var _at3 = _row3 + (_c0 + _cb) * 8;
+                        for (var bit3 = 0; bit3 < 8; bit3++) { _v3 = (_v3 << 1) | ((_shown[_at3 + bit3] >> p3) & 1); }
+                        buffer_write(_b, buffer_u8, _v3);
+                    }
+                }
+            }
+            _dat += _wb2 * _qb.h * _depth;
+        }
+    }
     return { buf : _b, size : _size, mem : _size };
 }
 
@@ -424,42 +563,103 @@ function loadscr_active(_p)
 }
 
 /// What loadscr.s does for progress _prog (0..1024), on a copy of the block's
-/// planes (dev self-test): returns the planes after the reveal
+/// planes (dev self-test): the fill (each direction), then the pictures reached
 function loadscr_sim_reveal(_b, _hdr, _prog)
 {
-    var _depth = buffer_peek(_b, _hdr + 8, buffer_u8) * 256 + buffer_peek(_b, _hdr + 9, buffer_u8);
+    var _pk = function(_bb, _o) { return buffer_peek(_bb, _o, buffer_u8) * 256 + buffer_peek(_bb, _o + 1, buffer_u8); };
+    var _depth = _pk(_b, _hdr + 8);
+    var _mode = _pk(_b, _hdr + 10);
     var _planes = peek32(_b, _hdr + 16);
     var _strip = peek32(_b, _hdr + 20);
-    var _bx = buffer_peek(_b, _hdr + 24, buffer_u8) * 256 + buffer_peek(_b, _hdr + 25, buffer_u8);
-    var _by = buffer_peek(_b, _hdr + 26, buffer_u8) * 256 + buffer_peek(_b, _hdr + 27, buffer_u8);
-    var _bw = buffer_peek(_b, _hdr + 28, buffer_u8) * 256 + buffer_peek(_b, _hdr + 29, buffer_u8);
-    var _bh = buffer_peek(_b, _hdr + 30, buffer_u8) * 256 + buffer_peek(_b, _hdr + 31, buffer_u8);
-    var _sx0 = buffer_peek(_b, _hdr + 32, buffer_u8) * 256 + buffer_peek(_b, _hdr + 33, buffer_u8);
-    var _st = buffer_peek(_b, _hdr + 34, buffer_u8) * 256 + buffer_peek(_b, _hdr + 35, buffer_u8);
+    var _bx = _pk(_b, _hdr + 24);
+    var _by = _pk(_b, _hdr + 26);
+    var _bw = _pk(_b, _hdr + 28);
+    var _bh = _pk(_b, _hdr + 30);
+    var _sx0 = _pk(_b, _hdr + 32);
+    var _st = _pk(_b, _hdr + 34);
+    var _np = _pk(_b, _hdr + 36);
+    var _pics = peek32(_b, _hdr + 40);
     var _out = array_create(_depth * 10240, 0);
     for (var i = 0; i < _depth * 10240; i++) { _out[i] = buffer_peek(_b, _planes + i, buffer_u8); }
-    var _px = (_bw * _prog) >> 10;
-    var _x0 = _bx;
-    var _x1 = _bx + _px;
-    for (var _col = _x0 >> 3; _col * 8 < _x1; _col++)
+    if (_mode < 2)
     {
-        var _lo = max(0, _x0 - _col * 8);
-        var _hi = min(8, _x1 - _col * 8);
-        var _mask = (0xff >> _lo) & ~(0xff >> _hi) & 0xff;
-        for (var p = 0; p < _depth; p++)
+        var _n = (_bw * _prog) >> 10;
+        var _x0 = _bx;
+        var _x1 = _bx + _n;
+        if (_mode == 1)
         {
-            for (var r = 0; r < _bh; r++)
+            _x0 = _bx + _bw - _n;
+            _x1 = _bx + _bw;
+        }
+        for (var _col = _x0 >> 3; _col * 8 < _x1 && _n > 0; _col++)
+        {
+            var _lo = max(0, _x0 - _col * 8);
+            var _hi = min(8, _x1 - _col * 8);
+            var _mask = (0xff >> _lo) & ~(0xff >> _hi) & 0xff;
+            for (var p = 0; p < _depth; p++)
             {
-                var _si = _strip + p * _st * _bh + r * _st + (_col - _sx0);
-                var _di = p * 10240 + (_by + r) * 40 + _col;
-                _out[_di] = (_out[_di] & ~_mask & 0xff) | (buffer_peek(_b, _si, buffer_u8) & _mask);
+                for (var r = 0; r < _bh; r++)
+                {
+                    var _si = _strip + p * _st * _bh + r * _st + (_col - _sx0);
+                    var _di = p * 10240 + (_by + r) * 40 + _col;
+                    _out[_di] = (_out[_di] & ~_mask & 0xff) | (buffer_peek(_b, _si, buffer_u8) & _mask);
+                }
+            }
+        }
+    }
+    else
+    {
+        var _nr = (_bh * _prog) >> 10;
+        var _r0 = 0;
+        if (_mode == 2) { _r0 = _bh - _nr; }
+        for (var p2 = 0; p2 < _depth; p2++)
+        {
+            for (var r2 = _r0; r2 < _r0 + _nr; r2++)
+            {
+                for (var c2 = 0; c2 < _st; c2++)
+                {
+                    _out[p2 * 10240 + (_by + r2) * 40 + _sx0 + c2] = buffer_peek(_b, _strip + p2 * _st * _bh + r2 * _st + c2, buffer_u8);
+                }
+            }
+        }
+    }
+    for (var q = 0; q < _np; q++)
+    {
+        var _rec = _pics + q * LS_PI_SIZE;
+        if (_pk(_b, _rec) > _prog) { break; }
+        var _pc0 = _pk(_b, _rec + 2);
+        var _py = _pk(_b, _rec + 4);
+        var _pwb = _pk(_b, _rec + 6);
+        var _ph = _pk(_b, _rec + 8);
+        var _dat = peek32(_b, _rec + 12);
+        for (var p3 = 0; p3 < _depth; p3++)
+        {
+            for (var r3 = 0; r3 < _ph; r3++)
+            {
+                for (var c3 = 0; c3 < _pwb; c3++)
+                {
+                    _out[p3 * 10240 + (_py + r3) * 40 + _pc0 + c3] = buffer_peek(_b, _dat, buffer_u8);
+                    _dat += 1;
+                }
             }
         }
     }
     return _out;
 }
 
-/// Dev self-test: the block's layout, and a full reveal gives the full bar's planes
+/// Colour number of pixel (_x, _y) in planes _a (loadscr_sim_reveal)
+function loadscr_sim_px(_a, _depth, _x, _y)
+{
+    var _c = 0;
+    for (var p = 0; p < _depth; p++)
+    {
+        if ((_a[p * 10240 + _y * 40 + (_x >> 3)] & (0x80 >> (_x & 7))) != 0) { _c |= (1 << p); }
+    }
+    return _c;
+}
+
+/// Dev self-test: the block's layout; for each fill direction, a full reveal gives the full
+/// bar and a half reveal stops at the right place; a picture shows at its percentage
 function loadscr_selftest()
 {
     var _ok = true;
@@ -471,61 +671,83 @@ function loadscr_selftest()
     proj.loadscr.bar_y = 200;
     proj.loadscr.bar_h = 12;
     for (var i = 0; i < BD_W * BD_H; i++) { proj.pixels[i] = (i * 7 + (i div BD_W)) mod 16; }
-    var _blk = loadscr_block(proj);
-    if (is_undefined(_blk)) { _ok = false; }
-    else
+    for (var k = 0; k < SPR_W * SPR_H; k++) { proj.sprites[0].px[k] = (k * 5) mod 4; }
+    var _code = buffer_load(working_directory + "engine/loadscr.bin");
+    var _hdr = buffer_get_size(_code);
+    buffer_delete(_code);
+    if (_hdr mod 8 != 0) { _ok = false; }
+    for (var _mode = 0; _mode < 4 && _ok; _mode++)
     {
+        proj.loadscr.mode = _mode;
+        proj.loadscr.pics = [];
+        if (_mode == 3) { proj.loadscr.pics = [loadscr_pic_new(0, 13, 40, 50)]; }
+        var _blk = loadscr_block(proj);
+        if (is_undefined(_blk))
+        {
+            _ok = false;
+            break;
+        }
         var _b = _blk.buf;
-        var _hdr = 0;
-        var _code = buffer_load(working_directory + "engine/loadscr.bin");
-        _hdr = buffer_get_size(_code);
-        buffer_delete(_code);
-        if (_hdr mod 8 != 0) { _ok = false; }
         if (buffer_peek(_b, _hdr, buffer_u8) != ord("L") || buffer_peek(_b, _hdr + 3, buffer_u8) != ord("R")) { _ok = false; }
         if (_blk.size mod 512 != 0 || _blk.size != loadscr_block(proj, true).size) { _ok = false; }
         if (peek32(_b, _hdr + 16) mod 8 != 0) { _ok = false; }
         var _cmp = loadscr_compose(proj);
         var _depth = _cmp.depth;
-        // the full reveal must match the full bar's planes; the half reveal must stop at the right pixel
         var _all = loadscr_sim_reveal(_b, _hdr, 1024);
         var _half = loadscr_sim_reveal(_b, _hdr, 512);
-        var _cut = 21 + (203 * 512 >> 10);
+        var _cut = (203 * 512) >> 10;
+        var _rcut = (12 * 512) >> 10;
         for (var _y = 200; _y < 212; _y++)
         {
             for (var _x = 0; _x < BD_W; _x++)
             {
-                var _full_c = 0;
-                var _half_c = 0;
-                for (var p = 0; p < _depth; p++)
+                if (loadscr_sim_px(_all, _depth, _x, _y) != _cmp.full[_y * BD_W + _x]) { _ok = false; }
+                var _in = false;
+                if (_x >= 21 && _x < 224)
                 {
-                    var _bitv = 0x80 >> (_x & 7);
-                    if ((_all[p * 10240 + _y * 40 + (_x >> 3)] & _bitv) != 0) { _full_c |= (1 << p); }
-                    if ((_half[p * 10240 + _y * 40 + (_x >> 3)] & _bitv) != 0) { _half_c |= (1 << p); }
+                    if (_mode == 0) { _in = (_x < 21 + _cut); }
+                    if (_mode == 1) { _in = (_x >= 224 - _cut); }
+                    if (_mode == 2) { _in = (_y >= 212 - _rcut); }
+                    if (_mode == 3) { _in = (_y < 200 + _rcut); }
                 }
-                if (_full_c != _cmp.full[_y * BD_W + _x]) { _ok = false; }
                 var _want = _cmp.screen[_y * BD_W + _x];
-                if (_x >= 21 && _x < _cut) { _want = _cmp.full[_y * BD_W + _x]; }
-                if (_half_c != _want) { _ok = false; }
+                if (_in) { _want = _cmp.full[_y * BD_W + _x]; }
+                if (loadscr_sim_px(_half, _depth, _x, _y) != _want) { _ok = false; }
+            }
+        }
+        if (_mode == 3)
+        {
+            // the picture: not at 49 %, there at 50 %
+            var _pre = loadscr_sim_reveal(_b, _hdr, (49 * 1024) div 100);
+            var _qs = loadscr_pics(proj, loadscr_picture(proj));
+            var _shown = array_create(BD_W * BD_H, 0);
+            array_copy(_shown, 0, _cmp.screen, 0, BD_W * BD_H);
+            loadscr_pic_draw(_shown, _qs[0]);
+            for (var _yy = 40; _yy < 40 + SPR_H; _yy++)
+            {
+                for (var _xx = 13; _xx < 13 + SPR_W; _xx++)
+                {
+                    if (loadscr_sim_px(_pre, _depth, _xx, _yy) != _cmp.screen[_yy * BD_W + _xx]) { _ok = false; }
+                    if (loadscr_sim_px(_half, _depth, _xx, _yy) != _shown[_yy * BD_W + _xx]) { _ok = false; }
+                }
             }
         }
         buffer_delete(_b);
     }
-    var _back = loadscr_from_loaded(json_parse(json_stringify({ on : 1, bar_w : 9999, bar_x : -5, style : "Custom", source : 1 })));
-    if (!_back.on || _back.bar_w != BD_W || _back.bar_x != 0 || _back.style != "Metal" || _back.source != 0) { _ok = false; }
+    var _back = loadscr_from_loaded(json_parse(json_stringify({ on : 1, bar_w : 9999, bar_x : -5, style : "Custom", source : 1, mode : 7, pics : [{ spr : 2, x : 400, y : 3, pct : 150 }] })));
+    if (!_back.on || _back.bar_w != BD_W || _back.bar_x != 0 || _back.style != "Metal" || _back.source != 0 || _back.mode != 3) { _ok = false; }
+    if (array_length(_back.pics) != 1 || _back.pics[0].x != BD_W - 16 || _back.pics[0].pct != 100) { _ok = false; }
     proj = _keep;
     if (_ok) { show_debug_message("ADAM loading screen self-test: PASS"); }
     else { show_debug_message("ADAM loading screen self-test: FAIL"); }
 }
-
-// ---------------------------------------------------------------------------
-// Editor: the Loading screen tab of the UI page (ADAM Pro)
-// ---------------------------------------------------------------------------
 
 function loadscr_gfx_free()
 {
     if (surface_exists(ls_surf_empty)) { surface_free(ls_surf_empty); }
     if (surface_exists(ls_surf_full)) { surface_free(ls_surf_full); }
     if (buffer_exists(ls_buf)) { buffer_delete(ls_buf); }
+    loadscr_pic_surfs_free();
     ls_key = "";
 }
 
@@ -696,7 +918,18 @@ function loadscr_preview_update(_p)
     else { _key += json_stringify(_p.pal); }
     var _sky = loadscr_sky(_p);                 // colour 0: the copper sky, line by line
     if (!is_undefined(_sky)) { _key += "|sky" + json_stringify(_sky); }
-    if (_key == ls_key && surface_exists(ls_surf_empty) && surface_exists(ls_surf_full)) { return; }
+    _key += "|" + json_stringify(_l.pics);
+    for (var u = 0; u < array_length(_l.pics); u++)
+    {
+        var _us = _l.pics[u].spr;
+        if (_us >= 0 && _us < array_length(_p.sprites)) { _key += json_stringify(_p.sprites[_us]); }
+    }
+    var _surfs_ok = true;
+    for (var v = 0; v < array_length(ls_pic_surfs); v++)
+    {
+        if (!surface_exists(ls_pic_surfs[v].surf)) { _surfs_ok = false; }
+    }
+    if (_key == ls_key && _surfs_ok && surface_exists(ls_surf_empty) && surface_exists(ls_surf_full)) { return; }
     ls_key = _key;
     var _cmp = loadscr_compose(_p);
     ls_pic = loadscr_picture(_p);
@@ -736,6 +969,50 @@ function loadscr_preview_update(_p)
         else { buffer_write(ls_buf, buffer_u32, _lut[_ck]); }
     }
     buffer_set_surface(ls_buf, ls_surf_full, 0);
+    // the pictures that show at a percentage, each on its own surface (0 = see-through)
+    loadscr_pic_surfs_free();
+    var _qs = loadscr_pics(_p, ls_pic);
+    for (var q = 0; q < array_length(_qs); q++)
+    {
+        var _q = _qs[q];
+        var _qb = buffer_create(_q.w * _q.h * 4, buffer_fixed, 1);
+        for (var w = 0; w < _q.w * _q.h; w++)
+        {
+            if (_q.px[w] > 0) { buffer_write(_qb, buffer_u32, _lut[_q.px[w]]); }
+            else { buffer_write(_qb, buffer_u32, 0); }
+        }
+        var _qsf = surface_create(_q.w, _q.h);
+        buffer_set_surface(_qb, _qsf, 0);
+        buffer_delete(_qb);
+        array_push(ls_pic_surfs, { surf : _qsf, x : _q.x, y : _q.y, w : _q.w, h : _q.h, thr : _q.thr });
+    }
+}
+
+function loadscr_pic_surfs_free()
+{
+    for (var i = 0; i < array_length(ls_pic_surfs); i++)
+    {
+        if (surface_exists(ls_pic_surfs[i].surf)) { surface_free(ls_pic_surfs[i].surf); }
+    }
+    ls_pic_surfs = [];
+}
+
+/// The part of the screen the bar has filled at progress _prog (0..1): [x, y, w, h]
+function loadscr_fill_rect(_l, _prog)
+{
+    var _pr = clamp(_prog, 0, 1);
+    if (_l.mode == 1)
+    {
+        var _n1 = floor(_l.bar_w * _pr);
+        return [_l.bar_x + _l.bar_w - _n1, _l.bar_y, _n1, _l.bar_h];
+    }
+    if (_l.mode == 2)
+    {
+        var _n2 = floor(_l.bar_h * _pr);
+        return [_l.bar_x, _l.bar_y + _l.bar_h - _n2, _l.bar_w, _n2];
+    }
+    if (_l.mode == 3) { return [_l.bar_x, _l.bar_y, _l.bar_w, floor(_l.bar_h * _pr)]; }
+    return [_l.bar_x, _l.bar_y, floor(_l.bar_w * _pr), _l.bar_h];
 }
 
 /// GameMaker colour of loading-screen colour _c
@@ -844,7 +1121,9 @@ function loadscr_page_draw(_x1, _y1, _x2, _y2, _lw, _rw)
     }
     else
     {
-        ui_text_wrap(_fx, _y - 4, "The backdrop, " + string(ls_pic.ncol) + " colours (no copper sky or hills).", global.TH.text_faint, _fw, global.f_small, 1);
+        var _bdn = "The backdrop, " + string(ls_pic.ncol) + " colours (no hills).";
+        if (proj.sky_on) { _bdn = "The backdrop, " + string(ls_pic.ncol) + " colours, with its copper sky (no hills)."; }
+        ui_text_wrap(_fx, _y - 4, _bdn, global.TH.text_faint, _fw, global.f_small, 1);
         _y += 50;
     }
     ui_heading(_fx, _y, "Bar left");
@@ -858,6 +1137,7 @@ function loadscr_page_draw(_x1, _y1, _x2, _y2, _lw, _rw)
     set_val(_l, "bar_h", ui_stepper("ls_bh", _fx + _half + 8, _y + 18, _half, _l.bar_h, LS_BAR_H_MIN, min(LS_BAR_H_MAX, BD_H - _l.bar_y), "Bar height|In lines, " + string(LS_BAR_H_MIN) + " to " + string(LS_BAR_H_MAX) + ". Drawn pieces keep their pixels (cut or padded at the bottom)."), "lsbh");
     _y += 58;
     ui_heading(_fx, _y, "Bar style");
+    ui_heading(_fx + _half + 8, _y, "Fills");
     var _styles = ui_frame_styles();
     var _snames = [];
     var _si = -1;
@@ -868,7 +1148,8 @@ function loadscr_page_draw(_x1, _y1, _x2, _y2, _lw, _rw)
     }
     array_push(_snames, "Custom (drawn)");
     if (_si < 0) { _si = array_length(_styles); }
-    var _nst = ui_dropdown("ls_style", _fx, _y + 18, _fw, 30, _snames, _si, "Bar style|A ready-made bar like the HUD frames, in the picture's nearest colours. Draw on a piece on the right (or import a strip) to make your own.");
+    set_val(_l, "mode", ui_dropdown("ls_mode", _fx + _half + 8, _y + 18, _half, 30, ["Left to right", "Right to left", "Bottom to top", "Top to bottom"], _l.mode, "Fills|Which way the bar fills as the game loads. Make the bar the whole screen (or a big part of it) and draw the full picture into its pieces for a picture that builds up."), "lsmode");
+    var _nst = ui_dropdown("ls_style", _fx, _y + 18, _half, 30, _snames, _si, "Bar style|A ready-made bar like the HUD frames, in the picture's nearest colours. Draw on a piece on the right (or import a strip) to make your own.");
     if (_nst != _si)
     {
         undo_mark("lsstyle" + string(current_time));
@@ -884,16 +1165,59 @@ function loadscr_page_draw(_x1, _y1, _x2, _y2, _lw, _rw)
     // ---------------- centre: the preview and its progress ----------------
     ui_panel(_cx1, _y1, _cx2, _y2, "Preview");
     var _pw = _cx2 - _cx1 - 32;
-    var _ph = _y2 - _y1 - 50 - 90;
+    var _ph = _y2 - _y1 - 50 - 200;
     var _sc = max(1, floor(min(_pw / BD_W, _ph / BD_H) * 4) / 4);
     var _vx = floor((_cx1 + _cx2 - BD_W * _sc) / 2);
     var _vy = _y1 + 54;
     ui_rrect(_vx - 6, _vy - 6, _vx + BD_W * _sc + 6, _vy + BD_H * _sc + 6, 10, c_black, c_black, 0.35);
     gpu_set_texfilter(false);
     draw_surface_ext(ls_surf_empty, _vx, _vy, _sc, _sc, 0, c_white, 1);
-    var _fill = floor(_l.bar_w * clamp(ls_prog, 0, 1));
-    if (_fill > 0) { draw_surface_part_ext(ls_surf_full, _l.bar_x, _l.bar_y, _fill, _l.bar_h, _vx + _l.bar_x * _sc, _vy + _l.bar_y * _sc, _sc, _sc, c_white, 1); }
+    var _fr = loadscr_fill_rect(_l, ls_prog);
+    if (_fr[2] > 0 && _fr[3] > 0) { draw_surface_part_ext(ls_surf_full, _fr[0], _fr[1], _fr[2], _fr[3], _vx + _fr[0] * _sc, _vy + _fr[1] * _sc, _sc, _sc, c_white, 1); }
+    var _pthr = floor(clamp(ls_prog, 0, 1) * 1024);
+    for (var q = 0; q < array_length(ls_pic_surfs); q++)
+    {
+        var _qs = ls_pic_surfs[q];
+        if (_qs.thr <= _pthr && surface_exists(_qs.surf)) { draw_surface_ext(_qs.surf, _vx + _qs.x * _sc, _vy + _qs.y * _sc, _sc, _sc, 0, c_white, 1); }
+    }
     gpu_set_texfilter(true);
+    // the pictures: outlined, the picked one brighter; drag one to move it
+    var _phit = -1;
+    for (var q2 = 0; q2 < array_length(_l.pics); q2++)
+    {
+        var _pq = _l.pics[q2];
+        var _pd = loadscr_pic_dims(_pq);
+        var _px1 = _vx + _pq.x * _sc;
+        var _py1 = _vy + _pq.y * _sc;
+        var _pcol = global.TH.text_faint;
+        if (q2 == ls_psel) { _pcol = global.TH.accent; }
+        draw_set_alpha(0.8);
+        draw_rectangle_colour(_px1 - 1, _py1 - 1, _px1 + _pd[0] * _sc, _py1 + _pd[1] * _sc, _pcol, _pcol, _pcol, _pcol, true);
+        draw_set_alpha(1);
+        ui_text(_px1 + 2, _py1 + 1, string(q2 + 1), _pcol, fa_left, fa_top, global.f_small, 1);
+        if (point_in_rectangle(ui_mx, ui_my, _px1, _py1, _px1 + _pd[0] * _sc, _py1 + _pd[1] * _sc)) { _phit = q2; }
+    }
+    if (_phit >= 0 && ui_pressed && ls_drag == 0 && !ls_pdrag && ui_hit(_vx, _vy, _vx + BD_W * _sc, _vy + BD_H * _sc))
+    {
+        ui_take_click();
+        undo_mark("lspic" + string(current_time));
+        ls_psel = _phit;
+        ls_pdrag = true;
+        ls_pdrag_dx = ui_mx - (_vx + _l.pics[_phit].x * _sc);
+        ls_pdrag_dy = ui_my - (_vy + _l.pics[_phit].y * _sc);
+    }
+    if (ls_pdrag)
+    {
+        if (!ui_held || ls_psel >= array_length(_l.pics)) { ls_pdrag = false; }
+        else
+        {
+            var _dq = _l.pics[ls_psel];
+            var _dd = loadscr_pic_dims(_dq);
+            _dq.x = clamp(round((ui_mx - ls_pdrag_dx - _vx) / _sc), 0, BD_W - _dd[0]);
+            _dq.y = clamp(round((ui_my - ls_pdrag_dy - _vy) / _sc), 0, BD_H - _dd[1]);
+            proj_dirty = true;
+        }
+    }
     var _bx1 = _vx + _l.bar_x * _sc;
     var _by1 = _vy + _l.bar_y * _sc;
     var _bx2 = _bx1 + _l.bar_w * _sc;
@@ -957,7 +1281,8 @@ function loadscr_page_draw(_x1, _y1, _x2, _y2, _lw, _rw)
             ls_playing = false;
         }
     }
-    if (!_l.on) { ui_text_wrap(_cx1 + 16, _sy + 40, "The loading screen is off: switch on 'Show a loading screen' on the left to put it on the disk.", global.TH.warn, _cx2 - _cx1 - 32, global.f_small, 1); }
+    loadscr_pics_panel(_l, _cx1 + 16, _sy + 44, _cx2 - _cx1 - 32);
+    if (!_l.on) { ui_text_wrap(_cx1 + 16, _y2 - 34, "The loading screen is off: switch on 'Show a loading screen' on the left to put it on the disk.", global.TH.warn, _cx2 - _cx1 - 32, global.f_small, 1); }
 
     // ---------------- right: the bar pieces ----------------
     var _rx = _x2 - _rw;
@@ -1066,5 +1391,65 @@ function loadscr_page_draw(_x1, _y1, _x2, _y2, _lw, _rw)
             if (_err == "") { toast("Bar pieces imported", 0); }
             else { toast(_err, 1); }
         }
+    }
+}
+
+/// The size a loading-screen picture shows at: its sprite's, cut to the screen
+function loadscr_pic_dims(_q)
+{
+    var _w = 16;
+    var _h = 16;
+    if (_q.spr >= 0 && _q.spr < array_length(proj.sprites))
+    {
+        _w = proj.sprites[_q.spr].w;
+        _h = proj.sprites[_q.spr].h;
+    }
+    return [max(1, min(_w, BD_W - _q.x)), max(1, min(_h, BD_H - _q.y))];
+}
+
+/// The pictures that show at a percentage: add, pick, and the picked one's sprite, percentage
+/// and place (drag it on the preview too)
+function loadscr_pics_panel(_l, _x, _y, _w)
+{
+    ui_heading(_x, _y, "Pictures at a percentage");
+    var _n = array_length(_l.pics);
+    if (ui_button("ls_pic_add", _x + _w - 120, _y - 6, 120, 28, "Add picture", "Add picture|A sprite from the sprite bank that appears on the loading screen once that much has loaded - a ship being built, a crowd gathering, a title stamping in. Drag it on the preview to place it. Keep them off the bar.", BTN_NORMAL) && _n < LS_PIC_MAX)
+    {
+        undo_mark("lspicadd" + string(current_time));
+        var _pct = 25 * (_n + 1);
+        if (_pct > 100) { _pct = 100; }
+        array_push(_l.pics, loadscr_pic_new(0, 152 - 8 * (_n mod 4), 40 + 28 * (_n mod 4), _pct));
+        ls_psel = _n;
+        _n += 1;
+    }
+    if (_n == 0)
+    {
+        ui_text_wrap(_x, _y + 26, "None yet: sprites can appear on the loading screen at a percentage of the load.", global.TH.text_faint, _w - 130, global.f_small, 1);
+        return;
+    }
+    ls_psel = clamp(ls_psel, 0, _n - 1);
+    var _cw = 30;
+    for (var i = 0; i < _n; i++)
+    {
+        if (ui_tab("ls_pic_" + string(i), _x + i * (_cw + 4), _y + 20, _cw, 26, string(i + 1), ls_psel == i, "Picture " + string(i + 1) + "|Pick it to change it below.")) { ls_psel = i; }
+    }
+    var _q = _l.pics[ls_psel];
+    var _fw = floor((_w - 4 * 8 - 90) / 4);
+    var _ry = _y + 70;
+    ui_heading(_x, _ry - 18, "Sprite");
+    ui_heading(_x + (_fw + 8), _ry - 18, "Shows at %");
+    ui_heading(_x + (_fw + 8) * 2, _ry - 18, "Across");
+    ui_heading(_x + (_fw + 8) * 3, _ry - 18, "Down");
+    var _ns = ui_stepper("ls_pic_spr", _x, _ry, _fw, _q.spr + 1, 1, array_length(proj.sprites), "Sprite|Which sprite from the sprite bank, drawn in the picture's nearest colours.") - 1;
+    if (_ns != _q.spr) { set_val(_q, "spr", _ns, "lspicspr"); }
+    set_val(_q, "pct", ui_stepper("ls_pic_pct", _x + (_fw + 8), _ry, _fw, _q.pct, 0, 100, "Shows at|How much of the game has loaded when it appears, 0 to 100 %. Pictures appear on top of the ones before them."), "lspicpct");
+    var _dm = loadscr_pic_dims(_q);
+    set_val(_q, "x", ui_stepper("ls_pic_x", _x + (_fw + 8) * 2, _ry, _fw, _q.x, 0, BD_W - _dm[0], "Across|Its left edge, in pixels (or drag it on the preview)."), "lspicx");
+    set_val(_q, "y", ui_stepper("ls_pic_y", _x + (_fw + 8) * 3, _ry, _fw, _q.y, 0, BD_H - _dm[1], "Down|Its top, in lines (or drag it on the preview)."), "lspicy");
+    if (ui_button("ls_pic_del", _x + _w - 82, _ry, 82, 30, "Delete", "Delete|Takes this picture off the loading screen.", BTN_NORMAL))
+    {
+        undo_mark("lspicdel" + string(current_time));
+        array_delete(_l.pics, ls_psel, 1);
+        ls_psel = max(0, ls_psel - 1);
     }
 }

@@ -992,7 +992,7 @@ if __name__=='__main__':
         data=build(bp,aga)
         ls=b''
         if p.get('loadscr',{}).get('on'):         # ADAM Pro loading screen (read before the game)
-            ls=loadscr_block(p['loadscr'],p['pixels'],p['pal'],p['depth'],aga,bp.get('grad'))
+            ls=loadscr_block(p['loadscr'],p['pixels'],p['pal'],p['depth'],aga,bp.get('grad'),p['sprites'])
         open(os.path.join(OUT,'%s.adf'%name),'wb').write(adf(ENGINE+data,bp.get('_need',0),ls))
         preview(p,os.path.join(OUT,'%s.png'%name))
         if p.get('tiles_on') and not aga: ex_dig_deep.map_png(p,os.path.join(OUT,'%s_map.png'%fn))
