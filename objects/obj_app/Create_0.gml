@@ -446,9 +446,10 @@ les_done_t = -1;            // current_time when this step's task was done, -1 =
 les_step_t = 0;             // current_time when this step began
 les_check_timer = 0;
 les_card_rect = [0, 0, 0, 0];
-les_done = array_create(5, false);  // lessons finished (saved in the settings) - one per entry in les_defs
+les_done = array_create(16, false); // lessons finished (saved in the settings) - room for up to 16 entries in les_defs
 les_defs = [];
 lessons_init();
+for (var _ld = array_length(les_done); _ld < array_length(les_defs); _ld++) { array_push(les_done, false); }
 update_check_on = true;      // look for a newer ADAM at start-up (scr_update; Home > Game settings)
 update_req = -1;
 update_latest = "";
