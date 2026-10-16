@@ -178,7 +178,7 @@ def animate(p,prefix,specs):
     for ai,sp in specs.items():
         a=p['actors'][ai]
         cols=p['sprites'][a['sprite']]['cols']
-        anims=[dict(frames=[],rate=8,mode=0) for _ in range(21)]
+        anims=[dict(frames=[],rate=8,mode=0) for _ in range(max([21]+[k+1 for k in sp['anims']]))]   # 21, 23 with Hit / Die
         for k,(frames,rate,mode) in sp['anims'].items():
             fl=[]
             for j,fr in enumerate(frames):

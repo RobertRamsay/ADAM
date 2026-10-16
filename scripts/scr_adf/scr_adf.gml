@@ -74,7 +74,7 @@ function adf_do_line(_b, _d, _ncol, _nsnd)
     if (_d.act == 8) { _val = clamp(_val, 0, _ncol - 1); }
     if (_d.act == 2) { _val = clamp(_val, 0, _nsnd - 1); }
     if (_d.act == 18) { _val = clamp(_val, 0, ADF_SONGS_MAX - 1); }
-    be16(_b, clamp(_d.act, 0, 25));
+    be16(_b, clamp(_d.act, 0, 26));
     be16(_b, clamp(_d.target, 0, ACT_MAX_ALL - 1));
     be16(_b, clamp(_val, 0, 65535));
 }
@@ -595,7 +595,7 @@ function adam_data_block_raw(_p, _measure = false)
                     // the other way too when it faces left (not with 8 directions)
                     var _need0 = !_plan[e].flip;
                     var _need1 = _plan[e].flip;
-                    if (_acts[a].anim_flip && !_dirs && (e < ANIM_BASIC || e == ANIM_FIRE0))
+                    if (_acts[a].anim_flip && !_dirs && (e < ANIM_BASIC || e == ANIM_FIRE0 || e >= anim_plan_main_len(_acts[a], _plan)))
                     {
                         _need0 = true;
                         _need1 = true;
@@ -633,7 +633,7 @@ function adam_data_block_raw(_p, _measure = false)
                 // Fire on its own turns round like Idle)
                 var _way = 0;
                 if (_pl[e2].flip) { _way = 1; }
-                if (side == 1 && _acts[a3].anim_flip && !_dirs2 && (e2 < ANIM_BASIC || e2 == ANIM_FIRE0)) { _way = 1 - _way; }
+                if (side == 1 && _acts[a3].anim_flip && !_dirs2 && (e2 < ANIM_BASIC || e2 == ANIM_FIRE0 || e2 >= anim_plan_main_len(_acts[a3], _pl))) { _way = 1 - _way; }
                 for (var k = 0; k < ANIM_FRAMES; k++)
                 {
                     var _fi = 0;
@@ -715,11 +715,13 @@ function adam_data_block_raw(_p, _measure = false)
         var _carry = 0;                  // A_CARRY: the player can pick it up and throw it
         if (_ac.carry) { _carry = 1; }
         be16(_b, _carry);
-        var _am = 0;                     // A_AMODE: bit 0 = 8 directions, bit 1 = Fire animations
+        var _am = 0;                     // A_AMODE: bit 0 = 8 directions, bit 1 = Fire animations, bit 2 = Hit / Die
         if (!is_undefined(_plans[a2]))
         {
-            if (anims_dirs_on(_ac) && array_length(_plans[a2]) >= ANIM_FIRE0) { _am = _am | 1; }
-            if (array_length(_plans[a2]) > ANIM_FIRE0) { _am = _am | 2; }
+            var _nmain = anim_plan_main_len(_ac, _plans[a2]);
+            if (anims_dirs_on(_ac) && _nmain >= ANIM_FIRE0) { _am = _am | 1; }
+            if (_nmain > ANIM_FIRE0) { _am = _am | 2; }
+            if (anims_hd_used(_ac)) { _am = _am | 4; }
         }
         be16(_b, _am);
         be16(_b, clamp(_ac.from_level, 1, LEVEL_MAX));
@@ -774,7 +776,7 @@ function adam_data_block_raw(_p, _measure = false)
     {
         var _ru = _rules[r];
         var _nand = min(array_length(_ru.more), RULE_DOS_MAX - 1);
-        be16(_b, clamp(_ru.when, 0, 15));
+        be16(_b, clamp(_ru.when, 0, 16));
         be16(_b, clamp(_ru.a, 0, ACT_MAX_ALL - 1));
         be16(_b, clamp(_ru.b, 0, ACT_MAX_ALL - 1));
         be16(_b, clamp(_ru.n, 1, 65535));

@@ -16,13 +16,14 @@
 function project_defs_init()
 {
     global.ROLE_NAMES = ["Player (joystick)", "Bouncer (diagonal)", "Patrol left-right", "Patrol up-down", "Chaser (follows player)", "Still (does not move)", "Platform player (walks + jumps)", "Hopper (jumps left and right)", "Faller (drops onto the ground)", "Shot (fired by a Shoot rule)", "Flyer (shoot 'em up enemy)", "Option (flies behind the player)", "Effect (explosion, sparkle)"];
-    global.WHEN_NAMES = ["Actor touches actor", "Fire button is pressed", "Every few seconds", "Score reaches", "Lives run out", "The game starts", "Actor jumps", "A level starts", "Fire is held (stick still)", "Actor is in view", "Player strikes actor", "Thrown or shot actor hits", "Player picks up actor", "Seconds into the level", "Fire is held (auto-fire)", "The map reaches its end"];
+    global.WHEN_NAMES = ["Actor touches actor", "Fire button is pressed", "Every few seconds", "Score reaches", "Lives run out", "The game starts", "Actor jumps", "A level starts", "Fire is held (stick still)", "Actor is in view", "Player strikes actor", "Thrown or shot actor hits", "Player picks up actor", "Seconds into the level", "Fire is held (auto-fire)", "The map reaches its end", "An animation ends"];
     global.DO_NAMES   = ["Add to score", "Lose a life", "Play a sound", "Flash the screen", "Send actor back to start",
                          "Move actor to a random spot", "Hide actor", "Show actor", "Change background colour",
                          "Game over", "You win!", "Speed up actor", "Slow down actor", "Add a life", "Move actor to another actor",
                          "Show actor for a moment", "Make actor safe for a while", "Count towards the level goal",
                          "Play music", "Stop music", "Place a tile (tile world)", "Drop what is carried", "Shoot (fire a shot actor)",
-                         "Power up the player", "Set off an effect", "Spawn actor (split into)"];
+                         "Power up the player", "Set off an effect", "Spawn actor (split into)", "Play an animation"];
+    global.HD_NAMES = ["Hit", "Die", "Hit or Die"];       // DO 26 value (0 / 1), WHEN 16 n (0 / 1 / 2 either)
     global.AIM_NAMES = ["The way the shooter moves", "Up", "Down", "Left", "Right", "At the player", "Homing missile"];
     global.FIRE_PAT_NAMES = ["The shot's own aim", "At the player", "Three at the player", "Ring of 8", "Fan of three"];
     global.PATTERN_NAMES = ["Straight", "Wave", "Zigzag", "Homing (drifts at the player)", "Moves with the scenery", "Comes in and stays (boss)"];
@@ -211,8 +212,11 @@ function do_value_is_actor(_act)
 // in 50ths of a second per frame and a mode. Empty ones borrow from the
 // others when the disk is built (anim_plan, same as adf_reference.py).
 // ---------------------------------------------------------------------------
-#macro ANIM_COUNT 21            // stored per actor: 0 Idle, 1 Walk, 2 Jump, 3 Fall, 4..11 N NE E SE S SW W NW,
-                                // 12 Fire, 13..20 Fire + N .. NW (the player holding fire)
+#macro ANIM_COUNT 23            // stored per actor: 0 Idle, 1 Walk, 2 Jump, 3 Fall, 4..11 N NE E SE S SW W NW,
+                                // 12 Fire, 13..20 Fire + N .. NW (the player holding fire), 21 Hit, 22 Die
+#macro ANIM_FIRE_END 21         // one past the last Fire animation
+#macro ANIM_HIT 21              // played by DO 26 (Play an animation), once; WHEN 16 fires at its end
+#macro ANIM_DIE 22
 #macro ANIM_BASIC 4             // Idle, Walk, Jump, Fall
 #macro ANIM_DIR0 4              // first of the 8 directions
 #macro ANIM_FIRE0 12            // Fire with no direction; 13..20 = Fire + the 8 directions
@@ -230,7 +234,7 @@ function anims_new()
     return _a;
 }
 
-/// Makes a loaded anims array safe: 12 entries (older files have 4), up to 16 frames each, values in range
+/// Makes a loaded anims array safe: ANIM_COUNT entries (older files have 4, 12 or 21), up to 16 frames each, values in range
 function anims_from_loaded(_raw)
 {
     var _out = anims_new();
@@ -264,7 +268,13 @@ function anims_used(_ac)
     {
         if (array_length(_ac.anims[i].frames) > 0) { return true; }
     }
-    return anims_fire_used(_ac);
+    return anims_fire_used(_ac) || anims_hd_used(_ac);
+}
+
+/// True when Hit or Die has frames: both go on the disk after the others (A_AMODE bit 2)
+function anims_hd_used(_ac)
+{
+    return array_length(_ac.anims[ANIM_HIT].frames) > 0 || array_length(_ac.anims[ANIM_DIE].frames) > 0;
 }
 
 /// True when the joystick directions have frames: then the 8 directions are used
@@ -283,7 +293,7 @@ function anims_dirs_on(_ac)
 function anims_fire_used(_ac)
 {
     if (!lim_fire()) { return false; }
-    for (var i = ANIM_FIRE0; i < ANIM_COUNT; i++)
+    for (var i = ANIM_FIRE0; i < ANIM_FIRE_END; i++)
     {
         if (array_length(_ac.anims[i].frames) > 0) { return true; }
     }
@@ -366,8 +376,62 @@ function anim_resolve_dirs(_e, _base, _walk, _flip)
 /// What the disk plays: undefined for one frame, else 4 (12 with 8 directions,
 /// 21 with Fire animations) x { frames, rate, mode, flip } with empty animations
 /// filled in from the others (flip = its frames are turned round; mode 3 = stand
-/// facing the last direction). Must match anim_plan in tools/reference/adf_reference.py.
+/// facing the last direction), then Hit and Die when either has frames (an empty Hit
+/// plays Die or Idle, an empty Die plays Hit). Must match anim_plan in adf_reference.py.
 function anim_plan(_ac)
+{
+    var _pl = anim_plan_main(_ac);
+    if (is_undefined(_pl) || !anims_hd_used(_ac)) { return _pl; }
+    var _hit = anim_plan_entry(_ac, ANIM_HIT);
+    var _die = anim_plan_entry(_ac, ANIM_DIE);
+    if (is_undefined(_hit))
+    {
+        if (!is_undefined(_die)) { _hit = _die; }
+        else { _hit = _pl[0]; }
+    }
+    if (is_undefined(_die)) { _die = _hit; }
+    array_push(_pl, _hit, _die);
+    return _pl;
+}
+
+/// Slot _k as the plan writes it (Lite: its first frames), or undefined when it is empty
+function anim_plan_entry(_ac, _k)
+{
+    var _src = _ac.anims[_k];
+    if (array_length(_src.frames) == 0) { return undefined; }
+    var _pf = _src.frames;
+    if (array_length(_pf) > lim_frames())
+    {
+        _pf = [];
+        for (var pf = 0; pf < lim_frames(); pf++) { array_push(_pf, _src.frames[pf]); }
+    }
+    return { frames : _pf, rate : clamp(_src.rate, 2, 30), mode : clamp(_src.mode, 0, 2), flip : false };
+}
+
+/// How many of a plan's entries come before Hit and Die (4, 12 or 21)
+function anim_plan_main_len(_ac, _plan)
+{
+    if (anims_hd_used(_ac)) { return array_length(_plan) - 2; }
+    return array_length(_plan);
+}
+
+/// Where Animate-page slot _k is in a plan, or -1 when the plan has none for it (a plan
+/// is 4, 12 or 21 long, 2 more with Hit and Die)
+function anim_plan_k(_plan, _k)
+{
+    var _n = array_length(_plan);
+    var _nm = _n;
+    if (_n == ANIM_BASIC + 2 || _n == ANIM_FIRE0 + 2 || _n == ANIM_FIRE_END + 2) { _nm = _n - 2; }
+    if (_k >= ANIM_HIT)
+    {
+        if (_nm == _n) { return -1; }
+        return _nm + _k - ANIM_HIT;
+    }
+    if (_k < _nm) { return _k; }
+    return -1;
+}
+
+function anim_plan_main(_ac)
 {
     if (anims_used(_ac))
     {

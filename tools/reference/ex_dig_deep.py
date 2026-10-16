@@ -441,10 +441,18 @@ def dig_deep():
         a['anim_sprite'] = -1
     R = g.R
     # the sword (Auto): striking a baddie scores, thwacks and sends it back where it came from.
-    # These come first, so a baddie struck as it touches the miner is gone before the touch counts
+    # These come first, so a baddie struck as it touches the miner is gone before the touch counts.
+    # A slime is squashed first: it is safe (can't hurt or be struck) while it plays its Die
+    # animation, and goes home when that ends
     strike = []
     for b in range(1, 5):
-        strike += [R(when=10, b=b, act=0, value=25), R(when=10, b=b, act=2, value=5), R(when=10, b=b, act=4, target=b)]
+        if b < 3:
+            strike += [R(when=10, b=b, act=0, value=25), R(when=10, b=b, act=2, value=5), R(when=10, b=b, act=16, target=b),
+                       R(when=10, b=b, act=26, target=b, value=1)]
+        else:
+            strike += [R(when=10, b=b, act=0, value=25), R(when=10, b=b, act=2, value=5), R(when=10, b=b, act=4, target=b)]
+    for b in range(1, 3):
+        strike += [R(when=16, a=b, n=1, act=4, target=b)]
     # the rock: thrown at a baddie it scores, thwacks and sends it home; picking it up clinks
     for b in range(1, 5):
         strike += [R(when=11, a=6, b=b, act=0, value=50), R(when=11, a=6, b=b, act=2, value=5), R(when=11, a=6, b=b, act=4, target=b)]
@@ -497,9 +505,12 @@ def dig_deep():
         # Fire on its own: the sword's swing (the pickaxe uses Fire + the way he faces)
         12: ([("Miner sword up", miner_rows(0, "sword up")), ("Miner sword fwd", miner_rows(0, "sword fwd")), ("Miner sword low", miner_rows(0, "sword low"))], 5, 1)}),
         1: dict(anims={0: ([1, ("Slime wobble", T(SLIME, dy=1)), ("Slime squash", SLIME_SQ)], 10, 2),
-                       2: ([1, ("Slime stretch", T(SLIME, dy=-1)), ("Slime stretch 2", T(SLIME, dy=-2))], 4, 1)}),
+                       2: ([1, ("Slime stretch", T(SLIME, dy=-1)), ("Slime stretch 2", T(SLIME, dy=-2))], 4, 1),
+                       # Die (the sword): squashed flat into a puddle
+                       22: ([("Slime squash", None), ("Slime splat", T(SLIME_SQ, dy=2)), ("Slime puddle", T(SLIME_SQ, dy=4))], 6, 1)}),
         2: dict(anims={0: ([1, ("Slime wobble", None), ("Slime squash", None)], 10, 2),
-                       2: ([1, ("Slime stretch", None), ("Slime stretch 2", None)], 4, 1)}),
+                       2: ([1, ("Slime stretch", None), ("Slime stretch 2", None)], 4, 1),
+                       22: ([("Slime squash", None), ("Slime splat", None), ("Slime puddle", None)], 6, 1)}),
         3: dict(anims={0: ([2, ("Bat flap", BAT2), ("Bat glide", T(BAT, dy=1)), ("Bat flap 2", T(BAT2, dy=1))], 5, 0)}),
         4: dict(flip=True, anims={0: ([3, ("Mole dig", T(MOLE, dx=1)), ("Mole dig 2", T(MOLE, dy=1))], 8, 0)}),
         5: dict(anims={0: ([("Bell swing", bell_rows(-1)), 4, ("Bell swing 2", bell_rows(1))], 10, 2)})}

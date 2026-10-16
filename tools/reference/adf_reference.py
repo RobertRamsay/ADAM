@@ -103,7 +103,8 @@ def build(proj, aga):
             dirs=dirs_on(a)
             for ei,(frames,rate,mode,fl) in enumerate(plan):
                 right=[img(f,fl) for f in frames]
-                left=[img(f,not fl) for f in frames] if a.get('flip') and not dirs and (ei<4 or ei==12) else right
+                hd=hd_used(a) and ei>=len(plan)-2      # Hit / Die face the way it faces too
+                left=[img(f,not fl) for f in frames] if a.get('flip') and not dirs and (ei<4 or ei==12 or hd) else right
                 ents.append((len(frames),rate,mode,right,left))
             plans.append(ents)
         else: plans.append(None)
@@ -133,9 +134,11 @@ def build(proj, aga):
         if smap and not proj.get('tiles'): ww=smap.get('cols',20)*16      # a shoot 'em up map: its play area
         up=a.get('aim',0) if a['role']==9 else int(a['up'])   # A_UP of a shot (role 9) = its aim
         blob+=struct.pack('>HHHHHHHHHHHL',min(a['x'],ww-bw),min(a['y'],wh-bh),a['role'],a['speed'],int(a['visible']),int(a['left']),up,bx0,by0,bx1,by1,spr_offs[i])
-        aflags=0                                       # A_AMODE bit 0: 8 directions, bit 1: Fire
-        if plans[i] and dirs_on(a) and len(plans[i])>=12: aflags|=1
-        if plans[i] and len(plans[i])>12: aflags|=2
+        aflags=0                                       # A_AMODE bit 0: 8 directions, bit 1: Fire, bit 2: Hit / Die
+        nmain=len(plans[i])-(2 if hd_used(a) else 0) if plans[i] else 0
+        if plans[i] and dirs_on(a) and nmain>=12: aflags|=1
+        if plans[i] and nmain>12: aflags|=2
+        if plans[i] and hd_used(a): aflags|=4
         blob+=struct.pack('>HLHHHHHHHH',a.get('chan',i),spr2_offs[i],1 if a.get('carry') else 0,aflags,a.get('from',1),a.get('fast',0),
                           1 if a.get('bob') else 0,ww-bw,wh-bh,bsize)
         blob+=struct.pack('>L',anim_offs[i])
@@ -405,7 +408,7 @@ DIR_CHAINS=[  # (entry, turned round) tried in order for each direction; 1 = Wal
 
 def anim_entries(a):
     out=[]
-    for k in range(21):
+    for k in range(23):                        # 21 Hit, 22 Die
         e=a.get('anims',[])[k] if k<len(a.get('anims',[])) else {}
         fr=[f for f in e.get('frames',[])][:16]
         out.append((fr,max(2,min(30,e.get('rate',8))),max(0,min(2,e.get('mode',0))),0) if fr else None)
@@ -420,6 +423,10 @@ def dirs_on(a):
 
 def fire_used(a):
     return any(e for e in anim_entries(a)[12:21])
+
+def hd_used(a):
+    """Hit or Die has frames: both go on the disk after the others (A_AMODE bit 2)"""
+    return any(e for e in anim_entries(a)[21:23])
 
 def resolve_dirs(ents,base_k,walk,flip):
     """8 directions from entries base_k..base_k+7 with DIR_CHAINS (entry 1 = walk)"""
@@ -438,7 +445,17 @@ def resolve_dirs(ents,base_k,walk,flip):
     return dirs
 
 def anim_plan(a):
-    """None for one frame, else 4 (12 with 8 directions, 21 with Fire) x (frames, rate, mode, turned round)"""
+    """None for one frame, else 4 (12 with 8 directions, 21 with Fire) x (frames, rate, mode, turned round),
+    then Hit and Die when either has frames"""
+    plan=anim_plan_main(a)
+    if plan and hd_used(a):
+        ents=anim_entries(a)
+        hit=ents[21] or ents[22] or plan[0]
+        die=ents[22] or hit
+        plan=plan+[hit,die]
+    return plan
+
+def anim_plan_main(a):
     base=a['sprite']
     if anims_used(a):
         ents=anim_entries(a)

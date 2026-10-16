@@ -12,13 +12,13 @@
 function anim_names()
 {
     return ["Idle", "Walk", "Jump", "Fall", "N", "NE", "E", "SE", "S", "SW", "W", "NW",
-            "Fire", "N", "NE", "E", "SE", "S", "SW", "W", "NW"];
+            "Fire", "N", "NE", "E", "SE", "S", "SW", "W", "NW", "Hit", "Die"];
 }
 
 function anim_long_names()
 {
     return ["Idle", "Walk", "Jump", "Fall", "Up", "Up and right", "Right", "Down and right", "Down", "Down and left", "Left", "Up and left",
-            "Fire", "Fire + up", "Fire + up and right", "Fire + right", "Fire + down and right", "Fire + down", "Fire + down and left", "Fire + left", "Fire + up and left"];
+            "Fire", "Fire + up", "Fire + up and right", "Fire + right", "Fire + down and right", "Fire + down", "Fire + down and left", "Fire + left", "Fire + up and left", "Hit", "Die"];
 }
 
 function anim_mode_names()
@@ -159,10 +159,10 @@ function anim_dir_of(_dx, _dy)
 function anim_slot_preview(_plan, _k, _x, _y, _w, _cols, _alpha, _ticks, _face_dir, _replay_once)
 {
     if (is_undefined(_plan)) { return; }
-    var _kk = _k;
-    if (_kk >= array_length(_plan))
+    var _kk = anim_plan_k(_plan, _k);
+    if (_kk < 0)
     {
-        if (_kk >= ANIM_FIRE0) { return; }
+        if (_k >= ANIM_FIRE0) { return; }
         _kk = 1;
     }
     var _e = _plan[_kk];
@@ -402,7 +402,7 @@ function anim_joystick(_which, _x, _y, _size, _s, _plan, _cols, _in, _test_k)
         var _tfire = (_which == 1 && _in[2]);
         if (_tfire) { _fire_lit = true; }
     }
-    if (_which == 1 && (_hot_any || (anim_sel >= ANIM_FIRE0))) { _fire_lit = true; }
+    if (_which == 1 && (_hot_any || (anim_sel >= ANIM_FIRE0 && anim_sel < ANIM_FIRE_END))) { _fire_lit = true; }
 
     // the fire button (beside the With Fire heading): lights up when fire is held
     if (_which == 1)
@@ -560,7 +560,7 @@ function ws_animate_draw(_x1, _y1, _x2, _y2)
         }
         // holding fire: the Fire animations, picked from the joystick direction
         var _fire_on = false;
-        if (!is_undefined(_plan)) { _fire_on = (_in[2] && array_length(_plan) > ANIM_FIRE0); }
+        if (!is_undefined(_plan)) { _fire_on = (_in[2] && anim_plan_k(_plan, ANIM_FIRE0) >= 0); }
         if (_fire_on)
         {
             _k2 = ANIM_FIRE0;
@@ -579,14 +579,14 @@ function ws_animate_draw(_x1, _y1, _x2, _y2)
     // In air / Falling and the Test switch
     var _jx = _cx1 + 20;
     var _jy = _y1 + 52;
-    var _jsize = floor(min(190, (_y2 - _jy - 20 - 2 * 24 - 2 * 38 - 40) / 2));
+    var _jsize = floor(min(190, (_y2 - _jy - 20 - 2 * 24 - 3 * 38 - 40) / 2));
     _jsize = max(110, _jsize);
     ui_heading(_jx, _jy, "Moving");
     _jy += 20;
     anim_joystick(0, _jx, _jy, _jsize, _s, _plan, _cols, _in, _test_k);
     _jy += _jsize + 10;
     var _nfire = 0;
-    for (var fe = ANIM_FIRE0; fe < ANIM_COUNT; fe++) { _nfire += array_length(_s.anims[fe].frames); }
+    for (var fe = ANIM_FIRE0; fe < ANIM_FIRE_END; fe++) { _nfire += array_length(_s.anims[fe].frames); }
     var _fh = "With Fire";
     if (_s.role != 0 && _s.role != 6) { _fh = "With Fire (player only)"; }
     ui_heading(_jx, _jy, _fh);
@@ -622,6 +622,30 @@ function ws_animate_draw(_x1, _y1, _x2, _y2)
             }
         }
         _tbx += _tbw[sb] + 4;
+    }
+    _jy += 38;
+    // Hit and Die: played by a rule (DO 'Play an animation'), once
+    var _hdw = floor((_colw - 4) / 2);
+    var _hdlab = ["Hit", "Die"];
+    var _hdhelp = [
+        "Hit|A flinch, played once when a rule says (DO 'Play an animation' - Hit), e.g. when the player's weapon strikes it. Then it goes back to the others. Empty: it plays Die, or Idle.",
+        "Die|Its last moments, played once when a rule says (DO 'Play an animation' - Die). WHEN 'An animation ends' fires at the end: hide it or send it home then. Empty: it plays Hit."
+    ];
+    for (var hb = 0; hb < 2; hb++)
+    {
+        var _hk = ANIM_HIT + hb;
+        var _hl = _hdlab[hb];
+        if (array_length(_s.anims[_hk].frames) > 0) { _hl += " " + string(array_length(_s.anims[_hk].frames)); }
+        anim_drop_zone(_hk, _jx + hb * (_hdw + 4), _jy, _jx + hb * (_hdw + 4) + _hdw, _jy + 30);
+        if (ui_tab("anim_tab_" + string(_hk), _jx + hb * (_hdw + 4), _jy, _hdw, 30, _hl, anim_sel == _hk, _hdhelp[hb]))
+        {
+            if (anim_sel != _hk)
+            {
+                anim_sel = _hk;
+                anim_slot = 0;
+                anim_t0 = current_time;
+            }
+        }
     }
     _jy += 38;
     var _tst = BTN_NORMAL;
@@ -666,7 +690,7 @@ function ws_animate_draw(_x1, _y1, _x2, _y2)
         var _bs = proj.sprites[clamp(_s.sprite, 0, SPR_COUNT - 1)];
         draw_sprite_amiga_flip(_s.sprite, floor((_vx1 + _cx2 - 20 - _bs.w * _preview_sc) / 2), floor((_py1 + _py2 - 20 - _bs.h * _preview_sc) / 2), _preview_sc, _test_flip, _cols, 1);
     }
-    else if (_test_k >= array_length(_plan))
+    else if (anim_plan_k(_plan, _test_k) < 0)
     {
         _note = "No Fire animations yet - pick sprites from the bank to add some (until then the player keeps its normal animation)";
         var _fs = proj.sprites[clamp(_s.sprite, 0, SPR_COUNT - 1)];
@@ -675,11 +699,11 @@ function ws_animate_draw(_x1, _y1, _x2, _y2)
     else
     {
         var _pk = _test_k;
-        var _pe = _plan[_pk];
+        var _pe = _plan[anim_plan_k(_plan, _pk)];
         var _ticks = (current_time - anim_t0) div 20;
         if (anim_test) { _ticks = (current_time - anim_test_t0) div 20; }
         var _flip = _pe.flip;
-        if (!anim_test && !_dirs_on && _s.anim_flip && anim_face_left && _pk < ANIM_BASIC) { _flip = !_flip; }
+        if (!anim_test && !_dirs_on && _s.anim_flip && anim_face_left && (_pk < ANIM_BASIC || _pk >= ANIM_HIT)) { _flip = !_flip; }
         if (_test_flip) { _flip = !_flip; }
         var _fi = 0;
         if (_pe.mode == 3)
@@ -1032,7 +1056,7 @@ function anim_library_draw(_rx2, _fx, _fw, _oy, _x2, _y2, _alloc)
         if (_gy < _gtop - _gh || _gy > _y2) { continue; }
         var _lid = "anim_lib_" + string(i);
         var _label = _ac2.name + " " + _short[_ak];
-        if (_ak >= ANIM_FIRE0 + 1) { _label = _ac2.name + " Fire " + _short[_ak]; }
+        if (_ak >= ANIM_FIRE0 + 1 && _ak < ANIM_FIRE_END) { _label = _ac2.name + " Fire " + _short[_ak]; }
         var _hot = ui_register(_lid, _gx, _gy, _gx + _gcell, _gy + _gh, _ac2.name + ": " + _lnames[_ak] + "|" + string(array_length(_an.frames)) + " frames. Drag it onto a joystick slot - of this actor or another - to copy it there (you can Undo).");
         var _cols = actor_cols_from(_alloc, _ai);
         var _bg = pal_col(0);

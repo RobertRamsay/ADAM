@@ -190,7 +190,8 @@ A_CHAN      equ 26         ; hardware sprite channel 0..7 (colour pair = channel
 A_SPR2      equ 28         ; long offset of a hopper's crouch frame, 0 = none
 A_CARRY     equ 32         ; 1 = the player can pick it up (fire) and throw it (fire again)
 A_AMODE     equ 34         ; animation flags: bit 0 = 8 directions (table has 12 entries),
-                           ; bit 1 = Fire animations for the player (table has 21 entries)
+                           ; bit 1 = Fire animations for the player (table has 21 entries),
+                           ; bit 2 = Hit and Die: two more entries after those (DO 26)
 A_FROM      equ 36         ; first level this actor appears on (1..10)
 A_FAST      equ 38         ; +1 speed every N levels, 0 = never
 A_BOB       equ 40         ; 1 = BOB: A_SPR / A_SPR2 / frames are BOB images, A_CHAN is unused
@@ -334,6 +335,8 @@ v_pat       rs.w 1         ; a flyer: its pattern (A_PAT, or its spawner's)
 v_edge      rs.w 1         ; a flyer: byte +1 its edge, bit 8 = it comes back (A_ENTER, or its spawner's)
 v_ftmr      rs.w 1         ; frames until it fires by itself again
 v_xsub      rs.w 1         ; a shot: 1/16 pixels owed across (v_ysub: down)
+v_aplay     rs.w 1         ; DO 26: playing Hit (0) or Die (1) once, -1 = none
+v_aendk     rs.w 1         ; which one it finished (WHEN 16)
 v_ael       rs.w 1         ; its animation: 50ths counted since it started (place_sprites)
 v_arem      rs.w 1         ;   50ths into this step
 v_astep     rs.w 1         ;   steps since it started
@@ -342,6 +345,7 @@ v_afr       rs.w 1         ;   steps into its cycle (loop: n, ping-pong: 2n - 2)
 v_anim      rs.w 1
 v_joyprev   rs.w 1
 v_jumped    rs.l 1         ; bit per actor that jumped this frame
+v_aended    rs.l 1         ; bit per actor that finished its Hit / Die this frame (WHEN 16)
 v_level     rs.w 1         ; 1..10
 v_goal      rs.w 1
 v_work      rs.l 1
@@ -1073,6 +1077,7 @@ init_actors:
             move.w  #0,v_safe(a5,d5.w)
             move.l  A_SPR(a2),v_fofs(a5,d5.w)
             move.w  #-1,v_aset(a5,d5.w)
+            move.w  #-1,v_aplay(a5,d5.w)
             move.w  A_X(a2),v_ox(a5,d5.w)
             move.w  A_Y(a2),v_oy(a5,d5.w)
             move.w  A_LEFT(a2),v_face(a5,d5.w)
@@ -1231,6 +1236,7 @@ frame:
             bsr     flash_tick              ; copper edits first, while the copper is idle
             addq.w  #1,v_anim(a5)
             move.l  #0,v_jumped(a5)
+            move.l  #0,v_aended(a5)
             move.l  #0,v_struck(a5)
             move.w  #0,v_hitn(a5)
             bsr     read_joy
@@ -1913,7 +1919,24 @@ place_sprites:
             beq.s   .anim
             move.l  A_SPR2(a2),d0
             bra     .frame
-.anim       move.l  A_ANIM(a2),d1
+.anim       tst.w   v_aplay(a5,d5.w)        ; Hit / Die playing (DO 26)
+            bmi.s   .anim2
+            move.l  A_ANIM(a2),d1
+            beq.s   .apnone
+            btst    #2,A_AMODE+1(a2)
+            beq.s   .apnone
+            moveq   #4,d2                   ; they come after the 4 / 12 / 21 others
+            btst    #1,A_AMODE+1(a2)
+            beq.s   .apb
+            moveq   #21,d2
+            bra.s   .apc
+.apb        btst    #0,A_AMODE+1(a2)
+            beq.s   .apc
+            moveq   #12,d2
+.apc        add.w   v_aplay(a5,d5.w),d2
+            bra     .got
+.apnone     bsr     anim_ended              ; none drawn: it ends at once
+.anim2      move.l  A_ANIM(a2),d1
             beq     .frame                  ; one frame
             btst    #1,A_AMODE+1(a2)        ; Fire animations: the player holding fire
             beq     .nofire
@@ -2051,7 +2074,15 @@ place_sprites:
             move.w  #0,v_afr(a5,d5.w)
 .u2         dbf     d3,.u1
 .cnt        move.w  AN_N(a0),d4             ; frames 1..16
-            move.w  AN_MODE(a0),d2
+            tst.w   v_aplay(a5,d5.w)        ; Hit / Die: one pass, then it ends on its last frame
+            bmi.s   .cnt2
+            cmp.w   v_astep(a5,d5.w),d1
+            bhi.s   .cnt2
+            bsr     anim_ended
+            move.w  d4,d3
+            subq.w  #1,d3
+            bra     .mfi
+.cnt2       move.w  AN_MODE(a0),d2
             beq.s   .mloop
             cmp.w   #1,d2
             beq.s   .monce
@@ -2628,6 +2659,7 @@ come_out:   move.w  #1,v_vis(a5,d5.w)
             move.w  #0,v_thr(a5,d5.w)
             move.w  #0,v_hitf(a5,d5.w)
             move.w  #-1,v_aset(a5,d5.w)
+            move.w  #-1,v_aplay(a5,d5.w)
             and.w   #$00ff,v_edge(a5,d5.w)
             move.w  d0,-(sp)
             move.w  A_HP(a2),d0
@@ -4212,7 +4244,7 @@ dir_tab:    dc.b    7,0,1,6,0,2,5,4,3
 
 hide_sprites:
             move.w  H_NACT(a4),d6
-            beq.s   .done
+            beq     .done
             move.l  H_ACTORS(a4),d0
             lea     0(a4,d0.l),a2
             subq.w  #1,d6
@@ -4228,16 +4260,19 @@ hide_sprites:
 .h1         move.l  A_ANIM(a2),d0           ; and every animation frame
             beq.s   .h2
             lea     0(a4,d0.l),a1
-            moveq   #3,d2                   ; 4 animations (12 with 8 directions, 21 with Fire)
-            btst    #1,A_AMODE+1(a2)
+            moveq   #3,d2                   ; 4 animations (12 with 8 directions, 21 with Fire,
+            btst    #1,A_AMODE+1(a2)        ; 2 more with Hit and Die)
             beq.s   .hd
             moveq   #20,d2
-            bra.s   .ha
+            bra.s   .hhd
 .hd         btst    #0,A_AMODE+1(a2)
-            beq.s   .ha
+            beq.s   .hhd
             moveq   #11,d2
+.hhd        btst    #2,A_AMODE+1(a2)
+            beq.s   .ha
+            addq.w  #2,d2
 .ha         lea     AN_RIGHT(a1),a3
-            moveq   #15,d1                  ; 8 right + 8 left
+            moveq   #31,d1                  ; 16 right + 16 left
 .hf         move.l  (a3)+,d0
             lea     0(a4,d0.l),a0
             move.l  #0,(a0)
@@ -4604,13 +4639,30 @@ run_rules:
             add.w   d5,a2                   ; a2 = this rule's latch
             move.l  #-1,v_cta(a5)           ; no copies matched yet (v_cta and v_ctb)
             move.w  R_WHEN(a3),d0
-            cmp.w   #15,d0
+            cmp.w   #16,d0
             bhi     .next
             add.w   d0,d0
             move.w  .jt(pc,d0.w),d0
             jmp     .jt(pc,d0.w)
 .jt         dc.w    .touch-.jt,.fire-.jt,.timer-.jt,.score-.jt,.lives-.jt,.next-.jt,.jump-.jt,.next-.jt
             dc.w    .hold-.jt,.inview-.jt,.strike-.jt,.thrown-.jt,.pickup-.jt,.ltime-.jt,.auto-.jt,.mapend-.jt
+            dc.w    .aend-.jt
+
+.aend       move.l  v_aended(a5),d0         ; (a copy of) actor a finished its Hit / Die this frame:
+            beq     .next                   ; n = 0 Hit, 1 Die, 2 either
+            move.w  R_A(a3),d1
+            bsr     type_bit
+            beq     .next
+            move.w  R_N(a3),d0
+            cmp.w   #2,d0
+            bhs.s   .ae
+            move.w  d1,d2
+            lsl.w   #ACTV_SHIFT,d2
+            cmp.w   v_aendk(a5,d2.w),d0
+            bne     .next
+.ae         move.w  d1,v_cta(a5)
+            bsr     fire_action
+            bra     .next
 
 .mapend     tst.w   v_mend(a5)              ; the scrolling map has reached its top (once)
             beq     .clear
@@ -4832,7 +4884,7 @@ do_action:
             move.w  d4,d5                   ; -> d5 = offset
             lsl.w   #ACTV_SHIFT,d5
             move.w  R_ACT(a3),d0
-            cmp.w   #25,d0
+            cmp.w   #26,d0
             bhi     act_none
             add.w   d0,d0
             move.w  acttab(pc,d0.w),d0
@@ -4863,8 +4915,28 @@ acttab:     dc.w    act_score-acttab
             dc.w    act_power-acttab
             dc.w    act_effect-acttab
             dc.w    act_spawn-acttab
+            dc.w    act_anim-acttab
 
 act_none:   rts
+
+; DO 26: actor d4 plays its Hit (value 0) or Die (1) animation once; WHEN 16 fires at its end
+act_anim:   cmp.w   H_NACT(a4),d4
+            bhs     act_none
+            move.w  R_VAL(a3),d0
+            and.w   #1,d0
+            move.w  d0,v_aplay(a5,d5.w)
+            move.w  #-1,v_aset(a5,d5.w)     ; from its first frame
+            rts
+
+; actor d7 (d5) has finished its Hit / Die: WHEN 16 rules see it this frame
+anim_ended: move.l  d0,-(sp)
+            move.w  v_aplay(a5,d5.w),v_aendk(a5,d5.w)
+            move.w  #-1,v_aplay(a5,d5.w)
+            move.l  v_aended(a5),d0
+            bset    d7,d0
+            move.l  d0,v_aended(a5)
+            move.l  (sp)+,d0
+            rts
 
 ; d4 = an actor a rule names -> d4 = the copy of it that made the rule fire (when one did)
 ctx_actor:  tst.w   v_cta(a5)

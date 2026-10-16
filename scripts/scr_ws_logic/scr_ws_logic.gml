@@ -124,6 +124,7 @@ function logic_sentence(_r)
         case 13: _s += "the level has run " + string(_r.n) + " seconds"; break;
         case 14: _s += "fire is held (every " + string(_r.n) + " 50ths of a second)"; break;
         case 15: _s += "the shoot 'em up map reaches its end"; break;
+        case 16: _s += _an + "'s " + string_lower(global.HD_NAMES[clamp(_r.n, 0, 2)]) + " animation ends"; break;
     }
     _s += ", " + logic_do_phrase(_r, _names, _na);
     for (var m = 0; m < array_length(_r.more); m++)
@@ -196,6 +197,7 @@ function logic_do_phrase(_d, _names, _na)
             if (_d.value < _na) { _sn = _names[_d.value]; }
             _s += "a " + _tn + " comes out of " + _sn;
             break;
+        case 26: _s += "play " + _tn + "'s " + string_lower(global.HD_NAMES[clamp(_d.value, 0, 1)]) + " animation"; break;
     }
     return _s;
 }
@@ -445,6 +447,12 @@ function logic_do_row(_d, _rid, _x, _y, _pill, _anames, _snames, _xr)
         var _spw = max(100, min(LOGIC_ACTOR_W, _xr - _spx));
         set_val(_d, "value", ui_dropdown(_rid + "_spat", _spx, _dy, _spw, 30, _anames, clamp(_d.value, 0, max(0, array_length(proj.actors) - 1)), "At which actor|It comes out centred on this actor - the one that was hit (WHEN 'Thrown or shot actor hits')."), _rid + "spat");
     }
+    if (_act == 26)
+    {
+        set_val(_d, "target", ui_dropdown(_rid + "_t", _dx, _dy, LOGIC_ACTOR_W, 30, _anames, _d.target, "Which actor|It plays its Hit or Die animation (Animate page) once, from the first frame, then goes back to the others. WHEN 'An animation ends' fires when it has played."), _rid + "t");
+        _dx += LOGIC_ACTOR_W + 10;
+        set_val(_d, "value", ui_dropdown(_rid + "_hd", _dx, _dy, 110, 30, ["Hit", "Die"], clamp(_d.value, 0, 1), "Which animation|Hit: a flinch when it is struck. Die: its last moments - hide it or send it home when it ends (WHEN 'An animation ends')."), _rid + "hd");
+    }
     if (_act == 24)
     {
         set_val(_d, "target", ui_dropdown(_rid + "_t", _dx, _dy, LOGIC_ACTOR_W, 30, _anames, _d.target, "Which effect|An actor with the behaviour 'Effect' (Actors page) - an explosion or a sparkle. If it is already playing, the next Effect actor after it goes instead."), _rid + "t");
@@ -585,6 +593,11 @@ function logic_rule_card(_r, i, _cx, _cy, _cw, _anames, _snames, _gnames)
         case 12:
             set_val(_r, "a", ui_dropdown(_rid + "_a", _wx, _wy, _aw, 30, _anames, _r.a, "Which actor|Fires when the player picks this actor up (it needs 'Can be carried' on the Actors page)."), _rid + "a");
             logic_word(_wx + _aw + 8, _wy, "is picked up");
+            break;
+        case 16:
+            set_val(_r, "a", ui_dropdown(_rid + "_a", _wx, _wy, _aw, 30, _anames, _r.a, "Which actor|Fires when this actor (or a copy of it) has played its Hit or Die animation through - after DO 'Play an animation'."), _rid + "a");
+            _wx = logic_word(_wx + _aw + 8, _wy, "finishes");
+            set_val(_r, "n", ui_dropdown(_rid + "_hd", _wx, _wy, 130, 30, global.HD_NAMES, clamp(_r.n, 0, 2), "Which animation|Hit, Die, or either of them."), _rid + "n");
             break;
         case 13:
             set_val(_r, "n", ui_stepper(_rid + "_n", _wx, _wy, 120, clamp(_r.n, 1, 600), 1, 600, "Seconds|Fires once, this many seconds after each level starts - the boss arrives, a new wave comes in, the music changes."), _rid + "n");
