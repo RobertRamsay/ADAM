@@ -96,4 +96,6 @@ def panel_pixels(ui, pixels):
 def field_bytes(f):
     lab = f.get('label', '').upper().encode('ascii', 'replace')[:19]
     sh = f.get('shadow', -1)
-    return struct.pack('>hhhhhh', f['type'], f['col'], f['row'], f['colour'], sh if sh >= 0 else -1, f.get('digits', 5)) + lab + b'\0' * (20 - len(lab))
+    dig = f.get('digits', 5)
+    if f['type'] == 7: dig |= f.get('item', 0) << 8      # item count: the item in the high byte
+    return struct.pack('>hhhhhh', f['type'], f['col'], f['row'], f['colour'], sh if sh >= 0 else -1, dig) + lab + b'\0' * (20 - len(lab))

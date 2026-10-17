@@ -1639,7 +1639,7 @@ function undo_keys(_ws)
         case WS_LEVELS:   return ["levels_on", "levels", "terrain_cols", "goal_on", "goal", "goal_label", "title_on", "title1", "title2", "lev_text", "level_song", "scroll_dir", "scroll_speed", "hills_on", "level_pal"];
         case WS_SPRITES:  return ["sprites"];
         case WS_ACTORS:   return ["actors", "rules", "spawners", "items"];
-        case WS_LOGIC:    return ["rules", "groups", "items", "recipes"];
+        case WS_LOGIC:    return ["rules", "groups", "items", "recipes", "ui"];
         case WS_SOUND:    return ["sfx", "sound_groups"];
         case WS_MUSIC:    return ["songs", "level_song"];
         case WS_ANIMATE:  return ["actors"];

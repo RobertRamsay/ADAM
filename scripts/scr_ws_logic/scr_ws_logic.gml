@@ -1291,6 +1291,11 @@ function item_delete(_k)
             else { _ru.ifs[f].item = item_ref_after_remove(_ru.ifs[f].item, _k, 0); }
         }
     }
+    for (var u = 0; u < array_length(proj.ui.fields); u++)      // custom HUD item counts
+    {
+        var _uf = proj.ui.fields[u];
+        if (_uf.type == 7) { _uf.item = item_ref_after_remove(_uf.item, _k, 0); }
+    }
 }
 
 /// Removes recipe _r: DO 'Make a recipe' lines that made it make the first recipe instead

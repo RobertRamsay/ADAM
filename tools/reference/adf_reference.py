@@ -16,7 +16,7 @@ def build(proj, aga):
     blob=bytearray()
     def align(n):
         while len(blob)%n: blob.append(0)
-    blob+= b'\0'*112                         # header (HDR_SIZE)
+    blob+= b'\0'*116                         # header (HDR_SIZE)
     sc=proj.get('scroll')                     # scrolling backdrop: dict(dir 1 up / 2 right / 3 down / 4 left, speed 1..16)
     if sc and (proj.get('tiles') or not sc.get('dir')): sc=None
     align(8)
@@ -156,9 +156,11 @@ def build(proj, aga):
     off_rules=len(blob)
     for r in rules:
         more=r.get('more',[])[:4]          # AND DO lines: R_NAND, then 8 bytes each (engine.s AND_SIZE)
+        ifs=r.get('ifs',[])[:3]            # IF lines (version 13) after them: IF_LINE + cond, n, item, 0
         sv=lambda d: max(0,min(len(proj['sfx'])-1,d['value'])) if d['act']==2 else d['value']   # sound: below the count
-        blob+=struct.pack('>HHHHHHHH',r['when'],r['a'],r['b'],r['n'],r['act'],r['target'],sv(r),len(more))
+        blob+=struct.pack('>HHHHHHHH',r['when'],r['a'],r['b'],r['n'],r['act'],r['target'],sv(r),len(more)+len(ifs))
         for m in more: blob+=struct.pack('>HHHH',m['act'],m['target'],sv(m),0)
+        for f in ifs: blob+=struct.pack('>HHHH',0x8000|f['cond'],f.get('n',1),f['item'],0)
     align(8)
     off_sprcol=len(blob)
     for pair in range(4):
@@ -390,6 +392,24 @@ def build(proj, aga):
             blob.extend(struct.pack('>H',len(ents)))
             for i,c in ents: blob.extend(struct.pack('>HHL',i,0,c))
         align(8)
+    # items (version 13, engine.s IT_* / RC_*): proj['items'] = [dict(name, actor (disk actor, -1 none),
+    # use 0 used up / 1 kept / 2 a few uses, uses, max, start, keep (next level), lose (with a life))],
+    # proj['recipes'] = [dict(a, b, out, keep_a, keep_b, n)]
+    off_items=0
+    items=list(proj.get('items',[]))[:16]
+    if items:
+        align(8)
+        off_items=len(blob)
+        rcps=list(proj.get('recipes',[]))[:16]
+        blob.extend(struct.pack('>HH',len(items),len(rcps)))
+        for it in items:
+            nm=it['name'].upper().encode('ascii','replace')[:8]
+            fl=(1 if it.get('keep',True) else 0)|(2 if it.get('lose') else 0)
+            blob.extend(struct.pack('>hBBHHH',it.get('actor',-1),it.get('use',0),fl,it.get('uses',3),it.get('max',9),it.get('start',0))+nm+b'\0'*(10-len(nm)))
+        for rc in rcps:
+            fl=(1 if rc.get('keep_a') else 0)|(2 if rc.get('keep_b') else 0)
+            blob.extend(struct.pack('>HHHBB',rc['a'],rc['b'],rc['out'],fl,rc.get('n',1)))
+        align(8)
     off_d2=0
     if disk2 is not None:                       # D2_ID, raw track buffer, song buffer (fixed below)
         d2id=d2id or 1
@@ -423,11 +443,11 @@ def build(proj, aga):
     player=-1
     for i,a in enumerate(actors):
         if a['role'] in (0,6): player=i; break
-    hdr=struct.pack('>4sHHHHHHHHHHHH',b'ADAM',12,1 if aga else 0,depth,len(actors),len(rules),proj['lives'],
+    hdr=struct.pack('>4sHHHHHHHHHHHH',b'ADAM',13,1 if aga else 0,depth,len(actors),len(rules),proj['lives'],
                     int(proj['show_score']),int(proj['show_lives']),proj['hud_row'],proj['hud_col'],proj['msg_col'],player & 0xffff)+struct.pack('>L',off_game)
     hdr+=struct.pack('>LLLLLLLLLLLLLLL',off_pal,off_planes,off_act,off_rules,off_sfx,off_over,off_win,off_sprcol,off_disp,off_grad,off_ground,off_work,off_music,off_disp2,off_back)
-    hdr+=struct.pack('>LLLLL',off_tiles,off_ui,off_scroll,off_pals,off_d2)
-    blob[0:112]=hdr
+    hdr+=struct.pack('>LLLLLL',off_tiles,off_ui,off_scroll,off_pals,off_d2,off_items)
+    blob[0:116]=hdr
     return bytes(blob)
 
 # ---- animations (data block version 8, 16 frames); scr_project.gml anim_plan() does the same

@@ -6,7 +6,7 @@
 /// The data block layout is documented at the top of engine.s.
 
 #macro ADF_SIZE 901120
-#macro ADF_HDR 112
+#macro ADF_HDR 116
 #macro D2_TRACK 5632            // disk 2: songs start on a track (11 sectors of 512)
 #macro D2_RAW_BYTES 12800       // engine.s RAW_WORDS x 2: the raw track buffer
 #macro ADF_SONGS_MAX 4
@@ -76,10 +76,29 @@ function adf_do_line(_b, _d, _ncol, _nsnd)
     if (_d.act == 8) { _val = clamp(_val, 0, _ncol - 1); }
     if (_d.act == 2) { _val = clamp(_val, 0, _nsnd - 1); }
     if (_d.act == 18) { _val = clamp(_val, 0, ADF_SONGS_MAX - 1); }
-    be16(_b, clamp(_d.act, 0, 27));
+    if (do_value_is_item(_d.act)) { _val = clamp(_val, 0, max(0, array_length(proj.items) - 1)); }
+    if (_d.act == 30) { _val = clamp(_val, 0, max(0, array_length(proj.recipes) - 1)); }
+    be16(_b, clamp(_d.act, 0, 31));
     if (_d.act == 27) { be16(_b, clamp(_d.target, 0, 250)); }       // Switch palette: fade frames
+    else if (_d.act == 28 || _d.act == 29) { be16(_b, clamp(_d.target, 1, ITEM_CARRY_MAX)); }   // Give / Take an item: how many
+    else if (_d.act > 29) { be16(_b, 0); }
     else { be16(_b, clamp(_d.target, 0, ACT_MAX_ALL - 1)); }
     be16(_b, clamp(_val, 0, 65535));
+}
+
+/// The IF lines of rule _r as the engine reads them (after its AND DO lines, 8 bytes each:
+/// act = IF_LINE + cond, target = n, value = item, 0)
+function adf_if_lines(_b, _r)
+{
+    var _ni = max(1, array_length(proj.items));
+    for (var f = 0; f < min(array_length(_r.ifs), RULE_IFS_MAX); f++)
+    {
+        var _fl = _r.ifs[f];
+        be16(_b, 0x8000 | clamp(_fl.cond, 0, 3));
+        be16(_b, clamp(_fl.n, 1, ITEM_CARRY_MAX));
+        be16(_b, clamp(_fl.item, 0, _ni - 1));
+        be16(_b, 0);
+    }
 }
 
 /// Which sounds go on the disk: those a written rule (DO or AND DO line) or a
@@ -513,7 +532,7 @@ function adam_data_block_raw(_p, _measure = false)
         var _rr = _p.rules[ru];
         var _off_grp = group_off_in(_p.groups, _rr.group);     // its group, or a group that is inside, is off
         if (_off_grp) { continue; }
-        if (rule_uses_items(_rr))           // the engine has no items yet (Items, part 3)
+        if (rule_uses_items(_rr) && array_length(_p.items) == 0)     // items it names do not exist
         {
             _ritems += 1;
             continue;
@@ -787,17 +806,20 @@ function adam_data_block_raw(_p, _measure = false)
     {
         var _ru = _rules[r];
         var _nand = min(array_length(_ru.more), RULE_DOS_MAX - 1);
-        be16(_b, clamp(_ru.when, 0, 16));
+        var _nif = min(array_length(_ru.ifs), RULE_IFS_MAX);
+        be16(_b, clamp(_ru.when, 0, 18));
         be16(_b, clamp(_ru.a, 0, ACT_MAX_ALL - 1));
         be16(_b, clamp(_ru.b, 0, ACT_MAX_ALL - 1));
-        be16(_b, clamp(_ru.n, 1, 65535));
+        if (_ru.when == 17 || _ru.when == 18) { be16(_b, clamp(_ru.n, 0, max(0, array_length(_p.items) - 1))); }   // the item
+        else { be16(_b, clamp(_ru.n, 1, 65535)); }
         adf_do_line(_b, _ru, _ncol, _nsnd);
-        be16(_b, _nand);
+        be16(_b, _nand + _nif);          // R_NAND: the AND DO lines, then the IF lines
         for (var rm2 = 0; rm2 < _nand; rm2++)
         {
             adf_do_line(_b, _ru.more[rm2], _ncol, _nsnd);
             be16(_b, 0);
         }
+        adf_if_lines(_b, _ru);
     }
     buf_align(_b, 8);
 
@@ -1050,7 +1072,9 @@ function adam_data_block_raw(_p, _measure = false)
             var _shc = -1;
             if (_fd.shadow >= 0) { _shc = clamp(_fd.shadow, 0, _ncol - 1); }
             be16(_b, _shc & 0xffff);
-            be16(_b, _fd.digits);
+            var _fdig = _fd.digits;
+            if (_fd.type == 7) { _fdig = (clamp(_fd.item, 0, ITEM_MAX - 1) << 8) | _fd.digits; }   // item count: the item in the high byte
+            be16(_b, _fdig);
             buf_fixed_text(_b, string_upper(string_copy(_fd.label, 1, UI_LABEL_MAX)), 20);
         }
         buf_align(_b, 8);
@@ -1265,6 +1289,50 @@ function adam_data_block_raw(_p, _measure = false)
         }
         buf_align(_b, 8);
     }
+    // items (version 13, engine.s IT_* / RC_*): IT_N, IT_NR, then each item (20 bytes: disk
+    // actor or -1, use, flags, uses, carry up to, start with, 8-letter name 0 terminated in 10
+    // bytes), then each recipe (8 bytes: a, b, out, flags, n)
+    var _off_items = 0;
+    var _nitem = min(array_length(_p.items), ITEM_MAX);
+    if (_nitem > 0)
+    {
+        buf_align(_b, 8);
+        _off_items = buffer_tell(_b);
+        var _nrcp = min(array_length(_p.recipes), RECIPE_MAX);
+        be16(_b, _nitem);
+        be16(_b, _nrcp);
+        var _dfirst = _p[$ "disk_first"];
+        for (var it = 0; it < _nitem; it++)
+        {
+            var _itm = _p.items[it];
+            var _ia = -1;
+            if (_itm.actor >= 0 && is_array(_dfirst) && _itm.actor < array_length(_dfirst)) { _ia = _dfirst[_itm.actor]; }
+            if (_ia >= _na) { _ia = -1; }
+            be16(_b, _ia & 0xffff);
+            buffer_write(_b, buffer_u8, clamp(_itm.use, 0, 2));
+            var _ifl = 0;
+            if (_itm.keep_level) { _ifl = _ifl | 1; }
+            if (_itm.lose_life) { _ifl = _ifl | 2; }
+            buffer_write(_b, buffer_u8, _ifl);
+            be16(_b, clamp(_itm.uses, 1, ITEM_CARRY_MAX));
+            be16(_b, clamp(_itm.max, 1, ITEM_CARRY_MAX));
+            be16(_b, clamp(_itm.start, 0, _itm.max));
+            buf_fixed_text(_b, string_upper(string_copy(_itm.name, 1, ITEM_NAME_LEN)), 10);
+        }
+        for (var rq = 0; rq < _nrcp; rq++)
+        {
+            var _rcq = _p.recipes[rq];
+            be16(_b, clamp(_rcq.a, 0, _nitem - 1));
+            be16(_b, clamp(_rcq.b, 0, _nitem - 1));
+            be16(_b, clamp(_rcq.out, 0, _nitem - 1));
+            var _rfl = 0;
+            if (_rcq.keep_a) { _rfl = _rfl | 1; }
+            if (_rcq.keep_b) { _rfl = _rfl | 2; }
+            buffer_write(_b, buffer_u8, _rfl);
+            buffer_write(_b, buffer_u8, clamp(_rcq.n, 1, 9));
+        }
+        buf_align(_b, 8);
+    }
     // disk 2 (version 12): D2_ID, then where the raw track buffer and the song buffer are
     var _off_d2 = 0;
     if (!is_undefined(_mus.d2))
@@ -1323,7 +1391,7 @@ function adam_data_block_raw(_p, _measure = false)
     if (_p.show_score) { _sc = 1; }
     var _lv = 0;
     if (_p.show_lives) { _lv = 1; }
-    poke16(_b, 4, 12);                   // data block version 12: disk 2 (H_DISK2); 11: named palettes (H_PALS); 10: shoot 'em up map (SC_MAP), A_TYPE..A_FPAT; 9: shoot 'em up (H_SCROLL, A_PAT..A_RANK); 8: 16-frame animation tables; 7: custom HUD (H_UI); 6: tile world (H_TILES); 5: animation tables (A_ANIM); 4: BOBs
+    poke16(_b, 4, 13);                   // data block version 13: items (H_ITEMS), IF lines, WHEN 17 / 18, DO 28..31; 12: disk 2 (H_DISK2); 11: named palettes (H_PALS); 10: shoot 'em up map (SC_MAP), A_TYPE..A_FPAT; 9: shoot 'em up (H_SCROLL, A_PAT..A_RANK); 8: 16-frame animation tables; 7: custom HUD (H_UI); 6: tile world (H_TILES); 5: animation tables (A_ANIM); 4: BOBs
     poke16(_b, 6, _flags);
     poke16(_b, 8, _depth);
     poke16(_b, 10, _na);
@@ -1356,6 +1424,7 @@ function adam_data_block_raw(_p, _measure = false)
     poke32(_b, 100, _off_scroll);
     poke32(_b, 104, _off_pals);
     poke32(_b, 108, _off_d2);
+    poke32(_b, 112, _off_items);
 
     for (var rm = 0; rm < _nr; rm++)
     {
@@ -1370,7 +1439,7 @@ function adam_data_block_raw(_p, _measure = false)
             break;
         }
     }
-    if (_ritems > 0) { array_push(_warn, string(_ritems) + " rule(s) use items - items do not reach the Amiga yet, so they are left out of this build."); }
+    if (_ritems > 0) { array_push(_warn, string(_ritems) + " rule(s) use items, but the game has none - make them on the Logic page (Items tab). Those rules are left out."); }
     if (_rcut) { array_push(_warn, "The game has more than " + string(RULES_DISK_MAX) + " rules - the ones after that are left out. Merge some into AND DO lines."); }
     if (_na == 0) { array_push(_warn, "There are no actors yet - the game will just show your backdrop."); }
     if (_player < 0 && _na > 0) { array_push(_warn, "No actor is set as Player, so the joystick will not move anything."); }

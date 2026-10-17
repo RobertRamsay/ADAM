@@ -60,7 +60,32 @@ H_UI        equ 96         ; offset: custom HUD (ADAM Pro UI editor), 0 = the st
 H_SCROLL    equ 100        ; offset: scrolling backdrop (shoot 'em ups), 0 = it stands still (version 9)
 H_PALS      equ 104        ; offset: named palettes, 0 = none (version 11)
 H_DISK2     equ 108        ; offset: disk 2 block, 0 = a one-disk game (version 12)
-HDR_SIZE    equ 112
+H_ITEMS     equ 112        ; offset: items and recipes, 0 = none (version 13)
+HDR_SIZE    equ 116
+
+; items block (H_ITEMS): IT_N items of IT_SIZE bytes, then IT_NR recipes of RC_SIZE bytes
+IT_N        equ 0
+IT_NR       equ 2
+IT_RECS     equ 4
+IT_ACT      equ 0          ; the actor picked up as it (a disk actor, its copies too), -1 = none
+IT_USE      equ 2          ; byte: using it 0 uses it up, 1 keeps it, 2 uses up one of IT_USES uses
+IT_FLAGS    equ 3          ; byte: bit 0 kept on the next level, bit 1 lost with a life
+IT_USES     equ 4
+IT_CARRY    equ 6          ; the most the player carries
+IT_START    equ 8          ; carried when the game starts
+IT_NAME     equ 10         ; 8 letters, 0 terminated (10 bytes)
+IT_SIZE     equ 20
+RC_A        equ 0          ; item + item make RC_N of item RC_OUT
+RC_B        equ 2
+RC_OUT      equ 4
+RC_FLAGS    equ 6          ; byte: bit 0 RC_A is kept, bit 1 RC_B is kept
+RC_N        equ 7          ; byte
+RC_SIZE     equ 8
+ITEM_MAX    equ 16
+DROP_GAP    equ 24         ; DO 31: a dropped item comes out this far beside the player
+MENU_MAX    equ 40        ; space bar menu entries: tools, items carried, recipes that can be made
+IF_LINE     equ $8000      ; a rule line with this bit in its act word is an IF line:
+                           ; act = IF_LINE + 0 has / 1 uses / 2 has none / 3 has at least, target = n, value = item
 
 ; disk 2 (version 12): level songs that did not go on the game disk. A song's
 ; music table offset with bit 31 set is a byte offset on disk 2 (a track start).
@@ -513,6 +538,15 @@ v_rtb       rs.w 1
 v_cta       rs.w 1         ; the copies of them that made it fire, -1 = none
 v_ctb       rs.w 1
 v_spalt     rs.w 1         ; DO 25: the way the next one breaks off
+v_items     rs.l 1         ; items block, 0 = none
+v_icnt      rs.w ITEM_MAX  ; how many of each item the player carries
+v_iuse      rs.w ITEM_MAX  ; uses left on the one in use (IT_USE 2)
+v_igot      rs.w 1         ; bit per item the player got this frame
+v_igotp     rs.w 1         ; ... last frame (WHEN 17 sees these)
+v_useit     rs.w 1         ; item picked in the space bar menu to use (WHEN 18), -1 = none
+v_uspent    rs.w 1         ; 1 = that use has been spent (one WHEN 18 rule spends it)
+v_mn        rs.w 1         ; space bar menu entries
+v_ment      rs.b 2*MENU_MAX ; each: kind (0 tool, 1 item, 2 recipe), number
 V_SIZE      rs.b 0
 
 ; ============================================================================
@@ -568,6 +602,7 @@ game_restart:
             move.w  #1,v_level(a5)
             bsr     init_palette
             bsr     clear_state
+            bsr     items_reset             ; what the player carries at the start
             move.l  #0,v_score(a5)
             move.w  H_LIVES(a4),v_lives(a5)
             move.w  #0,v_power(a5)          ; a new game: no power-ups
@@ -597,6 +632,7 @@ game_restart:
 
 ; next level: show which one is coming, then play it
 level_next: addq.w  #1,v_level(a5)
+            bsr     items_level             ; items not kept on the next level are gone
 level_card: lea     -128(a5),a7             ; a5 = V+128 (stack_top is too far for a PC-relative lea)
             add.l   #stack_top-V,a7
             bsr     scroll_off
@@ -624,6 +660,7 @@ level_start:
             bsr     clear_latches
             move.w  #0,v_goal(a5)
             move.w  #0,v_ltime(a5)
+            move.w  #-1,v_useit(a5)
             bsr     trail_reset
             bsr     tiles_start
             bsr     scroll_on
@@ -1289,6 +1326,8 @@ frame:
             bsr     read_key
             bsr     tool_menu               ; space bar: the tool menu - the game waits while it is open
             bne     .wait
+            move.w  v_igot(a5),v_igotp(a5)  ; items got last frame: WHEN 17 sees them now
+            move.w  #0,v_igot(a5)
             move.w  #0,v_sectick(a5)
             addq.w  #1,v_fcount(a5)
             cmp.w   #50,v_fcount(a5)
@@ -1308,6 +1347,7 @@ frame:
             bsr     cop_scroll
             bsr     place_sprites
             bsr     bob_draw
+            bsr     item_tick               ; the player picks up items it touches
             bsr     run_rules
 .wait       rts
 
@@ -1334,13 +1374,11 @@ read_key:   move.w  #0,v_key(a5)
             movem.l (sp)+,d0-d2
 .r          rts
 
-; the tool menu (a tile world with tools): space opens it in the HUD row, left / right
-; choose, fire or space take the tool. Z clear while it is open (the game waits)
-tool_menu:  tst.w   v_tmode(a5)
-            beq     .no
-            movem.l d1-d3/a0,-(sp)
-            move.l  v_tiles(a5),a0
-            move.w  T_NTOOL(a0),d1
+; the space bar menu (a tile world with tools, or a game with items): space opens it in
+; the HUD row, left / right choose, fire or space take it - a tool, an item to use (WHEN 18)
+; or a recipe to make. Z clear while it is open (the game waits)
+tool_menu:  movem.l d1-d3/a0,-(sp)
+            bsr     menu_any
             beq     .none
             tst.w   v_fwait(a5)             ; fire chose a tool: ignore it until let go
             beq.s   .fw
@@ -1354,11 +1392,21 @@ tool_menu:  tst.w   v_tmode(a5)
             bne.s   .open
             cmp.w   #$140,v_key(a5)
             bne     .none
+            bsr     menu_build
+            move.w  v_mn(a5),d1
+            beq     .none                   ; nothing in it now
             move.w  #1,v_menu(a5)
-            move.w  v_tool(a5),v_msel(a5)
-            bsr     menu_draw
+            move.w  #0,v_msel(a5)
+            move.w  v_tool(a5),d2           ; the tool in use (tools come first)
+            cmp.w   d1,d2
+            bhs.s   .sel
+            tst.b   v_ment(a5)
+            bne.s   .sel
+            move.w  d2,v_msel(a5)
+.sel        bsr     menu_draw
             bra     .yes
-.open       move.w  v_joy(a5),d2            ; newly pressed
+.open       move.w  v_mn(a5),d1
+            move.w  v_joy(a5),d2            ; newly pressed
             move.w  v_joyprev(a5),d3
             not.w   d3
             and.w   d3,d2
@@ -1383,22 +1431,122 @@ tool_menu:  tst.w   v_tmode(a5)
             bra.s   .take
 .m3         cmp.w   #$140,v_key(a5)
             bne.s   .yes
-.take       move.w  v_msel(a5),v_tool(a5)
+.take       bsr     menu_take
             move.w  #0,v_menu(a5)
             bsr     menu_clear
             bsr     draw_hud
-            move.l  #-1,v_digc(a5)
 .yes        move.w  v_joy(a5),v_joyprev(a5)
             movem.l (sp)+,d1-d3/a0
             moveq   #1,d0
             rts
 .none       movem.l (sp)+,d1-d3/a0
-.no         moveq   #0,d0
+            moveq   #0,d0
             rts
 
-; the HUD row as the tool menu: each tool's name, the one picked in the message colour
+; Z clear when the game can have a space bar menu: a tile world with tools, or items
+menu_any:   movem.l d0/a0,-(sp)
+            moveq   #0,d0
+            tst.w   v_tmode(a5)
+            beq.s   .it
+            move.l  v_tiles(a5),a0
+            tst.w   T_NTOOL(a0)
+            bne.s   .yes
+.it         move.l  v_items(a5),d0
+            beq.s   .o
+            move.l  d0,a0
+            moveq   #0,d0
+            tst.w   IT_N(a0)
+            beq.s   .o
+.yes        moveq   #1,d0
+.o          tst.w   d0
+            movem.l (sp)+,d0/a0
+            rts
+
+; the menu's entries now (v_ment, v_mn): the tools, the items the player carries, then the
+; recipes it can make
+menu_build: movem.l d0-d2/a0-a1,-(sp)
+            lea     v_ment(a5),a1
+            moveq   #0,d1                   ; entries
+            tst.w   v_tmode(a5)
+            beq.s   .items
+            move.l  v_tiles(a5),a0
+            move.w  T_NTOOL(a0),d2
+            moveq   #0,d0
+            bra.s   .tc
+.t          move.b  #0,(a1)+
+            move.b  d0,(a1)+
+            addq.w  #1,d1
+            addq.w  #1,d0
+.tc         dbf     d2,.t
+.items      move.l  v_items(a5),d0
+            beq.s   .o
+            move.l  d0,a0
+            move.w  IT_N(a0),d2
+            moveq   #0,d0
+            lea     v_icnt(a5),a0
+            bra.s   .ic
+.i          tst.w   (a0)+
+            beq.s   .in
+            cmp.w   #MENU_MAX,d1
+            bhs.s   .o
+            move.b  #1,(a1)+
+            move.b  d0,(a1)+
+            addq.w  #1,d1
+.in         addq.w  #1,d0
+.ic         dbf     d2,.i
+            move.l  v_items(a5),a0
+            move.w  IT_NR(a0),d2
+            moveq   #0,d0
+            bra.s   .rc
+.r          move.l  a0,-(sp)
+            bsr     recipe_can
+            move.l  (sp)+,a0
+            beq.s   .rn
+            cmp.w   #MENU_MAX,d1
+            bhs.s   .o
+            move.b  #2,(a1)+
+            move.b  d0,(a1)+
+            addq.w  #1,d1
+.rn         addq.w  #1,d0
+.rc         dbf     d2,.r
+.o          move.w  d1,v_mn(a5)
+            movem.l (sp)+,d0-d2/a0-a1
+            rts
+
+; the entry picked (v_msel): take the tool, use the item (WHEN 18 rules see it), or make the recipe
+menu_take:  movem.l d0-d1/a0,-(sp)
+            move.w  v_msel(a5),d0
+            cmp.w   v_mn(a5),d0
+            bhs.s   .o
+            add.w   d0,d0
+            lea     v_ment(a5),a0
+            moveq   #0,d1
+            move.b  1(a0,d0.w),d1           ; its number
+            move.b  0(a0,d0.w),d0           ; its kind
+            beq.s   .tool
+            cmp.b   #1,d0
+            beq.s   .item
+            move.w  d1,d0
+            bsr     recipe_make
+            bra.s   .o
+.item       move.w  d1,v_useit(a5)
+            move.w  #0,v_uspent(a5)
+            bra.s   .o
+.tool       move.w  d1,v_tool(a5)
+            move.l  #-1,v_digc(a5)
+.o          movem.l (sp)+,d0-d1/a0
+            rts
+
+; the HUD row as the menu. With items: the entry picked, '< USE KEY 2 >'; with tools only:
+; each tool's name, the one picked in the message colour
 menu_draw:  movem.l d0-d7/a0-a1,-(sp)
             bsr     menu_clear
+            move.l  v_items(a5),d0
+            beq.s   .tools
+            move.l  d0,a0
+            tst.w   IT_N(a0)
+            bne     menu_entry
+.tools
             move.w  #-1,v_shadow(a5)
             move.l  v_tiles(a5),a1
             move.w  T_NTOOL(a1),d7
@@ -1430,6 +1578,96 @@ menu_draw:  movem.l d0-d7/a0-a1,-(sp)
             cmp.w   d7,d6
             blt.s   .t
             movem.l (sp)+,d0-d7/a0-a1
+            rts
+
+; (menu_draw with items, its registers saved) the entry picked, centred in the message
+; colour: '< PICKAXE >', '< USE KEY 2 >', '< MAKE TORCH >'
+menu_entry: lea     v_text(a5),a1
+            move.b  #'<',(a1)+
+            move.b  #' ',(a1)+
+            move.w  v_msel(a5),d0
+            cmp.w   v_mn(a5),d0
+            bhs     .end
+            add.w   d0,d0
+            lea     v_ment(a5),a0
+            moveq   #0,d6
+            move.b  1(a0,d0.w),d6           ; its number
+            move.b  0(a0,d0.w),d7           ; its kind
+            bne.s   .ni
+            move.l  v_tiles(a5),a0          ; a tool: its name
+            move.w  T_NT(a0),d0
+            mulu    #12,d0
+            lea     T_PROPS(a0,d0.l),a0
+            move.w  d6,d0
+            mulu    #TL_SIZE,d0
+            add.l   d0,a0
+            lea     TL_NAME(a0),a0
+            moveq   #8,d1
+            bsr     copyn
+            bra.s   .end
+.ni         cmp.b   #1,d7
+            bne.s   .rcp
+            lea     str_use(pc),a0          ; an item: its name and how many
+            moveq   #8,d1
+            bsr     copyn
+            move.w  d6,d0
+            bsr     item_rec
+            beq.s   .end
+            lea     IT_NAME(a0),a0
+            moveq   #8,d1
+            bsr     copyn
+            move.b  #' ',(a1)+
+            lea     v_icnt(a5),a0
+            add.w   d6,d6
+            moveq   #0,d0
+            move.w  0(a0,d6.w),d0
+            divu    #10,d0
+            tst.w   d0
+            beq.s   .units
+            add.b   #'0',d0
+            move.b  d0,(a1)+
+.units      swap    d0
+            add.b   #'0',d0
+            move.b  d0,(a1)+
+            bra.s   .end
+.rcp        lea     str_make(pc),a0         ; a recipe: what it makes
+            moveq   #8,d1
+            bsr     copyn
+            move.w  d6,d0
+            bsr     recipe_rec
+            beq.s   .end
+            move.w  RC_OUT(a0),d0
+            bsr     item_rec
+            beq.s   .end
+            lea     IT_NAME(a0),a0
+            moveq   #8,d1
+            bsr     copyn
+.end        move.b  #' ',(a1)+
+            move.b  #'>',(a1)+
+            move.b  #0,(a1)
+            lea     v_text(a5),a0
+            move.l  a1,d1
+            sub.l   a0,d1
+            neg.w   d1
+            add.w   #40,d1
+            asr.w   #1,d1
+            bpl.s   .col
+            moveq   #0,d1
+.col        move.w  v_hudrow(a5),d2
+            move.w  H_MSGCOL(a4),d3
+            move.w  #-1,v_shadow(a5)
+            bsr     draw_text
+            movem.l (sp)+,d0-d7/a0-a1
+            rts
+
+; copies up to d1 letters from a0 to a1 (stops at a 0; a1 moves on)
+copyn:      movem.l d0-d1/a0,-(sp)
+            bra.s   .lc
+.c          move.b  (a0)+,d0
+            beq.s   .e
+            move.b  d0,(a1)+
+.lc         dbf     d1,.c
+.e          movem.l (sp)+,d0-d1/a0
             rts
 
 ; the HUD row back to its background (draw_hud then puts the HUD back)
@@ -4685,14 +4923,41 @@ run_rules:
             add.w   d5,a2                   ; a2 = this rule's latch
             move.l  #-1,v_cta(a5)           ; no copies matched yet (v_cta and v_ctb)
             move.w  R_WHEN(a3),d0
-            cmp.w   #16,d0
+            cmp.w   #18,d0
             bhi     .next
             add.w   d0,d0
             move.w  .jt(pc,d0.w),d0
             jmp     .jt(pc,d0.w)
 .jt         dc.w    .touch-.jt,.fire-.jt,.timer-.jt,.score-.jt,.lives-.jt,.next-.jt,.jump-.jt,.next-.jt
             dc.w    .hold-.jt,.inview-.jt,.strike-.jt,.thrown-.jt,.pickup-.jt,.ltime-.jt,.auto-.jt,.mapend-.jt
-            dc.w    .aend-.jt
+            dc.w    .aend-.jt,.iget-.jt,.iuse-.jt
+
+.iget       move.w  v_igotp(a5),d0          ; the player got item n (last frame)
+            move.w  R_N(a3),d1
+            cmp.w   #ITEM_MAX,d1
+            bhs     .next
+            btst    d1,d0
+            beq     .next
+            bsr     fire_action
+            bra     .next
+
+.iuse       move.w  v_useit(a5),d0          ; the player used item n (space bar menu) on (a copy of) actor b
+            bmi     .next
+            cmp.w   R_N(a3),d0
+            bne     .next
+            move.w  H_PLAYER(a4),d0
+            bmi     .next
+            move.w  R_B(a3),d1
+            bsr     touch_types
+            beq     .next
+            bsr     fire_action
+            beq     .next
+            tst.w   v_uspent(a5)            ; the first rule that fires spends it (used up / kept / a use)
+            bne     .next
+            move.w  #1,v_uspent(a5)
+            move.w  R_N(a3),d0
+            bsr     item_spend
+            bra     .next
 
 .aend       move.l  v_aended(a5),d0         ; (a copy of) actor a finished its Hit / Die this frame:
             beq     .next                   ; n = 0 Hit, 1 Die, 2 either
@@ -4828,8 +5093,9 @@ run_rules:
             beq.s   .clear
 .edge       tst.w   (a2)
             bne     .next
+            bsr     fire_action             ; (an IF line said no: try again next frame)
+            beq     .next
             move.w  #1,(a2)
-            bsr     fire_action
             bra     .next
 .clear      move.w  #0,(a2)
             bra     .next
@@ -4854,16 +5120,18 @@ run_rules:
             move.w  R_N(a3),d0
             cmp.l   v_score(a5),d0
             bhi     .next
-            move.w  #1,(a2)
             bsr     fire_action
+            beq     .next
+            move.w  #1,(a2)
             bra     .next
 
 .lives      tst.w   v_lives(a5)
             bne     .next
             tst.w   (a2)
             bne     .next
-            move.w  #1,(a2)
             bsr     fire_action
+            beq     .next
+            move.w  #1,(a2)
 
 .next       move.w  R_NAND(a3),d0           ; (rule_next)
             lsl.w   #3,d0
@@ -4871,7 +5139,8 @@ run_rules:
             addq.w  #1,d7
             cmp.w   d6,d7
             blt     .r
-.done       rts
+.done       move.w  #-1,v_useit(a5)         ; a use nothing took is gone
+            rts
 
 ; runs every rule whose WHEN is d0 (5 = game starts, 7 = level starts)
 run_when_rules:
@@ -4902,9 +5171,14 @@ rule_next:  move.l  d0,-(sp)
             rts
 
 ; the rule's DO, then each of its AND DO lines (do_action reads R_ACT / R_TGT / R_VAL,
-; so a3 points AND_SIZE before each line: its act / target / value sit at 8 / 10 / 12)
+; so a3 points AND_SIZE before each line: its act / target / value sit at 8 / 10 / 12).
+; Only when its IF lines all say yes (if_check): d0 = 1, Z clear = it fired, else d0 = 0, Z set.
+; (IF lines go to act_none in do_action.)
 fire_action:
-            movem.l d5-d7/a2-a3,-(sp)
+            bsr     if_check
+            bne.s   .go
+            rts
+.go         movem.l d5-d7/a2-a3,-(sp)
             move.w  R_A(a3),v_rta(a5)       ; (do_action turns them into the copies that matched)
             move.w  R_B(a3),v_rtb(a5)
             move.w  R_NAND(a3),d7
@@ -4921,6 +5195,7 @@ fire_action:
             movem.l (sp)+,d7/a2
             bra.s   .and
 .done       movem.l (sp)+,d5-d7/a2-a3
+            moveq   #1,d0
             rts
 
 ; a3 = rule
@@ -4930,7 +5205,7 @@ do_action:
             move.w  d4,d5                   ; -> d5 = offset
             lsl.w   #ACTV_SHIFT,d5
             move.w  R_ACT(a3),d0
-            cmp.w   #27,d0
+            cmp.w   #31,d0
             bhi     act_none
             add.w   d0,d0
             move.w  acttab(pc,d0.w),d0
@@ -4963,6 +5238,10 @@ acttab:     dc.w    act_score-acttab
             dc.w    act_spawn-acttab
             dc.w    act_anim-acttab
             dc.w    act_pal-acttab
+            dc.w    act_igive-acttab
+            dc.w    act_itake-acttab
+            dc.w    act_make-acttab
+            dc.w    act_idrop-acttab
 
 act_none:   rts
 
@@ -4970,6 +5249,373 @@ act_none:   rts
 act_pal:    move.w  R_VAL(a3),d0
             move.w  R_TGT(a3),d1
             bra     pal_switch
+
+; ============================================================================
+;  items: what the player carries (v_icnt), picked up by touching an item's actor,
+;  given, taken, made from recipes, used from the space bar menu, checked by IF lines
+; ============================================================================
+
+; DO 28: give the player target of item value / DO 29: take them away
+act_igive:  move.w  R_VAL(a3),d0
+            move.w  R_TGT(a3),d1
+            bra     item_give
+act_itake:  move.w  R_VAL(a3),d0
+            move.w  R_TGT(a3),d1
+            bra     item_take
+; DO 30: make recipe value, if the player has what it takes
+act_make:   move.w  R_VAL(a3),d0
+            bra     recipe_make
+; DO 31: the player drops an item value - its actor comes out where the player is
+act_idrop:  move.w  R_VAL(a3),d0
+            bra     item_drop
+
+; d0 = item -> a0 = its record, Z clear; Z set = no such item
+item_rec:   movem.l d0-d1,-(sp)
+            move.l  v_items(a5),d1
+            beq.s   .no
+            move.l  d1,a0
+            cmp.w   IT_N(a0),d0
+            bhs.s   .no
+            mulu    #IT_SIZE,d0
+            lea     IT_RECS(a0,d0.l),a0
+            moveq   #1,d1
+            bra.s   .o
+.no         moveq   #0,d1
+.o          tst.w   d1
+            movem.l (sp)+,d0-d1
+            rts
+
+; d0 = recipe -> a0 = its record, Z clear; Z set = no such recipe
+recipe_rec: movem.l d0-d1,-(sp)
+            move.l  v_items(a5),d1
+            beq.s   .no
+            move.l  d1,a0
+            cmp.w   IT_NR(a0),d0
+            bhs.s   .no
+            lsl.w   #3,d0                   ; RC_SIZE
+            move.w  IT_N(a0),d1
+            mulu    #IT_SIZE,d1
+            add.w   d0,d1
+            lea     IT_RECS(a0,d1.l),a0
+            moveq   #1,d1
+            bra.s   .o
+.no         moveq   #0,d1
+.o          tst.w   d1
+            movem.l (sp)+,d0-d1
+            rts
+
+; a3 = a rule -> Z clear (d0 = 1) when its IF lines all say yes; then the 'uses' ones are spent
+if_check:   movem.l d1-d3/a0-a1,-(sp)
+            moveq   #0,d3                   ; pass 0 checks, pass 1 spends
+.pass       move.w  R_NAND(a3),d2
+            lea     RULE_SIZE(a3),a0
+            bra.s   .lc
+.l          move.w  (a0),d0
+            bpl.s   .nx                     ; a DO line
+            move.w  4(a0),d1                ; its item
+            cmp.w   #ITEM_MAX,d1
+            bhs.s   .fail
+            add.w   d1,d1
+            lea     v_icnt(a5),a1
+            move.w  0(a1,d1.w),d1           ; how many the player carries
+            and.w   #3,d0
+            tst.w   d3
+            bne.s   .spend
+            cmp.w   #2,d0
+            beq.s   .none
+            cmp.w   #3,d0
+            beq.s   .least
+            tst.w   d1                      ; has / uses: one at least
+            beq.s   .fail
+            bra.s   .nx
+.none       tst.w   d1
+            bne.s   .fail
+            bra.s   .nx
+.least      cmp.w   2(a0),d1
+            blo.s   .fail
+            bra.s   .nx
+.spend      cmp.w   #1,d0
+            bne.s   .nx
+            move.w  4(a0),d0
+            bsr     item_spend
+.nx         addq.l  #AND_SIZE,a0
+.lc         dbf     d2,.l
+            tst.w   d3
+            bne.s   .ok
+            moveq   #1,d3
+            bra.s   .pass
+.ok         moveq   #1,d0
+            bra.s   .o
+.fail       moveq   #0,d0
+.o          movem.l (sp)+,d1-d3/a0-a1
+            tst.w   d0
+            rts
+
+; d0 = item: the player uses one - used up, kept, or one of its uses goes
+item_spend: movem.l d0-d1/a0-a1,-(sp)
+            bsr     item_rec
+            beq.s   .o
+            lea     v_icnt(a5),a1
+            add.w   d0,d0
+            move.b  IT_USE(a0),d1
+            cmp.b   #1,d1
+            beq.s   .o                      ; kept
+            cmp.b   #2,d1
+            bne.s   .one
+            lea     v_iuse(a5),a1           ; a few uses: one goes, the last one uses it up
+            subq.w  #1,0(a1,d0.w)
+            bgt.s   .o
+            move.w  IT_USES(a0),0(a1,d0.w)
+            lea     v_icnt(a5),a1
+.one        tst.w   0(a1,d0.w)
+            beq.s   .o
+            subq.w  #1,0(a1,d0.w)
+            bsr     draw_hud
+.o          movem.l (sp)+,d0-d1/a0-a1
+            rts
+
+; d0 = item, d1 = how many: the player gets them (never more than IT_CARRY); WHEN 17 sees it
+item_give:  movem.l d0-d3/a0-a1,-(sp)
+            bsr     item_rec
+            beq.s   .o
+            lea     v_icnt(a5),a1
+            move.w  d0,d3
+            add.w   d3,d3
+            move.w  0(a1,d3.w),d2
+            bne.s   .add
+            move.w  IT_USES(a0),v_iuse-v_icnt(a1,d3.w)    ; the first one: all its uses
+.add        tst.w   d1
+            ble.s   .o
+            add.w   d2,d1
+            cmp.w   IT_CARRY(a0),d1
+            ble.s   .put
+            move.w  IT_CARRY(a0),d1
+.put        cmp.w   d2,d1
+            ble.s   .o                      ; full: nothing more
+            move.w  d1,0(a1,d3.w)
+            move.w  v_igot(a5),d1
+            bset    d0,d1
+            move.w  d1,v_igot(a5)
+            bsr     draw_hud
+.o          movem.l (sp)+,d0-d3/a0-a1
+            rts
+
+; d0 = item, d1 = how many: the player loses them (what it has, when it has fewer)
+item_take:  movem.l d0-d2/a0-a1,-(sp)
+            bsr     item_rec
+            beq.s   .o
+            lea     v_icnt(a5),a1
+            add.w   d0,d0
+            move.w  0(a1,d0.w),d2
+            sub.w   d1,d2
+            bpl.s   .put
+            moveq   #0,d2
+.put        move.w  d2,0(a1,d0.w)
+            bsr     draw_hud
+.o          movem.l (sp)+,d0-d2/a0-a1
+            rts
+
+; d0 = recipe -> Z clear when the player has what it takes (a0 = the recipe)
+recipe_can: movem.l d0-d2/a1,-(sp)
+            bsr     recipe_rec
+            beq.s   .no
+            lea     v_icnt(a5),a1
+            move.w  RC_A(a0),d0
+            move.w  RC_B(a0),d1
+            cmp.w   #ITEM_MAX,d0
+            bhs.s   .no
+            cmp.w   #ITEM_MAX,d1
+            bhs.s   .no
+            add.w   d0,d0
+            add.w   d1,d1
+            move.w  0(a1,d0.w),d2
+            beq.s   .no
+            tst.w   0(a1,d1.w)
+            beq.s   .no
+            cmp.w   d0,d1                   ; the same item twice: two of it
+            bne.s   .yes
+            cmp.w   #2,d2
+            blo.s   .no
+.yes        moveq   #1,d0
+            bra.s   .o
+.no         moveq   #0,d0
+.o          tst.w   d0
+            movem.l (sp)+,d0-d2/a1
+            rts
+
+; d0 = recipe: if the player has what it takes, the ingredients go (unless kept) and it
+; gets RC_N of what it makes
+recipe_make:
+            movem.l d0-d1/a0,-(sp)
+            bsr     recipe_can
+            beq.s   .o
+            moveq   #1,d1
+            btst    #0,RC_FLAGS(a0)
+            bne.s   .ka
+            move.w  RC_A(a0),d0
+            bsr     item_take
+.ka         btst    #1,RC_FLAGS(a0)
+            bne.s   .kb
+            move.w  RC_B(a0),d0
+            bsr     item_take
+.kb         move.w  RC_OUT(a0),d0
+            moveq   #0,d1
+            move.b  RC_N(a0),d1
+            bsr     item_give
+.o          movem.l (sp)+,d0-d1/a0
+            rts
+
+; d0 = item: the player drops one - a hidden copy of its actor comes out beside the player
+; (the way it faces), flashing (safe) for a moment so it is not picked straight up again
+item_drop:  movem.l d0-d7/a0-a1,-(sp)
+            bsr     item_rec
+            beq     .o
+            lea     v_icnt(a5),a1
+            move.w  d0,d6
+            add.w   d6,d6
+            tst.w   0(a1,d6.w)
+            beq     .o
+            move.w  IT_ACT(a0),d2           ; its actor
+            bmi     .o
+            move.w  H_PLAYER(a4),d7
+            bmi     .o
+            cmp.w   H_NACT(a4),d7
+            bhs     .o
+            move.w  d2,d1
+.f          cmp.w   H_NACT(a4),d1           ; it, then its copies: the first one hidden
+            bhs     .o
+            cmp.w   d2,d1
+            beq.s   .f1
+            move.w  d1,d4
+            move.l  a0,-(sp)
+            bsr     actor_rec
+            move.w  A_TYPE(a0),d3
+            move.l  (sp)+,a0
+            cmp.w   d3,d2
+            bne     .o
+.f1         move.w  d1,d5
+            lsl.w   #ACTV_SHIFT,d5
+            tst.w   v_vis(a5,d5.w)
+            beq.s   .got
+            addq.w  #1,d1
+            bra.s   .f
+.got        subq.w  #1,0(a1,d6.w)
+            move.w  d1,d4
+            lsl.w   #ACTV_SHIFT,d7
+            bsr     actor_rec               ; a0 = the dropped one's record
+            move.w  v_ax(a5,d7.w),d0        ; beside the player, the way it faces
+            add.w   #DROP_GAP,d0
+            tst.w   v_face(a5,d7.w)
+            beq.s   .side
+            sub.w   #2*DROP_GAP,d0
+.side       tst.w   d0
+            bpl.s   .xl
+            moveq   #0,d0
+.xl         cmp.w   A_XMAX(a0),d0
+            ble.s   .xr
+            move.w  A_XMAX(a0),d0
+.xr         move.w  d0,v_ax(a5,d5.w)
+            move.w  v_ay(a5,d7.w),v_ay(a5,d5.w)
+            move.w  #1,v_vis(a5,d5.w)
+            move.w  #SAFE_TIME,v_safe(a5,d5.w)
+            bsr     stop_fall
+            bsr     draw_hud
+.o          movem.l (sp)+,d0-d7/a0-a1
+            rts
+
+; each frame: the player picks up an item whose actor (or a copy) it touches, unless it
+; carries as many as it can; the actor hides
+item_tick:  move.l  v_items(a5),d0
+            beq.s   .r
+            movem.l d0-d7/a0-a2,-(sp)
+            move.l  d0,a2
+            move.w  H_PLAYER(a4),d6
+            bmi.s   .o
+            move.w  IT_N(a2),d7
+            moveq   #0,d5                   ; item
+            lea     IT_RECS(a2),a2
+            bra.s   .lc
+.l          move.w  IT_ACT(a2),d1
+            bmi.s   .nx
+            lea     v_icnt(a5),a1
+            move.w  d5,d2
+            add.w   d2,d2
+            move.w  0(a1,d2.w),d2
+            cmp.w   IT_CARRY(a2),d2
+            bhs.s   .nx                     ; full
+            move.w  d6,d0
+            bsr     touch_types
+            beq.s   .nx
+            move.w  v_ctb(a5),d2            ; the copy touched hides
+            lsl.w   #ACTV_SHIFT,d2
+            move.w  #0,v_vis(a5,d2.w)
+            move.w  d5,d0
+            moveq   #1,d1
+            bsr     item_give
+.nx         lea     IT_SIZE(a2),a2
+            addq.w  #1,d5
+.lc         dbf     d7,.l
+.o          movem.l (sp)+,d0-d7/a0-a2
+.r          rts
+
+; a new game: v_items, and each item's starting count and uses
+items_reset:
+            movem.l d0-d2/a0-a1,-(sp)
+            move.l  #0,v_items(a5)
+            move.w  #0,v_igot(a5)
+            move.w  #0,v_igotp(a5)
+            move.w  #-1,v_useit(a5)
+            lea     v_icnt(a5),a1
+            moveq   #ITEM_MAX-1,d2
+.z          move.w  #0,(a1)+
+            dbf     d2,.z
+            move.l  H_ITEMS(a4),d0
+            beq.s   .o
+            add.l   a4,d0
+            move.l  d0,v_items(a5)
+            move.l  d0,a0
+            move.w  IT_N(a0),d2
+            lea     IT_RECS(a0),a0
+            lea     v_icnt(a5),a1
+            bra.s   .lc
+.l          move.w  IT_START(a0),(a1)
+            move.w  IT_USES(a0),v_iuse-v_icnt(a1)
+            addq.l  #2,a1
+            lea     IT_SIZE(a0),a0
+.lc         dbf     d2,.l
+.o          movem.l (sp)+,d0-d2/a0-a1
+            rts
+
+; the next level: items not kept on it (IT_FLAGS bit 0 clear) are gone
+items_level:
+            movem.l d0/d2/a0-a1,-(sp)
+            moveq   #0,d0
+            bra.s   items_clear
+; a life lost: items lost with a life (IT_FLAGS bit 1) are gone
+items_life:
+            movem.l d0/d2/a0-a1,-(sp)
+            moveq   #1,d0
+items_clear:
+            move.l  v_items(a5),d2
+            beq.s   .o
+            move.l  d2,a0
+            move.w  IT_N(a0),d2
+            lea     IT_RECS(a0),a0
+            lea     v_icnt(a5),a1
+            bra.s   .lc
+.l          tst.w   d0
+            bne.s   .life
+            btst    #0,IT_FLAGS(a0)
+            bne.s   .nx
+            bra.s   .gone
+.life       btst    #1,IT_FLAGS(a0)
+            beq.s   .nx
+.gone       move.w  #0,(a1)
+.nx         addq.l  #2,a1
+            lea     IT_SIZE(a0),a0
+.lc         dbf     d2,.l
+.o          movem.l (sp)+,d0/d2/a0-a1
+            rts
 
 ; DO 26: actor d4 plays its Hit (value 0) or Die (1) animation once; WHEN 16 fires at its end
 act_anim:   cmp.w   H_NACT(a4),d4
@@ -6195,7 +6841,8 @@ act_loselife:
             tst.w   v_lives(a5)
             beq.s   .z
             subq.w  #1,v_lives(a5)
-.z          bra     draw_hud
+.z          bsr     items_life              ; items lost with a life
+            bra     draw_hud
 
 act_addlife:
             cmp.w   #9,v_lives(a5)
@@ -7536,9 +8183,20 @@ ui_hud:     movem.l d0-d7/a0-a3,-(sp)
             bsr     hud_digging
             beq     .nx
 .tq         cmp.w   #6,d6                   ; tool: only in a tile world with tools
-            bne.s   .dl
+            bne.s   .iq
             bsr     hud_tools
             beq     .nx
+.iq         cmp.w   #7,d6                   ; item count (F_DIGITS high byte = the item): only
+            bne.s   .dl                     ; with items; no label of its own -> the item's name
+            move.l  v_items(a5),d0
+            beq     .nx
+            tst.b   (a0)
+            bne.s   .dl
+            move.w  F_DIGITS(a2),d0
+            lsr.w   #8,d0
+            bsr     item_rec
+            beq     .nx
+            lea     IT_NAME(a0),a0
 .dl         bsr     draw_text               ; the label
 .adv        tst.b   (a0)+                   ; column after it
             beq.s   .va
@@ -7583,7 +8241,7 @@ ui_hud:     movem.l d0-d7/a0-a3,-(sp)
             addq.w  #1,d1
             move.w  G_GOAL(a1),d0
             bsr     two_digits
-            bra.s   .nx
+            bra     .nx
 .ntl        cmp.w   #6,d6
             bne.s   .nto
             move.l  v_tiles(a5),a0          ; the tool's name, 8 letters
@@ -7598,7 +8256,24 @@ ui_hud:     movem.l d0-d7/a0-a3,-(sp)
             addq.w  #1,d1
             dbf     d4,.tl
             bra     .nx
-.nto        cmp.w   #4,d6
+.nto        cmp.w   #7,d6
+            bne.s   .nt4
+            tst.b   F_LABEL(a2)             ; after the item's own name: a space
+            bne.s   .is
+            addq.w  #1,d1
+.is         move.w  F_DIGITS(a2),d4         ; how many the player carries
+            move.w  d4,d0
+            lsr.w   #8,d0
+            cmp.w   #ITEM_MAX,d0
+            bhs     .nx
+            add.w   d0,d0
+            lea     v_icnt(a5),a1
+            moveq   #0,d5
+            move.w  0(a1,d0.w),d5
+            move.l  d5,d0
+            bsr     ui_number
+            bra     .nx
+.nt4        cmp.w   #4,d6
             bne     .nx
             move.w  v_sel(a5),d0            ; the tile's name, then how many
             move.l  v_tiles(a5),a0
@@ -7912,6 +8587,8 @@ str_fire:   dc.b    "PRESS FIRE",0
 str_disk2:  dc.b    "PLEASE INSERT DISK 2",0
 str_loading: dc.b   "LOADING",0
 str_d2err:  dc.b    "DISK 2 ERROR - PRESS FIRE",0
+str_use:    dc.b    "USE ",0
+str_make:   dc.b    "MAKE ",0
             even
 
 font:
