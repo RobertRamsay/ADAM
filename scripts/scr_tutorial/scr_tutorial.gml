@@ -148,6 +148,7 @@ function tut_draw(_gw, _gh)
         tut_target_rect = [];
         return;
     }
+    if (_step.tab == WS_LOGIC) { logic_tab = 0; }       // the Logic page tour is about rules
     tut_anim = lerp(tut_anim, 1, 0.15);
     var _a = tut_anim;
     var _r = undefined;

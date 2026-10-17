@@ -381,6 +381,12 @@ function lesson_show_step(_st)
     if (_st.tab == WS_TILES && string_pos("sp_", _st.target) == 1) { tile_tool = 4; }
     // the loading screen steps are on the UI page's Loading screen tab
     if (_st.tab == WS_UI && string_pos("ls_", _st.target) == 1) { ui_page_tab = 1; }
+    // the Logic page remembers Rules / Items - the item and recipe steps need Items
+    if (_st.tab == WS_LOGIC)
+    {
+        if (string_pos("item_", _st.target) == 1 || string_pos("recipe_", _st.target) == 1) { logic_tab = 1; }
+        else if (_st.target != "logic_tab_items") { logic_tab = 0; }
+    }
 }
 
 function lesson_finish()

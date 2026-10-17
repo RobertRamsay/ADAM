@@ -297,6 +297,8 @@ act_drag_dx = 0;
 act_drag_dy = 0;
 logic_resort = false;
 logic_reveal = -1;          // rule struct to scroll into view next frame (-1 = none)
+logic_tab = 0;              // Logic page: 0 = rules, 1 = items and recipes
+logic_drag_item = -1;       // Items tab: the item being dragged onto a recipe slot (-1 = none)
 ground_cache = array_create(BD_W, 256);
 ground_cache_time = -10000;
 
@@ -549,6 +551,7 @@ shot_pages = [
     { ws : WS_ACTORS,   panel : 0, name : "actors" },
     { ws : WS_ANIMATE,  panel : 0, name : "animate" },
     { ws : WS_LOGIC,    panel : 0, name : "logic" },
+    { ws : WS_LOGIC,    panel : 1, name : "logic_items" },
     { ws : WS_SOUND,    panel : 0, name : "sound" },
     { ws : WS_MUSIC,    panel : 0, name : "music" },
     { ws : WS_BUILD,    panel : 0, name : "build" }

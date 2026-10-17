@@ -1894,6 +1894,8 @@ function dev_shots_step()
     bd_panel = _pg.panel;
     ui_page_tab = 0;
     if (_pg.ws == WS_UI) { ui_page_tab = _pg.panel; }
+    logic_tab = 0;
+    if (_pg.ws == WS_LOGIC) { logic_tab = _pg.panel; }
     shot_wait += 1;
 }
 

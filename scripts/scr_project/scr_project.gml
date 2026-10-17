@@ -13,6 +13,10 @@
 #macro SPR_BIG_H 64
 #macro PAL_MAX 128
 #macro PALETTE_MAX 8            // named palettes (Backdrop page, DO 27 Switch palette, per level)
+#macro ITEM_MAX 16              // inventory items (Logic page, Items tab)
+#macro RECIPE_MAX 16            // recipes: item + item makes an item
+#macro ITEM_CARRY_MAX 99        // the most of one item the player can carry
+#macro ITEM_NAME_LEN 8          // item names: upper case (the game's font), shown in the space bar menu
 
 function project_defs_init()
 {
@@ -27,6 +31,7 @@ function project_defs_init()
     global.PAL_FADES = [0, 12, 25, 50, 100, 200];   // DO 27 target: frames the fade takes
     global.PAL_FADE_NAMES = ["at once", "fading 1/4 s", "fading 1/2 s", "fading 1 s", "fading 2 s", "fading 4 s"];
     global.HD_NAMES = ["Hit", "Die", "Hit or Die"];       // DO 26 value (0 / 1), WHEN 16 n (0 / 1 / 2 either)
+    global.ITEM_USE_NAMES = ["Used up", "Kept", "A few uses"];   // item.use: what using an item does to it
     global.AIM_NAMES = ["The way the shooter moves", "Up", "Down", "Left", "Right", "At the player", "Homing missile"];
     global.FIRE_PAT_NAMES = ["The shot's own aim", "At the player", "Three at the player", "Ring of 8", "Fan of three"];
     global.PATTERN_NAMES = ["Straight", "Wave", "Zigzag", "Homing (drifts at the player)", "Moves with the scenery", "Comes in and stays (boss)"];
@@ -775,6 +780,8 @@ function project_new()
         level_song : array_create(LEVEL_MAX, -1), // Phase 2 contract: song per level, -1 = none
         palettes : [],                           // named palettes: { name, cols } - cols[i] = $RRGGBB or -1 (the main palette's)
         level_pal : array_create(LEVEL_MAX, 0),  // the palette each level starts with: 0 main, k = palettes[k - 1]
+        items : [],                              // inventory items (Logic page, Items tab): item_new
+        recipes : [],                            // item + item makes an item: recipe_new
         disk2_music : false,                     // the songs levels start with go on disk 2 (Build page)
         tiles_on : false,                        // play on the tile map (Tiles page) instead of the backdrop
         tile_size : 16,                          // 8, 16, 32 or 64 pixels: every tile in the game
@@ -1066,6 +1073,7 @@ function project_from_loaded(_raw)
     }
     _p.level_pal = _lpv;
     _p.disk2_music = (_raw[$ "disk2_music"] == true);
+    items_fix(_p, _raw);                 // inventory items and recipes (older files have none)
     if (!is_numeric(_p.scroll_dir)) { _p.scroll_dir = 0; }
     _p.scroll_dir = clamp(floor(_p.scroll_dir), 0, 4);
     if (!is_numeric(_p.scroll_speed)) { _p.scroll_speed = 4; }
@@ -1595,8 +1603,8 @@ function undo_keys(_ws)
         case WS_BACKDROP: return ["pixels", "pal", "depth", "solid", "sky_on", "sky_top", "sky_mid", "sky_bot", "sky_mid_y", "hud_colour", "msg_colour", "terrain_cols", "palettes", "level_pal"];
         case WS_LEVELS:   return ["levels_on", "levels", "terrain_cols", "goal_on", "goal", "goal_label", "title_on", "title1", "title2", "lev_text", "level_song", "scroll_dir", "scroll_speed", "hills_on", "level_pal"];
         case WS_SPRITES:  return ["sprites"];
-        case WS_ACTORS:   return ["actors", "rules", "spawners"];
-        case WS_LOGIC:    return ["rules", "groups"];
+        case WS_ACTORS:   return ["actors", "rules", "spawners", "items"];
+        case WS_LOGIC:    return ["rules", "groups", "items", "recipes"];
         case WS_SOUND:    return ["sfx", "sound_groups"];
         case WS_MUSIC:    return ["songs", "level_song"];
         case WS_ANIMATE:  return ["actors"];
@@ -1770,6 +1778,10 @@ function actor_remove(_idx)
     {
         if (proj.spawners[s].act == _idx) { array_delete(proj.spawners, s, 1); }
         else if (proj.spawners[s].act > _idx) { proj.spawners[s].act -= 1; }
+    }
+    for (var it = 0; it < array_length(proj.items); it++)
+    {
+        if (proj.items[it].actor >= 0) { proj.items[it].actor = actor_ref_after_remove(proj.items[it].actor, _idx, -1); }
     }
 }
 

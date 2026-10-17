@@ -693,12 +693,20 @@ function ws_logic_draw(_x1, _y1, _x2, _y2)
 {
     var _rw = 320;
     var _lx2 = _x2 - _rw - 12;
-    ui_panel(_x1, _y1, _lx2, _y2, "Rules");
+    ui_panel(_x1, _y1, _lx2, _y2, "");
+    logic_tabs(_x1, _y1, _lx2);
+    if (logic_tab == 1)
+    {
+        logic_items_draw(_x1, _y1, _lx2, _y2);
+        logic_item_ideas_draw(_x2 - _rw, _y1, _x2, _y2);
+        return;
+    }
+    logic_drag_item = -1;
     var _nr = array_length(proj.rules);
     var _ngr = array_length(proj.groups);
     var _subr = _lx2 - 306;                 // stop before '+ Add group' (or 'Collapse all' when there are groups)
     if (_ngr > 0) { _subr = _lx2 - 422; }
-    ui_text(_x1 + 100, _y1 + 15, ui_text_fit(string(_nr) + " rule(s) in " + string(_ngr) + " group(s). Checked every frame, top to bottom.", global.f_small, _subr - _x1 - 100), global.TH.text_faint, fa_left, fa_top, global.f_small, 1);
+    ui_text(_x1 + 200, _y1 + 15, ui_text_fit(string(_nr) + " rule(s) in " + string(_ngr) + " group(s). Checked every frame, top to bottom.", global.f_small, _subr - _x1 - 200), global.TH.text_faint, fa_left, fa_top, global.f_small, 1);
     if (ui_button("logic_add", _lx2 - 150, _y1 + 8, 136, 30, "+ Add rule", "Add rule|Adds a new WHEN / DO rule (outside any group). Use the + Rule button on a group to add straight into it.", BTN_ACCENT))
     {
         if (_nr < 100)
@@ -996,6 +1004,468 @@ function ws_logic_draw(_x1, _y1, _x2, _y2)
         if (ui_button("logic_tpl_" + string(t), _px + 20, _ry, _rw - 40, 38, global.TEMPLATE_NAMES[t], _rhelp[t], BTN_NORMAL))
         {
             logic_add_template(t);
+        }
+        _ry += 46;
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Items (Logic page, Items tab): things the player picks up and carries, and
+// recipes that make an item from two others
+// ---------------------------------------------------------------------------
+
+#macro ITEM_CARD_H 132
+#macro RECIPE_ROW_H 48
+
+/// A new item. actor: the actor picked up as it (-1 = only rules give it); spr: its picture
+/// (-1 = the actor's sprite); use: 0 used up, 1 kept, 2 a few uses (uses); max: the most
+/// carried; start: carried when the game starts; keep_level: kept on the next level;
+/// lose_life: lost when the player loses a life
+function item_new(_name)
+{
+    return { name : _name, actor : -1, spr : -1, use : 0, uses : 3, max : 9, start : 0, keep_level : true, lose_life : false };
+}
+
+/// A new recipe: item a + item b make n of item out (-1 = not picked yet); keep_a / keep_b: that one is kept
+function recipe_new()
+{
+    return { a : -1, b : -1, out : -1, keep_a : false, keep_b : false, n : 1 };
+}
+
+function item_names()
+{
+    var _n = [];
+    for (var i = 0; i < array_length(proj.items); i++) { array_push(_n, proj.items[i].name); }
+    return _n;
+}
+
+/// A name no item has yet: ITEM1, ITEM2, ...
+function item_free_name()
+{
+    var _k = array_length(proj.items) + 1;
+    var _taken = true;
+    while (_taken)
+    {
+        _taken = false;
+        for (var i = 0; i < array_length(proj.items); i++)
+        {
+            if (proj.items[i].name == "ITEM" + string(_k)) { _taken = true; }
+        }
+        if (_taken) { _k += 1; }
+    }
+    return "ITEM" + string(_k);
+}
+
+/// A true / false from a file (_def when it is missing)
+function item_bool(_v, _def)
+{
+    if (is_bool(_v)) { return _v; }
+    if (is_numeric(_v)) { return (_v != 0); }
+    return _def;
+}
+
+/// An item number from a file: -1 .. _n - 1
+function item_ref(_v, _n)
+{
+    if (!is_numeric(_v)) { return -1; }
+    var _k = floor(_v);
+    if (_k < 0 || _k >= _n) { return -1; }
+    return _k;
+}
+
+/// Loader: items and recipes (older files have none)
+function items_fix(_p, _raw)
+{
+    var _its = [];
+    var _ri = _raw[$ "items"];
+    if (is_array(_ri))
+    {
+        for (var i = 0; i < min(ITEM_MAX, array_length(_ri)); i++)
+        {
+            var _src = _ri[i];
+            var _it = item_new("ITEM" + string(i + 1));
+            if (is_struct(_src))
+            {
+                if (is_string(_src[$ "name"]) && _src[$ "name"] != "") { _it.name = string_upper(string_copy(_src[$ "name"], 1, ITEM_NAME_LEN)); }
+                _it.actor = item_ref(_src[$ "actor"], array_length(_p.actors));
+                if (is_numeric(_src[$ "spr"])) { _it.spr = clamp(floor(_src[$ "spr"]), -1, SPR_COUNT - 1); }
+                if (is_numeric(_src[$ "use"])) { _it.use = clamp(floor(_src[$ "use"]), 0, 2); }
+                if (is_numeric(_src[$ "uses"])) { _it.uses = clamp(floor(_src[$ "uses"]), 1, ITEM_CARRY_MAX); }
+                if (is_numeric(_src[$ "max"])) { _it.max = clamp(floor(_src[$ "max"]), 1, ITEM_CARRY_MAX); }
+                if (is_numeric(_src[$ "start"])) { _it.start = clamp(floor(_src[$ "start"]), 0, _it.max); }
+                _it.keep_level = item_bool(_src[$ "keep_level"], true);
+                _it.lose_life = item_bool(_src[$ "lose_life"], false);
+            }
+            array_push(_its, _it);
+        }
+    }
+    _p.items = _its;
+    var _ni = array_length(_its);
+    var _rcs = [];
+    var _rr = _raw[$ "recipes"];
+    if (is_array(_rr))
+    {
+        for (var r = 0; r < min(RECIPE_MAX, array_length(_rr)); r++)
+        {
+            var _sr = _rr[r];
+            var _rc = recipe_new();
+            if (is_struct(_sr))
+            {
+                _rc.a = item_ref(_sr[$ "a"], _ni);
+                _rc.b = item_ref(_sr[$ "b"], _ni);
+                _rc.out = item_ref(_sr[$ "out"], _ni);
+                _rc.keep_a = item_bool(_sr[$ "keep_a"], false);
+                _rc.keep_b = item_bool(_sr[$ "keep_b"], false);
+                if (is_numeric(_sr[$ "n"])) { _rc.n = clamp(floor(_sr[$ "n"]), 1, 9); }
+            }
+            array_push(_rcs, _rc);
+        }
+    }
+    _p.recipes = _rcs;
+}
+
+/// Removes item _k: recipes that used it go, the others are renumbered
+function item_delete(_k)
+{
+    array_delete(proj.items, _k, 1);
+    for (var r = array_length(proj.recipes) - 1; r >= 0; r--)
+    {
+        var _rc = proj.recipes[r];
+        if (_rc.a == _k || _rc.b == _k || _rc.out == _k)
+        {
+            array_delete(proj.recipes, r, 1);
+            continue;
+        }
+        if (_rc.a > _k) { _rc.a -= 1; }
+        if (_rc.b > _k) { _rc.b -= 1; }
+        if (_rc.out > _k) { _rc.out -= 1; }
+    }
+}
+
+/// The sprite item _it shows as: its picture, or its actor's sprite (-1 = none)
+function item_sprite(_it)
+{
+    if (_it.spr >= 0) { return _it.spr; }
+    if (_it.actor >= 0 && _it.actor < array_length(proj.actors)) { return actor_preview_sprite(proj.actors[_it.actor]); }
+    return -1;
+}
+
+/// Draws item _k's picture fitted into the _box-pixel square at (_x, _y) ("?" when it has none)
+function item_icon_draw(_k, _x, _y, _box, _alpha)
+{
+    ui_inset(_x, _y, _x + _box, _y + _box, 8);
+    if (_k < 0 || _k >= array_length(proj.items)) { return; }
+    var _s = item_sprite(proj.items[_k]);
+    if (_s < 0 || _s >= SPR_COUNT)
+    {
+        ui_text(_x + _box * 0.5, _y + _box * 0.5, "?", global.TH.text_faint, fa_center, fa_middle, global.f_bold, _alpha);
+        return;
+    }
+    var _sp = proj.sprites[_s];
+    var _sc = (_box - 8) / max(_sp.w, _sp.h);
+    if (_sc >= 1) { _sc = floor(_sc); }
+    draw_sprite_amiga(_s, floor(_x + (_box - _sp.w * _sc) * 0.5), floor(_y + (_box - _sp.h * _sc) * 0.5), _sc, _alpha);
+}
+
+/// The Rules / Items tabs at the top of the Logic page's left panel
+function logic_tabs(_x1, _y1, _x2)
+{
+    if (ui_tab("logic_tab_rules", _x1 + 16, _y1 + 8, 84, 30, "Rules", logic_tab == 0, "Rules|WHEN something happens, DO something: the rules that make your game work."))
+    {
+        logic_tab = 0;
+    }
+    if (ui_tab("logic_tab_items", _x1 + 106, _y1 + 8, 84, 30, "Items", logic_tab == 1, "Items|Things the player picks up and carries - keys, coins, a lantern - and recipes that make one item from two others."))
+    {
+        logic_tab = 1;
+    }
+    draw_line_colour(_x1 + 14, _y1 + 44, _x2 - 14, _y1 + 44, global.TH.panel_edge, global.TH.panel_edge);
+}
+
+/// A recipe slot: the item's picture and a drop-down, and a drop target for an item dragged
+/// from the list. Sets _rc[$ _key]; returns the x just after it.
+function logic_recipe_slot(_id, _rc, _key, _x, _y, _names, _help)
+{
+    var _x2 = _x + 42 + 150;
+    var _k = _rc[$ _key];
+    item_icon_draw(_k, _x, _y - 1, 32, 1);
+    var _nk = ui_dropdown(_id, _x + 40, _y, 152, 30, _names, _k + 1, _help) - 1;
+    set_val(_rc, _key, _nk, _id);
+    if (logic_drag_item >= 0 && ui_hit(_x - 4, _y - 5, _x2 + 4, _y + 35))
+    {
+        ui_rrect_line(_x - 4, _y - 5, _x2 + 4, _y + 35, 10, global.TH.accent, 1, 2);
+        if (ui_released)
+        {
+            set_val(_rc, _key, logic_drag_item, _id + "drop" + string(current_time));
+            logic_drag_item = -1;
+        }
+    }
+    return _x2;
+}
+
+/// The Items tab: the item cards, then the recipes
+function logic_items_draw(_x1, _y1, _x2, _y2)
+{
+    var _ni = array_length(proj.items);
+    var _nrc = array_length(proj.recipes);
+    var _sum = string(_ni) + " item";
+    if (_ni != 1) { _sum += "s"; }
+    _sum += ", " + string(_nrc) + " recipe";
+    if (_nrc != 1) { _sum += "s"; }
+    _sum += ". Drag an item's picture onto a recipe slot.";
+    ui_text(_x1 + 200, _y1 + 15, ui_text_fit(_sum, global.f_small, _x2 - 170 - _x1 - 200), global.TH.text_faint, fa_left, fa_top, global.f_small, 1);
+    if (ui_button("item_add", _x2 - 150, _y1 + 8, 136, 30, "+ Add item", "Add item|A new thing the player can carry. Pick the actor that is picked up as it, and what using it does: used up (a key), kept (a lantern) or a few uses (a torch). Up to " + string(ITEM_MAX) + " items.", BTN_ACCENT))
+    {
+        if (_ni < ITEM_MAX)
+        {
+            undo_mark("itemadd" + string(current_time));
+            array_push(proj.items, item_new(item_free_name()));
+        }
+        else { toast(string(ITEM_MAX) + " items is the limit", 1); }
+    }
+    _ni = array_length(proj.items);
+
+    var _lx = _x1 + 14;
+    var _ly1 = _y1 + 52;
+    var _ly2 = _y2 - 12;
+    var _cw = _x2 - 14 - _lx - 10;
+    var _content = 10;
+    if (_ni == 0) { _content += 70; }
+    else { _content += _ni * (ITEM_CARD_H + 10); }
+    _content += 50;
+    if (_nrc == 0) { _content += 50; }
+    else { _content += _nrc * (RECIPE_ROW_H + 8); }
+    _content += 20;
+
+    var _anames = ["(none - rules give it)"];
+    for (var a = 0; a < array_length(proj.actors); a++) { array_push(_anames, proj.actors[a].name); }
+    var _snames = ["(the actor's sprite)"];
+    var _sl = sprite_names();
+    for (var s = 0; s < array_length(_sl); s++) { array_push(_snames, _sl[s]); }
+    var _inames = ["(pick an item)"];
+    var _il = item_names();
+    for (var n = 0; n < array_length(_il); n++) { array_push(_inames, _il[n]); }
+
+    var _off = ui_scroll_begin("item_list", _lx, _ly1, _x2 - 10, _ly2, _content);
+    var _y = _ly1 + 10 - _off;
+    var _del = -1;
+    if (_ni == 0)
+    {
+        ui_text_wrap(_lx + 20, _y + 10, "No items yet. Items are things the player picks up and carries - a key for a door, coins for a shop, a lantern for a dark cave. Press '+ Add item', or pick an idea on the right.", global.TH.text_dim, _cw - 40, global.f_body, 1);
+        _y += 70;
+    }
+    for (var i = 0; i < _ni; i++)
+    {
+        if (_y + ITEM_CARD_H < _ly1 - 10 || _y > _ly2 + 10)
+        {
+            _y += ITEM_CARD_H + 10;
+            continue;
+        }
+        var _it = proj.items[i];
+        var _iid = "item_" + string(i);
+        var _cx = _lx;
+        ui_rrect(_cx, _y, _cx + _cw, _y + ITEM_CARD_H, 12, global.TH.btn_top, global.TH.panel_bot, 0.9);
+        ui_rrect_line(_cx, _y, _cx + _cw, _y + ITEM_CARD_H, 12, global.TH.panel_edge, 0.6, 1);
+
+        // its picture: drag it onto a recipe slot
+        var _ix = _cx + 14;
+        var _iy = _y + 14;
+        var _ihot = ui_register(_iid + "_icon", _ix, _iy, _ix + 56, _iy + 56, "Drag me|Drag this item's picture onto a recipe slot below to put it in the recipe.");
+        item_icon_draw(i, _ix, _iy, 56, 1);
+        if (_ihot || logic_drag_item == i) { ui_rrect_line(_ix, _iy, _ix + 56, _iy + 56, 8, global.TH.accent, 0.9, 1); }
+        if (_ihot && ui_pressed)
+        {
+            ui_take_click();
+            logic_drag_item = i;
+        }
+
+        // name, the actor picked up as it, its picture
+        var _fx = _cx + 84;
+        var _ry = _y + 10;
+        var _wx = logic_word(_fx, _ry, "Name");
+        set_val(_it, "name", string_upper(ui_textfield(_iid + "_name", _wx, _ry, 130, 30, _it.name, ITEM_NAME_LEN, "Item name|Up to " + string(ITEM_NAME_LEN) + " letters - it is shown in the game's space bar menu, e.g. KEY, COINS, LANTERN.")), _iid + "name");
+        _wx = logic_word(_wx + 140, _ry, "found as");
+        set_val(_it, "actor", ui_dropdown(_iid + "_actor", _wx, _ry, 200, 30, _anames, _it.actor + 1, "Found as|The actor the player picks up as this item: touching it puts the item in the player's pockets and hides the actor. '(none)' = only rules give it out.") - 1, _iid + "actor");
+        _wx = logic_word(_wx + 210, _ry, "picture");
+        set_val(_it, "spr", ui_dropdown(_iid + "_spr", _wx, _ry, 220, 30, _snames, clamp(_it.spr + 1, 0, array_length(_snames) - 1), "Picture|The sprite shown for this item in recipes and the game's menus. '(the actor's sprite)' uses the look of the actor it is found as.") - 1, _iid + "spr");
+        if (ui_button(_iid + "_del", _cx + _cw - 40, _y + 10, 30, 30, "X", "Delete item|Removes this item, and the recipes that use it. You can Undo this.", BTN_DANGER)) { _del = i; }
+
+        // what using it does, how many are carried
+        _ry = _y + 50;
+        _wx = logic_word(_fx, _ry, "When used");
+        set_val(_it, "use", ui_dropdown(_iid + "_use", _wx, _ry, 150, 30, global.ITEM_USE_NAMES, _it.use, "When used|What happens to the item when a rule uses it: Used up (a key opens one door), Kept (a lantern, a pass card) or A few uses (a torch that burns out after some uses)."), _iid + "use");
+        _wx += 160;
+        if (_it.use == 2)
+        {
+            set_val(_it, "uses", ui_stepper(_iid + "_uses", _wx, _ry, 100, _it.uses, 1, ITEM_CARRY_MAX, "Uses|How many times one of these can be used before it is gone."), _iid + "uses");
+            _wx = logic_word(_wx + 108, _ry, "uses");
+        }
+        _wx = logic_word(_wx + 8, _ry, "carry up to");
+        set_val(_it, "max", ui_stepper(_iid + "_max", _wx, _ry, 100, _it.max, 1, ITEM_CARRY_MAX, "Carry up to|The most of this item the player can hold. Picking up more when full leaves it where it is. Hold Shift for steps of 10."), _iid + "max");
+        _wx = logic_word(_wx + 108, _ry, "start with");
+        set_val(_it, "start", ui_stepper(_iid + "_start", _wx, _ry, 100, min(_it.start, _it.max), 0, _it.max, "Start with|How many the player has when the game starts - a sword from the beginning, three bombs."), _iid + "start");
+        if (_it.start > _it.max) { _it.start = _it.max; }
+
+        // what happens to it between levels and lives
+        _ry = _y + 92;
+        set_val(_it, "keep_level", ui_toggle(_iid + "_keep", _fx, _ry + 3, "Kept on the next level", _it.keep_level, "Kept on the next level|On: the player still has it when the next level starts. Off: it is gone at the end of the level (a key for this level's door)."), _iid + "keep");
+        draw_set_font(global.f_body);
+        var _tx = _fx + 54 + ceil(ui_sw("Kept on the next level")) + 24;
+        set_val(_it, "lose_life", ui_toggle(_iid + "_lose", _tx, _ry + 3, "Lost with a life", _it.lose_life, "Lost with a life|On: the player drops all of this item when they lose a life. Off: they keep it."), _iid + "lose");
+        _y += ITEM_CARD_H + 10;
+    }
+    if (_del >= 0)
+    {
+        undo_mark("itemdel" + string(current_time));
+        item_delete(_del);
+        logic_drag_item = -1;
+        _ni = array_length(proj.items);
+        _nrc = array_length(proj.recipes);
+    }
+
+    // recipes
+    ui_heading(_lx + 4, _y + 14, "Recipes - two items make another");
+    if (ui_button("recipe_add", _lx + _cw - 150, _y + 4, 140, 30, "+ Add recipe", "Add recipe|Two items make a third: a stick and a cloth make a torch. Tick 'kept' for an ingredient that is not used up (a knife). What a recipe makes can go into another recipe. Up to " + string(RECIPE_MAX) + " recipes.", BTN_NORMAL))
+    {
+        if (_nrc < RECIPE_MAX)
+        {
+            undo_mark("recipeadd" + string(current_time));
+            array_push(proj.recipes, recipe_new());
+        }
+        else { toast(string(RECIPE_MAX) + " recipes is the limit", 1); }
+    }
+    _nrc = array_length(proj.recipes);
+    _y += 50;
+    if (_nrc == 0)
+    {
+        ui_text_wrap(_lx + 20, _y, "No recipes yet. A recipe makes one item from two others - '+ Add recipe', then drag items onto its slots.", global.TH.text_dim, _cw - 40, global.f_body, 1);
+    }
+    var _rdel = -1;
+    for (var r = 0; r < _nrc; r++)
+    {
+        var _rc = proj.recipes[r];
+        var _rid = "recipe_" + string(r);
+        if (_y + RECIPE_ROW_H >= _ly1 - 10 && _y <= _ly2 + 10)
+        {
+            ui_rrect(_lx, _y, _lx + _cw, _y + RECIPE_ROW_H, 10, global.TH.btn_top, global.TH.panel_bot, 0.9);
+            ui_rrect_line(_lx, _y, _lx + _cw, _y + RECIPE_ROW_H, 10, global.TH.panel_edge, 0.6, 1);
+            var _sy = _y + 9;
+            var _rx = logic_recipe_slot(_rid + "_a", _rc, "a", _lx + 12, _sy, _inames, "First ingredient|One of the two items the recipe takes. Drag an item's picture here, or pick it.");
+            set_val(_rc, "keep_a", ui_toggle(_rid + "_ka", _rx + 10, _sy + 3, "kept", _rc.keep_a, "Kept|On: making the recipe does not use this ingredient up (a knife, a hammer)."), _rid + "ka");
+            _rx = logic_word(_rx + 118, _sy, "+");
+            _rx = logic_recipe_slot(_rid + "_b", _rc, "b", _rx, _sy, _inames, "Second ingredient|The other item the recipe takes. Drag an item's picture here, or pick it.");
+            set_val(_rc, "keep_b", ui_toggle(_rid + "_kb", _rx + 10, _sy + 3, "kept", _rc.keep_b, "Kept|On: making the recipe does not use this ingredient up."), _rid + "kb");
+            _rx = logic_word(_rx + 118, _sy, "make");
+            set_val(_rc, "n", ui_stepper(_rid + "_n", _rx, _sy, 90, _rc.n, 1, 9, "How many|How many of the new item one go makes."), _rid + "n");
+            logic_recipe_slot(_rid + "_out", _rc, "out", _rx + 100, _sy, _inames, "What it makes|The item the player gets. It can be an ingredient of another recipe too.");
+            if (ui_button(_rid + "_del", _lx + _cw - 40, _sy, 30, 30, "X", "Delete recipe|Removes this recipe (its items stay). You can Undo this.", BTN_DANGER)) { _rdel = r; }
+        }
+        _y += RECIPE_ROW_H + 8;
+    }
+    if (_rdel >= 0)
+    {
+        undo_mark("recipedel" + string(current_time));
+        array_delete(proj.recipes, _rdel, 1);
+    }
+    ui_scroll_end("item_list", _lx, _ly1, _x2 - 10, _ly2, _content);
+
+    // the item being dragged follows the mouse
+    if (logic_drag_item >= 0 && logic_drag_item < array_length(proj.items))
+    {
+        item_icon_draw(logic_drag_item, ui_mx - 20, ui_my - 20, 40, 0.85);
+    }
+    if (!ui_held) { logic_drag_item = -1; }
+}
+
+/// Item ideas (right panel on the Items tab): one click adds a ready-made item
+function logic_item_idea(_t)
+{
+    var _need = 1;
+    if (_t == 5) { _need = 3; }
+    if (array_length(proj.items) + _need > ITEM_MAX)
+    {
+        toast(string(ITEM_MAX) + " items is the limit", 1);
+        return;
+    }
+    if (_t == 5 && array_length(proj.recipes) >= RECIPE_MAX)
+    {
+        toast(string(RECIPE_MAX) + " recipes is the limit", 1);
+        return;
+    }
+    undo_mark("itemidea" + string(current_time));
+    var _it;
+    switch (_t)
+    {
+        case 0:
+            _it = item_new("KEY");
+            array_push(proj.items, _it);
+            break;
+        case 1:
+            _it = item_new("LANTERN");
+            _it.use = 1;
+            _it.max = 1;
+            array_push(proj.items, _it);
+            break;
+        case 2:
+            _it = item_new("TORCH");
+            _it.use = 2;
+            _it.uses = 3;
+            _it.max = 3;
+            array_push(proj.items, _it);
+            break;
+        case 3:
+            _it = item_new("COINS");
+            _it.max = 99;
+            array_push(proj.items, _it);
+            break;
+        case 4:
+            _it = item_new("SWORD");
+            _it.use = 1;
+            _it.max = 1;
+            _it.start = 1;
+            array_push(proj.items, _it);
+            break;
+        case 5:
+            var _k = array_length(proj.items);
+            array_push(proj.items, item_new("STICK"));
+            array_push(proj.items, item_new("CLOTH"));
+            _it = item_new("TORCH");
+            _it.use = 2;
+            _it.uses = 3;
+            _it.max = 3;
+            array_push(proj.items, _it);
+            var _rc = recipe_new();
+            _rc.a = _k;
+            _rc.b = _k + 1;
+            _rc.out = _k + 2;
+            array_push(proj.recipes, _rc);
+            break;
+    }
+}
+
+/// The right panel on the Items tab: ready-made items
+function logic_item_ideas_draw(_px, _y1, _x2, _y2)
+{
+    var _rw = _x2 - _px;
+    ui_panel(_px, _y1, _x2, _y2, "Item ideas");
+    var _ry = _y1 + 56;
+    var _intro = "Items are things the player carries. Touching an item's actor picks it up; rules check for an item, or use it, with IF lines.";
+    ui_text_wrap(_px + 20, _ry, _intro, global.TH.text_dim, _rw - 40, global.f_small, 1);
+    draw_set_font(global.f_small);
+    _ry += max(50, ceil(ui_sh_ext(_intro, _rw - 40)) + 14);
+    var _names = ["Key (used up)", "Lantern (kept)", "Torch (3 uses)", "Coins (carry 99)", "Sword (start with one)", "Stick + cloth make a torch"];
+    var _help = [
+        "Key|Adds a KEY that is used up when a rule uses it - one key, one door.",
+        "Lantern|Adds a LANTERN that is kept when used - the player only needs one.",
+        "Torch|Adds a TORCH that burns out after 3 uses.",
+        "Coins|Adds COINS - the player can carry up to 99, to spend in a shop.",
+        "Sword|Adds a SWORD the player has from the start and keeps.",
+        "Stick + cloth|Adds a STICK, a CLOTH and a TORCH, and a recipe: a stick and a cloth make a torch."
+    ];
+    for (var t = 0; t < array_length(_names); t++)
+    {
+        if (ui_button("item_idea_" + string(t), _px + 20, _ry, _rw - 40, 38, _names[t], _help[t], BTN_NORMAL))
+        {
+            logic_item_idea(t);
         }
         _ry += 46;
     }

@@ -323,7 +323,7 @@ function ws_help(_w)
         "Backdrop|Paint the 320 x 256 background picture, choose its colours, or import a picture.",
         "Sprites|Draw up to 128 sprite pictures, 16 x 24 pixels with 3 colours each, for your players, enemies and pickups.",
         "Actors|Place the things that move: the player, enemies and pickups. Choose how each one behaves.",
-        "Logic|Make the game rules in plain English: WHEN something happens, DO something.",
+        "Logic|Make the game rules in plain English: WHEN something happens, DO something. The Items tab holds the things the player carries, and recipes that make one item from two others.",
         "Sound|Design sound effects and instruments for the Amiga's Paula chip and hear them instantly - 8 in ADAM Lite, up to 64 in ADAM Pro, in folders.",
         "Build|Turn your game into a bootable Amiga disk (.ADF) and play it in FS-UAE or on a real Amiga.",
         "Levels|Up to 10 levels, each with its own hills grown from a seed and shaped by hand. Also the level goal counter and the title screen.",
