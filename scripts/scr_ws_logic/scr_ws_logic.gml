@@ -125,6 +125,14 @@ function logic_sentence(_r)
         case 14: _s += "fire is held (every " + string(_r.n) + " 50ths of a second)"; break;
         case 15: _s += "the shoot 'em up map reaches its end"; break;
         case 16: _s += _an + "'s " + string_lower(global.HD_NAMES[clamp(_r.n, 0, 2)]) + " animation ends"; break;
+        case 17: _s += "the player gets a " + item_name(_r.n); break;
+        case 18: _s += "the player uses a " + item_name(_r.n) + " on " + _bn; break;
+    }
+    for (var f = 0; f < array_length(_r.ifs); f++)
+    {
+        if (f == 0) { _s += ", if "; }
+        else { _s += " and "; }
+        _s += logic_if_phrase(_r.ifs[f]);
     }
     _s += ", " + logic_do_phrase(_r, _names, _na);
     for (var m = 0; m < array_length(_r.more); m++)
@@ -202,8 +210,37 @@ function logic_do_phrase(_d, _names, _na)
             var _pln = palette_names();
             _s += "switch to " + _pln[clamp(_d.value, 0, array_length(_pln) - 1)] + " " + global.PAL_FADE_NAMES[pal_fade_index(_d.target)];
             break;
+        case 28: _s += "give the player " + string(max(1, _d.target)) + " " + item_name(_d.value); break;
+        case 29: _s += "take " + string(max(1, _d.target)) + " " + item_name(_d.value) + " away from the player"; break;
+        case 30: _s += "make " + recipe_name(_d.value) + " (if the player has what it takes)"; break;
+        case 31: _s += "the player drops a " + item_name(_d.value); break;
     }
     return _s;
+}
+
+/// What one IF line asks, as words: "the player uses a KEY (used up)"
+function logic_if_phrase(_f)
+{
+    var _in = item_name(_f.item);
+    switch (_f.cond)
+    {
+        case 0: return "the player has a " + _in;
+        case 1:
+            var _how = "";
+            if (_f.item < array_length(proj.items))
+            {
+                switch (proj.items[_f.item].use)
+                {
+                    case 0: _how = " (it is used up)"; break;
+                    case 1: _how = " (it is kept)"; break;
+                    case 2: _how = " (one of its uses goes)"; break;
+                }
+            }
+            return "the player uses a " + _in + _how;
+        case 2: return "the player has no " + _in;
+        case 3: return "the player has at least " + string(_f.n) + " " + _in;
+    }
+    return "?";
 }
 
 // ---------------------------------------------------------------------------
@@ -521,7 +558,63 @@ function logic_do_row(_d, _rid, _x, _y, _pill, _anames, _snames, _xr)
     {
         set_val(_d, "value", ui_colour_drop(_rid + "_col", _dx, _dy, 180, 30, clamp(_d.value, 0, pal_count() - 1), "Colour|The backdrop palette colour that colour 0 (the background and border) changes to."), _rid + "col");
     }
+    if (_act == 28 || _act == 29)
+    {
+        var _ghelp = "How many|How many of the item the player gets. They never carry more than the item's 'carry up to' (Items tab).";
+        if (_act == 29) { _ghelp = "How many|How many of the item the player loses (if they have fewer, they lose what they have) - a toll, a thief, a trade."; }
+        set_val(_d, "target", ui_stepper(_rid + "_cnt", _dx, _dy, 100, clamp(_d.target, 1, ITEM_CARRY_MAX), 1, ITEM_CARRY_MAX, _ghelp), _rid + "cnt");
+        _dx += 110;
+        var _ihelp = "Which item|Make items on the Items tab (Logic page).";
+        set_val(_d, "value", logic_item_drop(_rid + "_item", _dx, _dy, min(190, _xr - _dx - 38), _d.value, _ihelp), _rid + "item");
+    }
+    if (_act == 30)
+    {
+        var _rnames = recipe_names();
+        if (array_length(_rnames) > 0)
+        {
+            set_val(_d, "value", ui_dropdown(_rid + "_rcp", _dx, _dy, max(120, min(300, _xr - _dx)), 30, _rnames, clamp(_d.value, 0, array_length(_rnames) - 1), "Which recipe|If the player has both ingredients, they are used (unless the recipe keeps them) and the player gets what it makes - at a workbench, a cauldron, an anvil. Make recipes on the Items tab."), _rid + "rcp");
+        }
+        else
+        {
+            ui_text(_dx, _dy + 15, ui_text_fit("No recipes yet - make one on the Items tab", global.f_small, _xr - _dx), global.TH.warn, fa_left, fa_middle, global.f_small, 1);
+        }
+    }
+    if (_act == 31)
+    {
+        set_val(_d, "value", logic_item_drop(_rid + "_item", _dx, _dy, min(190, _xr - _dx - 38), _d.value, "Which item|If the player has one, they lose it and its actor (Items tab, 'found as') comes out where the player is, to pick up again."), _rid + "item");
+    }
+}
 
+/// An item drop-down with the item's picture before it; returns the item picked. With no
+/// items yet it says so (and returns _k).
+function logic_item_drop(_id, _x, _y, _w, _k, _help)
+{
+    var _ni = array_length(proj.items);
+    if (_ni == 0)
+    {
+        ui_text(_x, _y + 15, "No items yet - make them on the Items tab", global.TH.warn, fa_left, fa_middle, global.f_small, 1);
+        return _k;
+    }
+    var _kk = clamp(_k, 0, _ni - 1);
+    item_icon_draw(_kk, _x, _y - 1, 32, 1);
+    return ui_dropdown(_id, _x + 38, _y, max(100, _w), 30, item_names(), _kk, _help);
+}
+
+/// One IF line of a rule card: the player [has / uses / has no / has at least n] [item]
+function logic_if_row(_f, _rid, _x, _y, _xr)
+{
+    var _dx = _x;
+    ui_rrect(_dx, _y + 4, _dx + 56, _y + 26, 11, global.TH.warn, merge_colour(global.TH.warn, c_black, 0.3), 1);
+    ui_text(_dx + 28, _y + 15, "IF", make_colour_rgb(40, 28, 8), fa_center, fa_middle, global.f_small, 1);
+    _dx = logic_word(_dx + 66, _y, "the player");
+    set_val(_f, "cond", ui_dropdown(_rid + "_cond", _dx, _y, 150, 30, global.IF_NAMES, _f.cond, "IF|The rule only fires when this is true. Has: the player is carrying one (it stays). Uses: the player must have one, and using it does what the item's 'When used' says - a key is used up, a lantern is kept. Has no: they carry none. Has at least: they carry that many or more (coins for a shop)."), _rid + "cond");
+    _dx += 160;
+    if (_f.cond == 3)
+    {
+        set_val(_f, "n", ui_stepper(_rid + "_n", _dx, _y, 100, _f.n, 1, ITEM_CARRY_MAX, "How many|The fewest the player must carry. Hold Shift for steps of 10."), _rid + "n");
+        _dx += 110;
+    }
+    set_val(_f, "item", logic_item_drop(_rid + "_item", _dx, _y, min(190, _xr - _dx - 38), _f.item, "Which item|Make items on the Items tab (Logic page)."), _rid + "item");
 }
 
 /// The fade drop-down entry for DO 27's frames (the nearest one)
@@ -548,10 +641,10 @@ function logic_word(_x, _y, _text)
     return _x + ceil(ui_sw(_text)) + 8;
 }
 
-/// Height of rule _r's card: 128, plus a row for each AND DO line
+/// Height of rule _r's card: 128, plus a row for each IF and AND DO line
 function logic_card_h(_r)
 {
-    return 128 + array_length(_r.more) * LOGIC_DO_ROW_H;
+    return 128 + (array_length(_r.more) + array_length(_r.ifs)) * LOGIC_DO_ROW_H;
 }
 
 /// One WHEN / DO card. Returns 0, or 1 = delete, 2 = up, 3 = down.
@@ -635,14 +728,37 @@ function logic_rule_card(_r, i, _cx, _cy, _cw, _anames, _snames, _gnames)
             set_val(_r, "n", ui_stepper(_rid + "_n", _wx, _wy, 150, _r.n, 1, 9999, "Score target|The rule fires once when the score reaches this number. Hold Shift for steps of 10."), _rid + "n");
             logic_word(_wx + 158, _wy, "points");
             break;
+        case 17:
+            set_val(_r, "n", logic_item_drop(_rid + "_gi", _wx, _wy, 190, _r.n, "Which item|Fires each time the player gets one of these - picking it up, a Give rule or a recipe. A sound, a message, a door that opens when the last gem is found."), _rid + "n");
+            break;
+        case 18:
+            set_val(_r, "n", logic_item_drop(_rid + "_ui", _wx, _wy, 170, _r.n, "Which item|The player picks it from the space bar menu while touching the actor. Using it does what the item's 'When used' says (Items tab): a key is used up, a lantern is kept."), _rid + "n");
+            _wx = logic_word(_wx + 38 + 178, _wy, "on");
+            set_val(_r, "b", ui_dropdown(_rid + "_b", _wx, _wy, _aw, 30, _anames, _r.b, "Which actor|The actor the player is touching when they use the item - a door, a person to give it to, a lock."), _rid + "b");
+            break;
+    }
+
+    // IF lines (the rule fires only when they are all true)
+    var _ndo = _cy + 50 + array_length(_r.ifs) * LOGIC_DO_ROW_H;
+    var _fdel = -1;
+    for (var f = 0; f < array_length(_r.ifs); f++)
+    {
+        var _fy = _cy + 50 + f * LOGIC_DO_ROW_H;
+        logic_if_row(_r.ifs[f], _rid + "_if" + string(f), _cx + 46, _fy, _cx + _cw - 90);
+        if (ui_button(_rid + "_ifdel" + string(f), _cx + _cw - 80, _fy, 30, 30, "x", "Remove this line|Takes this IF line off the rule. You can Undo this.", BTN_GHOST)) { _fdel = f; }
+    }
+    if (_fdel >= 0)
+    {
+        undo_mark("ruleifdel" + string(current_time));
+        array_delete(_r.ifs, _fdel, 1);
     }
 
     // DO row, then the AND DO lines (each fires with the rule)
-    logic_do_row(_r, _rid, _cx + 46, _cy + 50, "DO", _anames, _snames, _cx + _cw - 50);
+    logic_do_row(_r, _rid, _cx + 46, _ndo, "DO", _anames, _snames, _cx + _cw - 50);
     var _mdel = -1;
     for (var m = 0; m < array_length(_r.more); m++)
     {
-        var _my = _cy + 50 + (m + 1) * LOGIC_DO_ROW_H;
+        var _my = _ndo + (m + 1) * LOGIC_DO_ROW_H;
         logic_do_row(_r.more[m], _rid + "_m" + string(m), _cx + 46, _my, "AND", _anames, _snames, _cx + _cw - 90);
         if (ui_button(_rid + "_mdel" + string(m), _cx + _cw - 80, _my, 30, 30, "x", "Remove this line|Takes this AND DO line off the rule. You can Undo this.", BTN_GHOST)) { _mdel = m; }
     }
@@ -664,6 +780,16 @@ function logic_rule_card(_r, i, _cx, _cy, _cw, _anames, _snames, _gnames)
         {
             undo_mark("ruledoadd" + string(current_time));
             array_push(_r.more, do_new());
+        }
+    }
+    if (array_length(_r.ifs) < RULE_IFS_MAX)
+    {
+        var _ifx = _sx2 - 64;
+        _sx2 = _ifx - 10;
+        if (ui_button(_rid + "_addif", _ifx, _by, 64, 28, "+ IF", "Add an IF line|The rule only fires when the player has (or uses) an item - WHEN the hero touches the door, IF the player uses a KEY, DO hide the door. Make items on the Items tab. Up to " + string(RULE_IFS_MAX) + " IF lines; all must be true.", BTN_GHOST))
+        {
+            undo_mark("ruleifadd" + string(current_time));
+            array_push(_r.ifs, if_new());
         }
     }
     ui_text(_cx + 46, _by + 14, ui_text_fit(logic_sentence(_r), global.f_small, _sx2 - _cx - 46), global.TH.text_faint, fa_left, fa_middle, global.f_small, 1);
@@ -1124,7 +1250,16 @@ function items_fix(_p, _raw)
     _p.recipes = _rcs;
 }
 
-/// Removes item _k: recipes that used it go, the others are renumbered
+/// An item reference after item _k is removed (_gone: what one to _k becomes)
+function item_ref_after_remove(_v, _k, _gone)
+{
+    if (_v == _k) { return _gone; }
+    if (_v > _k) { return _v - 1; }
+    return _v;
+}
+
+/// Removes item _k: recipes and IF lines that used it go, rules that named it name the
+/// first item instead, the others are renumbered
 function item_delete(_k)
 {
     array_delete(proj.items, _k, 1);
@@ -1133,13 +1268,86 @@ function item_delete(_k)
         var _rc = proj.recipes[r];
         if (_rc.a == _k || _rc.b == _k || _rc.out == _k)
         {
-            array_delete(proj.recipes, r, 1);
+            recipe_delete(r);
             continue;
         }
-        if (_rc.a > _k) { _rc.a -= 1; }
-        if (_rc.b > _k) { _rc.b -= 1; }
-        if (_rc.out > _k) { _rc.out -= 1; }
+        _rc.a = item_ref_after_remove(_rc.a, _k, -1);
+        _rc.b = item_ref_after_remove(_rc.b, _k, -1);
+        _rc.out = item_ref_after_remove(_rc.out, _k, -1);
     }
+    for (var i = 0; i < array_length(proj.rules); i++)
+    {
+        var _ru = proj.rules[i];
+        if (_ru.when == 17 || _ru.when == 18) { _ru.n = item_ref_after_remove(_ru.n, _k, 0); }
+        if (do_value_is_item(_ru.act)) { _ru.value = item_ref_after_remove(_ru.value, _k, 0); }
+        for (var m = 0; m < array_length(_ru.more); m++)
+        {
+            var _d = _ru.more[m];
+            if (do_value_is_item(_d.act)) { _d.value = item_ref_after_remove(_d.value, _k, 0); }
+        }
+        for (var f = array_length(_ru.ifs) - 1; f >= 0; f--)
+        {
+            if (_ru.ifs[f].item == _k) { array_delete(_ru.ifs, f, 1); }
+            else { _ru.ifs[f].item = item_ref_after_remove(_ru.ifs[f].item, _k, 0); }
+        }
+    }
+}
+
+/// Removes recipe _r: DO 'Make a recipe' lines that made it make the first recipe instead
+function recipe_delete(_r)
+{
+    array_delete(proj.recipes, _r, 1);
+    for (var i = 0; i < array_length(proj.rules); i++)
+    {
+        var _ru = proj.rules[i];
+        if (_ru.act == 30) { _ru.value = item_ref_after_remove(_ru.value, _r, 0); }
+        for (var m = 0; m < array_length(_ru.more); m++)
+        {
+            if (_ru.more[m].act == 30) { _ru.more[m].value = item_ref_after_remove(_ru.more[m].value, _r, 0); }
+        }
+    }
+}
+
+/// Does rule _r use items (an IF line, WHEN 17 / 18, or a DO line that gives, takes, makes or drops one)?
+function rule_uses_items(_r)
+{
+    if (array_length(_r.ifs) > 0) { return true; }
+    if (_r.when == 17 || _r.when == 18) { return true; }
+    if (_r.act >= 28 && _r.act <= 31) { return true; }
+    for (var m = 0; m < array_length(_r.more); m++)
+    {
+        if (_r.more[m].act >= 28 && _r.more[m].act <= 31) { return true; }
+    }
+    return false;
+}
+
+/// "STICK + CLOTH > TORCH" for each recipe (DO 'Make a recipe')
+function recipe_names()
+{
+    var _n = [];
+    for (var r = 0; r < array_length(proj.recipes); r++) { array_push(_n, recipe_name(r)); }
+    return _n;
+}
+
+function recipe_name(_r)
+{
+    if (_r < 0 || _r >= array_length(proj.recipes)) { return "?"; }
+    var _rc = proj.recipes[_r];
+    var _ni = array_length(proj.items);
+    var _an = "?";
+    var _bn = "?";
+    var _on = "?";
+    if (_rc.a >= 0 && _rc.a < _ni) { _an = proj.items[_rc.a].name; }
+    if (_rc.b >= 0 && _rc.b < _ni) { _bn = proj.items[_rc.b].name; }
+    if (_rc.out >= 0 && _rc.out < _ni) { _on = proj.items[_rc.out].name; }
+    return _an + " + " + _bn + " > " + _on;
+}
+
+/// Item _k's name for rule sentences ("?" when there is no such item)
+function item_name(_k)
+{
+    if (_k < 0 || _k >= array_length(proj.items)) { return "?"; }
+    return proj.items[_k].name;
 }
 
 /// The sprite item _it shows as: its picture, or its actor's sprite (-1 = none)
@@ -1287,7 +1495,7 @@ function logic_items_draw(_x1, _y1, _x2, _y2)
         set_val(_it, "actor", ui_dropdown(_iid + "_actor", _wx, _ry, 200, 30, _anames, _it.actor + 1, "Found as|The actor the player picks up as this item: touching it puts the item in the player's pockets and hides the actor. '(none)' = only rules give it out.") - 1, _iid + "actor");
         _wx = logic_word(_wx + 210, _ry, "picture");
         set_val(_it, "spr", ui_dropdown(_iid + "_spr", _wx, _ry, 220, 30, _snames, clamp(_it.spr + 1, 0, array_length(_snames) - 1), "Picture|The sprite shown for this item in recipes and the game's menus. '(the actor's sprite)' uses the look of the actor it is found as.") - 1, _iid + "spr");
-        if (ui_button(_iid + "_del", _cx + _cw - 40, _y + 10, 30, 30, "X", "Delete item|Removes this item, and the recipes that use it. You can Undo this.", BTN_DANGER)) { _del = i; }
+        if (ui_button(_iid + "_del", _cx + _cw - 40, _y + 10, 30, 30, "X", "Delete item|Removes this item, and the recipes and IF lines that use it. You can Undo this.", BTN_DANGER)) { _del = i; }
 
         // what using it does, how many are carried
         _ry = _y + 50;
@@ -1364,7 +1572,7 @@ function logic_items_draw(_x1, _y1, _x2, _y2)
     if (_rdel >= 0)
     {
         undo_mark("recipedel" + string(current_time));
-        array_delete(proj.recipes, _rdel, 1);
+        recipe_delete(_rdel);
     }
     ui_scroll_end("item_list", _lx, _ly1, _x2 - 10, _ly2, _content);
 

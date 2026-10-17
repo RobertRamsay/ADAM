@@ -21,17 +21,19 @@
 function project_defs_init()
 {
     global.ROLE_NAMES = ["Player (joystick)", "Bouncer (diagonal)", "Patrol left-right", "Patrol up-down", "Chaser (follows player)", "Still (does not move)", "Platform player (walks + jumps)", "Hopper (jumps left and right)", "Faller (drops onto the ground)", "Shot (fired by a Shoot rule)", "Flyer (shoot 'em up enemy)", "Option (flies behind the player)", "Effect (explosion, sparkle)"];
-    global.WHEN_NAMES = ["Actor touches actor", "Fire button is pressed", "Every few seconds", "Score reaches", "Lives run out", "The game starts", "Actor jumps", "A level starts", "Fire is held (stick still)", "Actor is in view", "Player strikes actor", "Thrown or shot actor hits", "Player picks up actor", "Seconds into the level", "Fire is held (auto-fire)", "The map reaches its end", "An animation ends"];
+    global.WHEN_NAMES = ["Actor touches actor", "Fire button is pressed", "Every few seconds", "Score reaches", "Lives run out", "The game starts", "Actor jumps", "A level starts", "Fire is held (stick still)", "Actor is in view", "Player strikes actor", "Thrown or shot actor hits", "Player picks up actor", "Seconds into the level", "Fire is held (auto-fire)", "The map reaches its end", "An animation ends", "Player gets an item", "Player uses an item on"];
     global.DO_NAMES   = ["Add to score", "Lose a life", "Play a sound", "Flash the screen", "Send actor back to start",
                          "Move actor to a random spot", "Hide actor", "Show actor", "Change background colour",
                          "Game over", "You win!", "Speed up actor", "Slow down actor", "Add a life", "Move actor to another actor",
                          "Show actor for a moment", "Make actor safe for a while", "Count towards the level goal",
                          "Play music", "Stop music", "Place a tile (tile world)", "Drop what is carried", "Shoot (fire a shot actor)",
-                         "Power up the player", "Set off an effect", "Spawn actor (split into)", "Play an animation", "Switch palette"];
+                         "Power up the player", "Set off an effect", "Spawn actor (split into)", "Play an animation", "Switch palette",
+                         "Give the player an item", "Take an item away", "Make a recipe", "Drop an item"];
     global.PAL_FADES = [0, 12, 25, 50, 100, 200];   // DO 27 target: frames the fade takes
     global.PAL_FADE_NAMES = ["at once", "fading 1/4 s", "fading 1/2 s", "fading 1 s", "fading 2 s", "fading 4 s"];
     global.HD_NAMES = ["Hit", "Die", "Hit or Die"];       // DO 26 value (0 / 1), WHEN 16 n (0 / 1 / 2 either)
     global.ITEM_USE_NAMES = ["Used up", "Kept", "A few uses"];   // item.use: what using an item does to it
+    global.IF_NAMES = ["has", "uses", "has no", "has at least"];  // IF line cond: check / needs it and uses it / has none / has n or more
     global.AIM_NAMES = ["The way the shooter moves", "Up", "Down", "Left", "Right", "At the player", "Homing missile"];
     global.FIRE_PAT_NAMES = ["The shot's own aim", "At the player", "Three at the player", "Ring of 8", "Fan of three"];
     global.PATTERN_NAMES = ["Straight", "Wave", "Zigzag", "Homing (drifts at the player)", "Moves with the scenery", "Comes in and stays (boss)"];
@@ -213,10 +215,17 @@ function do_value_is_actor(_act)
     return _act == 14 || _act == 22 || _act == 24 || _act == 25;
 }
 
-/// False for the DO actions whose target is not an actor (27 Switch palette: fade frames)
+/// False for the DO actions whose target is not an actor (27 Switch palette: fade frames;
+/// 28 Give / 29 Take an item: how many; 30 Make a recipe, 31 Drop an item: unused)
 function do_target_is_actor(_act)
 {
-    return _act != 27;
+    return _act < 27;
+}
+
+/// Does DO action _act use its value as an item (give, take, drop)?
+function do_value_is_item(_act)
+{
+    return _act == 28 || _act == 29 || _act == 31;
 }
 
 // ---------------------------------------------------------------------------
@@ -561,12 +570,21 @@ function actor_preview_sprite(_ac)
 }
 
 #macro RULE_DOS_MAX 5           // DO lines on one rule card: the DO and up to 4 AND DO lines
+#macro RULE_IFS_MAX 3           // IF lines on one rule card (items the player must have)
 
 function rule_new()
 {
-    // n: seconds / score / tenths held / seconds in view; value: points / sound / colour / actor / song / tile;
-    // more: the AND DO lines (do_new), each runs when the rule fires
-    return { when : 0, a : 0, b : 1, n : 1, act : 0, target : 0, value : 10, group : -1, more : [] };
+    // n: seconds / score / tenths held / seconds in view / item (WHEN 17, 18); value: points / sound /
+    // colour / actor / song / tile / item / recipe; more: the AND DO lines (do_new), each runs when the
+    // rule fires; ifs: the IF lines (if_new) - the rule fires only when they are all true
+    return { when : 0, a : 0, b : 1, n : 1, act : 0, target : 0, value : 10, group : -1, more : [], ifs : [] };
+}
+
+/// An IF line of a rule: the player cond 0 has item / 1 uses item (it must have one, and using it
+/// does what the item's 'When used' says) / 2 has no item / 3 has at least n of item
+function if_new()
+{
+    return { cond : 0, item : 0, n : 1 };
 }
 
 /// An AND DO line of a rule: what it does, the actor it changes and its value
@@ -968,6 +986,23 @@ function project_from_loaded(_raw)
                 }
             }
             _ru.more = _mo;
+            var _ifs = [];                  // IF lines (older files have none)
+            if (is_array(_ru.ifs))
+            {
+                for (var fi = 0; fi < min(RULE_IFS_MAX, array_length(_ru.ifs)); fi++)
+                {
+                    if (!is_struct(_ru.ifs[fi])) { continue; }
+                    var _if = struct_overlay(if_new(), _ru.ifs[fi]);
+                    if (!is_numeric(_if.cond)) { _if.cond = 0; }
+                    if (!is_numeric(_if.item)) { _if.item = 0; }
+                    if (!is_numeric(_if.n)) { _if.n = 1; }
+                    _if.cond = clamp(floor(_if.cond), 0, 3);
+                    _if.item = clamp(floor(_if.item), 0, ITEM_MAX - 1);
+                    _if.n = clamp(floor(_if.n), 1, ITEM_CARRY_MAX);
+                    array_push(_ifs, _if);
+                }
+            }
+            _ru.ifs = _ifs;
             array_push(_rules, _ru);
         }
     }

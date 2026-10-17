@@ -507,11 +507,17 @@ function adam_data_block_raw(_p, _measure = false)
     }
     var _rules = [];
     var _rcut = false;
+    var _ritems = 0;
     for (var ru = 0; ru < array_length(_p.rules); ru++)
     {
         var _rr = _p.rules[ru];
         var _off_grp = group_off_in(_p.groups, _rr.group);     // its group, or a group that is inside, is off
         if (_off_grp) { continue; }
+        if (rule_uses_items(_rr))           // the engine has no items yet (Items, part 3)
+        {
+            _ritems += 1;
+            continue;
+        }
         if (array_length(_rules) >= RULES_DISK_MAX)
         {
             _rcut = true;
@@ -1364,6 +1370,7 @@ function adam_data_block_raw(_p, _measure = false)
             break;
         }
     }
+    if (_ritems > 0) { array_push(_warn, string(_ritems) + " rule(s) use items - items do not reach the Amiga yet, so they are left out of this build."); }
     if (_rcut) { array_push(_warn, "The game has more than " + string(RULES_DISK_MAX) + " rules - the ones after that are left out. Merge some into AND DO lines."); }
     if (_na == 0) { array_push(_warn, "There are no actors yet - the game will just show your backdrop."); }
     if (_player < 0 && _na > 0) { array_push(_warn, "No actor is set as Player, so the joystick will not move anything."); }
