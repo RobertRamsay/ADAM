@@ -1091,11 +1091,11 @@ def jade_serpent():
     p['songs'] = jungle_songs()
     p['level_song'] = [0] * 10
     p.update(title_on=True, title1="JADE SERPENT", title2="PRESS FIRE TO FLY", lev_text="TEMPLE", goal_on=True, goal=1, goal_label="SERPENT")
+    sh.set_depth(p)                     # first, so the HUD's colours are ones the screen shows
     g.dress_ui(p, "Stone", 1, 1, [(1, "SCORE ", 1, 0, 0xffffff, 0x101010, 6), (5, "TEMPLE ", 16, 0, 0xffe070, 0x101010, 1),
                                   (2, "SHIPS ", 31, 0, 0x60f0c0, 0x101010, 1)])
     p['_gk'] = group_key(actors)
     print('jade serpent: %d tiles, %d kept' % (unique, len(tiles)))
-    sh.set_depth(p)
     # named palettes: the second temple by moonlight, and a red alert when the serpent comes
     # (palette_look in scr_project.gml: Night and Red alert, snapped to Amiga 12-bit colours)
     def look(kind):

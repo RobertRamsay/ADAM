@@ -261,21 +261,24 @@ def flow(R, A):
     return [R(when=4, act=9), R(when=5, act=18, value=0), R(when=7, act=16, target=A['Ship']), R(when=7, act=2, value=READY)]
 
 def finish(p, songs_list, title1, title2, hud_style, hud_font):
+    set_depth(p)                        # first, so the HUD's colours are ones the screen shows
     p['songs'] = songs_list
     p['level_song'] = [0] * 10
     p.update(title_on=True, title1=title1, title2=title2, lev_text="STAGE", goal_on=True, goal=1, goal_label="WARP")
     g.dress_ui(p, hud_style, hud_font, 1, [(1, "SCORE ", 1, 0, 0xffffff, 0x101020, 6), (5, "STAGE ", 16, 0, 0xffe040, 0x101020, 1),
                                            (2, "SHIPS ", 31, 0, 0x60e0ff, 0x101020, 1)])
 
+AGA_DEPTH = 6
+
 def aga_cap():
-    # the A1200 versions use 32 colours (16 + 16 in-between shades): the blitter has
-    # BOBs to draw every frame, and 5 bitplanes leave it the time for them
-    g.AGA['max'] = 32
+    # the A1200 versions use 64 colours (16 + 48 in-between shades): the blitter has
+    # BOBs to draw every frame, and 6 bitplanes still leave it the time for them
+    g.AGA['max'] = 1 << AGA_DEPTH
 
 def set_depth(p):
     if p['machine'] == "A1200":
-        p['depth'] = 5
-        assert max(p['pixels']) < 32
+        p['depth'] = AGA_DEPTH
+        assert max(p['pixels']) < (1 << AGA_DEPTH)
     g.AGA['max'] = 128
 
 # ================================================================== NEBULA STRIKE (across)
@@ -485,7 +488,6 @@ def nebula_strike():
              terrain_cols=[15, 14, 4, 5])
     finish(p, songs(), "NEBULA STRIKE", "PRESS FIRE TO LAUNCH", "Metal", 1)
     p['_gk'] = group_key(actors)
-    set_depth(p)
     return p
 
 # ================================================================== STARFIRE (up)
@@ -708,5 +710,4 @@ def starfire():
              hills_on=False, terrain_cols=[4, 5, 4, 6])
     finish(p, songs(), "STARFIRE", "PRESS FIRE TO LAUNCH", "Neon", 4)
     p['_gk'] = group_key(actors)
-    set_depth(p)
     return p
