@@ -98,11 +98,13 @@ def R(when=0,a=0,b=1,n=1,act=0,target=0,value=10): return dict(when=when,a=a,b=b
 
 def merge_rules(p):
     # back-to-back rules with the same WHEN (and group) become one card with AND DO lines (up to 5 DOs)
+    # (and the same IF lines)
     out=[]
+    key=lambda r:(r['when'],r['a'],r['b'],r['n'],r['group'],json.dumps(r.get('ifs',[])))
     for r in p['rules']:
         r.setdefault('more',[])
-        k=(r['when'],r['a'],r['b'],r['n'],r['group'])
-        if out and (out[-1]['when'],out[-1]['a'],out[-1]['b'],out[-1]['n'],out[-1]['group'])==k and len(out[-1]['more'])<4:
+        k=key(r)
+        if out and key(out[-1])==k and len(out[-1]['more'])<4:
             out[-1]['more'].append(dict(act=r['act'],target=r['target'],value=r['value']))
         else: out.append(r)
     p['rules']=out
@@ -215,11 +217,12 @@ def ui_default():
 
 def dress_ui(p,style,font_style,rows,fields,bottom=False):
     # ADAM Pro custom HUD: a 9-slice panel in the game's own colours, a font style and the fields.
-    # fields: (type, label, col, row, colour rgb, shadow rgb or None, digits)
+    # fields: (type, label, col, row, colour rgb, shadow rgb or None, digits[, item (type 7)])
     import ui_ref
     ncol=1<<p['depth']
     near=lambda c: ui_ref.pal_nearest(p['pal'],c,ncol)
-    fl=[dict(type=t,label=lab,col=c,row=r,colour=near(col),shadow=(near(sh) if sh is not None else -1),digits=dg) for t,lab,c,r,col,sh,dg in fields]
+    fl=[dict(type=f[0],label=f[1],col=f[2],row=f[3],colour=near(f[4]),shadow=(near(f[5]) if f[5] is not None else -1),digits=f[6],
+             **({'item':f[7]} if len(f)>7 else {})) for f in fields]
     p['ui']=dict(on=True,bottom=bottom,rows=rows,frame_on=True,style=style,frame=ui_ref.frame_preset(style,p['pal'],ncol),font_style=font_style,font=[],fields=fl)
 
 def canvas(): return Image.new('P',(W,H),0)
@@ -869,7 +872,7 @@ def disk_project(p):
         acts.append(a)
     def rl(d):
         d=dict(d)
-        if d['act']!=27: d['target']=m(d['target'])       # DO 27 Switch palette: fade frames
+        if d['act']<27: d['target']=m(d['target'])        # DO 27 Switch palette: fade frames; 28 / 29 items: how many
         if d['act'] in (14,22,24,25): d['value']=m(d['value'])
         return d
     rules=[]
@@ -937,6 +940,13 @@ def to_builder(p):
             for d in [r]+list(r.get('more',[])):
                 if d['act']==18: d2.discard(d['value'])
         bp['d2songs']=sorted(d2)
+    if p.get('items'):
+        # items (version 13): the actor each is found as becomes a disk actor (scr_adf the same)
+        first=p['_first']
+        def da(i): return first[i] if 0<=i<len(first) and first[i]>=0 else -1
+        bp['items']=[dict(name=it['name'],actor=da(it.get('actor',-1)),use=it.get('use',0),uses=it.get('uses',3),max=it.get('max',9),
+                          start=min(it.get('start',0),it.get('max',9)),keep=it.get('keep_level',True),lose=it.get('lose_life',False)) for it in p['items'][:16]]
+        bp['recipes']=[dict(r) for r in p.get('recipes',[])[:16]]
     if p.get('palettes'):
         # named palettes (version 11), in the machine's colours as scr_adf writes them
         bp['palettes']=[dict(name=pl['name'],cols=[qm(c) if c>=0 else -1 for c in pl['cols']]) for pl in p['palettes'][:8]]
@@ -985,11 +995,12 @@ def preview(p,fn):
 if __name__=='__main__':
     OUT=os.path.join(HERE,'out'); os.makedirs(OUT,exist_ok=True)
     sys.modules['gen_examples']=sys.modules['__main__']   # one AGA state for ex_dig_deep too
-    import ex_dig_deep, ex_shmup, ex_aztec
+    import ex_dig_deep, ex_shmup, ex_aztec, ex_torch
     only=sys.argv[1:]                           # e.g. python gen_examples.py nebula_strike: just that one
     for fn,make in [('gem_hunter',gem_hunter),('deep_dive',deep_dive),('star_catcher',star_catcher),('dodge_ball',dodge_ball),
                     ('firefly_night',firefly_night),('dig_deep',ex_dig_deep.dig_deep),
-                    ('nebula_strike',ex_shmup.nebula_strike),('starfire',ex_shmup.starfire),('jade_serpent',ex_aztec.jade_serpent)]:
+                    ('nebula_strike',ex_shmup.nebula_strike),('starfire',ex_shmup.starfire),('jade_serpent',ex_aztec.jade_serpent),
+                    ('torchlight',ex_torch.torchlight)]:
       if only and fn not in only: continue
       for aga in (False,True):
         # every example also comes as an A1200 version with smooth in-between colours (<name>_a1200.adam)

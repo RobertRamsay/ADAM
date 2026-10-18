@@ -268,8 +268,44 @@ function lessons_init()
                 les_step(WS_BUILD, "build_run", "Build and play", "Build and play, and watch the bar fill while the game loads.", function() { return les_built(); }),
                 les_step(WS_BUILD, "", "Loading in style!", "The picture loads first, then fills its bar as the game comes off the disk. Load the Dig Deep example to see a stone bar under a copper sky.", undefined)
             ]
+        },
+        {
+            name : "Pro - Items: The locked door", short : "Pro Items", mins : 12, pro : true,
+            steps : [
+                les_step(WS_HOME, "", "Lesson 8: Items (ADAM Pro)", "Items are things the player picks up and carries - a key, a stick, a torch. Rules can check for them with IF lines, and recipes make one item from two others. You'll make a key that opens a locked door. A fresh project has been started for you.", undefined),
+                les_step(WS_BACKDROP, "bd_canvas", "A quick backdrop", "Paint a sky and some ground: pick a colour and fill the picture, then box in the ground with a second colour.", function() { return les_bd_at(0, 0) != 0 && les_bd_at(160, 250) != les_bd_at(160, 20); }),
+                les_step(WS_SPRITES, "spr_grid", "Hero, key and door", "Draw your hero in sprite 1, a key in sprite 2 and a door in sprite 3.", function() { return les_spr_px(0) >= 20 && les_spr_px(1) >= 6 && les_spr_px(2) >= 12; }),
+                les_step(WS_ACTORS, "act_add", "Add them", "Add three actors: the hero (the first is the player), then the key and the door - each new actor picks the next sprite.", function() { return array_length(proj.actors) >= 3; }),
+                les_step(WS_ACTORS, "act_role", "Keep them still", "Set the key's and the door's behaviour to Still, and drag them apart on the stage.", function() { return array_length(proj.actors) >= 3 && proj.actors[1].role == 5 && proj.actors[2].role == 5; }),
+                les_step(WS_LOGIC, "logic_tab_items", "The Items tab", "On the Logic page, open the Items tab. This is where the things the player carries live.", function() { return logic_tab == 1; }),
+                les_step(WS_LOGIC, "item_add", "Add an item", "Press '+ Add item', then call it KEY in its name box.", function() { return array_length(proj.items) >= 1; }),
+                les_step(WS_LOGIC, "item_0_actor", "Found as", "Set 'found as' to your key actor. In the game, touching the key puts a KEY in the player's pockets and the key actor disappears.", function() { return array_length(proj.items) >= 1 && proj.items[0].actor >= 0; }),
+                les_step(WS_LOGIC, "item_0_use", "Used up or kept", "'When used' says what happens to an item when a rule uses it. A key is Used up - one key, one door. A lantern would be Kept, a torch might have a few uses.", undefined),
+                les_step(WS_LOGIC, "logic_add", "The door rule", "Back on the Rules tab, add a rule: WHEN the hero touches the door, DO 'Hide actor' - the door.", function() { return les_rule_has(0, 6); }),
+                les_step(WS_LOGIC, "rule_0_addif", "IF the player uses a KEY", "Press '+ IF' on that rule and choose 'uses' and KEY. Now the door only opens for a player with a key - and the key is used up.", function() { return les_rule_if(1); }),
+                les_step(WS_LOGIC, "item_idea_5", "A recipe", "On the Items tab, press 'Stick + cloth make a torch'. It adds three items and a recipe: a stick and a cloth make a torch.", function() { return array_length(proj.recipes) >= 1; }),
+                les_step(WS_ACTORS, "act_add", "A stick and a cloth", "Add two more actors for the stick and the cloth (any sprites will do - draw them if you like) and set them to Still.", function() { return array_length(proj.actors) >= 5; }),
+                les_step(WS_LOGIC, "item_1_actor", "Where they are found", "Set STICK's 'found as' to the stick actor, and CLOTH's to the cloth actor.", function() { return array_length(proj.items) >= 3 && proj.items[1].actor >= 0 && proj.items[2].actor >= 0; }),
+                les_step(WS_LOGIC, "recipe_0_out", "Making things", "In the game the space bar opens a menu in the HUD row: what the player carries ('USE KEY 1' - used on the actor it is touching) and what it can make ('MAKE TORCH'). Left / right choose, fire takes it.", undefined),
+                les_step(WS_BUILD, "build_run", "Build and play", "Build and play. Walk into the door without the key, then pick it up and try again. Collect the stick and the cloth and press space to make a torch.", function() { return les_built(); }),
+                les_step(WS_BUILD, "", "Items unlocked!", "Items, IF lines, recipes and the space bar menu. Load the Torchlight example to see more: the torch lights a dark cave when it is used on the wall bracket (WHEN 'Player uses an item on'), and the HUD shows what the player carries.", undefined)
+            ]
         }
     ];
+}
+
+/// Is there a rule with an IF line of this kind (0 has, 1 uses, 2 has no, 3 has at least)?
+function les_rule_if(_cond)
+{
+    for (var i = 0; i < array_length(proj.rules); i++)
+    {
+        var _r = proj.rules[i];
+        for (var f = 0; f < array_length(_r.ifs); f++)
+        {
+            if (_r.ifs[f].cond == _cond) { return true; }
+        }
+    }
+    return false;
 }
 
 /// How many tiles (after air) have some pixels drawn
