@@ -7185,12 +7185,12 @@ flash_tick:
             beq.s   .restore
             btst    #1,d0
             beq.s   .restore
-            tst.l   H_GRAD(a4)
-            beq.s   .white
-            move.w  #$0fff,d1
+            tst.l   H_GRAD(a4)              ; mid red (white was too harsh)
+            beq.s   .red
+            move.w  #$0800,d1
             bra     build_grad
-.white      moveq   #0,d0
-            move.l  #$ffffff,d1
+.red        moveq   #0,d0
+            move.l  #$880000,d1
             bra     setcol
 .restore    tst.l   H_GRAD(a4)
             beq.s   .plain
