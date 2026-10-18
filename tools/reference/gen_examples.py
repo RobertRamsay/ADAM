@@ -201,12 +201,25 @@ def make_project(name,pal16,img,sprites,actors,rules,sky,hud_col=1,msg_col=14,li
             t=k/AGA['steps']; ca=pal[a]; cb=pal[b]
             pal[16+i]=sum(int(round(((ca>>sh)&255)*(1-t)+((cb>>sh)&255)*t))<<sh for sh in (16,8,0))
         depth=7; machine="A1200"
+    pixels=list(img.getdata())
+    if AGA['on'] and AGA['sky']:
+        # the sky blends go after the in-between colours, one number per colour made
+        cols=[]; num=[]
+        for (c,ly,t) in AGA['sky']:
+            v=rgb_mix(pal[c],sky_rgb(sky,ly),t)
+            if v not in cols: cols.append(v)
+            num.append(cols.index(v))
+        base=16+len(AGA['order'])
+        assert base+len(cols)<=AGA.get('max',128), "%s: too many A1200 colours"%name
+        for k,v in enumerate(cols): pal[base+k]=v
+        pixels=[base+num[v-SKY_PH] if v>=SKY_PH else v for v in pixels]
+        print('%s a1200: %d blends + %d sky blends'%(name,len(AGA['order']),len(cols)))
     spr=[]
     for i in range(32):
         if i<len(sprites):
             n,a,cols=sprites[i]; spr.append(dict(name=n,px=art.px(a),cols=cols))
         else: spr.append(dict(name="Sprite %d"%(i+1),px=[0]*384,cols=[0xffdd33,0xdd3322,0xffffff]))
-    return dict(version=1,name=name,machine=machine,depth=depth,pal=pal,pixels=list(img.getdata()),sprites=spr,actors=actors,rules=rules,
+    return dict(version=1,name=name,machine=machine,depth=depth,pal=pal,pixels=pixels,sprites=spr,actors=actors,rules=rules,
                 sfx=sfx or sfx_list(),lives=lives,show_score=True,show_lives=True,hud_row=0,hud_colour=hud_col,msg_colour=msg_col,
                 over_text=over,win_text=win,solid=[0]*128,levels_on=False,levels=[],terrain_cols=[10,9,11,12],goal_on=False,goal=20,goal_label='GEMS',title_on=False,title1=name.upper(),title2='PRESS FIRE TO START',lev_text='LEVEL',sky_on=True,sky_top=sky[0],sky_mid=sky[1],sky_bot=sky[2],sky_mid_y=sky[3],
                 songs=songs or [],level_song=[-1]*10,ui=ui_default())
@@ -234,11 +247,14 @@ def bayer(x,y): return BAYER8[(y&7)*8+(x&7)]
 # A1200 versions: the same pictures, but each dithered blend between two backdrop colours
 # becomes a real in-between colour (16..127), so gradients are smooth and the 16 base
 # colours keep their numbers. Blends with colour 0 (the copper sky) stay dithered.
-AGA={'on':False,'steps':16,'keys':{},'order':[]}
+AGA={'on':False,'steps':16,'keys':{},'order':[],'sky':[]}
+SKY_PH=128                                   # sky blend placeholders 128.. until make_project numbers them
 def aga_begin():
-    AGA.update(on=True,keys={},order=[])
+    AGA.update(on=True,keys={},order=[],sky=[])
 def aga_end():
     AGA['on']=False
+def aga_free():
+    return AGA.get('max',128)-16-len(AGA['order'])-len(AGA['sky'])
 def dmix(a,b,t,x,y):
     # colour a at t=0 to colour b at t=1, dithered (A1200: an in-between colour)
     if AGA['on'] and a!=b and a!=0 and b!=0:
@@ -248,9 +264,28 @@ def dmix(a,b,t,x,y):
         key=(a,b,k)
         if key in AGA['keys']: return AGA['keys'][key]
         if (b,a,n-k) in AGA['keys']: return AGA['keys'][(b,a,n-k)]
-        if 16+len(AGA['order'])<AGA.get('max',128):
+        if aga_free()>0:
             i=16+len(AGA['order']); AGA['keys'][key]=i; AGA['order'].append(key); return i
     return b if (bayer(x,y)+0.5)/64<t else a
+def skymix(c,t,x,y,steps=6,band=16):
+    # colour c at t=0 fading into the copper sky (colour 0) at t=1, dithered. A1200: the sky
+    # colour of its band of lines mixed in (steps-1 colours a band, no dither) - only for still
+    # pictures, as the sky stays put on the screen
+    if AGA['on'] and c!=0:
+        k=min(steps-1,int(max(0.0,min(1.0,t))*steps))
+        if k<=0: return c
+        key=(c,(y//band)*band+band//2,k/steps)
+        if key in AGA['sky']: return SKY_PH+AGA['sky'].index(key)
+        if aga_free()>0:
+            AGA['sky'].append(key); return SKY_PH+len(AGA['sky'])-1
+    return dmix(c,0,t,x,y)
+def sky_rgb(sky,y):
+    # the copper sky's colour on line y (top, middle, bottom, middle line)
+    a,b,t=sky[0],sky[1],y/sky[3]
+    if y>sky[3]: a,b,t=sky[1],sky[2],(y-sky[3])/(255-sky[3])
+    return rgb_mix(a,b,t)
+def rgb_mix(a,b,t):
+    return sum(int(round(((a>>s)&255)*(1-t)+((b>>s)&255)*t))<<s for s in (16,8,0))
 def ramp(cols,t,x,y):
     # dithered gradient through a list of palette colours, t 0..1
     t=max(0.0,min(1.0,t)); pos=t*(len(cols)-1); k=min(int(pos),len(cols)-2)
@@ -284,7 +319,7 @@ def gem_hunter():
             r=math.hypot(x-sx,y-sy)
             if r<=20: P[x,y]=7
             elif r<=27: P[x,y]=dmix(7,3,(r-20)/7,x,y)
-            elif r<=44: P[x,y]=dmix(3,0,(r-27)/17,x,y)
+            elif r<=44: P[x,y]=skymix(3,(r-27)/17,x,y)
     def ridge(x): return int(130-abs(((x+40)%110)-55)*1.1-10*math.sin(x/17))
     for x in range(320):                                                     # far mountains, lit from the sun
         y=ridge(x); lit=(x+40)%110<55                                        # faces sloping down to the right face the sun
@@ -384,7 +419,7 @@ def deep_dive():
     for x in range(320):
         y=14+round(math.sin(x/9)*2)
         d.line([(x,12),(x,y)],fill=6)
-        for yy in range(y+1,y+7): P[x,yy]=dmix(7,0,(yy-y)/7,x,yy)
+        for yy in range(y+1,y+7): P[x,yy]=skymix(7,(yy-y)/7,x,yy)
     # light rays: slanted beams that fade out with depth (pattern dither over the copper water)
     for k in range(5):
         x0=30+k*70
@@ -392,7 +427,12 @@ def deep_dive():
             w=3+y//30; xs=x0+y//6
             for x in range(xs,min(320,xs+w)):
                 edge=min(x-xs+1,xs+w-x)/2.5                                  # soft sides
-                if (bayer(x,y)+0.5)/64<min(1,edge)*0.5*(1-(y-16)/164): P[x,y]=7
+                a=min(1,edge)*0.5*(1-(y-16)/164)
+                if AGA['on']:                                                # A1200: the beam's colour, no dither
+                    if a<1/12: continue
+                    if P[x,y]==0: P[x,y]=skymix(7,1-a,x,y)
+                    elif P[x,y]<16: P[x,y]=dmix(P[x,y],7,a,x,y)
+                elif (bayer(x,y)+0.5)/64<a: P[x,y]=7
     # sand dunes: a lit crest blending down into darker sand
     for x in range(320):
         y=212+round(math.sin(x/29)*8+math.sin(x/11)*3)
@@ -466,7 +506,9 @@ def star_catcher():
             u=(x-90)/100; v=(y-112)/42
             t=1-math.sqrt(u*u+v*v)
             t+=0.18*math.sin(x/9+y/13)*math.sin(y/7-x/23)                    # wisps
-            if t>0: P[x,y]=ramp([0,8,9,10],t*1.25,x,y)
+            if t>0:
+                if AGA['on'] and t*1.25*3<1: P[x,y]=skymix(8,1-t*1.25*3,x,y,3,128)   # A1200: its edge melts into the sky
+                else: P[x,y]=ramp([0,8,9,10],t*1.25,x,y)
     for i in range(220):
         x=rnd.randint(0,319); y=rnd.randint(14,255); c=rnd.choice([1,15,15,6,14])
         im.putpixel((x,y),c)
@@ -494,7 +536,9 @@ def star_catcher():
             if (x-46)**2+(y-46)**2<=16*16:
                 k=math.hypot(x-56,y-42)/16                                   # distance from the dark disc
                 if k>1: P[x,y]=15
-                elif k>0.7: P[x,y]=dmix(0,15,(k-0.7)/0.3,x,y)
+                elif k>0.7:
+                    if AGA['on']: P[x,y]=skymix(15,1-(k-0.7)/0.3,x,y,3,64)
+                    else: P[x,y]=dmix(0,15,(k-0.7)/0.3,x,y)
     d.ellipse([34,44,40,50],fill=4)
     d.rectangle([0,0,319,11],fill=2)
     ship=[0xe8e8f0,0x3050a0,0xff9020]; rock=[0x9a7a5a,0x4a3a2a,0xc0a080]; ufo=[0x60e060,0x206030,0xb0ffb0]; star=[0xffe040,0xc08000,0xffffff]
@@ -618,7 +662,7 @@ def firefly_night():
             r=math.hypot(x-mx,y-my)
             if r<=15: P[x,y]=9 if math.hypot(x-mx+4,y-my+4)<=12 else dmix(9,10,0.6,x,y)
             elif r<=17: P[x,y]=10
-            elif r<=34: P[x,y]=dmix(15,0,(r-17)/17,x,y)
+            elif r<=34: P[x,y]=skymix(15,(r-17)/17,x,y)
     def far(x): return int(150+math.sin(x/31)*10+math.sin(x/13+1)*4)
     for x in range(320):                                                     # far hills, moonlit edge, darker down
         y=far(x)

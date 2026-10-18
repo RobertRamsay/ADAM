@@ -36,17 +36,23 @@ def tex(base, dark, light, seed, dens=5):
     return px
 
 def blobs(px, col, hi, seed, n=3, r=2.2):
+    import gen_examples as g
+    aga = g.AGA['on']
     rnd = random.Random(seed)
     for _ in range(n):
         cx, cy = rnd.randint(3, 12), rnd.randint(3, 12)
         for y in range(16):
             for x in range(16):
                 d = (x - cx) ** 2 + (y - cy) ** 2
+                if aga and r * r <= d < (r + 0.9) ** 2 and px[y * 16 + x] != col:
+                    px[y * 16 + x] = g.dmix(px[y * 16 + x], col, 0.5, x, y)    # A1200: a soft rim round the ore
                 if d < r * r: px[y * 16 + x] = col
+                if aga and 1.2 <= d < 2.6: px[y * 16 + x] = g.dmix(col, hi, 0.5, x, y)
                 if d < 1.2: px[y * 16 + x] = hi
     return px
 
 def tiles():
+    import gen_examples as ge
     t = []
     def add(name, px, solid=True, dig=True, hard=12, points=0, goal=False, sound=-1, becomes=0, ladder=False):
         t.append(dict(name=name, px=px, solid=solid, dig=dig, hard=hard, points=points, goal=goal, sound=sound, becomes=becomes, ladder=ladder))
@@ -115,6 +121,7 @@ def tiles():
     for y in range(16):
         for x in range(16):
             v = 15 if (x + y) % 3 else 5
+            if ge.AGA['on']: v = ge.dmix(15, 5, 0.25 if (x + 2 * y) % 7 else 0.5, x, y)   # A1200: one shade, a ripple
             if y == 0: v = 12 if (x // 2) % 2 else 7
             elif (x + y * 3) % 11 == 0: v = 12
             wt.append(v)
