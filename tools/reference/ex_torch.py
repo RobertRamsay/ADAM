@@ -154,6 +154,23 @@ def torchlight():
            0x1e4a22, 0x3a8030, 0x7ac040, 0x5a3a20, 0x9a6a38, 0xc03030, 0xffe070, 0x9a7458]
     im = g.canvas(); P = im.load()
     W, H = 320, 256
+    aga = g.AGA['on']
+    sky = [0x181040, 0x7a3a8a, 0xffa050, 160]
+    # A1200: colours that are not a blend of two backdrop colours (the sun's glow fading into
+    # the copper sky) - placeholders 200.. now, given real numbers after the blends
+    cust = []
+
+    def custom(rgb):
+        if rgb not in cust: cust.append(rgb)
+        return 200 + cust.index(rgb)
+
+    def sky_at(y):
+        a, b, t = sky[0], sky[1], y / sky[3]
+        if y > sky[3]: a, b, t = sky[1], sky[2], (y - sky[3]) / (255 - sky[3])
+        return mix(a, b, t)
+
+    def mix(a, b, t):
+        return sum(int(round(((a >> s) & 255) * (1 - t) + ((b >> s) & 255) * t)) << s for s in (16, 8, 0))
     # a low sun behind the far hills, glowing into the copper dusk sky (colour 0)
     sx, sy = 70, 168
     for y in range(110, 206):
@@ -161,7 +178,15 @@ def torchlight():
             r = math.hypot(x - sx, y - sy)
             if r <= 14: P[x, y] = 14
             elif r <= 20: P[x, y] = g.dmix(14, 3, (r - 14) / 6, x, y)
-            elif r <= 40: P[x, y] = g.dmix(3, 0, (r - 20) / 20, x, y)
+            elif r <= 40:
+                t = (r - 20) / 20
+                if aga:
+                    # the orange rim melting into the sky colour of its band of lines (5 steps,
+                    # bands of 16 lines), no dither
+                    k = min(5, int(t * 6))
+                    if k == 0: P[x, y] = 3
+                    else: P[x, y] = custom(mix(pal[3], sky_at((y // 16) * 16 + 8), k / 6))
+                else: P[x, y] = g.dmix(3, 0, t, x, y)
 
     def far(x): return int(176 + math.sin(x / 31) * 9 + math.sin(x / 13 + 1) * 4)
     for x in range(W):                                      # far hills, darker further down
@@ -184,12 +209,12 @@ def torchlight():
         top = cliff(x)
         for y in range(max(12, min(top, GROUND)), GROUND):
             if in_cave(x, y):
-                # the back wall: stone blocks, lit in the middle (no in-between colours, so the
-                # Dark palette blacks out every pixel of it)
+                # the back wall: stone blocks, lit in the middle (A1200: in-between colours of the
+                # two cave colours, which the Dark palette blacks out too)
                 u = abs(x - (cx0 + cx1) / 2) / ((cx1 - cx0) / 2)
                 t = 0.75 - u * 0.6 - (GROUND - y) / 400
                 mortar = (y % 12 == 0) or ((x + (6 if (y // 12) % 2 else 0)) % 14 == 0)
-                P[x, y] = 7 if mortar or (g.bayer(x, y) + 0.5) / 64 > t else 15
+                P[x, y] = 7 if mortar else g.dmix(7, 15, max(0, min(1, t)), x, y)
             else:
                 dep = (y - top) / 60
                 strata = 0.12 * math.sin(y / 5 + x / 40)
@@ -200,7 +225,12 @@ def torchlight():
             for y in range(GROUND - 4, GROUND): P[x, y] = 10 if y < GROUND - 2 else 9
             if rnd.random() < 0.3: P[x, GROUND - 5] = 10
         for y in range(GROUND, H):
-            P[x, y] = 12 if y < GROUND + 3 else (11 if (g.bayer(x, y) + 0.5) / 64 > 0.12 else 12)
+            if y < GROUND + 3: P[x, y] = 12
+            elif aga:
+                # A1200: the top soil darkening smoothly with depth, with soft lumps (no dots)
+                lump = 0.12 * math.sin(x / 9 + y / 5) * math.sin(y / 3 - x / 13)
+                P[x, y] = g.dmix(12, 11, max(0, min(1, (y - GROUND - 3) / 14 + lump)), x, y)
+            else: P[x, y] = 11 if (g.bayer(x, y) + 0.5) / 64 > 0.12 else 12
     for k in range(9):                                      # tufts and stones outside
         x = rnd.randint(10, 190)
         P[x, GROUND - 6] = 10; P[x + 1, GROUND - 7] = 10
@@ -276,6 +306,13 @@ def torchlight():
     p = g.make_project("Torchlight", pal, im, sprites, actors, rules, [0x181040, 0x7a3a8a, 0xffa050, 160], hud_col=1, msg_col=14,
                        sfx=sfx, songs=[tune], win="THE CROWN IS YOURS! - PRESS FIRE", over="THE CAVE WINS - PRESS FIRE")
     p['solid'] = solid
+    if cust:
+        # A1200: the custom colours go after the blends (16 + blends ..), placeholders replaced
+        base = 16 + len(g.AGA['order'])
+        assert base + len(cust) <= 128, "torchlight: too many A1200 colours (%d)" % (base + len(cust))
+        for k, c in enumerate(cust): p['pal'][base + k] = c
+        p['pixels'] = [base + v - 200 if v >= 200 else v for v in p['pixels']]
+        print('torchlight a1200: %d blends + %d glow colours' % (len(g.AGA['order']), len(cust)))
     p.update(title_on=True, title1="TORCHLIGHT", title2="PRESS FIRE TO START")
     torch_spr = 14
     p['items'] = [dict(name="KEY", actor=KEY, spr=-1, use=0, uses=3, max=1, start=0, keep_level=True, lose_life=False),
