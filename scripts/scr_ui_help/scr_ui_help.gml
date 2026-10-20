@@ -54,6 +54,8 @@ function ui_help_draw(_gw, _gh)
     {
         _by = _r[3] + 40;
         if (_by + _bh > _gh - 50) { _by = _r[1] - 40 - _bh; }
+        // a tall, wide control (a whole panel) has room neither below nor above: keep it on screen
+        _by = clamp(_by, 8, _gh - 8 - _bh);
     }
 
     var _sx = _r[2] + 3;
@@ -83,7 +85,7 @@ function ui_help_draw(_gw, _gh)
     ui_rrect(_bx, _by, _bx + _bw, _by + _bh, 12, global.TH.btn_top, global.TH.panel_bot, 0.97 * _a);
     ui_rrect_line(_bx, _by, _bx + _bw, _by + _bh, 12, _col, 0.8 * _a, 1);
     ui_rrect(_bx, _by, _bx + 5, _by + _bh, 3, global.TH.accent, global.TH.accent_dark, _a);
-    ui_text(_bx + 16, _by + 12, help_last_title, c_white, fa_left, fa_top, global.f_bold, _a);
+    ui_text(_bx + 16, _by + 12, ui_text_fit(help_last_title, global.f_bold, _bw - 28), c_white, fa_left, fa_top, global.f_bold, _a);
     ui_text_wrap(_bx + 16, _by + 36, help_last_body, global.TH.text_dim, _bw - 28, global.f_body, _a);
 }
 
@@ -92,16 +94,28 @@ function ui_status_bar(_gw, _gh)
     var _y = _gh - 34;
     ui_rrect(0, _y, _gw, _gh + 20, 0, global.TH.bar_bot, global.TH.bg_bot, 1);
     draw_line_colour(0, _y, _gw, _y, global.TH.panel_edge, global.TH.panel_edge);
-    var _msg = "Hover over anything to see what it does. Press F1 for a tutorial on this page.";
+    var _msg = "Hover over anything to see what it does. F1 starts this page's tutorial.";
     if (ui_help_title != "")
     {
         _msg = ui_help_title;
         if (ui_help_body != "") { _msg += "  -  " + ui_help_body; }
     }
-    ui_text(16, _y + 17, ui_text_fit(_msg, global.f_small, _gw - 480), global.TH.text_dim, fa_left, fa_middle, global.f_small, 1);
     var _dirty = "Saved";
     if (proj_dirty) { _dirty = "Unsaved changes"; }
-    ui_text(_gw - 16, _y + 17, proj.name + "   |   " + machine_cur().name + "   |   " + _dirty, global.TH.text_faint, fa_right, fa_middle, global.f_small, 1);
+    // a long game name (up to 32 letters) is cut so it cannot push the help text away
+    var _right = ui_text_fit(proj.name, global.f_small, 180) + "  |  " + machine_cur().name + "  |  " + _dirty;
+    draw_set_font(global.f_small);
+    var _rw = ui_sw(_right);
+    // memory bar, just left of the project name (shorter in a narrow window)
+    var _mw = 200;
+    if (_gw < 1600) { _mw = 140; }
+    var _mx = _gw - 16 - _rw - 28 - _mw;
+    mem_bar_draw(_mx, _y + 11, _mw, 12);
+    // mem_bar_draw puts its "Memory ... KB (..%)" label 10 px left of the bar: keep clear of the widest one
+    var _mlw = ui_sw("Memory  0000 / 0000 KB  (100%)") + 10;
+    var _help_w = max(120, _mx - _mlw - 16 - 20);
+    ui_text(16, _y + 17, ui_text_fit(_msg, global.f_small, _help_w), global.TH.text_dim, fa_left, fa_middle, global.f_small, 1);
+    ui_text(_gw - 16, _y + 17, _right, global.TH.text_faint, fa_right, fa_middle, global.f_small, 1);
 }
 
 function toast(_text, _kind)
@@ -112,6 +126,17 @@ function toast(_text, _kind)
 function toasts_draw(_gw, _gh)
 {
     var _y = _gh - 50;
+    // stack above a card in the bottom-right corner (tour offer, new version, lesson),
+    // which is drawn later and would hide the toast
+    var _cards = [tut_offer_rect, update_card_rect, les_card_rect];
+    for (var c = 0; c < array_length(_cards); c++)
+    {
+        var _rc = _cards[c];
+        if (_rc[2] > _gw * 0.5 && _rc[1] - 4 < _y)
+        {
+            _y = _rc[1] - 4;
+        }
+    }
     var _dt = delta_time / 1000000;
     for (var i = array_length(toasts) - 1; i >= 0; i--)
     {
@@ -123,8 +148,9 @@ function toasts_draw(_gw, _gh)
             continue;
         }
         _t.a = lerp(_t.a, min(1, _t.life * 2), 0.25);
+        var _txt = ui_text_fit(_t.text, global.f_bold, _gw - 40 - 48);
         draw_set_font(global.f_bold);
-        var _w = ui_sw(_t.text) + 48;
+        var _w = ui_sw(_txt) + 48;
         var _h = 40;
         var _x = _gw - 20 - _w;
         _y -= _h + 8;
@@ -137,7 +163,7 @@ function toasts_draw(_gw, _gh)
         draw_set_alpha(_t.a);
         draw_circle_colour(_x + 18, _y + _h * 0.5, 5, _c, _c, false);
         draw_set_alpha(1);
-        ui_text(_x + 32, _y + _h * 0.5, _t.text, global.TH.text, fa_left, fa_middle, global.f_bold, _t.a);
+        ui_text(_x + 32, _y + _h * 0.5, _txt, global.TH.text, fa_left, fa_middle, global.f_bold, _t.a);
     }
 }
 

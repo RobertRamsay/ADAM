@@ -19,18 +19,32 @@ function build_choose_output()
 
 function build_ws_build(_run)
 {
-    if (out_path == "")
+    // Build & play with no disk chosen yet (an example, a new game): play a test
+    // disk from the temp folder straight away. Build on its own asks where to save.
+    var _path = out_path;
+    var _test = false;
+    if (_path == "")
     {
-        if (!build_choose_output()) { return; }
+        if (_run)
+        {
+            _path = temp_directory + "adam_test.adf";
+            _test = true;
+        }
+        else
+        {
+            if (!build_choose_output()) { return; }
+            _path = out_path;
+        }
     }
     var _t0 = current_time;
-    if (build_adf(out_path))
+    if (build_adf(_path))
     {
         build_log_add(build_msg + "  (" + string(current_time - _t0) + " ms)", 0);
+        if (_test) { build_log_add("Test disk in the temp folder - press Build to save the disk where you want it.", 0); }
         for (var i = 0; i < array_length(build_warnings); i++) { build_log_add(build_warnings[i], 1); }
         toast("Build complete!", 0);
         build_make_listing();
-        if (_run) { launch_fsuae(out_path); }
+        if (_run) { launch_fsuae(_path); }
     }
     else
     {
@@ -90,8 +104,8 @@ function ws_build_draw(_x1, _y1, _x2, _y2)
     var _end = false;
     for (var r = 0; r < _nr; r++)
     {
-        if (proj.rules[r].act == 1) { _lose = true; }
-        if (proj.rules[r].act == 9 || proj.rules[r].act == 10 || proj.rules[r].act == 17) { _end = true; }
+        if (rule_has_act(proj.rules[r], 1)) { _lose = true; }
+        if (rule_has_act(proj.rules[r], 9) || rule_has_act(proj.rules[r], 10) || rule_has_act(proj.rules[r], 17)) { _end = true; }
     }
     var _alloc = actors_alloc_channels();
     var _conf = 0;
@@ -145,19 +159,48 @@ function ws_build_draw(_x1, _y1, _x2, _y2)
         var _gl = false;
         for (var g = 0; g < _nr; g++)
         {
-            if (proj.rules[g].act == 17) { _gl = true; }
+            if (rule_has_act(proj.rules[g], 17)) { _gl = true; }
         }
         if (proj.goal_on && _gl) { array_push(_items, "Collect " + string(proj.goal) + " " + string_lower(proj.goal_label) + " to finish each level"); array_push(_kinds, 0); }
         else { array_push(_items, "Nothing finishes a level - add a 'Count towards the level goal' rule"); array_push(_kinds, 1); }
     }
     if (proj.show_lives && !_lose) { array_push(_items, "Lives are shown but no rule takes a life away"); array_push(_kinds, 1); }
+    if (build_ok && build_disk2 != "") { array_push(_items, "Two disks: " + filename_name(build_disk2) + " holds the level music (FS-UAE puts it in DF1)"); array_push(_kinds, 0); }
+
+    // long checklist lines wrap instead of being cut short; the column scrolls
+    // when it is taller than the panel (a 760-high window, a long checklist)
+    draw_set_font(global.f_body);
+    var _ih = [];
+    var _content = 12 + 22;
+    for (var k0 = 0; k0 < array_length(_items); k0++)
+    {
+        var _ihk = 28;
+        if (ui_sw(_items[k0]) > _fw - 34) { _ihk = max(28, ceil(ui_sh_ext(_items[k0], _fw - 34)) + 10); }
+        array_push(_ih, _ihk);
+        _content += _ihk;
+    }
+    _content += 10 + 54 + 62 + 60 + 36 + 132 + 68 + 20 + 34 + 16 + 12;
+    var _sx1 = _x1 + 2;
+    var _sy1 = _y1 + 46;
+    var _sx2 = _x1 + _lw - 2;
+    var _sy2 = _y2 - 8;
+    var _soff = ui_scroll_begin("build_left", _sx1, _sy1, _sx2, _sy2, _content);
+    _y = _sy1 + 12 - _soff;
+
     ui_heading(_fx, _y, "Checklist");
     _y += 22;
     for (var k = 0; k < array_length(_items); k++)
     {
         draw_check(_fx + 10, _y + 11, _kinds[k]);
-        ui_text(_fx + 30, _y + 11, ui_text_fit(_items[k], global.f_body, _fw - 34), global.TH.text, fa_left, fa_middle, global.f_body, 1);
-        _y += 28;
+        if (_ih[k] > 28)
+        {
+            ui_text_wrap(_fx + 30, _y + 2, _items[k], global.TH.text, _fw - 34, global.f_body, 1);
+        }
+        else
+        {
+            ui_text(_fx + 30, _y + 11, ui_text_fit(_items[k], global.f_body, _fw - 34), global.TH.text, fa_left, fa_middle, global.f_body, 1);
+        }
+        _y += _ih[k];
     }
     _y += 10;
 
@@ -179,6 +222,14 @@ function ws_build_draw(_x1, _y1, _x2, _y2)
         build_choose_output();
     }
     _y += 60;
+    var _two = ui_toggle("build_disk2", _fx, _y, "Level music on a second disk", proj.disk2_music, "Second disk|Puts the songs your levels start with on disk 2 (" + "<name>_disk2.adf, next to the game disk), leaving the game disk more room. The game asks for disk 2 the first time a level needs it - or reads it from a second drive (DF1) - while the level card is up. ADAM does this by itself when a game does not fit on one disk. Songs a 'play music' rule plays stay on the game disk.");
+    if (_two != proj.disk2_music)
+    {
+        proj.disk2_music = _two;
+        proj_dirty = true;
+        mem_mark_stale();
+    }
+    _y += 36;
     // FS-UAE: the user's own copy, ADAM's test copy, or an install found on disk
     ui_heading(_fx, _y, "FS-UAE emulator");
     var _btn_w = 88;
@@ -195,7 +246,7 @@ function ws_build_draw(_x1, _y1, _x2, _y2)
         var _t = 0;
         if (fsuae_dl_total > 0) { _t = clamp(fsuae_dl_got / fsuae_dl_total, 0, 1); }
         ui_rrect(_fx + 4, _y + 22, _fx + 4 + (_row_w - 8) * _t, _y + 46, 6, global.TH.accent2, merge_colour(global.TH.accent2, c_black, 0.3), 1);
-        ui_text(_fx + 10, _y + 34, "Downloading FS-UAE...  " + string(round(_t * 100)) + "%", global.TH.text, fa_left, fa_middle, global.f_small, 1);
+        ui_text(_fx + 10, _y + 34, ui_text_fit("Downloading FS-UAE...  " + string(round(_t * 100)) + "%", global.f_small, _row_w - 20), global.TH.text, fa_left, fa_middle, global.f_small, 1);
     }
     else
     {
@@ -203,9 +254,10 @@ function ws_build_draw(_x1, _y1, _x2, _y2)
         var _scol = global.TH.text_dim;
         if (_src == "")
         {
-            _src = "(not found - Get FS-UAE and install it, or Find it)";
-            if (ADAM_DEV_TOOLS) { _src = "(not found - Get test copy, or Find your own)"; }
-            if (os_type == os_macosx) { _src = "(not yet - Get FS-UAE or Build & play downloads it, about 6 MB)"; }
+            // short: the box is only about 200 px wide at 1280 (the buttons say the rest)
+            _src = "(not found - Get it, or Find it)";
+            if (ADAM_DEV_TOOLS) { _src = "(not found - Get test copy)"; }
+            if (os_type == os_macosx) { _src = "(not yet - Build & play gets it)"; }
             _scol = global.TH.warn;
         }
         ui_text(_fx + 10, _y + 34, ui_text_fit(_src, global.f_small, _row_w - 20), _scol, fa_left, fa_middle, global.f_small, 1);
@@ -318,12 +370,13 @@ function ws_build_draw(_x1, _y1, _x2, _y2)
         }
         ui_register("build_mem", _fx, _y, _fx + _fw, _y + 26, _mem_help);
         _y += 34;
-        ui_text(_fx, _y, "Engine   Backdrop   Sound & music   Other        " + string(ceil(build_size / 1024)) + " KB of about " + string(build_chip_free div 1024) + " KB", global.TH.text_faint, fa_left, fa_top, global.f_small, 1);
+        ui_text(_fx, _y, ui_text_fit("Engine   Backdrop   Sound & music   Other    " + string(ceil(build_size / 1024)) + " KB of about " + string(build_chip_free div 1024) + " KB", global.f_small, _fw), global.TH.text_faint, fa_left, fa_top, global.f_small, 1);
     }
     else
     {
         ui_text(_fx + 12, _y + 13, "Build to see the memory map", global.TH.text_faint, fa_left, fa_middle, global.f_small, 1);
     }
+    ui_scroll_end("build_left", _sx1, _sy1, _sx2, _sy2, _content);
 
     // ---------------- log / listing ----------------
     var _rx = _x1 + _lw + 12;

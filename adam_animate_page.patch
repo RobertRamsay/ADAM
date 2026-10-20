@@ -1,0 +1,1437 @@
+From 27868e48973766c76b4711ea1d75175ce718468f Mon Sep 17 00:00:00 2001
+From: Bob <robertramsay78@googlemail.com>
+Date: Mon, 12 Oct 2026 18:23:55 +0100
+Subject: [PATCH] Pro: Animate page - Idle, Walk, Jump and Fall animations of
+ up to 8 frames
+
+Engine data version 5: actor record 52 bytes with A_ANIM, an animation table
+per actor (4 x 72 bytes: frames, rate, loop / once / ping-pong, frame offsets
+facing right and left). place_sprites picks the animation from what the actor
+is doing (Jump / Fall in the air for platform players, hoppers and fallers)
+and turns the frames round while it moves left. Per-actor engine state grows
+to 64 bytes (v_fofs, v_aset, v_astart, v_face).
+
+The two-frame animation of older projects is written as a table too, so old
+games play as before (checked in FS-UAE with the five examples); a hopper's
+crouch frame stays A_SPR2. The Animate page (Lite sees it with a Pro note)
+picks frames from the sprite bank with a live 50 Hz preview.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01BQFSzGarhTTpK2DHf8XzFr
+---
+ ADAM.yyp                                  |   1 +
+ CLAUDE.md                                 |   9 +-
+ datafiles/engine/engine.bin               | Bin 29336 -> 30576 bytes
+ datafiles/engine/engine.s                 | 171 ++++++---
+ objects/obj_app/Create_0.gml              |   7 +
+ objects/obj_app/Draw_64.gml               |   1 +
+ scripts/scr_adf/scr_adf.gml               | 103 +++++-
+ scripts/scr_project/scr_project.gml       | 143 +++++++-
+ scripts/scr_tutorial/scr_tutorial.gml     |   6 +
+ scripts/scr_ws_actors/scr_ws_actors.gml   |  43 ++-
+ scripts/scr_ws_animate/scr_ws_animate.gml | 411 ++++++++++++++++++++++
+ scripts/scr_ws_animate/scr_ws_animate.yy  |  13 +
+ scripts/scr_ws_shell/scr_ws_shell.gml     |  11 +-
+ tools/reference/adf_reference.py          |  64 +++-
+ tools/reference/gen_examples.py           |   2 +-
+ 15 files changed, 901 insertions(+), 84 deletions(-)
+ create mode 100644 scripts/scr_ws_animate/scr_ws_animate.gml
+ create mode 100644 scripts/scr_ws_animate/scr_ws_animate.yy
+
+diff --git a/ADAM.yyp b/ADAM.yyp
+index cd0f39d..3413325 100644
+--- a/ADAM.yyp
++++ b/ADAM.yyp
+@@ -69,6 +69,7 @@
+     {"id":{"name":"scr_update","path":"scripts/scr_update/scr_update.yy",},},
+     {"id":{"name":"scr_whatsnew","path":"scripts/scr_whatsnew/scr_whatsnew.yy",},},
+     {"id":{"name":"scr_ws_actors","path":"scripts/scr_ws_actors/scr_ws_actors.yy",},},
++    {"id":{"name":"scr_ws_animate","path":"scripts/scr_ws_animate/scr_ws_animate.yy",},},
+     {"id":{"name":"scr_ws_backdrop","path":"scripts/scr_ws_backdrop/scr_ws_backdrop.yy",},},
+     {"id":{"name":"scr_ws_build","path":"scripts/scr_ws_build/scr_ws_build.yy",},},
+     {"id":{"name":"scr_ws_home","path":"scripts/scr_ws_home/scr_ws_home.yy",},},
+diff --git a/CLAUDE.md b/CLAUDE.md
+index e305e90..faeae39 100644
+--- a/CLAUDE.md
++++ b/CLAUDE.md
+@@ -54,14 +54,15 @@ Project data (`proj`) is plain JSON-able structs/arrays; `.adam` files are `json
+ (`vasm -pic`). ADAM never generates code: it appends a **data block** right
+ after `engine.bin`; `boot.s` (bootblock) AllocMem's chip RAM, reads engine+data
+ with trackdisk (showing a copper loading bar) and jumps in. Registers held:
+-`a4` = data block, `a5` = V+128 (variables; per-actor state is a 32-byte record per actor,
++`a4` = data block, `a5` = V+128 (variables; per-actor state is a 64-byte record per actor,
+ `v_xx(a5,Dn)` with Dn = actor << ACTV_SHIFT, up to MAX_ACT = 32 actors), `a6` = $dff000.
+ 
+ **Data block header** (offsets from data start; longs are offsets from data start, 0 = absent):
+-`0 'ADAM' | 4 version | 6 flags (bit0 AGA) | 8 depth | 10 nact | 12 nrule | 14 lives | 16 show score | 18 show lives | 20 hud row | 22 hud colour | 24 msg colour | 26 player actor (-1) | 28 game block | 32 palette | 36 planes (original) | 40 actors | 44 rules | 48 sfx table | 52 game-over text | 56 win text | 60 sprite pair colours | 64 display planes | 68 copper sky (256 x $0RGB; AGA: + 256 words of low nibbles, written with LOCT) | 72 painted ground (320 words) | 76 work planes (backdrop + hills) | 80 music table | 84 second display (BOBs) | 88 BOB background` — header is 92 bytes, version 4. Music table (`M_*`, see docs/MUSIC_CONTRACT.md): nsongs word, 10 level-song bytes ($FF none), then { offset, length } of each ProTracker MOD.
++`0 'ADAM' | 4 version | 6 flags (bit0 AGA) | 8 depth | 10 nact | 12 nrule | 14 lives | 16 show score | 18 show lives | 20 hud row | 22 hud colour | 24 msg colour | 26 player actor (-1) | 28 game block | 32 palette | 36 planes (original) | 40 actors | 44 rules | 48 sfx table | 52 game-over text | 56 win text | 60 sprite pair colours | 64 display planes | 68 copper sky (256 x $0RGB; AGA: + 256 words of low nibbles, written with LOCT) | 72 painted ground (320 words) | 76 work planes (backdrop + hills) | 80 music table | 84 second display (BOBs) | 88 BOB background` — header is 92 bytes, version 5. Music table (`M_*`, see docs/MUSIC_CONTRACT.md): nsongs word, 10 level-song bytes ($FF none), then { offset, length } of each ProTracker MOD.
+ 
+ - BOBs (ADAM Pro): actors with `A_BOB` set are drawn by the blitter into a double-buffered display (`bob_draw` / `bob_flip`), wiped from the background buffer each frame; their images are the sprite's size (16-64 wide in steps of 16, 16-64 high; `A_BSIZE` = BLTSIZE), a mask then depth planes, in the nearest backdrop colours. A sprite bigger than 16 x 24 is always a BOB. Lite puts 8 actors on the disk, Pro up to 32 (actors after the 8th sprite become BOBs).
+-- Actor record = 48 bytes (`A_*` equates; `A_XMAX` / `A_YMAX` = 320 - width / 256 - height are its screen limits), rule record = 16 bytes (`R_*`), sfx entry = 8 bytes (offset, length in words, Paula period), game block = `G_*` (levels, terrain colours, goal, title text, 320 heights per level).
++- Animations (version 5): `A_ANIM` (actor record offset 48) points at a table of 4 x 72 bytes (`AN_*`): Idle, Walk, Jump, Fall - each { frames 1..8, rate, mode 0 loop / 1 once / 2 ping-pong, 0, 8 longs facing right, 8 longs facing left }. ADAM fills empty animations in from the others (`anim_plan` in scr_project = `anim_plan` in adf_reference.py), and writes the two-frame animation of older projects as a table too. `place_sprites` picks the animation (Jump / Fall only for roles 6-8 in the air) and the frame from `v_anim - v_astart`; the frame offset goes in `v_fofs` (bob_draw draws BOBs from it). `A_SPR2` is now only a hopper's crouch frame.
++- Actor record = 52 bytes (`A_*` equates; `A_XMAX` / `A_YMAX` = 320 - width / 256 - height are its screen limits), rule record = 16 bytes (`R_*`), sfx entry = 8 bytes (offset, length in words, Paula period), game block = `G_*` (levels, terrain colours, goal, title text, 320 heights per level).
+ - **Any layout change must be made in three places: `engine.s`, `scr_adf.gml`, `tools/reference/adf_reference.py`.**
+ - Roles: 0 player, 1 bouncer, 2 patrol L-R, 3 patrol U-D, 4 chaser, 5 still, 6 platform player, 7 hopper, 8 faller.
+ - WHEN: 0 touch, 1 fire, 2 every N s, 3 score reaches, 4 lives out, 5 game starts, 6 actor jumps, 7 level starts.
+@@ -113,7 +114,7 @@ the layout changed, examples regenerated if needed, and a short "how to verify"
+ - **Output:** play-in-browser export for itch.io (web Amiga emulator); hard-drive install (WHDLoad slave) and CD32 image; custom boot / loading screens and an intro maker; proper DOS disk so the ADF shows a named disk with an icon on Workbench.
+ - **Workflow:** genre templates and asset packs; play the game inside the editor without FS-UAE; 68000 source export for learning.
+ - Each Pro feature ships with a Pro example game and a Pro lesson (`pro : true` in `global.EXAMPLES` / `les_defs`; Lite shows them with a Pro label).
+-- **Animation editor (next, Pro)** — Bob's spec. Today an actor has two frames (`sprite`, `anim_sprite`, `anim_rate`, `anim_moving`; engine `A_SPR2`). Replace with:
++- **Animation editor (Pro) - done:** Animate page (`scr_ws_animate`, `WS_ANIMATE`), engine data version 5. Still to do from Bob's spec: Hit / Die animations with a DO "play animation" action and a WHEN "animation ends" rule, onion skin in the sprite editor, a Pro example game and a Pro lesson. Original spec: Today an actor has two frames (`sprite`, `anim_sprite`, `anim_rate`, `anim_moving`; engine `A_SPR2`). Replace with:
+   - New **Animate** page (or a tab on Sprites): named animations per actor - Idle, Walk, Jump, Fall, Hit, Die - each a strip of up to 8 frames picked from the sprite bank (128 slots in Pro, `spr_bank_size()`), a rate in 50ths of a second (per animation; per-frame delay optional), and a mode: Loop / Once / Ping-pong. Flip H for facing left (reuse right-facing frames). Live preview at real speed and onion skin in the sprite editor.
+   - Actor state picks the animation automatically: still -> Idle, moving -> Walk, platform player in the air -> Jump / Fall. New rule bits: DO "play animation" (value = animation), WHEN "animation ends".
+   - Data block: actor record gets an offset to an animation table instead of `A_SPR2` (bump version to 5, keep Lite's two-frame actors working by writing them as a 2-frame Loop). Frame images are written once per used sprite slot and shared. Change `engine.s`, `scr_adf.gml` and `adf_reference.py` together; old `.adam` files load with `anim_sprite` turned into a 2-frame Walk/Idle.
+diff --git a/datafiles/engine/engine.bin b/datafiles/engine/engine.bin
+index 80739a5a9c0f0c30e17d3499979c482e589cad9c..a3c06e11a41af13eaea2f08aee70dba98620bb6f 100644
+GIT binary patch
+delta 2290
+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
+
+delta 2035
+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
+
+diff --git a/datafiles/engine/engine.s b/datafiles/engine/engine.s
+index c8a88d4..3eae4c2 100644
+--- a/datafiles/engine/engine.s
++++ b/datafiles/engine/engine.s
+@@ -76,16 +76,28 @@ A_BX1       equ 18
+ A_BY1       equ 20
+ A_SPR       equ 22         ; long offset of this actor's hardware sprite block
+ A_CHAN      equ 26         ; hardware sprite channel 0..7 (colour pair = channel / 2)
+-A_SPR2      equ 28         ; long offset of the second animation frame, 0 = none
+-A_ARATE     equ 32         ; frames per animation frame
+-A_AMODE     equ 34         ; 0 = always animate, 1 = only while moving
++A_SPR2      equ 28         ; long offset of a hopper's crouch frame, 0 = none
++A_ARATE     equ 32         ; (version 4: frames per animation frame - unused since version 5)
++A_AMODE     equ 34         ; (version 4: 1 = only while moving - unused since version 5)
+ A_FROM      equ 36         ; first level this actor appears on (1..10)
+ A_FAST      equ 38         ; +1 speed every N levels, 0 = never
+-A_BOB       equ 40         ; 1 = BOB: A_SPR / A_SPR2 point at BOB images, A_CHAN is unused
++A_BOB       equ 40         ; 1 = BOB: A_SPR / A_SPR2 / frames are BOB images, A_CHAN is unused
+ A_XMAX      equ 42         ; furthest right it goes: 320 - width
+ A_YMAX      equ 44         ; furthest down it goes: 256 - height
+ A_BSIZE     equ 46         ; BOB: BLTSIZE (height << 6) | (width in words + 1), 0 for a sprite
+-ACT_SIZE    equ 48
++A_ANIM      equ 48         ; long offset of the animation table, 0 = one frame (A_SPR)
++ACT_SIZE    equ 52
++
++; animation table (data block version 5): 4 entries - 0 Idle (standing still),
++; 1 Walk (moving), 2 Jump (in the air going up), 3 Fall (in the air coming
++; down; Jump and Fall only for platform players, hoppers and fallers). ADAM
++; fills empty animations in from the others, so every entry has 1..8 frames.
++AN_N        equ 0          ; number of frames 1..8
++AN_RATE     equ 2          ; 50ths of a second per frame (2..30)
++AN_MODE     equ 4          ; 0 = loop, 1 = once (stays on the last), 2 = ping-pong
++AN_RIGHT    equ 8          ; 8 longs: frame offsets facing right
++AN_LEFT     equ 40         ; 8 longs: facing left (the same frames when not flipped)
++ANIM_SIZE   equ 72
+ 
+ ; BOB image (ADAM Pro): 16, 32, 48 or 64 pixels wide (w words) and h lines -
+ ; w x h mask words, then depth x w x h words of bitplanes
+@@ -131,8 +143,8 @@ MOMENT      equ 25         ; 'show for a moment' = half a second
+ ; the field offsets (-128..-97) fit the signed 8-bit displacement and the
+ ; index register carries the actor. Scalars follow the MAX_ACT records.
+ MAX_ACT     equ 32
+-ACTV_SIZE   equ 32
+-ACTV_SHIFT  equ 5
++ACTV_SIZE   equ 64
++ACTV_SHIFT  equ 6
+             rsset   -128
+ v_ax        rs.w 1
+ v_ay        rs.w 1
+@@ -149,7 +161,10 @@ v_gnd       rs.w 1         ; 1 = standing on the ground
+ v_squat     rs.w 1         ; hopper squat countdown before a jump
+ v_life      rs.w 1         ; frames until a 'shown for a moment' actor hides
+ v_safe      rs.w 1         ; frames of flashing immunity left
+-v_frame     rs.w 1         ; BOB animation frame to draw: 0 = A_SPR, 1 = A_SPR2
++v_fofs      rs.l 1         ; offset of the frame shown now (bob_draw draws it)
++v_aset      rs.w 1         ; animation playing: 0 Idle, 1 Walk, 2 Jump, 3 Fall, -1 = none yet
++v_astart    rs.w 1         ; v_anim when it started
++v_face      rs.w 1         ; 1 = facing left
+             rsset   -128+MAX_ACT*ACTV_SIZE
+ v_anim      rs.w 1
+ v_joyprev   rs.w 1
+@@ -606,6 +621,9 @@ init_actors:
+             move.w  #0,v_squat(a5,d5.w)
+             move.w  #0,v_life(a5,d5.w)
+             move.w  #0,v_safe(a5,d5.w)
++            move.l  A_SPR(a2),v_fofs(a5,d5.w)
++            move.w  #-1,v_aset(a5,d5.w)
++            move.w  A_LEFT(a2),v_face(a5,d5.w)
+             lea     ACT_SIZE(a2),a2
+             addq.w  #1,d7
+             cmp.w   d6,d7
+@@ -1052,43 +1070,95 @@ place_sprites:
+             moveq   #0,d7
+ .loop       move.w  d7,d5
+             lsl.w   #ACTV_SHIFT,d5
+-            move.l  A_SPR(a2),d0            ; pick the animation frame
+-            move.l  A_SPR2(a2),d1
+-            beq.s   .frame
+-            cmp.w   #7,A_ROLE(a2)           ; hoppers show frame 2 while squatting
+-            bne.s   .cyc
++            move.w  v_ax(a5,d5.w),d0        ; which way it faces
++            cmp.w   v_px(a5,d5.w),d0
++            beq.s   .faced
++            blt.s   .fleft
++            move.w  #0,v_face(a5,d5.w)
++            bra.s   .faced
++.fleft      move.w  #1,v_face(a5,d5.w)
++.faced      move.l  A_SPR(a2),d0            ; pick the animation frame
++            cmp.w   #7,A_ROLE(a2)           ; hoppers show their crouch frame while squatting
++            bne.s   .anim
++            tst.l   A_SPR2(a2)
++            beq.s   .anim
+             tst.w   v_squat(a5,d5.w)
+-            beq.s   .frame
+-            move.l  d1,d0
+-            bra.s   .frame
+-.cyc
+-            moveq   #0,d2
+-            move.w  v_anim(a5),d2
+-            move.w  A_ARATE(a2),d3
+-            bne.s   .rate
+-            moveq   #8,d3
+-.rate       divu    d3,d2
+-            btst    #0,d2
+-            beq.s   .moving
+-            tst.w   A_AMODE(a2)
+-            beq.s   .two
+-            move.w  v_ax(a5,d5.w),d2        ; only while moving
+-            cmp.w   v_px(a5,d5.w),d2
+-            bne.s   .two
+-            move.w  v_ay(a5,d5.w),d2
+-            cmp.w   v_py(a5,d5.w),d2
+-            beq.s   .frame
+-.two        move.l  d1,d0
+-.moving
++            beq.s   .anim
++            move.l  A_SPR2(a2),d0
++            bra     .frame
++.anim       move.l  A_ANIM(a2),d1
++            beq     .frame                  ; one frame
++            moveq   #0,d2                   ; d2 = animation: 0 Idle
++            move.w  A_ROLE(a2),d3
++            cmp.w   #6,d3                   ; platform player, hopper, faller: Jump / Fall in the air
++            blt.s   .walkq
++            tst.w   v_gnd(a5,d5.w)
++            bne.s   .walkq
++            moveq   #2,d2
++            tst.w   v_vy(a5,d5.w)
++            blt.s   .got
++            moveq   #3,d2
++            bra.s   .got
++.walkq      move.w  v_ax(a5,d5.w),d3
++            cmp.w   v_px(a5,d5.w),d3
++            bne.s   .walk
++            move.w  v_ay(a5,d5.w),d3
++            cmp.w   v_py(a5,d5.w),d3
++            beq.s   .got
++.walk       moveq   #1,d2
++.got        cmp.w   v_aset(a5,d5.w),d2      ; a new animation starts from its first frame
++            beq.s   .same
++            move.w  d2,v_aset(a5,d5.w)
++            move.w  v_anim(a5),v_astart(a5,d5.w)
++.same       mulu    #ANIM_SIZE,d2
++            add.l   d2,d1
++            lea     0(a4,d1.l),a0           ; a0 = this animation
++            moveq   #0,d3
++            move.w  v_anim(a5),d3
++            sub.w   v_astart(a5,d5.w),d3    ; 50ths since it started
++            move.w  AN_RATE(a0),d4
++            bne.s   .rt
++            moveq   #8,d4
++.rt         divu    d4,d3                   ; d3 = steps
++            and.l   #$ffff,d3
++            move.w  AN_N(a0),d4             ; frames 1..8
++            move.w  AN_MODE(a0),d2
++            beq.s   .mloop
++            cmp.w   #1,d2
++            beq.s   .monce
++            cmp.w   #1,d4                   ; ping-pong: 0 1 2 .. n-1 n-2 .. 1
++            ble.s   .mf0
++            move.w  d4,d2
++            add.w   d2,d2
++            subq.w  #2,d2                   ; period 2n - 2
++            divu    d2,d3
++            swap    d3
++            cmp.w   d4,d3
++            blt.s   .mfi
++            neg.w   d3
++            add.w   d2,d3
++            bra.s   .mfi
++.monce      cmp.w   d4,d3                   ; once: stays on the last frame
++            blt.s   .mfi
++            move.w  d4,d3
++            subq.w  #1,d3
++            bra.s   .mfi
++.mloop      divu    d4,d3
++            swap    d3
++            bra.s   .mfi
++.mf0        moveq   #0,d3
++.mfi        and.w   #7,d3
++            lsl.w   #2,d3
++            add.w   #AN_RIGHT,d3
++            tst.w   v_face(a5,d5.w)
++            beq.s   .rgt
++            add.w   #AN_LEFT-AN_RIGHT,d3
++.rgt        move.l  0(a0,d3.w),d0
+ .frame      move.w  v_ax(a5,d5.w),v_px(a5,d5.w)
+             move.w  v_ay(a5,d5.w),v_py(a5,d5.w)
+-            tst.w   A_BOB(a2)               ; BOBs: just note the frame, bob_draw draws it
++            move.l  d0,v_fofs(a5,d5.w)      ; BOBs: just note the frame, bob_draw draws it
++            tst.w   A_BOB(a2)
+             beq.s   .hw
+-            moveq   #0,d1
+-            cmp.l   A_SPR(a2),d0
+-            beq.s   .bf
+-            moveq   #1,d1
+-.bf         move.w  d1,v_frame(a5,d5.w)
+             bra     .next
+ .hw         lea     0(a4,d0.l),a0           ; a0 = sprite block to show
+             move.l  a0,d0                   ; point this channel at it
+@@ -1152,9 +1222,21 @@ hide_sprites:
+             lea     0(a4,d0.l),a0
+             move.l  #0,(a0)
+             move.l  A_SPR2(a2),d0
++            beq.s   .h1
++            lea     0(a4,d0.l),a0
++            move.l  #0,(a0)
++.h1         move.l  A_ANIM(a2),d0           ; and every animation frame
+             beq.s   .h2
++            lea     0(a4,d0.l),a1
++            moveq   #3,d2                   ; 4 animations
++.ha         lea     AN_RIGHT(a1),a3
++            moveq   #15,d1                  ; 8 right + 8 left
++.hf         move.l  (a3)+,d0
+             lea     0(a4,d0.l),a0
+             move.l  #0,(a0)
++            dbf     d1,.hf
++            lea     ANIM_SIZE(a1),a1
++            dbf     d2,.ha
+ .h2
+             lea     ACT_SIZE(a2),a2
+             dbf     d6,.h
+@@ -1272,11 +1354,8 @@ bob_draw:
+             beq.s   .vis
+             btst    #2,v_anim+1(a5)
+             bne     .nxt
+-.vis        move.l  A_SPR(a2),d0
+-            tst.w   v_frame(a5,d5.w)
+-            beq.s   .f
+-            move.l  A_SPR2(a2),d0
+-.f          lea     0(a4,d0.l),a0           ; a0 = mask, the planes follow
++.vis        move.l  v_fofs(a5,d5.w),d0
++            lea     0(a4,d0.l),a0           ; a0 = mask, the planes follow
+             moveq   #0,d0
+             move.w  v_ay(a5,d5.w),d0
+             mulu    #40,d0
+diff --git a/objects/obj_app/Create_0.gml b/objects/obj_app/Create_0.gml
+index e13d006..d7b7c70 100644
+--- a/objects/obj_app/Create_0.gml
++++ b/objects/obj_app/Create_0.gml
+@@ -185,6 +185,12 @@ spr_dirty = array_create(SPR_COUNT, true);
+ 
+ // actors
+ sel_actor = 0;
++
++// Animate page (ADAM Pro)
++anim_sel = 0;               // 0 Idle, 1 Walk, 2 Jump, 3 Fall
++anim_slot = 0;              // selected frame; the one after the last adds a frame
++anim_t0 = 0;                // current_time the preview started
++anim_face_left = false;     // preview the frames turned round
+ act_drag = false;
+ act_drag_dx = 0;
+ act_drag_dy = 0;
+@@ -372,6 +378,7 @@ shot_pages = [
+     { ws : WS_LEVELS,   panel : 0, name : "levels" },
+     { ws : WS_SPRITES,  panel : 0, name : "sprites" },
+     { ws : WS_ACTORS,   panel : 0, name : "actors" },
++    { ws : WS_ANIMATE,  panel : 0, name : "animate" },
+     { ws : WS_LOGIC,    panel : 0, name : "logic" },
+     { ws : WS_SOUND,    panel : 0, name : "sound" },
+     { ws : WS_MUSIC,    panel : 0, name : "music" },
+diff --git a/objects/obj_app/Draw_64.gml b/objects/obj_app/Draw_64.gml
+index e265a61..2c72ef7 100644
+--- a/objects/obj_app/Draw_64.gml
++++ b/objects/obj_app/Draw_64.gml
+@@ -15,6 +15,7 @@ switch (ws)
+     case WS_BACKDROP: ws_backdrop_draw(_x1, _y1, _x2, _y2); break;
+     case WS_SPRITES:  ws_sprites_draw(_x1, _y1, _x2, _y2);  break;
+     case WS_ACTORS:   ws_actors_draw(_x1, _y1, _x2, _y2);   break;
++    case WS_ANIMATE:  ws_animate_draw(_x1, _y1, _x2, _y2);  break;
+     case WS_LOGIC:    ws_logic_draw(_x1, _y1, _x2, _y2);    break;
+     case WS_SOUND:    ws_sound_draw(_x1, _y1, _x2, _y2);    break;
+     case WS_MUSIC:    ws_music_draw(_x1, _y1, _x2, _y2);    break;
+diff --git a/scripts/scr_adf/scr_adf.gml b/scripts/scr_adf/scr_adf.gml
+index b082983..1683729 100644
+--- a/scripts/scr_adf/scr_adf.gml
++++ b/scripts/scr_adf/scr_adf.gml
+@@ -212,6 +212,27 @@ function adf_bob_image(_b, _s, _bw, _bh, _map, _depth)
+     return _o;
+ }
+ 
++/// One picture of an actor: a hardware sprite block, or a BOB image of size _bsz
++function adf_actor_image(_b, _s, _isbob, _bsz, _map, _depth)
++{
++    if (_isbob) { return adf_bob_image(_b, _s, _bsz[0], _bsz[1], _map, _depth); }
++    return adf_sprite_block(_b, _s);
++}
++
++/// A copy of sprite _s turned to face the other way (for actors that face left)
++function spr_flipped(_s)
++{
++    var _c = { name : _s.name, w : _s.w, h : _s.h, px : array_create(_s.w * _s.h, 0), cols : _s.cols };
++    for (var py = 0; py < _s.h; py++)
++    {
++        for (var px = 0; px < _s.w; px++)
++        {
++            _c.px[py * _s.w + px] = _s.px[py * _s.w + (_s.w - 1 - px)];
++        }
++    }
++    return _c;
++}
++
+ /// [width, height] in pixels that actor _a is drawn at as a BOB: its sprite's size
+ function adf_bob_dims(_p, _a)
+ {
+@@ -278,31 +299,88 @@ function adam_data_block(_p, _measure = false)
+     }
+     buf_align(_b, 8);
+ 
+-    // hardware sprite blocks per actor (and a second one when it animates);
+-    // BOBs get BOB images in the nearest backdrop colours instead
++    // hardware sprite blocks per actor (a hopper's crouch frame too); BOBs get
++    // BOB images in the nearest backdrop colours instead. Then every frame of
++    // its animations, once per sprite slot (and once more turned round when it
++    // faces left), and the animation tables (engine.s AN_*).
+     var _spr_off = array_create(_na, 0);
+     var _spr2_off = array_create(_na, 0);
++    var _anim_off = array_create(_na, 0);
++    var _plans = array_create(_na, undefined);
++    var _imgs = array_create(_na, undefined);
+     for (var a = 0; a < _na; a++)
+     {
+         var _si = clamp(_acts[a].sprite, 0, SPR_COUNT - 1);
+         var _ai = _acts[a].anim_sprite;
++        var _map = [0, 0, 0];
++        var _bsz = [SPR_W, SPR_H];
+         if (_bob[a])
+         {
+             var _scol = _p.sprites[_si].cols;
+-            var _map = [pal_nearest(_p, _scol[0], _ncol), pal_nearest(_p, _scol[1], _ncol), pal_nearest(_p, _scol[2], _ncol)];
+-            var _bsz = adf_bob_dims(_p, a);
+-            _spr_off[a] = adf_bob_image(_b, _p.sprites[_si], _bsz[0], _bsz[1], _map, _depth);
+-            if (_ai >= 0 && _ai < SPR_COUNT)
++            _map = [pal_nearest(_p, _scol[0], _ncol), pal_nearest(_p, _scol[1], _ncol), pal_nearest(_p, _scol[2], _ncol)];
++            _bsz = adf_bob_dims(_p, a);
++        }
++        _spr_off[a] = adf_actor_image(_b, _p.sprites[_si], _bob[a], _bsz, _map, _depth);
++        if (_acts[a].role == 7 && _ai >= 0 && _ai < SPR_COUNT)
++        {
++            _spr2_off[a] = adf_actor_image(_b, _p.sprites[_ai], _bob[a], _bsz, _map, _depth);
++        }
++        var _plan = anim_plan(_acts[a]);
++        _plans[a] = _plan;
++        if (!is_undefined(_plan))
++        {
++            // offsets of the images made so far, by sprite slot: [facing right, facing left]
++            var _made = {};
++            _made[$ string(_si)] = [_spr_off[a], -1];
++            for (var e = 0; e < ANIM_COUNT; e++)
+             {
+-                _spr2_off[a] = adf_bob_image(_b, _p.sprites[_ai], _bsz[0], _bsz[1], _map, _depth);
++                var _fr = _plan[e].frames;
++                for (var f = 0; f < array_length(_fr); f++)
++                {
++                    var _fs = clamp(_fr[f], 0, SPR_COUNT - 1);
++                    var _key = string(_fs);
++                    var _got = _made[$ _key];
++                    if (is_undefined(_got))
++                    {
++                        _got = [adf_actor_image(_b, _p.sprites[_fs], _bob[a], _bsz, _map, _depth), -1];
++                        _made[$ _key] = _got;
++                    }
++                    if (_acts[a].anim_flip && _got[1] < 0)
++                    {
++                        var _lft = adf_actor_image(_b, spr_flipped(_p.sprites[_fs]), _bob[a], _bsz, _map, _depth);
++                        _made[$ _key] = [_got[0], _lft];
++                    }
++                }
+             }
++            _imgs[a] = _made;
+         }
+-        else
++    }
++    buf_align(_b, 8);
++    for (var a3 = 0; a3 < _na; a3++)
++    {
++        var _pl = _plans[a3];
++        if (is_undefined(_pl)) { continue; }
++        buf_align(_b, 8);
++        _anim_off[a3] = buffer_tell(_b);
++        for (var e2 = 0; e2 < ANIM_COUNT; e2++)
+         {
+-            _spr_off[a] = adf_sprite_block(_b, _p.sprites[_si]);
+-            if (_ai >= 0 && _ai < SPR_COUNT)
++            var _fr2 = _pl[e2].frames;
++            var _nf = min(ANIM_FRAMES, array_length(_fr2));
++            be16(_b, _nf);
++            be16(_b, _pl[e2].rate);
++            be16(_b, _pl[e2].mode);
++            be16(_b, 0);
++            for (var side = 0; side < 2; side++)
+             {
+-                _spr2_off[a] = adf_sprite_block(_b, _p.sprites[_ai]);
++                for (var k = 0; k < ANIM_FRAMES; k++)
++                {
++                    var _fi = 0;
++                    if (k < _nf) { _fi = k; }
++                    var _im = _imgs[a3][$ string(clamp(_fr2[_fi], 0, SPR_COUNT - 1))];
++                    var _o = _im[0];
++                    if (side == 1 && _acts[a3].anim_flip) { _o = _im[1]; }
++                    be32(_b, _o);
++                }
+             }
+         }
+     }
+@@ -385,6 +463,7 @@ function adam_data_block(_p, _measure = false)
+         be16(_b, BD_W - _aw);            // A_XMAX
+         be16(_b, BD_H - _ah);            // A_YMAX
+         be16(_b, _bsize);                // A_BSIZE
++        be32(_b, _anim_off[a2]);         // A_ANIM
+         if (_alloc.conflict[a2]) { array_push(_warn, "Actor '" + _ac.name + "' shares a sprite colour pair with different colours - it will borrow its partner's colours."); }
+         if (_bob[a2] && !_ac.bob)
+         {
+@@ -561,7 +640,7 @@ function adam_data_block(_p, _measure = false)
+     if (_p.show_score) { _sc = 1; }
+     var _lv = 0;
+     if (_p.show_lives) { _lv = 1; }
+-    poke16(_b, 4, 4);                    // data block version 4: BOBs (H_DISP2, H_BACK, A_BOB) of any size (A_XMAX, A_YMAX, A_BSIZE)
++    poke16(_b, 4, 5);                    // data block version 5: animation tables (A_ANIM); 4: BOBs (H_DISP2, H_BACK, A_BOB) of any size (A_XMAX, A_YMAX, A_BSIZE)
+     poke16(_b, 6, _flags);
+     poke16(_b, 8, _depth);
+     poke16(_b, 10, _na);
+diff --git a/scripts/scr_project/scr_project.gml b/scripts/scr_project/scr_project.gml
+index cc7a5ff..44c6361 100644
+--- a/scripts/scr_project/scr_project.gml
++++ b/scripts/scr_project/scr_project.gml
+@@ -110,15 +110,148 @@ function actor_new(_name)
+         visible : true,
+         start_left : false,
+         start_up : false,
+-        anim_sprite : -1,
++        anim_sprite : -1,       // two-frame animation (and a hopper's crouch frame)
+         anim_rate : 8,
+         anim_moving : false,
++        anims : anims_new(),    // ADAM Pro: Idle, Walk, Jump, Fall (Animate page)
++        anim_flip : false,      // ADAM Pro: frames turn round when it moves left
+         from_level : 1,
+         faster_every : 0,
+         bob : false             // ADAM Pro: drawn by the blitter instead of a hardware sprite
+     };
+ }
+ 
++// ---------------------------------------------------------------------------
++// Animations (ADAM Pro, Animate page). Each actor has 4: Idle (standing
++// still), Walk (moving), Jump and Fall (in the air - platform players,
++// hoppers and fallers). Each is up to ANIM_FRAMES sprite-bank slots, a speed
++// in 50ths of a second per frame and a mode. Empty ones borrow from the
++// others when the disk is built (anim_plan, same as adf_reference.py).
++// ---------------------------------------------------------------------------
++#macro ANIM_COUNT 4
++#macro ANIM_FRAMES 8
++
++function anim_new()
++{
++    return { frames : [], rate : 8, mode : 0 };      // mode 0 loop, 1 once, 2 ping-pong
++}
++
++function anims_new()
++{
++    var _a = [];
++    for (var i = 0; i < ANIM_COUNT; i++) { array_push(_a, anim_new()); }
++    return _a;
++}
++
++/// Makes a loaded anims array safe: 4 entries, up to 8 frames each, values in range
++function anims_from_loaded(_raw)
++{
++    var _out = anims_new();
++    if (!is_array(_raw)) { return _out; }
++    for (var i = 0; i < min(ANIM_COUNT, array_length(_raw)); i++)
++    {
++        var _e = _raw[i];
++        if (!is_struct(_e)) { continue; }
++        var _fr = _e[$ "frames"];
++        if (is_array(_fr))
++        {
++            for (var k = 0; k < min(ANIM_FRAMES, array_length(_fr)); k++)
++            {
++                if (is_numeric(_fr[k])) { array_push(_out[i].frames, clamp(floor(_fr[k]), 0, SPR_COUNT - 1)); }
++            }
++        }
++        var _r = _e[$ "rate"];
++        if (is_numeric(_r)) { _out[i].rate = clamp(floor(_r), 2, 30); }
++        var _m = _e[$ "mode"];
++        if (is_numeric(_m)) { _out[i].mode = clamp(floor(_m), 0, 2); }
++    }
++    return _out;
++}
++
++/// True when the actor has any Animate-page frames (they replace the two-frame animation)
++function anims_used(_ac)
++{
++    for (var i = 0; i < ANIM_COUNT; i++)
++    {
++        if (array_length(_ac.anims[i].frames) > 0) { return true; }
++    }
++    return false;
++}
++
++/// Starts the Animate page from the actor's two-frame animation, if it has one
++function anims_seed_from_legacy(_ac)
++{
++    if (anims_used(_ac)) { return; }
++    if (_ac.anim_sprite < 0 || _ac.role == 7) { return; }
++    var _r = clamp(_ac.anim_rate, 2, 30);
++    _ac.anims[1].frames = [_ac.sprite, _ac.anim_sprite];
++    _ac.anims[1].rate = _r;
++    if (_ac.anim_moving) { _ac.anims[0].frames = [_ac.sprite]; }
++    else { _ac.anims[0].frames = [_ac.sprite, _ac.anim_sprite]; }
++    _ac.anims[0].rate = _r;
++}
++
++/// What the disk plays: undefined for one frame, else 4 x { frames, rate, mode }
++/// with empty animations filled in from the others. Must match anim_plan in
++/// tools/reference/adf_reference.py.
++function anim_plan(_ac)
++{
++    if (anims_used(_ac))
++    {
++        var _e = [];
++        for (var i = 0; i < ANIM_COUNT; i++)
++        {
++            var _src = _ac.anims[i];
++            if (array_length(_src.frames) > 0) { array_push(_e, { frames : _src.frames, rate : clamp(_src.rate, 2, 30), mode : clamp(_src.mode, 0, 2) }); }
++            else { array_push(_e, undefined); }
++        }
++        if (is_undefined(_e[0]))
++        {
++            if (!is_undefined(_e[1])) { _e[0] = _e[1]; }
++            else { _e[0] = { frames : [_ac.sprite], rate : 8, mode : 0 }; }
++        }
++        if (is_undefined(_e[1])) { _e[1] = _e[0]; }
++        if (is_undefined(_e[2])) { _e[2] = _e[1]; }
++        if (is_undefined(_e[3])) { _e[3] = _e[2]; }
++        return _e;
++    }
++    if (_ac.anim_sprite >= 0 && _ac.role != 7)
++    {
++        var _rt = clamp(_ac.anim_rate, 2, 30);
++        var _both = { frames : [_ac.sprite, _ac.anim_sprite], rate : _rt, mode : 0 };
++        var _idle = _both;
++        if (_ac.anim_moving) { _idle = { frames : [_ac.sprite], rate : _rt, mode : 0 }; }
++        return [_idle, _both, _both, _both];
++    }
++    return undefined;
++}
++
++/// Frame number 0..n-1 of an animation _ticks 50ths of a second after it started (as engine.s does)
++function anim_frame_at(_e, _ticks)
++{
++    var _n = array_length(_e.frames);
++    if (_n <= 1) { return 0; }
++    var _steps = floor(_ticks / max(2, _e.rate));
++    if (_e.mode == 1) { return min(_steps, _n - 1); }
++    if (_e.mode == 2)
++    {
++        var _per = 2 * _n - 2;
++        var _m = _steps mod _per;
++        if (_m >= _n) { return _per - _m; }
++        return _m;
++    }
++    return _steps mod _n;
++}
++
++/// The sprite an actor shows on the Actors page stage right now (its idle animation)
++function actor_preview_sprite(_ac)
++{
++    var _plan = anim_plan(_ac);
++    if (is_undefined(_plan)) { return _ac.sprite; }
++    var _e = _plan[0];
++    return _e.frames[anim_frame_at(_e, current_time div 20)];
++}
++
+ function rule_new()
+ {
+     return { when : 0, a : 0, b : 1, n : 1, act : 0, target : 0, value : 10, group : -1 };
+@@ -271,6 +404,13 @@ function project_from_loaded(_raw)
+         for (var k = 0; k < min(ACT_MAX_ALL, array_length(_la)); k++)
+         {
+             var _lact = struct_overlay(actor_new("Actor"), _la[k]);
++            _lact.anims = anims_from_loaded(_lact.anims);
++            if (!is_bool(_lact.anim_flip))
++            {
++                var _fv = false;
++                if (is_numeric(_lact.anim_flip)) { _fv = (_lact.anim_flip != 0); }
++                _lact.anim_flip = _fv;
++            }
+             if (!is_bool(_lact.bob))
+             {
+                 var _bv = false;
+@@ -661,6 +801,7 @@ function undo_keys(_ws)
+         case WS_LOGIC:    return ["rules", "groups"];
+         case WS_SOUND:    return ["sfx"];
+         case WS_MUSIC:    return ["songs", "level_song"];
++        case WS_ANIMATE:  return ["actors"];
+     }
+     return [];
+ }
+diff --git a/scripts/scr_tutorial/scr_tutorial.gml b/scripts/scr_tutorial/scr_tutorial.gml
+index 2f83a68..04faf02 100644
+--- a/scripts/scr_tutorial/scr_tutorial.gml
++++ b/scripts/scr_tutorial/scr_tutorial.gml
+@@ -47,6 +47,12 @@ function tut_init()
+         tut_step(WS_ACTORS, "act_speed", "Speed", "How fast this actor moves. Try 1 or 2 for enemies to start with - you can always speed them up with a rule."),
+         tut_step(WS_ACTORS, "act_vis", "Hidden actors", "Actors can start hidden and appear later using the 'Show actor' action."),
+         tut_step(WS_ACTORS, "act_anim", "Animation", "Give an actor a second sprite and it flips between the two - a walk cycle, a flapping fin or a twinkling star. 'Only when moving' is perfect for walking."),
++        // ---------- ANIMATE (ADAM Pro) ----------
++        tut_step(WS_ANIMATE, "anim_tab_0", "Four animations", "Every actor can have an Idle, Walk, Jump and Fall animation. The Amiga picks the right one by itself: Idle while it stands still, Walk while it moves, Jump and Fall in the air."),
++        tut_step(WS_ANIMATE, "anim_slot_0", "Frames", "Up to 8 frames each. Click a frame - or the + after the last one - then click sprites in the bank to fill it in."),
++        tut_step(WS_ANIMATE, "anim_bank_0", "The sprite bank", "All your sprites, ready to use as frames. Draw them on the Sprites page; ADAM Pro has room for 128."),
++        tut_step(WS_ANIMATE, "anim_rate", "Speed and style", "How long each frame stays on screen, and whether it loops, plays once or ping-pongs back and forth."),
++        tut_step(WS_ANIMATE, "anim_flip", "Facing left", "Draw your frames facing right and switch this on: when the actor moves left, the Amiga shows them turned round."),
+         // ---------- LOGIC ----------
+         tut_step(WS_LOGIC, "", "Rules make it a game", "Each rule is a sentence: WHEN something happens, DO something. For example: WHEN Hero touches Gem, DO add 10 to the score."),
+         tut_step(WS_LOGIC, "logic_add", "Add a rule", "Press this to add a new rule, then change its parts with the drop-down menus."),
+diff --git a/scripts/scr_ws_actors/scr_ws_actors.gml b/scripts/scr_ws_actors/scr_ws_actors.gml
+index 5f918b7..2994890 100644
+--- a/scripts/scr_ws_actors/scr_ws_actors.gml
++++ b/scripts/scr_ws_actors/scr_ws_actors.gml
+@@ -325,8 +325,7 @@ function ws_actors_draw(_x1, _y1, _x2, _y2)
+         var _dy = _fy + _ac2.y * _scale;
+         var _alpha = 1;
+         if (!_ac2.visible) { _alpha = 0.4; }
+-        var _frame_spr = _ac2.sprite;
+-        if (_ac2.anim_sprite >= 0 && !_ac2.anim_moving && ((current_time div (_ac2.anim_rate * 20)) mod 2) == 1) { _frame_spr = _ac2.anim_sprite; }
++        var _frame_spr = actor_preview_sprite(_ac2);
+         draw_sprite_amiga_cols(_frame_spr, _dx, _dy, _scale, actor_cols_from(_alloc, d), _alpha);
+     }
+     for (var d2 = 0; d2 < _na; d2++)
+@@ -438,21 +437,37 @@ function ws_actors_draw(_x1, _y1, _x2, _y2)
+         _y += 62;
+     }
+ 
++    // animations made on the Animate page replace the two-frame animation
++    if (anims_used(_s))
++    {
++        var _nfr = 0;
++        for (var ae = 0; ae < ANIM_COUNT; ae++) { _nfr += array_length(_s.anims[ae].frames); }
++        ui_heading(_fx2, _y, "Animation");
++        ui_text(_fx2, _y + 26, ui_text_fit("Made on the Animate page (" + string(_nfr) + " frames)", global.f_body, _fw2), global.TH.text_dim, fa_left, fa_middle, global.f_body, 1);
++        if (ui_button("act_goanim", _fx2, _y + 42, _fw2, 32, "Open the Animate page", "Animate page|Idle, walk, jump and fall animations of up to 8 frames each, for this actor.", BTN_NORMAL))
++        {
++            ws_set(WS_ANIMATE);
++        }
++        _y += 84;
++    }
+     // two-frame animation
+-    ui_heading(_fx2, _y, "Animation (second frame)");
+-    var _anames = ["(none - one frame)"];
+-    var _sn = sprite_names();
+-    for (var an = 0; an < array_length(_sn); an++) { array_push(_anames, _sn[an]); }
+-    var _na2 = ui_dropdown("act_anim", _fx2, _y + 18, _fw2, 32, _anames, _s.anim_sprite + 1, "Animation|Pick a second sprite and the actor flips between the two - a walk cycle, flapping wings or a twinkle. Use the same colours as the first frame (copy and paste on the Sprites page, then change a few pixels).") - 1;
+-    set_val(_s, "anim_sprite", _na2, "actanim");
+-    _y += 58;
+-    if (_s.anim_sprite >= 0)
++    else
+     {
+-        ui_heading(_fx2, _y, "Frames each");
+-        set_val(_s, "anim_rate", ui_stepper("act_arate", _fx2, _y + 18, _half, _s.anim_rate, 2, 30, "Animation speed|How many 50ths of a second each frame stays on screen. 6 is a brisk walk, 15 a slow blink."), "actarate");
++        ui_heading(_fx2, _y, "Animation (second frame)");
++        var _anames = ["(none - one frame)"];
++        var _sn = sprite_names();
++        for (var an = 0; an < array_length(_sn); an++) { array_push(_anames, _sn[an]); }
++        var _na2 = ui_dropdown("act_anim", _fx2, _y + 18, _fw2, 32, _anames, _s.anim_sprite + 1, "Animation|Pick a second sprite and the actor flips between the two - a walk cycle, flapping wings or a twinkle. Use the same colours as the first frame (copy and paste on the Sprites page, then change a few pixels).") - 1;
++        set_val(_s, "anim_sprite", _na2, "actanim");
+         _y += 58;
+-        set_val(_s, "anim_moving", ui_toggle("act_amove", _fx2, _y, "Only when moving", _s.anim_moving, "Only when moving|The actor shows its first frame while standing still - perfect for walk cycles."), "actamove");
+-        _y += 34;
++        if (_s.anim_sprite >= 0)
++        {
++            ui_heading(_fx2, _y, "Frames each");
++            set_val(_s, "anim_rate", ui_stepper("act_arate", _fx2, _y + 18, _half, _s.anim_rate, 2, 30, "Animation speed|How many 50ths of a second each frame stays on screen. 6 is a brisk walk, 15 a slow blink."), "actarate");
++            _y += 58;
++            set_val(_s, "anim_moving", ui_toggle("act_amove", _fx2, _y, "Only when moving", _s.anim_moving, "Only when moving|The actor shows its first frame while standing still - perfect for walk cycles."), "actamove");
++            _y += 34;
++        }
+     }
+ 
+     // sprite or BOB (ADAM Pro)
+diff --git a/scripts/scr_ws_animate/scr_ws_animate.gml b/scripts/scr_ws_animate/scr_ws_animate.gml
+new file mode 100644
+index 0000000..a58ce09
+--- /dev/null
++++ b/scripts/scr_ws_animate/scr_ws_animate.gml
+@@ -0,0 +1,411 @@
++/// ADAM - Animate workspace (ADAM Pro): Idle, Walk, Jump and Fall animations
++/// of up to 8 frames for each actor, picked from the sprite bank.
++///
++/// The engine picks the animation by itself: Idle while the actor stands
++/// still, Walk while it moves, Jump / Fall while a platform player, hopper or
++/// faller is in the air. Empty animations borrow from the others (anim_plan).
++
++function anim_names()
++{
++    return ["Idle", "Walk", "Jump", "Fall"];
++}
++
++function anim_mode_names()
++{
++    return ["Loop", "Once (stop on the last frame)", "Ping-pong"];
++}
++
++/// True when the Animate page may change things (ADAM Pro)
++function anim_can_edit()
++{
++    return pro_gate("Animations");
++}
++
++/// Marks an undo step for the selected actor, starting from its two-frame
++/// animation the first time it is changed here
++function anim_begin_edit(_ac, _tag)
++{
++    undo_mark(_tag);
++    anims_seed_from_legacy(_ac);
++    anim_t0 = current_time;
++}
++
++/// Draws sprite design _i, turned round when _flip, in colours _cols
++function draw_sprite_amiga_flip(_i, _x, _y, _scale, _flip, _cols, _alpha)
++{
++    if (_i < 0 || _i >= SPR_COUNT) { return; }
++    if (!_flip)
++    {
++        draw_sprite_amiga_cols(_i, _x, _y, _scale, _cols, _alpha);
++        return;
++    }
++    spr_cache_update(_i);
++    var _w = proj.sprites[_i].w;
++    gpu_set_texfilter(false);
++    for (var c = 0; c < 3; c++)
++    {
++        draw_surface_ext(spr_surf[_i][c], _x + _w * _scale, _y, -_scale, _scale, 0, amiga_col(_cols[c]), _alpha);
++    }
++    gpu_set_texfilter(true);
++}
++
++function ws_animate_draw(_x1, _y1, _x2, _y2)
++{
++    var _lw = 240;
++    var _rw = 330;
++    var _na = array_length(proj.actors);
++    sel_actor = clamp(sel_actor, 0, max(0, _na - 1));
++    var _alloc = actors_alloc_channels();
++
++    // ---------------- cast ----------------
++    ui_panel(_x1, _y1, _x1 + _lw, _y2, "Actors");
++    var _ly = _y1 + 54;
++    var _rowh = 58;
++    var _lcontent = _na * _rowh + 8;
++    var _loff = ui_scroll_begin("anim_list", _x1 + 6, _y1 + 50, _x1 + _lw - 6, _y2 - 8, _lcontent);
++    for (var i = 0; i < _na; i++)
++    {
++        var _ac = proj.actors[i];
++        var _ry = _ly + i * _rowh - _loff;
++        if (_ry < _y1 - _rowh || _ry > _y2) { continue; }
++        var _id = "anim_act_" + string(i);
++        var _hot = ui_register(_id, _x1 + 10, _ry, _x1 + _lw - 10, _ry + _rowh - 6, _ac.name + "|Click to animate this actor.");
++        var _tgt = 0;
++        if (_hot) { _tgt = 1; }
++        var _a = ui_anim_to(_id, _tgt);
++        if (sel_actor == i)
++        {
++            ui_rrect(_x1 + 10, _ry, _x1 + _lw - 10, _ry + _rowh - 6, 10, global.TH.accent, global.TH.accent_dark, 0.9);
++        }
++        else
++        {
++            ui_rrect(_x1 + 10, _ry, _x1 + _lw - 10, _ry + _rowh - 6, 10, global.TH.btn_hot_top, global.TH.btn_hot_bot, 0.25 + _a * 0.75);
++        }
++        ui_rrect(_x1 + 16, _ry + 5, _x1 + 50, _ry + _rowh - 11, 6, pal_col(0), pal_col(0), 1);
++        var _psi = actor_preview_sprite(_ac);
++        var _ts = proj.sprites[clamp(_psi, 0, SPR_COUNT - 1)];
++        var _tsc = min(1, SPR_H / max(_ts.w, _ts.h));
++        draw_sprite_amiga_cols(_psi, _x1 + 33 - _ts.w * _tsc / 2, _ry + 7 + (SPR_H - _ts.h * _tsc) / 2, _tsc, actor_cols_from(_alloc, i), 1);
++        ui_text(_x1 + 60, _ry + 16, ui_text_fit(_ac.name, global.f_bold, _lw - 84), global.TH.text, fa_left, fa_middle, global.f_bold, 1);
++        var _nfr = 0;
++        for (var ae = 0; ae < ANIM_COUNT; ae++) { _nfr += array_length(_ac.anims[ae].frames); }
++        var _sub = "Not animated yet";
++        if (_nfr > 0) { _sub = string(_nfr) + " frames"; }
++        else if (_ac.anim_sprite >= 0 && _ac.role != 7) { _sub = "Two-frame animation"; }
++        ui_text(_x1 + 60, _ry + 35, ui_text_fit(_sub, global.f_small, _lw - 84), global.TH.text_dim, fa_left, fa_middle, global.f_small, 1);
++        if (_hot && ui_pressed)
++        {
++            if (sel_actor != i)
++            {
++                sel_actor = i;
++                anim_slot = 0;
++                anim_t0 = current_time;
++            }
++            ui_take_click();
++        }
++    }
++    ui_scroll_end("anim_list", _x1 + 6, _y1 + 50, _x1 + _lw - 6, _y2 - 8, _lcontent);
++
++    var _cx1 = _x1 + _lw + 12;
++    var _cx2 = _x2 - _rw - 12;
++    if (_na == 0)
++    {
++        ui_panel(_cx1, _y1, _x2, _y2, "");
++        ui_text((_cx1 + _x2) / 2, (_y1 + _y2) / 2, "Add actors on the Actors page first, then animate them here.", global.TH.text_dim, fa_center, fa_middle, global.f_body, 1);
++        return;
++    }
++    var _s = proj.actors[sel_actor];
++    var _cols = actor_cols_from(_alloc, sel_actor);
++    anim_sel = clamp(anim_sel, 0, ANIM_COUNT - 1);
++    var _an = _s.anims[anim_sel];
++    var _nf = array_length(_an.frames);
++    anim_slot = clamp(anim_slot, 0, min(_nf, ANIM_FRAMES - 1));
++    var _names = anim_names();
++
++    // ---------------- centre: tabs, preview, frame strip ----------------
++    var _ptitle = "Animate " + _s.name;
++    if (!pro_on()) { _ptitle += "  (ADAM Pro)"; }
++    ui_panel(_cx1, _y1, _cx2, _y2, _ptitle);
++    var _tw = floor((_cx2 - _cx1 - 40 - 3 * 8) / 4);
++    var _thelp = [
++        "Idle|Plays while the actor stands still.",
++        "Walk|Plays while the actor moves.",
++        "Jump|Plays while a platform player, hopper or faller goes up through the air. Empty: it uses Walk.",
++        "Fall|Plays while a platform player, hopper or faller comes down. Empty: it uses Jump (or Walk)."
++    ];
++    for (var t = 0; t < ANIM_COUNT; t++)
++    {
++        var _lab = _names[t];
++        var _tn = array_length(_s.anims[t].frames);
++        if (_tn > 0) { _lab += "  " + string(_tn); }
++        if (ui_tab("anim_tab_" + string(t), _cx1 + 20 + t * (_tw + 8), _y1 + 50, _tw, 32, _lab, anim_sel == t, _thelp[t]))
++        {
++            if (anim_sel != t)
++            {
++                anim_sel = t;
++                anim_slot = 0;
++                anim_t0 = current_time;
++            }
++        }
++    }
++    _an = _s.anims[anim_sel];
++    _nf = array_length(_an.frames);
++    anim_slot = clamp(anim_slot, 0, min(_nf, ANIM_FRAMES - 1));
++
++    // preview: what the Amiga will play for this animation (empty ones borrow from the others)
++    var _py1 = _y1 + 94;
++    var _strip_h = 92;
++    var _ctrl_h = 132;
++    var _py2 = _y2 - 20 - _strip_h - _ctrl_h;
++    ui_inset(_cx1 + 20, _py1, _cx2 - 20, _py2, 10);
++    ui_rrect(_cx1 + 26, _py1 + 6, _cx2 - 26, _py2 - 6, 8, pal_col(0), pal_col(0), 1);
++    ui_register("anim_preview", _cx1 + 20, _py1, _cx2 - 20, _py2, "Preview|Plays the animation at the real Amiga speed (50 frames a second), in the colours the actor really gets.");
++    var _plan = anim_plan(_s);
++    var _ticks = (current_time - anim_t0) div 20;
++    var _note = "";
++    if (is_undefined(_plan))
++    {
++        _note = "One frame - pick sprites from the bank on the right to animate it";
++        var _bs = proj.sprites[clamp(_s.sprite, 0, SPR_COUNT - 1)];
++        var _bsc = max(1, floor(min((_cx2 - _cx1 - 80) / _bs.w, (_py2 - _py1 - 50) / _bs.h)));
++        draw_sprite_amiga_flip(_s.sprite, floor((_cx1 + _cx2 - _bs.w * _bsc) / 2), floor((_py1 + _py2 - 20 - _bs.h * _bsc) / 2), _bsc, anim_face_left && _s.anim_flip, _cols, 1);
++    }
++    else
++    {
++        var _pe = _plan[anim_sel];
++        var _fi = anim_frame_at(_pe, _ticks);
++        var _psi2 = clamp(_pe.frames[_fi], 0, SPR_COUNT - 1);
++        var _ps = proj.sprites[_psi2];
++        var _bw = 16;
++        var _bh = 16;
++        for (var q = 0; q < array_length(_pe.frames); q++)
++        {
++            var _qs = proj.sprites[clamp(_pe.frames[q], 0, SPR_COUNT - 1)];
++            _bw = max(_bw, _qs.w);
++            _bh = max(_bh, _qs.h);
++        }
++        var _sc = max(1, floor(min((_cx2 - _cx1 - 80) / _bw, (_py2 - _py1 - 50) / _bh)));
++        var _dx = floor((_cx1 + _cx2 - _bw * _sc) / 2);
++        var _dy = floor((_py1 + _py2 - 20 - _bh * _sc) / 2);
++        draw_sprite_amiga_flip(_psi2, _dx, _dy, _sc, anim_face_left && _s.anim_flip, _cols, 1);
++        if (_nf == 0)
++        {
++            var _from = 0;
++            for (var u = 0; u < ANIM_COUNT; u++)
++            {
++                if (u != anim_sel && _plan[u] == _pe && array_length(_s.anims[u].frames) > 0) { _from = u; }
++            }
++            _note = "Empty - plays " + _names[_from];
++            if (array_length(_s.anims[_from].frames) == 0) { _note = "Empty - shows the actor's sprite"; }
++            if (!anims_used(_s)) { _note = "Plays the two-frame animation from the Actors page - add frames here to replace it"; }
++        }
++        else
++        {
++            _note = "Frame " + string(_fi + 1) + " of " + string(array_length(_pe.frames)) + "   -   sprite " + string(_psi2 + 1) + ": " + _ps.name;
++        }
++    }
++    ui_text(_cx1 + 36, _py2 - 22, ui_text_fit(_note, global.f_small, _cx2 - _cx1 - 220), global.TH.text_dim, fa_left, fa_middle, global.f_small, 1);
++    if (_s.anim_flip)
++    {
++        anim_face_left = ui_toggle("anim_faceleft", _cx2 - 170, _py2 - 34, "Facing left", anim_face_left, "Facing left|Shows the frames turned round, as the actor looks while it moves left.");
++    }
++    if (_s.role < 6 && anim_sel >= 2)
++    {
++        ui_text((_cx1 + _cx2) / 2, _py1 + 22, "Only platform players, hoppers and fallers jump and fall", global.TH.warn, fa_center, fa_middle, global.f_small, 1);
++    }
++
++    // frame strip: up to 8 frames; the slot after the last one adds a frame
++    var _sy = _py2 + 14;
++    ui_heading(_cx1 + 20, _sy, _names[anim_sel] + " frames  (" + string(_nf) + " / " + string(ANIM_FRAMES) + ")  -  click a frame, then a sprite in the bank");
++    _sy += 20;
++    var _cell = min(64, floor((_cx2 - _cx1 - 40 - 7 * 8) / ANIM_FRAMES));
++    for (var k = 0; k < ANIM_FRAMES; k++)
++    {
++        var _kx = _cx1 + 20 + k * (_cell + 8);
++        var _kid = "anim_slot_" + string(k);
++        if (k < _nf)
++        {
++            var _khot = ui_register(_kid, _kx, _sy, _kx + _cell, _sy + _cell, "Frame " + string(k + 1) + "|Click to select it, then click a sprite in the bank to change it. Remove, move or clear it with the buttons below.");
++            ui_rrect(_kx, _sy, _kx + _cell, _sy + _cell, 8, pal_col(0), pal_col(0), 1);
++            var _ks = proj.sprites[clamp(_an.frames[k], 0, SPR_COUNT - 1)];
++            var _ksc = (_cell - 8) / max(_ks.w, _ks.h);
++            draw_sprite_amiga_cols(_an.frames[k], _kx + (_cell - _ks.w * _ksc) / 2, _sy + (_cell - _ks.h * _ksc) / 2, _ksc, _cols, 1);
++            ui_text(_kx + 5, _sy + 4, string(k + 1), global.TH.text_faint, fa_left, fa_top, global.f_small, 1);
++            if (anim_slot == k) { ui_rrect_line(_kx - 2, _sy - 2, _kx + _cell + 2, _sy + _cell + 2, 9, global.TH.accent, 1, 2); }
++            else { ui_rrect_line(_kx, _sy, _kx + _cell, _sy + _cell, 8, global.TH.panel_edge, 0.8, 1); }
++            if (_khot && ui_pressed)
++            {
++                anim_slot = k;
++                ui_take_click();
++            }
++        }
++        else if (k == _nf)
++        {
++            var _ahot = ui_register(_kid, _kx, _sy, _kx + _cell, _sy + _cell, "Add a frame|Select this slot, then click sprites in the bank: each one is added to the end of the animation.");
++            var _aa = 0.35;
++            if (_ahot) { _aa = 0.7; }
++            ui_rrect(_kx, _sy, _kx + _cell, _sy + _cell, 8, global.TH.btn_hot_top, global.TH.btn_hot_bot, _aa);
++            ui_text(_kx + _cell / 2, _sy + _cell / 2, "+", global.TH.text, fa_center, fa_middle, global.f_title, 1);
++            if (anim_slot == k) { ui_rrect_line(_kx - 2, _sy - 2, _kx + _cell + 2, _sy + _cell + 2, 9, global.TH.accent, 1, 2); }
++            if (_ahot && ui_pressed)
++            {
++                anim_slot = k;
++                ui_take_click();
++            }
++        }
++        else
++        {
++            ui_rrect_line(_kx, _sy, _kx + _cell, _sy + _cell, 8, global.TH.panel_edge, 0.35, 1);
++        }
++    }
++
++    // controls
++    var _ky = _sy + _cell + 18;
++    var _half = floor((_cx2 - _cx1 - 40 - 12) / 2);
++    ui_heading(_cx1 + 20, _ky, "Speed (50ths of a second per frame)");
++    ui_heading(_cx1 + 32 + _half, _ky, "Plays");
++    var _nr = ui_stepper("anim_rate", _cx1 + 20, _ky + 18, min(_half, 180), _an.rate, 2, 30, "Animation speed|How many 50ths of a second each frame stays on screen. 4 is quick, 8 a brisk walk, 20 a slow blink.");
++    if (_nr != _an.rate && anim_can_edit())
++    {
++        anim_begin_edit(_s, "animrate" + string(sel_actor) + "_" + string(anim_sel));
++        _s.anims[anim_sel].rate = _nr;
++    }
++    var _nm = ui_dropdown("anim_mode", _cx1 + 32 + _half, _ky + 18, _half, 30, anim_mode_names(), _an.mode, "How it plays|Loop starts again after the last frame. Once stops on the last frame until the animation changes (handy for a landing). Ping-pong plays forwards then backwards.");
++    if (_nm != _an.mode && anim_can_edit())
++    {
++        anim_begin_edit(_s, "animmode" + string(current_time));
++        _s.anims[anim_sel].mode = _nm;
++    }
++    _ky += 58;
++    var _bw4 = floor((_cx2 - _cx1 - 40 - 3 * 8) / 4);
++    var _sel_real = (anim_slot < _nf);
++    var _st = BTN_NORMAL;
++    if (!_sel_real || anim_slot == 0) { _st = BTN_GHOST; }
++    if (ui_button("anim_left", _cx1 + 20, _ky, _bw4, 32, "Move left", "Move left|Swaps the selected frame with the one before it.", _st))
++    {
++        if (_sel_real && anim_slot > 0 && anim_can_edit())
++        {
++            anim_begin_edit(_s, "animmove" + string(current_time));
++            var _fr = _s.anims[anim_sel].frames;
++            var _tmp = _fr[anim_slot - 1];
++            _fr[anim_slot - 1] = _fr[anim_slot];
++            _fr[anim_slot] = _tmp;
++            anim_slot -= 1;
++        }
++    }
++    _st = BTN_NORMAL;
++    if (!_sel_real || anim_slot >= _nf - 1) { _st = BTN_GHOST; }
++    if (ui_button("anim_right", _cx1 + 20 + (_bw4 + 8), _ky, _bw4, 32, "Move right", "Move right|Swaps the selected frame with the one after it.", _st))
++    {
++        if (_sel_real && anim_slot < _nf - 1 && anim_can_edit())
++        {
++            anim_begin_edit(_s, "animmove" + string(current_time));
++            var _fr2 = _s.anims[anim_sel].frames;
++            var _tmp2 = _fr2[anim_slot + 1];
++            _fr2[anim_slot + 1] = _fr2[anim_slot];
++            _fr2[anim_slot] = _tmp2;
++            anim_slot += 1;
++        }
++    }
++    _st = BTN_NORMAL;
++    if (!_sel_real) { _st = BTN_GHOST; }
++    if (ui_button("anim_remove", _cx1 + 20 + 2 * (_bw4 + 8), _ky, _bw4, 32, "Remove frame", "Remove frame|Takes the selected frame out of this animation. You can Undo this.", _st))
++    {
++        if (_sel_real && anim_can_edit())
++        {
++            anim_begin_edit(_s, "animdel" + string(current_time));
++            array_delete(_s.anims[anim_sel].frames, anim_slot, 1);
++        }
++    }
++    _st = BTN_DANGER;
++    if (_nf == 0) { _st = BTN_GHOST; }
++    if (ui_button("anim_clear", _cx1 + 20 + 3 * (_bw4 + 8), _ky, _bw4, 32, "Clear", "Clear animation|Removes every frame of this animation, so it borrows from the others again. You can Undo this.", _st))
++    {
++        if (_nf > 0 && anim_can_edit())
++        {
++            anim_begin_edit(_s, "animclear" + string(current_time));
++            _s.anims[anim_sel].frames = [];
++            anim_slot = 0;
++        }
++    }
++
++    // ---------------- right: options and the sprite bank ----------------
++    var _rx = _x2 - _rw;
++    ui_panel(_rx, _y1, _x2, _y2, "Sprite bank");
++    var _fx = _rx + 20;
++    var _fw = _rw - 40;
++    var _oy = _y1 + 54;
++    var _flip = ui_toggle("anim_flip", _fx, _oy, "Turn to face left", _s.anim_flip, "Turn to face left|Draw the frames facing right; while the actor moves left the Amiga shows them turned round. The turned copies take a little more chip RAM.");
++    if (_flip != _s.anim_flip && anim_can_edit())
++    {
++        anim_begin_edit(_s, "animflip" + string(current_time));
++        _s.anim_flip = _flip;
++    }
++    _oy += 34;
++    if (_s.role == 7)
++    {
++        ui_heading(_fx, _oy, "Crouch frame (before each hop)");
++        var _cn = ["(none)"];
++        var _sn = sprite_names();
++        for (var cn = 0; cn < array_length(_sn); cn++) { array_push(_cn, _sn[cn]); }
++        var _nc = ui_dropdown("anim_crouch", _fx, _oy + 18, _fw, 30, _cn, _s.anim_sprite + 1, "Crouch frame|A hopper shows this sprite while it crouches, just before it springs.") - 1;
++        if (_nc != _s.anim_sprite)
++        {
++            set_val(_s, "anim_sprite", _nc, "animcrouch");
++        }
++        _oy += 58;
++    }
++    var _bank = spr_bank_size();
++    var _gcols = 5;
++    var _gcell = floor((_fw - (_gcols - 1) * 6) / _gcols);
++    var _gtop = _oy + 4;
++    var _gcontent = ceil(_bank / _gcols) * (_gcell + 6) + 6;
++    var _goff = ui_scroll_begin("anim_bank", _rx + 6, _gtop, _x2 - 6, _y2 - 8, _gcontent);
++    for (var b = 0; b < _bank; b++)
++    {
++        var _gx = _fx + (b mod _gcols) * (_gcell + 6);
++        var _gy = _gtop + 4 + (b div _gcols) * (_gcell + 6) - _goff;
++        if (_gy < _gtop - _gcell || _gy > _y2) { continue; }
++        var _bid = "anim_bank_" + string(b);
++        var _bsp = proj.sprites[b];
++        var _bhot = ui_register(_bid, _gx, _gy, _gx + _gcell, _gy + _gcell, string(b + 1) + ": " + _bsp.name + "|Click to put this sprite in the selected frame (or add it at the end). On a hardware sprite every frame shows in the actor's own colours.");
++        var _ba = 0;
++        if (_bhot) { _ba = 1; }
++        ui_rrect(_gx, _gy, _gx + _gcell, _gy + _gcell, 6, pal_col(0), pal_col(0), 1);
++        var _gsc = (_gcell - 6) / max(_bsp.w, _bsp.h);
++        draw_sprite_amiga(b, _gx + (_gcell - _bsp.w * _gsc) / 2, _gy + (_gcell - _bsp.h * _gsc) / 2, _gsc, 1);
++        var _inanim = false;
++        for (var f = 0; f < _nf; f++)
++        {
++            if (_an.frames[f] == b) { _inanim = true; }
++        }
++        if (_inanim) { ui_rrect_line(_gx, _gy, _gx + _gcell, _gy + _gcell, 6, global.TH.accent2, 0.9, 2); }
++        else { ui_rrect_line(_gx, _gy, _gx + _gcell, _gy + _gcell, 6, global.TH.accent, 0.25 + 0.65 * _ba, 1); }
++        if (_bhot && ui_pressed)
++        {
++            ui_take_click();
++            if (anim_can_edit())
++            {
++                var _cur = _s.anims[anim_sel].frames;
++                if (anim_slot < array_length(_cur))
++                {
++                    anim_begin_edit(_s, "animset" + string(current_time));
++                    _cur = _s.anims[anim_sel].frames;
++                    if (anim_slot < array_length(_cur)) { _cur[anim_slot] = b; }
++                    else { array_push(_cur, b); }
++                }
++                else if (array_length(_cur) < ANIM_FRAMES)
++                {
++                    anim_begin_edit(_s, "animadd" + string(current_time));
++                    array_push(_s.anims[anim_sel].frames, b);
++                    anim_slot = min(array_length(_s.anims[anim_sel].frames), ANIM_FRAMES - 1);
++                }
++                else
++                {
++                    toast("An animation has up to " + string(ANIM_FRAMES) + " frames", 1);
++                }
++            }
++        }
++    }
++    ui_scroll_end("anim_bank", _rx + 6, _gtop, _x2 - 6, _y2 - 8, _gcontent);
++}
+diff --git a/scripts/scr_ws_animate/scr_ws_animate.yy b/scripts/scr_ws_animate/scr_ws_animate.yy
+new file mode 100644
+index 0000000..464a12e
+--- /dev/null
++++ b/scripts/scr_ws_animate/scr_ws_animate.yy
+@@ -0,0 +1,13 @@
++{
++  "$GMScript":"v1",
++  "%Name":"scr_ws_animate",
++  "isCompatibility":false,
++  "isDnD":false,
++  "name":"scr_ws_animate",
++  "parent":{
++    "name":"SCRIPTS",
++    "path":"folders/SCRIPTS.yy",
++  },
++  "resourceType":"GMScript",
++  "resourceVersion":"2.0",
++}
+diff --git a/scripts/scr_ws_shell/scr_ws_shell.gml b/scripts/scr_ws_shell/scr_ws_shell.gml
+index a93c73a..7884edd 100644
+--- a/scripts/scr_ws_shell/scr_ws_shell.gml
++++ b/scripts/scr_ws_shell/scr_ws_shell.gml
+@@ -9,7 +9,8 @@
+ #macro WS_BUILD 6
+ #macro WS_LEVELS 7
+ #macro WS_MUSIC 8
+-#macro WS_COUNT 9
++#macro WS_ANIMATE 9
++#macro WS_COUNT 10
+ 
+ function ws_set(_i)
+ {
+@@ -244,6 +245,7 @@ function shortcuts_step()
+         {
+             if (keyboard_check_pressed(ord(string(i + 1)))) { ws_set(_tabs[i]); }
+         }
++        if (array_length(_tabs) >= 10 && keyboard_check_pressed(ord("0"))) { ws_set(_tabs[9]); }
+     }
+ }
+ 
+@@ -266,12 +268,12 @@ function ui_scale_step(_d)
+ 
+ function ws_tabs()
+ {
+-    return [WS_HOME, WS_BACKDROP, WS_LEVELS, WS_SPRITES, WS_ACTORS, WS_LOGIC, WS_SOUND, WS_MUSIC, WS_BUILD];
++    return [WS_HOME, WS_BACKDROP, WS_LEVELS, WS_SPRITES, WS_ACTORS, WS_ANIMATE, WS_LOGIC, WS_SOUND, WS_MUSIC, WS_BUILD];
+ }
+ 
+ function ws_name(_w)
+ {
+-    var _n = ["Home", "Backdrop", "Sprites", "Actors", "Logic", "Sound", "Build", "Levels", "Music"];
++    var _n = ["Home", "Backdrop", "Sprites", "Actors", "Logic", "Sound", "Build", "Levels", "Music", "Animate"];
+     return _n[_w];
+ }
+ 
+@@ -286,7 +288,8 @@ function ws_help(_w)
+         "Sound|Design up to 8 sound effects for the Amiga's Paula chip and hear them instantly.",
+         "Build|Turn your game into a bootable Amiga disk (.ADF) and play it in FS-UAE or on a real Amiga.",
+         "Levels|Up to 10 levels, each with its own hills grown from a seed and shaped by hand. Also the level goal counter and the title screen.",
+-        "Music|Make up to 4 songs from ready-made loops on Paula's 4 channels, edit their notes, and choose the music for each level."
++        "Music|Make up to 4 songs from ready-made loops on Paula's 4 channels, edit their notes, and choose the music for each level.",
++        "Animate|ADAM Pro: give each actor Idle, Walk, Jump and Fall animations of up to 8 frames from the sprite bank. The Amiga picks the right one as the actor moves."
+     ];
+     return _h[_w];
+ }
+diff --git a/tools/reference/adf_reference.py b/tools/reference/adf_reference.py
+index c3fe222..d7331c2 100644
+--- a/tools/reference/adf_reference.py
++++ b/tools/reference/adf_reference.py
+@@ -77,13 +77,43 @@ def build(proj, aga):
+         s=proj['sprites'][a['sprite']]
+         if a.get('bob'): return sw(s),sh(s)
+         return 16,24
++    def flipped(s):
++        w,h=sw(s),sh(s)
++        return dict(s,px=[s['px'][y*w+(w-1-x)] for y in range(h) for x in range(w)])
++    plans=[]
+     for a in actors:
+         bw,bh=asize(a)
+         if a.get('bob'): mk=lambda s,a=a,bw=bw,bh=bh: bimg(s,a['bobmap'],bw,bh)
+         else: mk=sblock
+         spr_offs.append(mk(proj['sprites'][a['sprite']]))
+-        if a.get('anim',-1)>=0: spr2_offs.append(mk(proj['sprites'][a['anim']]))
++        # a hopper's crouch frame (two-frame animation of version 4)
++        if a['role']==7 and a.get('anim',-1)>=0: spr2_offs.append(mk(proj['sprites'][a['anim']]))
+         else: spr2_offs.append(0)
++        plan=anim_plan(a)
++        if plan:
++            made={(a['sprite'],False):spr_offs[-1]}
++            def img(si,fl,mk=mk):
++                if (si,fl) not in made:
++                    sp=proj['sprites'][si]
++                    made[(si,fl)]=mk(flipped(sp) if fl else sp)
++                return made[(si,fl)]
++            ents=[]
++            for frames,rate,mode in plan:
++                right=[img(f,False) for f in frames]
++                left=[img(f,True) for f in frames] if a.get('flip') else right
++                ents.append((len(frames),rate,mode,right,left))
++            plans.append(ents)
++        else: plans.append(None)
++    align(8)
++    # animation tables (engine.s AN_*): 4 x { n, rate, mode, 0, 8 right offsets, 8 left offsets }
++    anim_offs=[]
++    for ents in plans:
++        if not ents: anim_offs.append(0); continue
++        align(8); anim_offs.append(len(blob))
++        for n,rate,mode,right,left in ents:
++            blob.extend(struct.pack('>HHHH',n,rate,mode,0))
++            for side in (right,left):
++                for k in range(8): blob.extend(struct.pack('>L',side[k%n] if k<n else side[0]))
+     align(8)
+     off_act=len(blob)
+     for i,a in enumerate(actors):
+@@ -97,6 +127,7 @@ def build(proj, aga):
+         blob+=struct.pack('>HHHHHHHHHHHL',min(a['x'],320-bw),min(a['y'],256-bh),a['role'],a['speed'],int(a['visible']),int(a['left']),int(a['up']),bx0,by0,bx1,by1,spr_offs[i])
+         blob+=struct.pack('>HLHHHHHHHH',a.get('chan',i),spr2_offs[i],a.get('rate',8),a.get('amode',0),a.get('from',1),a.get('fast',0),
+                           1 if a.get('bob') else 0,320-bw,256-bh,bsize)
++        blob+=struct.pack('>L',anim_offs[i])
+     align(8)
+     off_rules=len(blob)
+     for r in rules:
+@@ -183,12 +214,41 @@ def build(proj, aga):
+     player=-1
+     for i,a in enumerate(actors):
+         if a['role'] in (0,6): player=i; break
+-    hdr=struct.pack('>4sHHHHHHHHHHHH',b'ADAM',4,1 if aga else 0,depth,len(actors),len(rules),proj['lives'],
++    hdr=struct.pack('>4sHHHHHHHHHHHH',b'ADAM',5,1 if aga else 0,depth,len(actors),len(rules),proj['lives'],
+                     int(proj['show_score']),int(proj['show_lives']),proj['hud_row'],proj['hud_col'],proj['msg_col'],player & 0xffff)+struct.pack('>L',off_game)
+     hdr+=struct.pack('>LLLLLLLLLLLLLLL',off_pal,off_planes,off_act,off_rules,off_sfx,off_over,off_win,off_sprcol,off_disp,off_grad,off_ground,off_work,off_music,off_disp2,off_back)
+     blob[0:92]=hdr
+     return bytes(blob)
+ 
++# ---- animations (data block version 5); scr_adf.gml anim_plan() does the same
++# actor dict: anims = 4 x {frames: [sprite indexes, up to 8], rate: 2..30, mode: 0 loop / 1 once / 2 ping-pong}
++# (Idle, Walk, Jump, Fall), flip = frames turn to face left; or the version 4
++# two-frame animation: anim = second sprite, rate, amode (1 = only while moving)
++def anims_used(a):
++    return any(len(e.get('frames',[]))>0 for e in a.get('anims',[])[:4])
++
++def anim_plan(a):
++    """None for one frame, else 4 x (frames, rate, mode) with empty ones filled in"""
++    base=a['sprite']
++    if anims_used(a):
++        ents=[]
++        for k in range(4):
++            e=a['anims'][k] if k<len(a['anims']) else {}
++            fr=[f for f in e.get('frames',[])][:8]
++            ents.append((fr,max(2,min(30,e.get('rate',8))),max(0,min(2,e.get('mode',0)))) if fr else None)
++        idle,walk,jump,fall=ents
++        if not idle: idle=walk if walk else ([base],8,0)
++        if not walk: walk=idle
++        if not jump: jump=walk
++        if not fall: fall=jump
++        return [idle,walk,jump,fall]
++    if a.get('anim',-1)>=0 and a['role']!=7:
++        rate=max(2,min(30,a.get('rate',8)))
++        both=([base,a['anim']],rate,0)
++        idle=([base],rate,0) if a.get('amode',0) else both
++        return [idle,both,both,both]
++    return None
++
+ def render_sfx(s):
+     rate=3546895/322
+     atk_ms=[2,8,16,24,38,56,68,80,100,250,500,800,1000,3000,5000,8000]
+diff --git a/tools/reference/gen_examples.py b/tools/reference/gen_examples.py
+index ac9eaac..2dfab28 100644
+--- a/tools/reference/gen_examples.py
++++ b/tools/reference/gen_examples.py
+@@ -648,7 +648,7 @@ def to_builder(p):
+     acts=[]
+     for i,a in enumerate(p['actors'][:32]):
+         d=dict(x=a['x'],y=a['y'],role=a['role'],speed=a['speed'],visible=int(a['visible']),left=int(a['start_left']),up=int(a['start_up']),
+-               sprite=a['sprite'],chan=max(0,chan[i]),anim=a['anim_sprite'],rate=a['anim_rate'],amode=int(a['anim_moving']),**{'from':a['from_level'],'fast':a['faster_every']})
++               sprite=a['sprite'],chan=max(0,chan[i]),anim=a['anim_sprite'],rate=a['anim_rate'],amode=int(a['anim_moving']),anims=a.get('anims',[]),flip=a.get('anim_flip',False),**{'from':a['from_level'],'fast':a['faster_every']})
+         if chan[i]<0:
+             d['bob']=1; d['bobmap']=[pal_nearest(p,c) for c in p['sprites'][a['sprite']]['cols']]
+         acts.append(d)
+-- 
+2.43.0
+

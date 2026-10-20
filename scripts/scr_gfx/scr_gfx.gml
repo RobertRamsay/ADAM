@@ -135,6 +135,7 @@ function backdrop_gfx_init()
     bd_pal_floats = array_create(PAL_MAX * 3, 0);
     bd_u_sky_on = shader_get_uniform(sh_palette, "u_sky_on");
     bd_u_sky_tex = shader_get_sampler_index(sh_palette, "u_sky_tex");
+    bd_u_sky_map = shader_get_uniform(sh_palette, "u_sky_map");
     bd_sky_surf = -1;           // 256 x 1: the copper sky's colour on each line
     bd_sky_key = "";            // what bd_sky_surf was drawn from
 }
@@ -217,7 +218,7 @@ function backdrop_shader_begin()
 {
     for (var i = 0; i < PAL_MAX; i++)
     {
-        var _c = rgb_machine(proj.pal[i]);
+        var _c = rgb_machine(pal_shown(i));
         bd_pal_floats[i * 3] = rgb_r(_c) / 255;
         bd_pal_floats[i * 3 + 1] = rgb_g(_c) / 255;
         bd_pal_floats[i * 3 + 2] = rgb_b(_c) / 255;
@@ -230,11 +231,19 @@ function backdrop_shader_begin()
     var _on = 0;
     if (proj.sky_on) { _on = 1; }
     shader_set_uniform_f(bd_u_sky_on, _on);
+    shader_set_uniform_f(bd_u_sky_map, 256, 0);
     if (_strip != -1)
     {
         gpu_set_texfilter_ext(bd_u_sky_tex, false);
         texture_set_stage(bd_u_sky_tex, surface_get_texture(_strip));
     }
+}
+
+/// While the palette shader is set: which sky line each texel shows -
+/// screen line = texture y (0..1) * _texh + _ofs
+function backdrop_shader_sky(_texh, _ofs)
+{
+    shader_set_uniform_f(bd_u_sky_map, _texh, _ofs);
 }
 
 function backdrop_shader_end()
@@ -444,8 +453,21 @@ function median_cut(_bins, _cnt, _sr, _sg, _sb, _n)
 /// Imports a picture file into the backdrop. Returns true when done.
 function backdrop_import(_path, _dither)
 {
+    var _q = picture_quantize(_path, pal_count(), _dither);
+    if (is_undefined(_q)) { return false; }
+    for (var c = 0; c < array_length(_q.pal); c++) { proj.pal[c] = _q.pal[c]; }
+    proj.pixels = _q.pixels;
+    bd_dirty = true;
+    return true;
+}
+
+/// A picture file fitted into 320 x 256 and cut down to _count colours
+/// (median cut, darkest colour first; _dither 0 none, 1 Floyd-Steinberg,
+/// 2 pattern): { pixels, pal } in the machine's colours, or undefined
+function picture_quantize(_path, _count, _dither)
+{
     var _spr = sprite_add(_path, 1, false, false, 0, 0);
-    if (_spr == -1) { return false; }
+    if (_spr == -1) { return undefined; }
     var _w = sprite_get_width(_spr);
     var _h = sprite_get_height(_spr);
     var _k = min(BD_W / _w, BD_H / _h);
@@ -490,14 +512,14 @@ function backdrop_import(_path, _dither)
     {
         if (_cnt[q] > 0) { array_push(_used, q); }
     }
-    var _count = pal_count();
     var _cols = median_cut(_used, _cnt, _sr, _sg, _sb, _count);
     // darkest colour becomes colour 0 (the border and screen background)
     array_sort(_cols, function(_a, _b2) { return (rgb_r(_a) * 3 + rgb_g(_a) * 6 + rgb_b(_a)) - (rgb_r(_b2) * 3 + rgb_g(_b2) * 6 + rgb_b(_b2)); });
+    var _qpal = array_create(_count, 0);
+    var _qpx = array_create(_n, 0);
     for (var c = 0; c < _count; c++)
     {
-        if (c < array_length(_cols)) { proj.pal[c] = rgb_machine(_cols[c]); }
-        else { proj.pal[c] = 0; }
+        if (c < array_length(_cols)) { _qpal[c] = rgb_machine(_cols[c]); }
     }
 
     // nearest palette entry for every 12-bit colour
@@ -523,17 +545,17 @@ function backdrop_import(_path, _dither)
                 var _bd = 999999999;
                 for (var p = 0; p < _pal_n; p++)
                 {
-                    var _d = rgb_dist(_want, proj.pal[p]);
+                    var _d = rgb_dist(_want, _qpal[p]);
                     if (_d < _bd) { _bd = _d; _bi = p; }
                 }
                 _lut[_key] = _bi;
             }
             var _idx = _lut[_key];
-            proj.pixels[_i2] = _idx;
+            _qpx[_i2] = _idx;
             if (_dither == 1)
             {
                 // Floyd-Steinberg error diffusion
-                var _pc = proj.pal[_idx];
+                var _pc = _qpal[_idx];
                 var _er = _cr - rgb_r(_pc);
                 var _eg = _cg - rgb_g(_pc);
                 var _eb = _cb - rgb_b(_pc);
@@ -551,8 +573,7 @@ function backdrop_import(_path, _dither)
             }
         }
     }
-    bd_dirty = true;
-    return true;
+    return { pixels : _qpx, pal : _qpal };
 }
 
 // ---------------------------------------------------------------------------

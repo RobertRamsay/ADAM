@@ -49,7 +49,7 @@ function level_names()
 /// Heights of the level shown in the editors, or undefined
 function level_heights_shown()
 {
-    if (!proj.levels_on || array_length(proj.levels) == 0) { return undefined; }
+    if (!proj.levels_on || !proj.hills_on || array_length(proj.levels) == 0) { return undefined; }
     return proj.levels[clamp(lvl_sel, 0, array_length(proj.levels) - 1)].heights;
 }
 
@@ -301,7 +301,12 @@ function levels_side_panel(_px, _y1, _x2, _y2)
     var _half = floor((_fw - 12) / 2);
     var _y = _y1 + 56;
     var _nl = array_length(proj.levels);
-    var _content = 1042;
+    // the real height of what is drawn below, so the panel only scrolls when it has to
+    var _endnote = "After the last level the Win message (Home page) is shown - make it a big congratulations!";
+    draw_set_font(global.f_small);
+    var _content = 10 + 174 + 106 + 116 + 226 + ceil(ui_sh_ext(_endnote, _fw)) + 12;
+    if (proj.levels_on && _nl > 0) { _content += 256; }
+    if (proj.levels_on && _nl > 0 && array_length(proj.palettes) > 0) { _content += 62; }
     var _off = ui_scroll_begin("lvl_side", _px + 4, _y1 + 46, _x2 - 4, _y2 - 6, _content);
     _y -= _off;
     if (proj.levels_on && _nl > 0)
@@ -340,18 +345,32 @@ function levels_side_panel(_px, _y1, _x2, _y2)
             proj.level_song[lvl_sel] = _mnew - 1;
         }
         _y += 62;
+        // named palettes (Backdrop page): the colours this level starts with
+        if (array_length(proj.palettes) > 0)
+        {
+            ui_heading(_fx, _y, "Level " + string(lvl_sel + 1) + " palette");
+            var _popts = palette_names();
+            var _pcur = clamp(proj.level_pal[lvl_sel], 0, array_length(_popts) - 1);
+            var _pnew = ui_dropdown("lvl_pal", _fx, _y + 18, _fw, 30, _popts, _pcur, "Level palette|The backdrop colours this level starts with - a night level, a lava level. Make palettes on the Backdrop page (Palettes tab); a rule can switch them during the level (DO 'Switch palette').");
+            if (_pnew != _pcur)
+            {
+                undo_mark("lvlpal");
+                proj.level_pal[lvl_sel] = _pnew;
+            }
+            _y += 62;
+        }
     }
 
     ui_heading(_fx, _y, "Hill colours (all levels)");
     _y += 18;
     var _tn = ["Edge", "Grass", "Soil", "Specks"];
     var _th = ["Edge colour|The top line of the ground.", "Grass colour|The band under the edge.", "Soil colour|Everything below the grass.", "Speck colour|Little stones scattered through the soil."];
+    // one per row, the name on the left: a half-width drop cut "Colour 12  $0F0" short
     for (var k = 0; k < 4; k++)
     {
-        var _cx = _fx + (k mod 2) * (_half + 12);
-        var _cy = _y + (k div 2) * 56;
-        ui_text(_cx, _cy, _tn[k], global.TH.text_faint, fa_left, fa_top, global.f_small, 1);
-        var _v = ui_colour_drop("lvl_col_" + string(k), _cx, _cy + 16, _half, 30, proj.terrain_cols[k], _th[k]);
+        var _cy = _y + k * 38;
+        ui_text(_fx, _cy + 15, _tn[k], global.TH.text_faint, fa_left, fa_middle, global.f_small, 1);
+        var _v = ui_colour_drop("lvl_col_" + string(k), _fx + 64, _cy, _fw - 64, 30, proj.terrain_cols[k], _th[k]);
         if (_v != proj.terrain_cols[k])
         {
             undo_mark("lvlcol" + string(k));
@@ -359,7 +378,28 @@ function levels_side_panel(_px, _y1, _x2, _y2)
             terrain_changed();
         }
     }
-    _y += 122;
+    _y += 156;
+
+    // a scrolling backdrop (shoot 'em ups): the picture wraps round as the player flies on
+    ui_heading(_fx, _y, "Scrolling backdrop");
+    _y += 20;
+    if (proj.shmup_map)
+    {
+        // the ship flies up the shoot 'em up map (Tiles page) instead
+        ui_register("lvl_scroll_map", _fx, _y, _fx + _half, _y + 30, "Scrolling|The ship flies up the shoot 'em up map made on the Tiles page, once, from the bottom to the top. Pick 'The backdrop' there to scroll the backdrop instead.");
+        ui_text(_fx, _y + 15, ui_text_fit("Up the map (Tiles page)", global.f_body, _half), global.TH.text_dim, fa_left, fa_middle, global.f_body, 1);
+    }
+    else
+    {
+        set_val(proj, "scroll_dir", ui_dropdown("lvl_scroll", _fx, _y, _half, 30, global.SCROLL_NAMES, clamp(proj.scroll_dir, 0, 4), "Scrolling|The backdrop scrolls past for ever, the way the player flies: up for a vertical shoot 'em up, right for a side-scroller. Draw the backdrop so its left and right (or top and bottom) edges join up. The score bar stays at the top. Flying left or right uses one hardware sprite's time (7 sprites). Not in a tile world. For a level you fly through once, with waves placed along it, make a shoot 'em up map on the Tiles page."), "scrolldir");
+    }
+    if (proj.scroll_dir > 0 || proj.shmup_map)
+    {
+        set_val(proj, "scroll_speed", ui_stepper("lvl_sspeed", _fx + _half + 12, _y, _half, proj.scroll_speed, 1, 16, "Scroll speed|In quarter pixels a frame: 4 is one pixel a frame (50 a second), 2 a gentle drift, 8 fast."), "scrollspeed");
+    }
+    _y += 44;
+    set_val(proj, "hills_on", ui_toggle("lvl_hills_on", _fx, _y, "Draw the hills", proj.hills_on, "Hills|With levels on, each level's hills are drawn over the backdrop. Turn off for space games and shoot 'em ups (the levels stay)."), "hillson");
+    _y += 42;
 
     ui_heading(_fx, _y, "Level goal");
     _y += 20;
@@ -384,6 +424,6 @@ function levels_side_panel(_px, _y1, _x2, _y2)
     ui_heading(_fx, _y, "Level card word");
     set_val(proj, "lev_text", string_upper(ui_textfield("lvl_levtxt", _fx, _y + 18, _half, 30, proj.lev_text, 10, "Level card|Between levels a card shows this word and the level number, e.g. LEVEL 3. The player presses fire to go on.")), "levtxt");
     _y += 60;
-    ui_text_wrap(_fx, _y, "After the last level the Win message (Home page) is shown - make it a big congratulations!", global.TH.text_faint, _fw, global.f_small, 1);
+    ui_text_wrap(_fx, _y, _endnote, global.TH.text_faint, _fw, global.f_small, 1);
     ui_scroll_end("lvl_side", _px + 4, _y1 + 46, _x2 - 4, _y2 - 6, _content);
 }

@@ -12,7 +12,7 @@ function tut_init()
         tut_step(WS_HOME, "", "Welcome to ADAM", "You are going to make a real Amiga game without writing a single line of code. This tour visits every page. Use Next and Back, or the arrow keys. Press Esc to leave at any time."),
         tut_step(WS_HOME, "top_machine", "Your Amiga", "This is the machine your game is made for: the Amiga 500/600 (OCS/ECS, 1MB) or the Amiga 1200 (AGA, 2MB). Click it any time to switch. The 1200 allows many more colours."),
         tut_step(WS_HOME, "home_example", "Try an example first", "Pick one of four finished games - Gem Hunter, Deep Dive, Star Catcher or Dodge Ball. They are a great way to see how everything fits together. You can start a New project any time."),
-        tut_step(WS_HOME, "home_card_0", "Six simple steps", "Every game is made the same way: paint a backdrop, draw sprites, place actors, write rules, add sounds, then build. Click any card to jump to that page."),
+        tut_step(WS_HOME, "home_card_0", "Every editor, in order", "Each card is one of ADAM's pages, in the same order as the top bar: paint a backdrop or a tile world, set up levels, draw sprites, place and animate actors, design the HUD, write rules, add sounds and music, then build. Click any card to jump to that page - the last one starts this tour."),
         tut_step(WS_HOME, "home_name", "Name your game", "Give your game a name. It is also used for the file names when you save and build."),
         tut_step(WS_HOME, "home_lives", "Lives and score", "Choose how many lives the player gets and where the score and lives are shown. A rule on the Logic page takes lives away."),
         tut_step(WS_HOME, "home_over", "Messages", "These messages appear when the game ends. The player presses fire to play again."),
@@ -28,6 +28,11 @@ function tut_init()
         tut_step(WS_BACKDROP, "bd_import", "Import a picture", "Got artwork already? Import a PNG or JPG. ADAM fits it to the screen and chooses the best colours for it, with optional dithering."),
         tut_step(WS_BACKDROP, "bd_solid", "Ground colours", "Mark the colours of your grass, floors and platforms as ground. Platform players, hoppers and fallers walk along the top of them - up and down every hill."),
         tut_step(WS_BACKDROP, "bd_tab_sky", "Copper sky", "The classic Amiga trick: the copper chip changes colour 0 on every line, painting a smooth sunset, sea or night sky behind your backdrop for free. Paint the sky areas in colour 0 to let it show."),
+        // ---------- TILES ----------
+        tut_step(WS_TILES, "tile_on", "A tile world", "Switch this on and your game plays on a big map of tiles - up to 256 x 256 tiles (1024 x 1024 in ADAM Pro) - that scrolls every way as the player moves. Great for cave diggers and platformers."),
+        tut_step(WS_TILES, "tile_tab_1", "Tile set", "Pick a tile size (8 x 8 to 64 x 64) and draw up to 96 kinds of tile (512 in ADAM Pro): grass, dirt, stone, gold, brick... Each says if it is solid, if it can be dug, how long it takes and what it scores."),
+        tut_step(WS_TILES, "tile_tab_0", "Map", "Paint the map with the tile picked on the left. Box fills a rectangle, Pick grabs a tile from the map. Drag actors to place them anywhere in the world."),
+        tut_step(WS_TILES, "tile_dig", "Dig and place", "The player digs with fire + a direction and puts tiles back with fire on its own - just like Terraria. Load the Dig Deep example to try it."),
         // ---------- LEVELS ----------
         tut_step(WS_LEVELS, "lvl_on", "Levels", "Switch levels on for a game of up to 10 levels. Each one has its own hills for platform players, hoppers and fallers to walk on."),
         tut_step(WS_LEVELS, "lvl_canvas", "Shape the ground", "Drag across the picture to draw where the ground is, or right-drag to smooth it. The hills are drawn by the Amiga at the start of each level, so they cost almost no memory."),
@@ -47,6 +52,21 @@ function tut_init()
         tut_step(WS_ACTORS, "act_speed", "Speed", "How fast this actor moves. Try 1 or 2 for enemies to start with - you can always speed them up with a rule."),
         tut_step(WS_ACTORS, "act_vis", "Hidden actors", "Actors can start hidden and appear later using the 'Show actor' action."),
         tut_step(WS_ACTORS, "act_anim", "Animation", "Give an actor a second sprite and it flips between the two - a walk cycle, a flapping fin or a twinkling star. 'Only when moving' is perfect for walking."),
+        // ---------- ANIMATE ----------
+        tut_step(WS_ANIMATE, "anim_mid_0", "Two joysticks", "The Moving joystick: Idle in the middle (click the stick) and an animation for each of the 8 ways it can move - people walking every way, a ship that veers and holds its lean (set it to Once). Hover a direction and the stick pushes that way."),
+        tut_step(WS_ANIMATE, "anim_slot_0", "Frames", "Up to 6 frames each (16 in ADAM Pro). Click a frame - or the + after the last one - then click sprites in the bank to fill it in."),
+        tut_step(WS_ANIMATE, "anim_bank_0", "The sprite bank", "All your sprites, ready to use as frames. Draw them on the Sprites page - there is room for 64 (128 in ADAM Pro)."),
+        tut_step(WS_ANIMATE, "anim_rate", "Speed and style", "How long each frame stays on screen, and whether it loops, plays once or ping-pongs back and forth."),
+        tut_step(WS_ANIMATE, "anim_mid_1", "With Fire", "The second joystick is for the player holding fire: Fire in the middle and fire + each direction - digging, shooting, swinging a sword. Its fire button lights up."),
+        tut_step(WS_ANIMATE, "anim_tab_2", "In air and Falling", "Walk is used by any direction without frames of its own. In air and Falling play while a platform player, hopper or faller jumps and drops."),
+        tut_step(WS_ANIMATE, "anim_lib_tab_1", "Animation library", "Every animation your actors already have, playing live. Drag one onto any joystick slot - or onto Walk, In air or Falling - to copy it there. You can also drag one slot onto another."),
+        tut_step(WS_ANIMATE, "anim_test", "Test it", "Switch Test on and drive the preview with the arrow keys, WASD or a gamepad, to see each animation as the Amiga will play it."),
+        tut_step(WS_ANIMATE, "anim_flip", "Facing left", "Draw your frames facing right and switch this on: when the actor moves left, the Amiga shows them turned round."),
+        // ---------- UI ----------
+        tut_step(WS_UI, "ui_on", "Your own HUD", "Switch on a custom HUD - a framed panel at the top or bottom of the screen, with the score, lives, goal and more where you want them."),
+        tut_step(WS_UI, "ui_style", "Panel frame", "Pick a ready-made frame - metal, wood, stone, neon, parchment - in your game's colours, then draw on it in the Panel frame editor below the preview."),
+        tut_step(WS_UI, "ui_font", "Font", "A font style for the HUD and the game's messages, or Custom to draw your own letters."),
+        tut_step(WS_UI, "ui_preview", "Fields", "Drag the fields round the preview. Pick one to change what it shows, its label, colour and shadow on the right."),
         // ---------- LOGIC ----------
         tut_step(WS_LOGIC, "", "Rules make it a game", "Each rule is a sentence: WHEN something happens, DO something. For example: WHEN Hero touches Gem, DO add 10 to the score."),
         tut_step(WS_LOGIC, "logic_add", "Add a rule", "Press this to add a new rule, then change its parts with the drop-down menus."),
@@ -55,7 +75,7 @@ function tut_init()
         tut_step(WS_LOGIC, "logic_addgroup", "Groups", "Keep related rules together in named groups, like 'Hoppers hit the hero'. Collapse a group to tidy the list, or switch it off to test your game without those rules."),
         tut_step(WS_LOGIC, "logic_tpl_0", "Quick recipes", "Not sure where to start? These buttons add complete, ready-made rules for the most common game ideas."),
         // ---------- SOUND ----------
-        tut_step(WS_SOUND, "snd_slot_0", "Eight sound effects", "Your game has 8 sound slots. Pick one to edit it, or press Play to hear it."),
+        tut_step(WS_SOUND, "snd_slot_0", "Your sounds", "Your game starts with 8 sounds. Pick one to edit it, or press Play to hear it. + Sound adds more (ADAM Pro: up to 64), + Folder keeps them tidy."),
         tut_step(WS_SOUND, "snd_preset_0", "Start from a preset", "The quickest way to a good sound: pick a preset like Coin or Explosion, then tweak it."),
         tut_step(WS_SOUND, "snd_wave", "Waveform", "The basic tone: soft triangle, buzzy sawtooth, classic square or crunchy noise."),
         tut_step(WS_SOUND, "snd_sweep", "Pitch slide", "Make the pitch rise or fall. Falling slides sound like lasers, rising slides like coins and power-ups."),
@@ -128,6 +148,7 @@ function tut_draw(_gw, _gh)
         tut_target_rect = [];
         return;
     }
+    if (_step.tab == WS_LOGIC) { logic_tab = 0; }       // the Logic page tour is about rules
     tut_anim = lerp(tut_anim, 1, 0.15);
     var _a = tut_anim;
     var _r = undefined;
@@ -164,7 +185,7 @@ function tut_draw(_gw, _gh)
     var _cw = 420;
     draw_set_font(global.f_body);
     var _bh = ui_sh_ext(_step.body, _cw - 48);
-    var _ch = 144 + _bh;
+    var _ch = 148 + _bh;
     var _cx = (_gw - _cw) / 2;
     var _cy = (_gh - _ch) / 2;
     if (!is_undefined(_r))
@@ -216,7 +237,7 @@ function tut_draw(_gw, _gh)
     ui_rrect(_cx + 24, _cy + 38, _cx + _cw - 24, _cy + 42, 2, c_black, c_black, 0.3 * _a);
     ui_rrect(_cx + 24, _cy + 38, _cx + 24 + (_cw - 48) * ((tut_index + 1) / _n), _cy + 42, 2, global.TH.warn, global.TH.warn, _a);
     ui_text(_cx + 24, _cy + 52, _step.title, c_white, fa_left, fa_top, global.f_title, _a);
-    ui_text_wrap(_cx + 24, _cy + 80, _step.body, global.TH.text_dim, _cw - 48, global.f_body, _a);
+    ui_text_wrap(_cx + 24, _cy + 84, _step.body, global.TH.text_dim, _cw - 48, global.f_body, _a);
 
     ui_force_input = true;
     var _by = _cy + _ch - 44;
@@ -307,7 +328,7 @@ function tut_offer_draw(_gw, _gh)
     {
         tut_offer_on = false;
     }
-    if (ui_button("tut_offer_never", _cx + 24, _by, _dw, 32, "Don't ask again", "Stop offering tutorials|Turns off 'Offer a tutorial on each new page' (Home page, Studio). Tutorial (F1) still works.", BTN_GHOST))
+    if (ui_button("tut_offer_never", _cx + 24, _by, _dw, 32, "Don't ask again", "Stop offering tutorials|Turns off 'Offer page tutorials' (Home page, Studio panel). Tutorial (F1) still works.", BTN_GHOST))
     {
         tut_offer_on = false;
         auto_tutorials = false;

@@ -8,11 +8,39 @@ function actor_names()
     return _n;
 }
 
+/// Names for sprite drop-downs: the bank, or all 128 when a Pro project opened in
+/// ADAM Lite uses sprites past the Lite bank (those are marked Pro)
 function sprite_names()
 {
     var _n = [];
-    for (var i = 0; i < SPR_COUNT; i++) { array_push(_n, string(i + 1) + ": " + proj.sprites[i].name); }
+    var _count = spr_bank_size();
+    if (_count < SPR_COUNT && spr_used_past(_count)) { _count = SPR_COUNT; }
+    for (var i = 0; i < _count; i++)
+    {
+        var _nm = string(i + 1) + ": " + proj.sprites[i].name;
+        if (i >= spr_bank_size()) { _nm += "  (Pro)"; }
+        array_push(_n, _nm);
+    }
     return _n;
+}
+
+/// True when an actor uses a sprite slot at or past _n (as its sprite, second frame or a frame)
+function spr_used_past(_n)
+{
+    for (var a = 0; a < array_length(proj.actors); a++)
+    {
+        var _ac = proj.actors[a];
+        if (_ac.sprite >= _n || _ac.anim_sprite >= _n) { return true; }
+        for (var k = 0; k < array_length(_ac.anims); k++)
+        {
+            var _fr = _ac.anims[k].frames;
+            for (var f = 0; f < array_length(_fr); f++)
+            {
+                if (_fr[f] >= _n) { return true; }
+            }
+        }
+    }
+    return false;
 }
 
 /// Colour key of a sprite design as the machine shows it
@@ -23,6 +51,7 @@ function sprite_colour_key(_si)
 }
 
 #macro ACT_MAX_SPR 8        // the Amiga's hardware sprites
+#macro ACT_MAX_TILE 7       // a tile world: the scrolling display's early fetch (DDFSTRT $30) takes sprite 7's DMA
 #macro ACT_MAX_ALL 32       // actors the engine can run (MAX_ACT in engine.s) - the rest are BOBs, ADAM Pro
 
 // Blitter time per BOB per bitplane each frame: the cookie-cut (24 lines x 2
@@ -46,7 +75,7 @@ function bobs_max(_m, _depth)
 function actor_dims(_ac)
 {
     var _s = proj.sprites[clamp(_ac.sprite, 0, SPR_COUNT - 1)];
-    if (pro_on() && (_ac.bob || spr_is_big(_s))) { return [_s.w, _s.h]; }
+    if (pro_on() && (_ac.bob || spr_is_big(_s))) { return [min(_s.w, lim_spr_w()), min(_s.h, lim_spr_h())]; }   // Lite cuts big ones to 32 x 32
     return [SPR_W, SPR_H];
 }
 
@@ -62,17 +91,31 @@ function bobs_load()
         if (_bob[i])
         {
             var _s = proj.sprites[clamp(proj.actors[i].sprite, 0, SPR_COUNT - 1)];
-            _cyc += _s.h * (_s.w div 16 + 1) * 6;
+            _cyc += min(_s.h, lim_spr_h()) * (min(_s.w, lim_spr_w()) div 16 + 1) * 6;
         }
     }
     return _cyc / BOB_CYCLES_PER_PLANE;
 }
 
-/// How many actors go on the disk: 8 in ADAM Lite, up to 32 in ADAM Pro
+/// True when the backdrop scrolls left or right (not in a tile world): the fine
+/// scroll fetches one word early and takes sprite 7's time, as in a tile world
+function scroll_across(_p)
+{
+    return !_p.tiles_on && !_p.shmup_map && (_p.scroll_dir == 2 || _p.scroll_dir == 4);
+}
+
+/// True when the backdrop scrolls (a shoot 'em up; not in a tile world), or the ship
+/// flies up a shoot 'em up map (Tiles page)
+function scroll_on_disk(_p)
+{
+    return !_p.tiles_on && (_p.scroll_dir > 0 || _p.shmup_map);
+}
+
+/// How many actors go on the disk: up to 12 in ADAM Lite, 32 in ADAM Pro
 function actors_on_disk()
 {
-    if (pro_on()) { return min(ACT_MAX_ALL, array_length(proj.actors)); }
-    return min(ACT_MAX_SPR, array_length(proj.actors));
+    if (proj.tiles_on) { return min(ACT_MAX_TILE, array_length(proj.actors)); }    // tile world: hardware sprites only, not sprite 7
+    return min(lim_actors(), array_length(proj.actors));
 }
 
 /// For each actor on the disk, true when it is drawn as a BOB (blitter object)
@@ -82,11 +125,13 @@ function actors_bob_flags()
 {
     var _n = actors_on_disk();
     var _out = array_create(_n, false);
-    if (!pro_on()) { return _out; }
+    if (!pro_on() || proj.tiles_on) { return _out; }
     var _spr = 0;
+    var _nspr = ACT_MAX_SPR;
+    if (scroll_across(proj)) { _nspr = ACT_MAX_SPR - 1; }   // the fine scroll takes sprite 7's time
     for (var i = 0; i < _n; i++)
     {
-        if (proj.actors[i].bob || _spr >= ACT_MAX_SPR || spr_is_big(proj.sprites[clamp(proj.actors[i].sprite, 0, SPR_COUNT - 1)]))
+        if (proj.actors[i].bob || _spr >= _nspr || spr_is_big(proj.sprites[clamp(proj.actors[i].sprite, 0, SPR_COUNT - 1)]))
         {
             _out[i] = true;
         }
@@ -110,6 +155,8 @@ function actors_alloc_channels()
     var _key = ["", "", "", ""];
     var _used = [0, 0, 0, 0];
     var _owner = [-1, -1, -1, -1];
+    var _cap = [2, 2, 2, 2];             // actors per colour pair
+    if (proj.tiles_on || scroll_across(proj)) { _cap[3] = 1; }  // a tile world (or a backdrop scrolling across) loses sprite 7 (the second of pair 3)
     for (var i = 0; i < _na; i++)
     {
         if (_bob[i]) { continue; }
@@ -117,7 +164,7 @@ function actors_alloc_channels()
         var _p = -1;
         for (var a = 0; a < 4; a++)
         {
-            if (_p < 0 && _used[a] == 1 && _key[a] == _k) { _p = a; }
+            if (_p < 0 && _used[a] == 1 && _cap[a] > 1 && _key[a] == _k) { _p = a; }
         }
         for (var b = 0; b < 4; b++)
         {
@@ -125,7 +172,7 @@ function actors_alloc_channels()
         }
         for (var c = 0; c < 4; c++)
         {
-            if (_p < 0 && _used[c] < 2) { _p = c; _conf[i] = true; }
+            if (_p < 0 && _used[c] < _cap[c]) { _p = c; _conf[i] = true; }
         }
         if (_used[_p] == 0)
         {
@@ -157,8 +204,7 @@ function ws_actors_draw(_x1, _y1, _x2, _y2)
     var _na = array_length(proj.actors);
     sel_actor = clamp(sel_actor, 0, max(0, _na - 1));
     var _alloc = actors_alloc_channels();
-    var _amax = ACT_MAX_SPR;
-    if (pro_on()) { _amax = ACT_MAX_ALL; }
+    var _amax = lim_actors();
 
     // ---------------- cast list ----------------
     ui_panel(_x1, _y1, _x1 + _lw, _y2, "Cast  (" + string(_na) + " / " + string(_amax) + ")");
@@ -167,7 +213,7 @@ function ws_actors_draw(_x1, _y1, _x2, _y2)
     var _by = _y2 - 130;
     var _lcontent = _na * _rowh + 8;
     var _loff = ui_scroll_begin("act_list", _x1 + 6, _y1 + 50, _x1 + _lw - 6, _by - 8, _lcontent);
-    var _role_short = ["Player", "Bouncer", "Patrol L-R", "Patrol U-D", "Chaser", "Still", "Platform player", "Hopper", "Faller"];
+    var _role_short = ["Player", "Bouncer", "Patrol L-R", "Patrol U-D", "Chaser", "Still", "Platform player", "Hopper", "Faller", "Shot", "Flyer", "Option", "Effect"];
     for (var i = 0; i < _na; i++)
     {
         var _ac = proj.actors[i];
@@ -191,13 +237,19 @@ function ws_actors_draw(_x1, _y1, _x2, _y2)
         var _tsc = min(1, SPR_H / max(_ts.w, _ts.h));
         draw_sprite_amiga_cols(_ac.sprite, _x1 + 33 - _ts.w * _tsc / 2, _ry + 7 + (SPR_H - _ts.h * _tsc) / 2, _tsc, actor_cols_from(_alloc, i), 1);
         ui_text(_x1 + 60, _ry + 16, ui_text_fit(_ac.name, global.f_bold, _lw - 84), global.TH.text, fa_left, fa_middle, global.f_bold, 1);
-        var _sub = _role_short[clamp(_ac.role, 0, 8)];
+        var _sub = _role_short[clamp(_ac.role, 0, 12)];
+        var _subc = global.TH.text_dim;
         if (i < array_length(_alloc.conflict))
         {
-            if (_alloc.conflict[i]) { _sub += "  -  colours shared!"; }
+            // "Platform player  -  colours shared!" (227 px) never fitted the 160 px here: the warning gets the line
+            if (_alloc.conflict[i])
+            {
+                _sub = "Colours shared!";
+                _subc = global.TH.warn;
+            }
             if (_alloc.chan[i] < 0) { _sub += "  -  BOB"; }
         }
-        ui_text(_x1 + 60, _ry + 35, ui_text_fit(_sub, global.f_small, _lw - 84), global.TH.text_dim, fa_left, fa_middle, global.f_small, 1);
+        ui_text(_x1 + 60, _ry + 35, ui_text_fit(_sub, global.f_small, _lw - 80), _subc, fa_left, fa_middle, global.f_small, 1);
         if (_hot && ui_pressed)
         {
             sel_actor = i;
@@ -208,8 +260,8 @@ function ws_actors_draw(_x1, _y1, _x2, _y2)
     var _bw = _lw - 32;
     var _st = BTN_ACCENT;
     if (_na >= _amax) { _st = BTN_GHOST; }
-    var _addhelp = "Add actor|Adds a new actor (up to 8 - the Amiga has 8 hardware sprites; more as BOBs in ADAM Pro). New actors start in the middle of the screen.";
-    if (pro_on()) { _addhelp = "Add actor|Adds a new actor, up to 32. The first 8 can be hardware sprites; the rest are BOBs, drawn by the blitter. New actors start in the middle of the screen."; }
+    var _addhelp = "Add actor|Adds a new actor, up to " + string(_amax) + ". The first 8 can be hardware sprites; the rest are BOBs, drawn by the blitter. New actors start in the middle of the screen.";
+    if (!pro_edition()) { _addhelp += " (ADAM Lite: 12 - the 8 hardware sprites, the rest BOBs; ADAM Pro: up to " + string(ACT_MAX_ALL) + ".)"; }
     if (ui_button("act_add", _x1 + 16, _by, _bw, 34, "Add actor", _addhelp, _st))
     {
         if (_na < _amax)
@@ -223,8 +275,7 @@ function ws_actors_draw(_x1, _y1, _x2, _y2)
         }
         else
         {
-            if (pro_on()) { toast("ADAM games can have up to " + string(ACT_MAX_ALL) + " actors", 1); }
-            else { toast("The Amiga has 8 hardware sprites - more actors (as BOBs) are part of ADAM Pro", 1); }
+            lim_toast("A game has up to " + string(_amax) + " actors", "up to " + string(ACT_MAX_ALL));
         }
     }
     if (ui_button("act_dup", _x1 + 16, _by + 42, _bw, 34, "Duplicate", "Duplicate|Makes a copy of the selected actor, slightly to the side.", BTN_NORMAL))
@@ -234,7 +285,7 @@ function ws_actors_draw(_x1, _y1, _x2, _y2)
             undo_mark("actdup" + string(current_time));
             var _cp = struct_overlay(actor_new(""), json_parse(json_stringify(proj.actors[sel_actor])));
             _cp.name = _cp.name + " 2";
-            _cp.x = min(BD_W - actor_dims(_cp)[0], _cp.x + 30);
+            _cp.x = min(world_w() - actor_dims(_cp)[0], _cp.x + 30);
             array_push(proj.actors, _cp);
             sel_actor = _na;
         }
@@ -262,10 +313,28 @@ function ws_actors_draw(_x1, _y1, _x2, _y2)
     var _fx = floor((_cx1 + _cx2 - _fw) / 2);
     var _fy = floor((_y1 + _y2 - _fh) / 2) - 10;
     ui_rrect(_fx - 6, _fy - 6, _fx + _fw + 6, _fy + _fh + 6, 10, c_black, c_black, 0.35);
-    backdrop_draw(_fx, _fy, _scale);
-    terrain_draw(_fx, _fy, _scale);
+    // tile world: the stage is a screen of the map, round the selected actor
+    var _ox = 0;
+    var _oy = 0;
+    if (proj.tiles_on)
+    {
+        if (!act_drag && _na > 0)
+        {
+            act_camx = clamp(proj.actors[sel_actor].x + 8 - BD_W div 2, 0, world_w() - BD_W);
+            act_camy = clamp(proj.actors[sel_actor].y + 12 - 136, 0, world_h() - BD_H);
+        }
+        _ox = act_camx;
+        _oy = act_camy;
+        tile_map_draw(_fx, _fy, _ox, _oy, BD_W, BD_H, _scale);
+    }
+    else
+    {
+        backdrop_draw(_fx, _fy, _scale);
+        terrain_draw(_fx, _fy, _scale);
+        _ox = -shmup_xoff();                // a shoot 'em up map: x is across its play area
+    }
     // the ground line that walkers, hoppers and fallers stand on
-    if (current_time - ground_cache_time > 400)
+    if (!proj.tiles_on && current_time - ground_cache_time > 400)
     {
         ground_cache = ground_table_cached(proj);
         var _lh = level_heights_shown();
@@ -274,7 +343,7 @@ function ws_actors_draw(_x1, _y1, _x2, _y2)
     }
     var _gtab = ground_cache;
     draw_set_alpha(0.55);
-    for (var gl = 0; gl < BD_W - 1; gl++)
+    for (var gl = 0; gl < BD_W - 1 && !proj.tiles_on; gl++)
     {
         if (_gtab[gl] < 256 && _gtab[gl + 1] < 256 && (gl div 3) mod 2 == 0)
         {
@@ -282,15 +351,25 @@ function ws_actors_draw(_x1, _y1, _x2, _y2)
         }
     }
     draw_set_alpha(1);
+    var _sxo = shmup_xoff();                // a shoot 'em up map: the sides outside the play area
+    if (_sxo > 0)
+    {
+        draw_set_alpha(0.55);
+        draw_rectangle_colour(_fx, _fy, _fx + _sxo * _scale - 1, _fy + _fh - 1, c_black, c_black, c_black, c_black, false);
+        draw_rectangle_colour(_fx + _fw - _sxo * _scale, _fy, _fx + _fw - 1, _fy + _fh - 1, c_black, c_black, c_black, c_black, false);
+        draw_set_alpha(1);
+    }
 
-    ui_register("act_stage", _fx, _fy, _fx + _fw, _fy + _fh, "Stage|Drag actors to set where they start. Hidden actors are drawn faded.");
+    var _sthelp = "Stage|Drag actors to set where they start. Hidden actors are drawn faded.";
+    if (proj.tiles_on) { _sthelp = "Stage|A screen of the tile world round the selected actor: drag actors to set where they start. To place them anywhere on the map, use the Map on the Tiles page."; }
+    ui_register("act_stage", _fx, _fy, _fx + _fw, _fy + _fh, _sthelp);
     var _hover = -1;
     if (ui_hit(_fx, _fy, _fx + _fw, _fy + _fh))
     {
         for (var h = _na - 1; h >= 0; h--)
         {
-            var _hx = _fx + proj.actors[h].x * _scale;
-            var _hy = _fy + proj.actors[h].y * _scale;
+            var _hx = _fx + (proj.actors[h].x - _ox) * _scale;
+            var _hy = _fy + (proj.actors[h].y - _oy) * _scale;
             var _hd = actor_dims(proj.actors[h]);
             if (point_in_rectangle(ui_mx, ui_my, _hx, _hy, _hx + _hd[0] * _scale, _hy + _hd[1] * _scale))
             {
@@ -303,8 +382,8 @@ function ws_actors_draw(_x1, _y1, _x2, _y2)
     {
         sel_actor = _hover;
         act_drag = true;
-        act_drag_dx = ui_mx - (_fx + proj.actors[_hover].x * _scale);
-        act_drag_dy = ui_my - (_fy + proj.actors[_hover].y * _scale);
+        act_drag_dx = ui_mx - (_fx + (proj.actors[_hover].x - _ox) * _scale);
+        act_drag_dy = ui_my - (_fy + (proj.actors[_hover].y - _oy) * _scale);
         undo_mark("actdrag" + string(current_time));
         ui_take_click();
     }
@@ -313,27 +392,28 @@ function ws_actors_draw(_x1, _y1, _x2, _y2)
     {
         var _ad = proj.actors[sel_actor];
         var _dd = actor_dims(_ad);
-        _ad.x = clamp(round((ui_mx - act_drag_dx - _fx) / _scale), 0, BD_W - _dd[0]);
-        _ad.y = clamp(round((ui_my - act_drag_dy - _fy) / _scale), 0, BD_H - _dd[1]);
+        _ad.x = clamp(round((ui_mx - act_drag_dx - _fx) / _scale) + _ox, 0, world_w() - _dd[0]);
+        _ad.y = clamp(round((ui_my - act_drag_dy - _fy) / _scale) + _oy, 0, world_h() - _dd[1]);
         proj_dirty = true;
     }
     // draw back to front: lower channels are in front on the Amiga
     for (var d = _na - 1; d >= 0; d--)
     {
         var _ac2 = proj.actors[d];
-        var _dx = _fx + _ac2.x * _scale;
-        var _dy = _fy + _ac2.y * _scale;
+        var _dx = _fx + (_ac2.x - _ox) * _scale;
+        var _dy = _fy + (_ac2.y - _oy) * _scale;
+        if (_dx < _fx - SPR_W * _scale || _dy < _fy - SPR_H * _scale || _dx > _fx + _fw || _dy > _fy + _fh) { continue; }
         var _alpha = 1;
         if (!_ac2.visible) { _alpha = 0.4; }
-        var _frame_spr = _ac2.sprite;
-        if (_ac2.anim_sprite >= 0 && !_ac2.anim_moving && ((current_time div (_ac2.anim_rate * 20)) mod 2) == 1) { _frame_spr = _ac2.anim_sprite; }
+        var _frame_spr = actor_preview_sprite(_ac2);
         draw_sprite_amiga_cols(_frame_spr, _dx, _dy, _scale, actor_cols_from(_alloc, d), _alpha);
     }
     for (var d2 = 0; d2 < _na; d2++)
     {
         var _ac3 = proj.actors[d2];
-        var _ex = _fx + _ac3.x * _scale;
-        var _ey = _fy + _ac3.y * _scale;
+        var _ex = _fx + (_ac3.x - _ox) * _scale;
+        var _ey = _fy + (_ac3.y - _oy) * _scale;
+        if (_ex < _fx - SPR_W * _scale || _ey < _fy - SPR_H * _scale || _ex > _fx + _fw || _ey > _fy + _fh) { continue; }
         var _ed = actor_dims(_ac3);
         if (d2 == sel_actor)
         {
@@ -354,8 +434,8 @@ function ws_actors_draw(_x1, _y1, _x2, _y2)
     {
         var _ag = proj.actors[sel_actor];
         var _agd = actor_dims(_ag);
-        var _gx = _fx + (_ag.x + _agd[0] div 2) * _scale;
-        var _gy = _fy + (_ag.y + _agd[1] div 2) * _scale;
+        var _gx = _fx + (_ag.x - _ox + _agd[0] div 2) * _scale;
+        var _gy = _fy + (_ag.y - _oy + _agd[1] div 2) * _scale;
         ui_dotted_line(_fx, _gy, _fx + _fw, _gy, global.TH.warn, 0.7, 5);
         ui_dotted_line(_gx, _fy, _gx, _fy + _fh, global.TH.warn, 0.7, 5);
         var _txt = "X " + string(_ag.x) + "   Y " + string(_ag.y);
@@ -377,7 +457,13 @@ function ws_actors_draw(_x1, _y1, _x2, _y2)
         return;
     }
     var _s = proj.actors[sel_actor];
-    var _y = _y1 + 56;
+    // scrolls when the window is too short for every setting (last frame's height, kept in ui_scroll)
+    var _sy1 = _y1 + 46;
+    var _sy2 = _y2 - 6;
+    var _sh = ds_map_find_value(ui_scroll, "act_props_h");
+    if (is_undefined(_sh)) { _sh = 0; }
+    var _soff = ui_scroll_begin("act_props", _px + 4, _sy1, _x2 - 4, _sy2, _sh);
+    var _y = _y1 + 56 - _soff;
     ui_heading(_fx2, _y, "Name");
     set_val(_s, "name", ui_textfield("act_name", _fx2, _y + 18, _fw2, 32, _s.name, 20, "Actor name|Used in the Logic page so your rules read nicely, e.g. 'Hero touches Ghost'."), "actname");
     _y += 62;
@@ -396,9 +482,13 @@ function ws_actors_draw(_x1, _y1, _x2, _y2)
         "Stays where you put it. Great for pickups, doors and goals.",
         "Walks left and right on the ground and jumps with fire (or up). Follows the hills - set your ground colours on the Backdrop page.",
         "Hops along the ground on its own: it squats, springs up and drifts left or right in the air. Jump over it or run under it. Give it a second sprite and that one is shown while it squats.",
-        "Falls until it lands on the ground, then stays there. Use 'Move actor to another actor' to drop it from a cloud."
+        "Falls until it lands on the ground, then stays there. Use 'Move actor to another actor' to drop it from a cloud.",
+        "A laser, bullet or bomb. Hidden until a rule with DO 'Shoot' fires it from another actor, then it flies straight at its speed and vanishes when it hits something or leaves the screen. For rapid fire, add a few shots in a row with the same picture: the rule uses the next free one. Score hits with WHEN 'Thrown or shot actor hits'.",
+        "A shoot 'em up enemy. It flies in from an edge of the screen and crosses it in a pattern: straight, a wave, a zigzag, drifting at the player, moving with the scenery (a gun turret on the ground) or coming in and staying (a boss). Place a few in a row and they fly in as a formation. Hidden flyers wait until a rule shows them.",
+        "A multiple (Gradius style): it follows the player's trail and fires a shot of its own every time the player shoots. Hidden until DO 'Power up the player' with 'Add an option'. Give it a shot actor in the rule that shoots: the option fires the next free one.",
+        "An explosion, sparkle or puff of smoke. Hidden until DO 'Set off an effect' places it on an actor; it plays its Idle animation once (make it on the Animate page) and vanishes, drifting with the scenery. Add a few with the same picture for many explosions at once."
     ];
-    var _desc = _rdesc[clamp(_s.role, 0, 8)];
+    var _desc = _rdesc[clamp(_s.role, 0, 12)];
     draw_set_font(global.f_small);
     var _dh = max(50, ceil(ui_sh_ext(_desc, _fw2 - 20)) + 14);
     ui_rrect(_fx2, _y, _fx2 + _fw2, _y + _dh, 8, global.TH.inset_top, global.TH.inset_bot, 0.8);
@@ -420,12 +510,72 @@ function ws_actors_draw(_x1, _y1, _x2, _y2)
         set_val(_s, "start_up", ui_toggle("act_up", _fx2, _y, "Starts moving up", _s.start_up, "Start direction|Whether this actor starts heading up instead of down."), "actup");
         _y += 32;
     }
+    if (_s.role == 9)
+    {
+        ui_heading(_fx2, _y, "Flies");
+        set_val(_s, "aim", ui_dropdown("act_aim", _fx2, _y + 18, _fw2, 32, global.AIM_NAMES, clamp(_s.aim, 0, 6), "Which way it flies|'The way the shooter moves': the player shoots the way the joystick points (or it last moved; a platform player the way it faces). Up / Down / Left / Right: always that way - a rocket's laser goes up. 'At the player': an enemy aims straight at the player. 'Homing missile': it steers at the nearest enemy it can hit (one a WHEN 'Thrown or shot actor hits' rule names) - the player fires as many as DO 'Power up the player' with 'Homing missiles' gave it (none to start with); give it 8-direction animations so it turns as it flies."), "actaim");
+        _y += 62;
+    }
+    if (_s.role == 10)
+    {
+        ui_heading(_fx2, _y, "Flight pattern");
+        set_val(_s, "pattern", ui_dropdown("act_pat", _fx2, _y + 18, _fw2, 32, global.PATTERN_NAMES, clamp(_s.pattern, 0, 5), "Flight pattern|Straight: across the screen in a line. Wave: weaves either side of the line it came in on. Zigzag: from side to side, edge to edge. Homing: drifts towards the player. Moves with the scenery: a turret or a gun on the ground (put it on a wall). Comes in and stays: flies in to where you placed it, then patrols across - a boss."), "actpat");
+        _y += 62;
+        ui_heading(_fx2, _y, "Comes in from");
+        set_val(_s, "enter", ui_dropdown("act_enter", _fx2, _y + 18, _half, 32, global.EDGE_NAMES, clamp(_s.enter, 0, 3), "Comes in from|The edge it flies in from, a screen away from where you placed it - so flyers placed in a row keep their formation. A side-scroller's enemies come from the right, a vertical one's from the top."), "actenter");
+        set_val(_s, "comeback", ui_toggle("act_comeback", _fx2 + _half + 12, _y + 22, "Comes back", _s.comeback, "Comes back|When it leaves the far edge it flies in again at a new place. Off: it hides until a rule shows it again (waves)."), "actcomeback");
+        _y += 62;
+    }
+    if (_s.role != 0 && _s.role != 6 && _s.role != 9 && _s.role != 11 && _s.role != 12)
+    {
+        ui_heading(_fx2, _y, "Toughness (hits)");
+        set_val(_s, "hits", ui_stepper("act_hits", _fx2, _y + 18, _half, _s.hits, 1, 99, "Toughness|How many shots it takes before WHEN 'Thrown or shot actor hits' fires. Each hit before that flashes it white. 1 for small fry, 40 for a boss."), "acthits");
+        _y += 62;
+    }
+    if (_s.role != 0 && _s.role != 6)
+    {
+        ui_heading(_fx2, _y, "Copies on the disk");
+        set_val(_s, "copies", ui_stepper("act_copies", _fx2, _y + 18, _half, _s.copies, 1, COPIES_MAX, "Copies|How many of this actor go on the disk - a pool of shots for rapid fire, a wave of enemies a spawner sends out, explosions that can go off at once. Rules name the actor and mean every copy of it (the one that touched, was hit... is the one the rule changes). Copies after the first start hidden. Each copy is an actor on the disk (up to " + string(lim_actors()) + ")."), "actcopies");
+        _y += 62;
+    }
+    if (_s.role != 0 && _s.role != 6 && _s.role != 9 && _s.role != 11 && _s.role != 12)
+    {
+        // it fires by itself: which shot, how, how often
+        ui_heading(_fx2, _y, "Fires by itself");
+        var _fids = [-1];
+        var _fnames = ["(no - only rules make it fire)"];
+        for (var fa = 0; fa < _na; fa++)
+        {
+            if (proj.actors[fa].role == 9 || fa == _s.fire)
+            {
+                array_push(_fids, fa);
+                array_push(_fnames, proj.actors[fa].name);
+            }
+        }
+        var _fcur = 0;
+        for (var fq = 0; fq < array_length(_fids); fq++)
+        {
+            if (_fids[fq] == _s.fire) { _fcur = fq; }
+        }
+        var _fsel = ui_dropdown("act_fire", _fx2, _y + 18, _fw2, 32, _fnames, _fcur, "Fires by itself|While it is on the screen it fires this Shot actor every so often - no rule needed. Give the shot Copies so several can fly at once, and make WHEN 'Thrown or shot actor hits' rules for when it hits the player.");
+        set_val(_s, "fire", _fids[_fsel], "actfire");
+        _y += 58;
+        if (_s.fire >= 0)
+        {
+            ui_heading(_fx2, _y, "How it fires");
+            set_val(_s, "fire_pat", ui_dropdown("act_fpat", _fx2, _y + 18, _fw2, 32, global.FIRE_PAT_NAMES, clamp(_s.fire_pat, 0, 4), "How it fires|The shot's own aim: the way set on the shot. At the player: straight at the player. Three at the player: a spread of three. Ring of 8: in every direction (a boss). Fan of three: a spread the shot's own way."), "actfpat");
+            _y += 58;
+            ui_heading(_fx2, _y, "Every (50ths of a second)");
+            set_val(_s, "fire_rate", ui_stepper("act_frate", _fx2, _y + 18, _half, _s.fire_rate, 10, 500, "Fire rate|50ths of a second between volleys, give or take a little (50 = once a second). Hold Shift for steps of 10."), "actfrate");
+            _y += 62;
+        }
+    }
     _y += 6;
     var _sd = actor_dims(_s);
     ui_heading(_fx2, _y, "Start X");
-    set_val(_s, "x", ui_stepper("act_x", _fx2, _y + 18, _half, _s.x, 0, BD_W - _sd[0], "Start X|Horizontal start position in pixels (0 = left edge, " + string(BD_W - _sd[0]) + " = right edge). Hold Shift for steps of 10."), "actx");
+    set_val(_s, "x", ui_stepper("act_x", _fx2, _y + 18, _half, _s.x, 0, world_w() - _sd[0], "Start X|Horizontal start position in pixels (0 = left edge, " + string(world_w() - _sd[0]) + " = right edge). Hold Shift for steps of 10."), "actx");
     ui_heading(_fx2 + _half + 12, _y, "Start Y");
-    set_val(_s, "y", ui_stepper("act_y", _fx2 + _half + 12, _y + 18, _half, _s.y, 0, BD_H - _sd[1], "Start Y|Vertical start position (0 = top, " + string(BD_H - _sd[1]) + " = bottom). Hold Shift for steps of 10."), "acty");
+    set_val(_s, "y", ui_stepper("act_y", _fx2 + _half + 12, _y + 18, _half, _s.y, 0, world_h() - _sd[1], "Start Y|Vertical start position (0 = top, " + string(world_h() - _sd[1]) + " = bottom). Hold Shift for steps of 10."), "acty");
     _y += 66;
 
     // levels
@@ -438,21 +588,37 @@ function ws_actors_draw(_x1, _y1, _x2, _y2)
         _y += 62;
     }
 
-    // two-frame animation
-    ui_heading(_fx2, _y, "Animation (second frame)");
-    var _anames = ["(none - one frame)"];
-    var _sn = sprite_names();
-    for (var an = 0; an < array_length(_sn); an++) { array_push(_anames, _sn[an]); }
-    var _na2 = ui_dropdown("act_anim", _fx2, _y + 18, _fw2, 32, _anames, _s.anim_sprite + 1, "Animation|Pick a second sprite and the actor flips between the two - a walk cycle, flapping wings or a twinkle. Use the same colours as the first frame (copy and paste on the Sprites page, then change a few pixels).") - 1;
-    set_val(_s, "anim_sprite", _na2, "actanim");
-    _y += 58;
-    if (_s.anim_sprite >= 0)
+    // animations made on the Animate page replace the two-frame animation
+    if (anims_used(_s))
     {
-        ui_heading(_fx2, _y, "Frames each");
-        set_val(_s, "anim_rate", ui_stepper("act_arate", _fx2, _y + 18, _half, _s.anim_rate, 2, 30, "Animation speed|How many 50ths of a second each frame stays on screen. 6 is a brisk walk, 15 a slow blink."), "actarate");
+        var _nfr = 0;
+        for (var ae = 0; ae < ANIM_COUNT; ae++) { _nfr += array_length(_s.anims[ae].frames); }
+        ui_heading(_fx2, _y, "Animation");
+        ui_text(_fx2, _y + 26, ui_text_fit(string(_nfr) + " frames on the Animate page", global.f_body, _fw2), global.TH.text_dim, fa_left, fa_middle, global.f_body, 1);
+        if (ui_button("act_goanim", _fx2, _y + 42, _fw2, 32, "Open the Animate page", "Animate page|Idle, walk, jump and fall animations (6 frames each in ADAM Lite, 16 in ADAM Pro), for this actor.", BTN_NORMAL))
+        {
+            ws_set(WS_ANIMATE);
+        }
+        _y += 84;
+    }
+    // two-frame animation
+    else
+    {
+        ui_heading(_fx2, _y, "Animation (second frame)");
+        var _anames = ["(none - one frame)"];
+        var _sn = sprite_names();
+        for (var an = 0; an < array_length(_sn); an++) { array_push(_anames, _sn[an]); }
+        var _na2 = ui_dropdown("act_anim", _fx2, _y + 18, _fw2, 32, _anames, _s.anim_sprite + 1, "Animation|Pick a second sprite and the actor flips between the two - a walk cycle, flapping wings or a twinkle. Use the same colours as the first frame (copy and paste on the Sprites page, then change a few pixels).") - 1;
+        set_val(_s, "anim_sprite", _na2, "actanim");
         _y += 58;
-        set_val(_s, "anim_moving", ui_toggle("act_amove", _fx2, _y, "Only when moving", _s.anim_moving, "Only when moving|The actor shows its first frame while standing still - perfect for walk cycles."), "actamove");
-        _y += 34;
+        if (_s.anim_sprite >= 0)
+        {
+            ui_heading(_fx2, _y, "Frames each");
+            set_val(_s, "anim_rate", ui_stepper("act_arate", _fx2, _y + 18, _half, _s.anim_rate, 2, 30, "Animation speed|How many 50ths of a second each frame stays on screen. 6 is a brisk walk, 15 a slow blink."), "actarate");
+            _y += 58;
+            set_val(_s, "anim_moving", ui_toggle("act_amove", _fx2, _y, "Only when moving", _s.anim_moving, "Only when moving|The actor shows its first frame while standing still - perfect for walk cycles."), "actamove");
+            _y += 34;
+        }
     }
 
     // sprite or BOB (ADAM Pro)
@@ -461,9 +627,15 @@ function ws_actors_draw(_x1, _y1, _x2, _y2)
     var _bobv = ui_toggle("act_bob", _fx2, _y, _boblabel, _s.bob && pro_on(), "Draw as a BOB|A BOB (blitter object) is drawn into the backdrop by the Amiga's blitter instead of being a hardware sprite. BOBs use the nearest backdrop colours and do not take one of the 8 sprites, so a game can have up to 32 actors. Actors after the 8th sprite become BOBs anyway. Part of ADAM Pro.");
     if (_bobv != (_s.bob && pro_on()))
     {
-        if (pro_gate("BOBs")) { set_val(_s, "bob", _bobv, "actbob"); }
+        if (feature_gate("BOBs")) { set_val(_s, "bob", _bobv, "actbob"); }
     }
     _y += 34;
+    if (_s.role != 0 && _s.role != 6 && _s.role != 9)
+    {
+        set_val(_s, "carry", ui_toggle("act_carry", _fx2, _y, "Can be carried", _s.carry, "Can be carried|The player picks it up by touching it and pressing fire - it rides on the player's head - and fire again throws it the way the player faces, in an arc. Make rules with WHEN 'Thrown actor hits actor' (knock out an enemy, break a box) and 'Player picks up actor'. A rock, a barrel, a bomb, a key."), "actcarry");
+        _y += 34;
+    }
+    var _yend = _y;
 
     // hardware sprite channel
     var _hw = false;
@@ -486,6 +658,7 @@ function ws_actors_draw(_x1, _y1, _x2, _y2)
         var _bh = max(48, ceil(ui_sh_ext(_bmsg, _fw2 - 20)) + 14);
         ui_rrect(_fx2, _y + 18, _fx2 + _fw2, _y + 18 + _bh, 8, global.TH.inset_top, global.TH.inset_bot, 0.8);
         ui_text_wrap(_fx2 + 10, _y + 24, _bmsg, global.TH.text_dim, _fw2 - 20, global.f_small, 1);
+        _yend = _y + 18 + _bh;
     }
     if (_hw)
     {
@@ -508,7 +681,10 @@ function ws_actors_draw(_x1, _y1, _x2, _y2)
         var _mc = global.TH.text_dim;
         if (_kind == 1) { _mc = global.TH.warn; }
         ui_text_wrap(_fx2 + 10, _y + 24, _msg, _mc, _fw2 - 20, global.f_small, 1);
+        _yend = _y + 18 + _mh;
     }
+    ds_map_replace(ui_scroll, "act_props_h", _yend + _soff - _sy1 + 12);
+    ui_scroll_end("act_props", _px + 4, _sy1, _x2 - 4, _sy2, _sh);
 }
 
 /// Colours for actor _i from an allocation result

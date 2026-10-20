@@ -4,7 +4,7 @@
 import json, math, random, struct, sys, os
 from PIL import Image, ImageDraw
 import art
-from adf_reference import build, adf, ENGINE, ENGINE_DIR, HERE, REPO
+from adf_reference import build, adf, loadscr_block, ENGINE, ENGINE_DIR, HERE, REPO
 
 W,H=320,256
 def gun(v): return round(v/17)*17
@@ -96,6 +96,19 @@ def actor(name,sprite,role,speed,x,y,anim=-1,rate=8,moving=False,vis=True,left=F
     return dict(name=name,sprite=sprite,role=role,speed=speed,x=x,y=y,visible=vis,start_left=left,start_up=up,anim_sprite=anim,anim_rate=rate,anim_moving=moving,from_level=1,faster_every=0)
 def R(when=0,a=0,b=1,n=1,act=0,target=0,value=10): return dict(when=when,a=a,b=b,n=n,act=act,target=target,value=value,group=-1)
 
+def merge_rules(p):
+    # back-to-back rules with the same WHEN (and group) become one card with AND DO lines (up to 5 DOs)
+    # (and the same IF lines)
+    out=[]
+    key=lambda r:(r['when'],r['a'],r['b'],r['n'],r['group'],json.dumps(r.get('ifs',[])))
+    for r in p['rules']:
+        r.setdefault('more',[])
+        k=key(r)
+        if out and key(out[-1])==k and len(out[-1]['more'])<4:
+            out[-1]['more'].append(dict(act=r['act'],target=r['target'],value=r['value']))
+        else: out.append(r)
+    p['rules']=out
+
 def auto_groups(p):
     names=p['actors']
     def key(r):
@@ -111,7 +124,12 @@ def auto_groups(p):
             return names[r['a']]['name']+" touches "+tgt
         if r['when'] in (1,6): return "Controls and sounds"
         if r['when']==2: return "Timers"
+        if r['when']==9: return "Sounds in view"
+        if r['when']==10: return "Sword strikes"
+        if r['when']==11 and names[r['a']]['role']==9: return "Shooting"
+        if r['when'] in (11,12): return "Throwing"
         return "Game flow"
+    if '_gk' in p: key=p.pop('_gk')            # the example's own groups (ex_shmup)
     order=[]; 
     for r in p['rules']:
         k=key(r)
@@ -120,17 +138,105 @@ def auto_groups(p):
     for r in p['rules']: r['group']=order.index(key(r))
     p['rules']=sorted(p['rules'],key=lambda r:r['group'])
 
+# ---- animations (Animate page): each animated actor gets 3 or 4 frames per animation.
+# Extra frames are made from the drawn ones with these small changes.
+def tf_shift(rows,dx=0,dy=0):
+    out=[]
+    for y in range(24):
+        sy=y-dy
+        r=rows[sy] if 0<=sy<24 else "."*16
+        if dx>0: r="."*dx+r[:16-dx]
+        elif dx<0: r=r[-dx:]+"."*(-dx)
+        out.append(r)
+    return out
+def tf_hflip(rows): return [r[::-1] for r in rows]
+def tf_flip_from(rows,y0): return rows[:y0]+[r[::-1] for r in rows[y0:]]   # legs / flame the other way
+def tf_lean(rows,k):
+    # leans the picture to the right: the top moves k pixels, the bottom stays
+    out=[]
+    for y,r in enumerate(rows):
+        d=round(k*(23-y)/23)
+        out.append(("."*d+r)[:16] if d>0 else r)
+    return out
+def tf_row(rows,y,new): return rows[:y]+[new]+rows[y+1:]
+
+def animate(p,prefix,specs):
+    """specs: {actor index: dict(anims={0..11: (frames, rate, mode)}, flip=bool, dirs=bool)}
+    frames are art names or row lists; new pictures go in the next free sprite slots
+    with the colours of the actor's own sprite"""
+    slots={}
+    def slot_for(fr,cols,name):
+        if isinstance(fr,int): return fr
+        key=fr if isinstance(fr,str) else prefix+name
+        if key in slots: return slots[key]
+        rows=art.A[fr] if isinstance(fr,str) else fr
+        for i,s in enumerate(p['sprites']):
+            if s['name'].startswith('Sprite ') and not any(s['px']):
+                break
+        else:
+            i=len(p['sprites']); p['sprites'].append(dict(name="",px=[0]*384,cols=cols))
+        p['sprites'][i]=dict(name=name,px=[int(c) if c in '123' else 0 for r in rows for c in r],cols=list(cols))
+        slots[key]=i; return i
+    for ai,sp in specs.items():
+        a=p['actors'][ai]
+        cols=p['sprites'][a['sprite']]['cols']
+        anims=[dict(frames=[],rate=8,mode=0) for _ in range(max([21]+[k+1 for k in sp['anims']]))]   # 21, 23 with Hit / Die
+        for k,(frames,rate,mode) in sp['anims'].items():
+            fl=[]
+            for j,fr in enumerate(frames):
+                if isinstance(fr,tuple): nm,rows=fr; fl.append(slot_for(rows,cols,nm))
+                else: fl.append(slot_for(fr,cols,fr))
+            anims[k]=dict(frames=fl,rate=rate,mode=mode)
+        a['anims']=anims; a['anim_flip']=sp.get('flip',False); a['anim_dirs']=sp.get('dirs',False)
+        if a['role']!=7: a['anim_sprite']=-1
+    for i,s in enumerate(p['sprites']):
+        if not s['name']: s['name']="Frame %d"%(i+1)
+
 def make_project(name,pal16,img,sprites,actors,rules,sky,hud_col=1,msg_col=14,lives=3,over="GAME OVER - PRESS FIRE",win="YOU WIN! - PRESS FIRE",sfx=None,songs=None):
     pal=palette_default(); pal[:16]=pal16
+    depth=4; machine="A500_600"
+    if AGA['on']:
+        # resolve the in-between colours in the order they were made (a blend can use an earlier one)
+        for i,(a,b,k) in enumerate(AGA['order']):
+            t=k/AGA['steps']; ca=pal[a]; cb=pal[b]
+            pal[16+i]=sum(int(round(((ca>>sh)&255)*(1-t)+((cb>>sh)&255)*t))<<sh for sh in (16,8,0))
+        depth=7; machine="A1200"
+    pixels=list(img.getdata())
+    if AGA['on'] and AGA['sky']:
+        # the sky blends go after the in-between colours, one number per colour made
+        cols=[]; num=[]
+        for (c,ly,t) in AGA['sky']:
+            v=rgb_mix(pal[c],sky_rgb(sky,ly),t)
+            if v not in cols: cols.append(v)
+            num.append(cols.index(v))
+        base=16+len(AGA['order'])
+        assert base+len(cols)<=AGA.get('max',128), "%s: too many A1200 colours"%name
+        for k,v in enumerate(cols): pal[base+k]=v
+        pixels=[base+num[v-SKY_PH] if v>=SKY_PH else v for v in pixels]
+        print('%s a1200: %d blends + %d sky blends'%(name,len(AGA['order']),len(cols)))
     spr=[]
     for i in range(32):
         if i<len(sprites):
             n,a,cols=sprites[i]; spr.append(dict(name=n,px=art.px(a),cols=cols))
         else: spr.append(dict(name="Sprite %d"%(i+1),px=[0]*384,cols=[0xffdd33,0xdd3322,0xffffff]))
-    return dict(version=1,name=name,machine="A500_600",depth=4,pal=pal,pixels=list(img.getdata()),sprites=spr,actors=actors,rules=rules,
+    return dict(version=1,name=name,machine=machine,depth=depth,pal=pal,pixels=pixels,sprites=spr,actors=actors,rules=rules,
                 sfx=sfx or sfx_list(),lives=lives,show_score=True,show_lives=True,hud_row=0,hud_colour=hud_col,msg_colour=msg_col,
                 over_text=over,win_text=win,solid=[0]*128,levels_on=False,levels=[],terrain_cols=[10,9,11,12],goal_on=False,goal=20,goal_label='GEMS',title_on=False,title1=name.upper(),title2='PRESS FIRE TO START',lev_text='LEVEL',sky_on=True,sky_top=sky[0],sky_mid=sky[1],sky_bot=sky[2],sky_mid_y=sky[3],
-                songs=songs or [],level_song=[-1]*10)
+                songs=songs or [],level_song=[-1]*10,ui=ui_default())
+
+def ui_default():
+    # the custom HUD is off: the standard one (scr_ws_ui.gml ui_new)
+    return dict(on=False,bottom=False,rows=1,frame_on=True,style="Metal",frame=[0]*576,font_style=0,font=[],fields=[])
+
+def dress_ui(p,style,font_style,rows,fields,bottom=False):
+    # ADAM Pro custom HUD: a 9-slice panel in the game's own colours, a font style and the fields.
+    # fields: (type, label, col, row, colour rgb, shadow rgb or None, digits[, item (type 7)])
+    import ui_ref
+    ncol=1<<p['depth']
+    near=lambda c: ui_ref.pal_nearest(p['pal'],c,ncol)
+    fl=[dict(type=f[0],label=f[1],col=f[2],row=f[3],colour=near(f[4]),shadow=(near(f[5]) if f[5] is not None else -1),digits=f[6],
+             **({'item':f[7]} if len(f)>7 else {})) for f in fields]
+    p['ui']=dict(on=True,bottom=bottom,rows=rows,frame_on=True,style=style,frame=ui_ref.frame_preset(style,p['pal'],ncol),font_style=font_style,font=[],fields=fl)
 
 def canvas(): return Image.new('P',(W,H),0)
 
@@ -138,9 +244,48 @@ def canvas(): return Image.new('P',(W,H),0)
 BAYER8=[0,32,8,40,2,34,10,42, 48,16,56,24,50,18,58,26, 12,44,4,36,14,46,6,38, 60,28,52,20,62,30,54,22,
         3,35,11,43,1,33,9,41, 51,19,59,27,49,17,57,25, 15,47,7,39,13,45,5,37, 63,31,55,23,61,29,53,21]
 def bayer(x,y): return BAYER8[(y&7)*8+(x&7)]
+# A1200 versions: the same pictures, but each dithered blend between two backdrop colours
+# becomes a real in-between colour (16..127), so gradients are smooth and the 16 base
+# colours keep their numbers. Blends with colour 0 (the copper sky) stay dithered.
+AGA={'on':False,'steps':16,'keys':{},'order':[],'sky':[]}
+SKY_PH=128                                   # sky blend placeholders 128.. until make_project numbers them
+def aga_begin():
+    AGA.update(on=True,keys={},order=[],sky=[])
+def aga_end():
+    AGA['on']=False
+def aga_free():
+    return AGA.get('max',128)-16-len(AGA['order'])-len(AGA['sky'])
 def dmix(a,b,t,x,y):
-    # colour a at t=0 to colour b at t=1, dithered
+    # colour a at t=0 to colour b at t=1, dithered (A1200: an in-between colour)
+    if AGA['on'] and a!=b and a!=0 and b!=0:
+        n=AGA['steps']; k=int(round(max(0.0,min(1.0,t))*n))
+        if k<=0: return a
+        if k>=n: return b
+        key=(a,b,k)
+        if key in AGA['keys']: return AGA['keys'][key]
+        if (b,a,n-k) in AGA['keys']: return AGA['keys'][(b,a,n-k)]
+        if aga_free()>0:
+            i=16+len(AGA['order']); AGA['keys'][key]=i; AGA['order'].append(key); return i
     return b if (bayer(x,y)+0.5)/64<t else a
+def skymix(c,t,x,y,steps=6,band=16):
+    # colour c at t=0 fading into the copper sky (colour 0) at t=1, dithered. A1200: the sky
+    # colour of its band of lines mixed in (steps-1 colours a band, no dither) - only for still
+    # pictures, as the sky stays put on the screen
+    if AGA['on'] and c!=0:
+        k=min(steps-1,int(max(0.0,min(1.0,t))*steps))
+        if k<=0: return c
+        key=(c,(y//band)*band+band//2,k/steps)
+        if key in AGA['sky']: return SKY_PH+AGA['sky'].index(key)
+        if aga_free()>0:
+            AGA['sky'].append(key); return SKY_PH+len(AGA['sky'])-1
+    return dmix(c,0,t,x,y)
+def sky_rgb(sky,y):
+    # the copper sky's colour on line y (top, middle, bottom, middle line)
+    a,b,t=sky[0],sky[1],y/sky[3]
+    if y>sky[3]: a,b,t=sky[1],sky[2],(y-sky[3])/(255-sky[3])
+    return rgb_mix(a,b,t)
+def rgb_mix(a,b,t):
+    return sum(int(round(((a>>s)&255)*(1-t)+((b>>s)&255)*t))<<s for s in (16,8,0))
 def ramp(cols,t,x,y):
     # dithered gradient through a list of palette colours, t 0..1
     t=max(0.0,min(1.0,t)); pos=t*(len(cols)-1); k=min(int(pos),len(cols)-2)
@@ -174,7 +319,7 @@ def gem_hunter():
             r=math.hypot(x-sx,y-sy)
             if r<=20: P[x,y]=7
             elif r<=27: P[x,y]=dmix(7,3,(r-20)/7,x,y)
-            elif r<=44: P[x,y]=dmix(3,0,(r-27)/17,x,y)
+            elif r<=44: P[x,y]=skymix(3,(r-27)/17,x,y)
     def ridge(x): return int(130-abs(((x+40)%110)-55)*1.1-10*math.sin(x/17))
     for x in range(320):                                                     # far mountains, lit from the sun
         y=ridge(x); lit=(x+40)%110<55                                        # faces sloping down to the right face the sun
@@ -253,6 +398,17 @@ def gem_hunter():
         levels.append(dict(seed=seed,hilly=hilly,base=200,heights=terrain(seed,hilly,200)))
     p.update(levels_on=True,levels=levels,terrain_cols=[10,9,11,12],goal_on=True,goal=20,goal_label="GEMS",
              title_on=True,title1="GEM HUNTER",title2="PRESS FIRE TO START",lev_text="LEVEL")
+    H=art.A['gh_hero']; H2=art.A['gh_hero2']; HP=art.A['hop2']; C=art.A['cloud']; C2=art.A['cloud2']; G2=art.A['gem2']; P2=art.A['pop2']
+    hero=dict(flip=True,anims={0:([0,("Hero bob",tf_shift(H,dy=-1)),("Hero bob 2",tf_shift(H,dy=-2))],12,2),
+                               1:([0,4,("Hero step",tf_shift(H,dy=-1)),("Hero walk 2",tf_flip_from(H2,15))],5,0),
+                               2:([4,("Hero leap",tf_shift(H2,dy=-1)),("Hero leap 2",tf_shift(H2,dy=-2))],4,1)})
+    hero['anims'][3]=([("Hero bob",tf_shift(H,dy=-1)),("Hero drop",tf_shift(H,dy=1)),0],4,1)
+    hopper=dict(anims={0:([1,("Hopper wobble",tf_shift(HP,dy=1)),("Hopper wobble 2",tf_shift(HP,dx=1,dy=1))],10,2),
+                       2:([1,("Hopper stretch",tf_shift(HP,dy=-1)),("Hopper stretch 2",tf_shift(HP,dy=-2))],4,1)})
+    animate(p,"gh",{0:hero,1:hopper,2:hopper,3:hopper,4:hopper,
+                    5:dict(anims={0:([3,7,("Cloud drift",tf_shift(C,dx=1)),("Cloud drift puff",tf_shift(C2,dx=1))],25,0)}),
+                    6:dict(anims={0:([2,6,("Gem sparkle 2",tf_hflip(G2))],10,0)}),
+                    7:dict(anims={0:([8,9,("Pop flash",tf_hflip(P2))],4,0)})})
     return p
 
 # ------------------------------------------------------------------ DEEP DIVE
@@ -263,7 +419,7 @@ def deep_dive():
     for x in range(320):
         y=14+round(math.sin(x/9)*2)
         d.line([(x,12),(x,y)],fill=6)
-        for yy in range(y+1,y+7): P[x,yy]=dmix(7,0,(yy-y)/7,x,yy)
+        for yy in range(y+1,y+7): P[x,yy]=skymix(7,(yy-y)/7,x,yy)
     # light rays: slanted beams that fade out with depth (pattern dither over the copper water)
     for k in range(5):
         x0=30+k*70
@@ -271,7 +427,12 @@ def deep_dive():
             w=3+y//30; xs=x0+y//6
             for x in range(xs,min(320,xs+w)):
                 edge=min(x-xs+1,xs+w-x)/2.5                                  # soft sides
-                if (bayer(x,y)+0.5)/64<min(1,edge)*0.5*(1-(y-16)/164): P[x,y]=7
+                a=min(1,edge)*0.5*(1-(y-16)/164)
+                if AGA['on']:                                                # A1200: the beam's colour, no dither
+                    if a<1/12: continue
+                    if P[x,y]==0: P[x,y]=skymix(7,1-a,x,y)
+                    elif P[x,y]<16: P[x,y]=dmix(P[x,y],7,a,x,y)
+                elif (bayer(x,y)+0.5)/64<a: P[x,y]=7
     # sand dunes: a lit crest blending down into darker sand
     for x in range(320):
         y=212+round(math.sin(x/29)*8+math.sin(x/11)*3)
@@ -322,8 +483,17 @@ def deep_dive():
         bars("",2,"Offbeat bass",14),
         bars("Long minor",4,"Minor to major",4,"Long minor",4,"Minor to major",4),
         bars("",4,"Long notes",4,"Hook two",2,"Long notes",2,"Hook two",2,"Long notes",2)])
-    return make_project("Deep Dive",pal,im,sprites,actors,rules,[0x70d8f0,0x1868a8,0x021028,95],sfx=sfx,msg_col=14,
+    p=make_project("Deep Dive",pal,im,sprites,actors,rules,[0x70d8f0,0x1868a8,0x021028,95],sfx=sfx,msg_col=14,
                         win="YOU FOUND THEM ALL!",over="OUT OF AIR - PRESS FIRE",songs=[tune])
+    D=art.A['diver']; D2=art.A['diver2']; J=art.A['jelly']; SH=tf_hflip(art.A['shark']); SH2=tf_hflip(art.A['shark2']); P2=art.A['pearl2']
+    pearl=lambda r: dict(anims={0:([3,7,("Pearl shine 2",tf_hflip(P2))],r,0)})
+    animate(p,"dd",{0:dict(anims={0:([0,("Diver float",tf_shift(D,dy=-1)),("Diver float 2",tf_shift(D,dy=-2))],14,2),
+                                   1:([0,4,("Diver glide",tf_shift(D,dy=-1)),("Diver kick 2",tf_flip_from(D2,16))],7,0)}),
+                    1:dict(anims={0:([1,("Jelly rise",tf_shift(J,dy=-1)),5,("Jelly rise 2",tf_shift(J,dy=-2))],12,0)}),
+                    2:dict(anims={0:([1,("Jelly rise",None),5,("Jelly rise 2",None)],12,0)}),
+                    3:dict(flip=True,anims={0:([("Shark right",SH),("Shark right tail",SH2),("Shark right glide",tf_shift(SH,dy=1)),("Shark right tail 2",tf_shift(SH2,dy=1))],6,0)}),
+                    4:pearl(10),5:pearl(14)})
+    return p
 
 # ------------------------------------------------------------------ STAR CATCHER
 def star_catcher():
@@ -336,7 +506,9 @@ def star_catcher():
             u=(x-90)/100; v=(y-112)/42
             t=1-math.sqrt(u*u+v*v)
             t+=0.18*math.sin(x/9+y/13)*math.sin(y/7-x/23)                    # wisps
-            if t>0: P[x,y]=ramp([0,8,9,10],t*1.25,x,y)
+            if t>0:
+                if AGA['on'] and t*1.25*3<1: P[x,y]=skymix(8,1-t*1.25*3,x,y,3,128)   # A1200: its edge melts into the sky
+                else: P[x,y]=ramp([0,8,9,10],t*1.25,x,y)
     for i in range(220):
         x=rnd.randint(0,319); y=rnd.randint(14,255); c=rnd.choice([1,15,15,6,14])
         im.putpixel((x,y),c)
@@ -364,27 +536,62 @@ def star_catcher():
             if (x-46)**2+(y-46)**2<=16*16:
                 k=math.hypot(x-56,y-42)/16                                   # distance from the dark disc
                 if k>1: P[x,y]=15
-                elif k>0.7: P[x,y]=dmix(0,15,(k-0.7)/0.3,x,y)
+                elif k>0.7:
+                    if AGA['on']: P[x,y]=skymix(15,1-(k-0.7)/0.3,x,y,3,64)
+                    else: P[x,y]=dmix(0,15,(k-0.7)/0.3,x,y)
     d.ellipse([34,44,40,50],fill=4)
     d.rectangle([0,0,319,11],fill=2)
     ship=[0xe8e8f0,0x3050a0,0xff9020]; rock=[0x9a7a5a,0x4a3a2a,0xc0a080]; ufo=[0x60e060,0x206030,0xb0ffb0]; star=[0xffe040,0xc08000,0xffffff]
+    # the two lasers share a colour pair each with the star and the rocket (8 hardware sprites, no clashes):
+    # a white core with a warm edge in either set of colours
+    bolt=lambda core,edge: ["................"]*6+[".......%s%s......."%(core,core)]+["......%s%s%s%s......"%(edge,core,core,edge)]*8+[".......%s%s......."%(core,core)]+["................"]*8
+    art.A['sc_laser']=bolt('3','1'); art.A['sc_laser2']=bolt('1','3')
+    art.A['sc_bomb']=["................"]*8+[".......22.......",".....211112.....","....21133112....","....21333312....",
+                      "....21333312....","....21133112....",".....211112.....",".......22......."]+["................"]*8
     sprites=[("Rocket","ship",ship),("Asteroid","rock",rock),("UFO","ufo",ufo),("Star","star",star),
-             ("Rocket flame","ship2",ship),("Asteroid spin","rock2",rock),("UFO lights","ufo2",ufo),("Star twinkle","star2",star)]
+             ("Rocket flame","ship2",ship),("Asteroid spin","rock2",rock),("UFO lights","ufo2",ufo),("Star twinkle","star2",star),
+             ("Laser","sc_laser",star),("Laser B","sc_laser2",ship),("Bomb","sc_bomb",ufo)]
+    def shot(name,spr,speed,aim):
+        a=actor(name,spr,9,speed,0,0,vis=False); a['aim']=aim; return a
+    # 4 and 5 are the laser and its rapid-fire copy (Shot actors in a row); the star waits, hidden, until
+    # something is shot, then drops from it (a Faller); the UFO cruises along the top and its bomb flies at the rocket
     actors=[actor("Rocket",0,0,3,150,200,4,4),actor("Asteroid 1",1,1,1,40,40,5,16,left=False,up=False),actor("Asteroid 2",1,1,2,260,100,5,16,left=True,up=True),
-            actor("UFO",2,4,1,10,20,6,12),actor("Star",3,5,1,160,90,7,10)]
-    rules=[R(b=1,act=1),R(b=1,act=4,target=0),R(b=1,act=2,value=2),R(b=1,act=3),
-           R(b=2,act=1),R(b=2,act=4,target=0),R(b=2,act=2,value=2),R(b=2,act=3),
-           R(b=3,act=1),R(b=3,act=4,target=0),R(b=3,act=4,target=3),R(b=3,act=2,value=6),
-           R(b=4,act=0,value=10),R(b=4,act=5,target=4),R(b=4,act=2,value=0),
-           R(when=1,act=2,value=1),R(when=2,n=20,act=11,target=3),R(when=3,n=250,act=10),R(when=4,act=9),R(when=5,act=2,value=5),
-           R(when=5,act=18,value=0)]
+            actor("UFO",2,2,1,10,20,6,12),shot("Laser",8,8,1),shot("Laser 2",9,8,1),
+            actor("Star",3,8,1,160,90,7,10,vis=False),shot("Bomb",10,2,5)]
+    rules=[]
+    for b in (1,2):                                                          # an asteroid hits the rocket
+        rules+=[R(b=b,act=1),R(b=b,act=4,target=0),R(b=b,act=2,value=2),R(b=b,act=3),R(b=b,act=16,target=0)]
+    rules+=[R(b=3,act=1),R(b=3,act=4,target=0),R(b=3,act=4,target=3),R(b=3,act=2,value=6),R(b=3,act=16,target=0)]
+    rules+=[R(b=6,act=0,value=10),R(b=6,act=6,target=6),R(b=6,act=2,value=0)]     # catch the star
+    for b in (1,2):                                                          # shoot an asteroid: it drops a star
+        rules+=[R(when=11,a=4,b=b,act=0,value=5),R(when=11,a=4,b=b,act=14,target=6,value=b),R(when=11,a=4,b=b,act=7,target=6),
+                R(when=11,a=4,b=b,act=5,target=b),R(when=11,a=4,b=b,act=2,value=2)]
+    rules+=[R(when=11,a=4,b=3,act=0,value=25),R(when=11,a=4,b=3,act=14,target=6,value=3),R(when=11,a=4,b=3,act=7,target=6),
+            R(when=11,a=4,b=3,act=4,target=3),R(when=11,a=4,b=3,act=2,value=2)]
+    rules+=[R(when=11,a=7,b=0,act=1),R(when=11,a=7,b=0,act=4,target=0),R(when=11,a=7,b=0,act=3),
+            R(when=11,a=7,b=0,act=2,value=6),R(when=11,a=7,b=0,act=16,target=0)]     # the UFO's bomb hits
+    rules+=[R(when=1,act=22,target=4,value=0),R(when=1,act=2,value=1),
+            R(when=9,a=3,n=4,act=22,target=7,value=3),
+            R(when=2,n=20,act=11,target=3),R(when=3,n=250,act=10),R(when=4,act=9),R(when=5,act=2,value=5),
+            R(when=5,act=18,value=0)]
     tune=song("Orbit",130,[
         bars("Four on the floor",7,"Tom fill",1,"Four on the floor",7,"Tom fill",1),
         bars("Octave bounce",16),
         bars("Rising chords",16),
         bars("",4,"Arp up",2,"Arp down",2,"Arp up",2,"Arp down",2,"Arp up",2,"Arp down",2)])
-    return make_project("Star Catcher",pal,im,sprites,actors,rules,[0x000000,0x1a0838,0x0a1840,140],msg_col=14,
+    p=make_project("Star Catcher",pal,im,sprites,actors,rules,[0x000000,0x1a0838,0x0a1840,140],msg_col=14,
                         win="GALAXY SAVED! - PRESS FIRE",over="SHIP LOST - PRESS FIRE",songs=[tune])
+    S1=art.A["ship"]; S2=art.A["ship2"]; RK=art.A["rock"]; RK2=art.A["rock2"]; U=art.A['ufo']; T2=art.A['star2']
+    fl=("Rocket flicker",tf_flip_from(S2,16)); burn=[4,fl,("Rocket burn",tf_shift(S2,dy=-1))]
+    # the rocket uses the 8 directions: it veers to the side and holds the lean (Once);
+    # left is the right turned round
+    rocket=dict(dirs=True,flip=True,anims={0:([0,4,fl],4,0),4:(burn,4,0),8:([0,("Rocket brake",tf_shift(S1,dy=1)),("Rocket brake 2",tf_shift(S1,dy=2))],6,1),
+                                           6:([("Rocket veer",tf_lean(S2,2)),("Rocket veer 2",tf_lean(S2,3)),("Rocket veer 3",tf_lean(S2,4))],4,1)})
+    rock=dict(anims={0:([1,5,("Asteroid spin 2",tf_hflip(RK)),("Asteroid spin 3",tf_hflip(RK2))],16,0)})
+    animate(p,"sc",{0:rocket,1:rock,2:rock,
+                    3:dict(anims={0:([2,6,("UFO lights 2",tf_row(U,10,"2113113113113112"[2:]+"2113113113113112"[:2]))],8,0)}),
+                    6:dict(anims={0:([3,7,("Star twinkle 2",tf_hflip(T2))],10,2)})})
+    return p
 
 # ------------------------------------------------------------------ DODGE BALL
 def dodge_ball():
@@ -431,8 +638,15 @@ def dodge_ball():
         bars("Acid line",16),
         bars("Offbeat skank",16),
         bars("",8,"Trill",2,"Hook two",2,"Trill",2,"Hook two",2)])
-    return make_project("Dodge Ball",pal,im,sprites,actors,rules,[0x300050,0xb02090,0xffa040,118],msg_col=14,
+    p=make_project("Dodge Ball",pal,im,sprites,actors,rules,[0x300050,0xb02090,0xffa040,118],msg_col=14,
                         win="CHAMPION! - PRESS FIRE",over="KNOCKED OUT - PRESS FIRE",songs=[tune])
+    B=art.A['blob']; BA=art.A['ball']; BA2=art.A['ball2']; G2=art.A['gem2']
+    def ball(si,s2,nm): return dict(anims={0:([si,s2,(nm+" 3",tf_hflip(BA)),(nm+" 4",tf_hflip(BA2))],8,0)})
+    animate(p,"db",{0:dict(anims={0:([0,("Player breathe",tf_shift(B,dy=-1)),("Player breathe 2",tf_shift(B,dy=-2))],12,2),
+                                   1:([0,4,("Player bounce",tf_shift(B,dy=-1)),4],8,0)}),
+                    1:ball(1,5,"Red ball spin"),2:ball(1,5,"Red ball spin"),3:ball(2,6,"Yellow ball spin"),4:ball(2,6,"Yellow ball spin"),
+                    5:dict(anims={0:([3,7,("Bonus sparkle 2",tf_hflip(G2))],10,0)})})
+    return p
 
 # ------------------------------------------------------------------ FIREFLY NIGHT (ADAM Pro: BOBs)
 def firefly_night():
@@ -448,7 +662,7 @@ def firefly_night():
             r=math.hypot(x-mx,y-my)
             if r<=15: P[x,y]=9 if math.hypot(x-mx+4,y-my+4)<=12 else dmix(9,10,0.6,x,y)
             elif r<=17: P[x,y]=10
-            elif r<=34: P[x,y]=dmix(15,0,(r-17)/17,x,y)
+            elif r<=34: P[x,y]=skymix(15,(r-17)/17,x,y)
     def far(x): return int(150+math.sin(x/31)*10+math.sin(x/13+1)*4)
     for x in range(320):                                                     # far hills, moonlit edge, darker down
         y=far(x)
@@ -537,14 +751,27 @@ def firefly_night():
     p=make_project("Firefly Night",pal,im,sprites,actors,rules,[0x02030c,0x101a48,0x34305e,165],hud_col=1,msg_col=14,sfx=sfx,
                    win="THE JAR IS FULL! - PRESS FIRE",over="THE BATS WIN - PRESS FIRE",songs=[tune])
     p.update(title_on=True,title1="FIREFLY NIGHT",title2="PRESS FIRE TO START")
+    # ADAM Pro: a carved wooden HUD panel, italic amber lettering with a dark shadow
+    dress_ui(p,"Wood",3,2,[(1,"SCORE ",2,0,0xffd060,0x301808,5),(2,"LIVES ",29,0,0xffd060,0x301808,1),
+                         (0,"FIREFLY NIGHT",14,1,0xf0e0b0,0x301808,0)])
+    O=art.A['ff_owl']; O2=art.A['ff_owl2']; BT=art.A['ff_bat']; BT2=art.A['ff_bat2']; F=art.A['ff_fly']
+    bat=dict(anims={0:([2,5,("Bat rise",tf_shift(BT,dy=-1)),("Bat flap rise",tf_shift(BT2,dy=-1))],6,0)})
+    specs={0:dict(anims={0:([0,("Owl hover",tf_shift(O,dy=-1)),("Owl hover 2",tf_shift(O,dy=-2))],14,2),
+                         1:([0,3,("Owl glide",tf_shift(O,dy=-1)),("Owl flap high",tf_shift(O2,dy=-1))],6,0)}),
+           1:bat,2:bat,3:bat}
+    for i in range(4,len(p['actors'])):
+        specs[i]=dict(anims={0:([1,4,("Firefly glow",tf_hflip(F))],p['actors'][i]['anim_rate'],0)})
+    animate(p,"ff",specs)
     return p
 
 # ------------------------------------------------------------------ helpers
 def bob_flags(p):
-    # as actors_bob_flags in scr_ws_actors (ADAM Pro): set to BOB, or a sprite actor after the 8th
-    out=[]; spr=0
+    # as actors_bob_flags in scr_ws_actors (ADAM Pro): set to BOB, a sprite bigger than 16 x 24,
+    # or a sprite actor after the 8th (the 7th when the backdrop scrolls across)
+    out=[]; spr=0; nspr=7 if scroll_across(p) else 8
     for a in p['actors'][:32]:
-        b=bool(a.get('bob')) or spr>=8
+        s=p['sprites'][a['sprite']]
+        b=bool(a.get('bob')) or spr>=nspr or s.get('w',16)>16 or s.get('h',24)>24
         if not b: spr+=1
         out.append(b)
     return out
@@ -558,17 +785,22 @@ def pal_nearest(p,rgb):
         if bd<0 or d<bd: bd=d; best=c
     return best
 
+def scroll_across(p):
+    # the backdrop scrolls left or right (the fine scroll's early fetch takes sprite 7, as in a tile world)
+    return not p.get('tiles_on') and p.get('scroll_dir',0) in (2,4)
+
 def alloc(p):
     acts=p['actors']; key=['']*4; used=[0]*4; owner=[-1]*4; chan=[]; conf=[]; bob=bob_flags(p)
-    for i,a in enumerate(acts[:32]):
+    cap=[2,2,2,1] if (p.get('tiles_on') or scroll_across(p)) else [2,2,2,2]     # a tile world loses sprite 7 (DDFSTRT $30)
+    for i,a in enumerate(acts[:7] if p.get('tiles_on') else acts[:32]):
         if bob[i]: chan.append(-1); conf.append(False); continue
         k=str([q(c) for c in p['sprites'][a['sprite']]['cols']]); pp=-1; cf=False
         for j in range(4):
-            if pp<0 and used[j]==1 and key[j]==k: pp=j
+            if pp<0 and used[j]==1 and cap[j]>1 and key[j]==k: pp=j
         for j in range(4):
             if pp<0 and used[j]==0: pp=j
         for j in range(4):
-            if pp<0 and used[j]<2: pp=j; cf=True
+            if pp<0 and used[j]<cap[j]: pp=j; cf=True
         if used[pp]==0: key[pp]=k; owner[pp]=i
         chan.append(pp*2+used[pp]); used[pp]+=1; conf.append(cf)
     return chan,conf,owner
@@ -638,26 +870,152 @@ def ground_table(p):
 def game_block(p):
     if not (p['levels_on'] or p['goal_on'] or p['title_on']): return None
     lv=[l['heights'] for l in p['levels']] if p['levels_on'] and p['levels'] else [[256]*320]
-    return dict(levels=lv,terrain=p['levels_on'] and bool(p['levels']),cols=p['terrain_cols'],goal=p['goal'] if p['goal_on'] else 0,
+    return dict(levels=lv,terrain=p['levels_on'] and bool(p['levels']) and p.get('hills_on',True),cols=p['terrain_cols'],goal=p['goal'] if p['goal_on'] else 0,
                 title=p['title_on'],label=p['goal_label'],title1=p['title1'],title2=p['title2'],levtxt=p['lev_text'])
 
+def disk_actors(p):
+    # as actors_disk_list in scr_ws_actors: each actor, then its copies (Actors page 'Copies'),
+    # up to 32 on the disk (a tile world: 7). A run of shots with the same aim and speed, or of
+    # effects with the same picture, are copies of the first of the run too (rapid fire, several
+    # explosions at once). -> [(actor index, disk index of its type)], and each actor's first
+    # disk index (-1: not on the disk)
+    lim=7 if p.get('tiles_on') else 32
+    out=[]; first=[]
+    acts=p['actors']
+    for i,a in enumerate(acts):
+        head=len(out)
+        if head>=lim:
+            first.append(-1); continue
+        typ=head
+        if i>0 and first[i-1]>=0:
+            b=acts[i-1]
+            if (a['role']==9 and b['role']==9 and a.get('aim',0)==b.get('aim',0) and a['speed']==b['speed']) or \
+               (a['role']==12 and b['role']==12 and a['sprite']==b['sprite']):
+                typ=out[first[i-1]][1]
+        first.append(head)
+        for k in range(max(1,min(16,a.get('copies',1)))):
+            if len(out)>=lim: break
+            out.append((i,typ))
+    return out,first
+
+def disk_project(p):
+    # the project as the disk sees it: a record per actor and copy, rules naming disk actors
+    out,first=disk_actors(p)
+    def m(i):
+        if 0<=i<len(first) and first[i]>=0: return first[i]
+        return 0
+    spawned=set(s['act'] for s in p.get('spawners',[])) if p.get('shmup_map') else set()
+    acts=[]
+    for d,(i,typ) in enumerate(out):
+        a=dict(p['actors'][i])
+        k=d-first[i]
+        if k>0 or i in spawned: a['visible']=False     # copies wait for a spawner / Shoot / Spawn
+        a['_type']=typ
+        f=a.get('fire',-1)
+        a['_fire']=first[f] if 0<=f<len(first) and first[f]>=0 else -1
+        acts.append(a)
+    def rl(d):
+        d=dict(d)
+        if d['act']<27: d['target']=m(d['target'])        # DO 27 Switch palette: fade frames; 28 / 29 items: how many
+        if d['act'] in (14,22,24,25): d['value']=m(d['value'])
+        return d
+    rules=[]
+    for r in p['rules']:
+        r2=rl(r); r2['a']=m(r['a']); r2['b']=m(r['b'])
+        r2['more']=[rl(x) for x in r.get('more',[])]
+        rules.append(r2)
+    pd=dict(p,actors=acts,rules=rules)
+    pd['_first']=first
+    return pd
+
+def spawner_records(pd,p):
+    # as adf_spawners in scr_adf: each spawner of the shoot 'em up map as the engine reads it
+    # (engine.s SP_*), in the order they go off (from the bottom of the map up)
+    first=pd['_first']; rows=p['map_h']; out=[]
+    pw=p['map_w']*16                            # the play area's width (the map's tiles across)
+    for n,s in enumerate(p.get('spawners',[])):
+        ai=s.get('act',0)
+        if not (0<=ai<len(first)) or first[ai]<0: continue
+        a=p['actors'][ai]; sp=p['sprites'][a['sprite']]
+        w,h=(sp.get('w',16),sp.get('h',24)) if (a.get('bob') or sp.get('w',16)>16 or sp.get('h',24)>24) else (16,24)
+        pat=s.get('pattern',-1); pp=a.get('pattern',0) if pat<0 else pat
+        edge=s.get('edge',0)&3; x=s['x']; y=s['y']; at=s.get('at',40)
+        trig=y
+        if pp==4: trig=y+h; sx,sy=x,-h
+        elif edge==0: sx,sy=x,-h
+        elif edge==2: sx,sy=x,256
+        elif edge==3: sx,sy=-w,at
+        else: sx,sy=pw,at
+        trig=max(0,min(rows*16,trig))
+        out.append((trig,n,dict(trig=trig,x=sx,y=sy,act=first[ai],n=max(1,min(16,s.get('n',1))),gap=max(0,min(250,s.get('gap',20))),
+                                pat=0xff if pat<0 else max(0,min(5,pat)),edge=edge,dx=s.get('dx',0))))
+    out.sort(key=lambda e:(-e[0],e[1]))
+    return [e[2] for e in out]
+
 def to_builder(p):
+    p0=p
+    p=disk_project(p0)
     chan,conf,owner=alloc(p)
-    spr=[dict(px=s['px'],cols=[q(c) for c in s['cols']]) for s in p['sprites']]
+    aga=p.get('machine')=='A1200'
+    def qm(c):
+        # the colour as the machine shows it: 12-bit on the A500/600, 24-bit on the A1200
+        if aga: return c
+        return q(c)
+    spr=[dict(px=s['px'],cols=[qm(c) for c in s['cols']],w=s.get('w',16),h=s.get('h',24)) for s in p['sprites']]
     # pair colours = owner's colours: emulate by giving each actor's sprite the owner colours is the same as build_test's rule
     acts=[]
     for i,a in enumerate(p['actors'][:32]):
         d=dict(x=a['x'],y=a['y'],role=a['role'],speed=a['speed'],visible=int(a['visible']),left=int(a['start_left']),up=int(a['start_up']),
-               sprite=a['sprite'],chan=max(0,chan[i]),anim=a['anim_sprite'],rate=a['anim_rate'],amode=int(a['anim_moving']),**{'from':a['from_level'],'fast':a['faster_every']})
+               sprite=a['sprite'],chan=max(0,chan[i]),anim=a['anim_sprite'],rate=a['anim_rate'],amode=int(a['anim_moving']),anims=a.get('anims',[]),carry=a.get('carry',False),aim=a.get('aim',0),flip=a.get('anim_flip',False),dirs=a.get('anim_dirs',False),
+               pattern=a.get('pattern',0),enter=a.get('enter',0),comeback=a.get('comeback',True),hits=a.get('hits',1),
+               type=a['_type'],fire=a['_fire'],frate=a.get('fire_rate',60),fpat=a.get('fire_pat',0),**{'from':a['from_level'],'fast':a['faster_every']})
         if chan[i]<0:
             d['bob']=1; d['bobmap']=[pal_nearest(p,c) for c in p['sprites'][a['sprite']]['cols']]
         acts.append(d)
-    return dict(depth=p['depth'],pal=[q(c) for c in p['pal']],pixels=p['pixels'],sprites=spr,actors=acts,rules=p['rules'],
+    bp=dict(depth=p['depth'],pal=[qm(c) for c in p['pal']],pixels=p['pixels'],sprites=spr,actors=acts,rules=p['rules'],
                 sfx=[s for s in p['sfx']],lives=p['lives'],show_score=1,show_lives=1,hud_row=0,hud_col=p['hud_colour'],msg_col=p['msg_colour'],
-                over=p['over_text'],win=p['win_text'],grad=sky_table(p),ground=ground_table(p),game=game_block(p)), conf
+                over=p['over_text'],win=p['win_text'],grad=sky_table(p,aga),ground=ground_table(p),game=game_block(p))
+    if p.get('disk2_music'):
+        # disk 2 (version 12): the songs levels start with that no 'play music' rule plays
+        ns=min(4,len(p.get('songs',[])))
+        nl=max(1,min(10,len(p['levels']))) if p.get('levels_on') else 1
+        d2=set(v for v in p.get('level_song',[])[:nl] if 0<=v<ns)
+        for r in p['rules']:
+            for d in [r]+list(r.get('more',[])):
+                if d['act']==18: d2.discard(d['value'])
+        bp['d2songs']=sorted(d2)
+    if p.get('items'):
+        # items (version 13): the actor each is found as becomes a disk actor (scr_adf the same)
+        first=p['_first']
+        def da(i): return first[i] if 0<=i<len(first) and first[i]>=0 else -1
+        bp['items']=[dict(name=it['name'],actor=da(it.get('actor',-1)),use=it.get('use',0),uses=it.get('uses',3),max=it.get('max',9),
+                          start=min(it.get('start',0),it.get('max',9)),keep=it.get('keep_level',True),lose=it.get('lose_life',False)) for it in p['items'][:16]]
+        bp['recipes']=[dict(r) for r in p.get('recipes',[])[:16]]
+    if p.get('palettes'):
+        # named palettes (version 11), in the machine's colours as scr_adf writes them
+        bp['palettes']=[dict(name=pl['name'],cols=[qm(c) if c>=0 else -1 for c in pl['cols']]) for pl in p['palettes'][:8]]
+        bp['level_pal']=p.get('level_pal',[0]*10)
+    u=p.get('ui')
+    if u and u.get('on'):
+        import ui_ref
+        uu=dict(u); uu['bottom']=bool(u.get('bottom')) and not p.get('tiles_on') and not p.get('scroll_dir',0)
+        bp['ui']=dict(bottom=uu['bottom'],rows=u['rows'],fields=[f for f in u['fields'] if f['row']<u['rows'] and f['col']<40][:16],
+                      font=(ui_ref.font_bytes(u) if u.get('font_style',0)!=0 else None),
+                      panel=(ui_ref.panel_pixels(uu,p['pixels']) if u.get('frame_on',True) else None))
+    if p.get('tiles_on'):
+        bp['tiles']=dict(w=p['map_w'],h=p['map_h'],dig=p['tile_dig'],tiles=p['tiles'],map=p['map'],size=p.get('tile_size',16),tools=p.get('tools',[]))
+    elif p.get('shmup_map'):
+        # a shoot 'em up map (version 10): 20 x map_h tiles of 16 that scroll past once, flying up
+        bp['scroll']=dict(dir=1,speed=p.get('scroll_speed',4),
+                          map=dict(rows=p['map_h'],cols=p['map_w'],tiles=[t['px'] for t in p['tiles']],cells=p['map'],spawners=spawner_records(p,p0)))
+    elif p.get('scroll_dir',0):
+        bp['scroll']=dict(dir=p['scroll_dir'],speed=p.get('scroll_speed',4))
+    return bp, conf
 
 def preview(p,fn):
-    pal=[q(c) for c in p['pal']]; g=sky_table(p)
+    aga=p.get("machine")=="A1200"
+    pal=[q(c) for c in p["pal"]]; g=sky_table(p,aga)
+    if aga: pal=list(p["pal"])
     im=Image.new('RGB',(W,H))
     for y in range(H):
         sc=g[y]; sr=(sc>>16)&255; sg=(sc>>8)&255; sb=sc&255
@@ -670,21 +1028,42 @@ def preview(p,fn):
         s=p['sprites'][a['sprite']]
         if chan[i]<0: oc=[pal[pal_nearest(p,c)] for c in s['cols']]        # BOB: nearest backdrop colours
         else: oc=p['sprites'][p['actors'][owner[chan[i]//2]]['sprite']]['cols']
-        for yy in range(24):
-            for xx in range(16):
-                v=s['px'][yy*16+xx]
-                if v: c=q(oc[v-1]); im.putpixel((a['x']+xx,a['y']+yy),((c>>16)&255,(c>>8)&255,c&255))
+        if not a.get('visible',True): continue
+        sw=s.get('w',16); sh=s.get('h',24)
+        for yy in range(sh):
+            for xx in range(sw):
+                v=s['px'][yy*sw+xx]
+                if v and 0<=a['x']+xx<W and 0<=a['y']+yy<H: c=q(oc[v-1]); im.putpixel((a['x']+xx,a['y']+yy),((c>>16)&255,(c>>8)&255,c&255))
     im.resize((640,512),Image.NEAREST).save(fn)
 
 if __name__=='__main__':
     OUT=os.path.join(HERE,'out'); os.makedirs(OUT,exist_ok=True)
+    sys.modules['gen_examples']=sys.modules['__main__']   # one AGA state for ex_dig_deep too
+    import ex_dig_deep, ex_shmup, ex_aztec, ex_torch
+    only=sys.argv[1:]                           # e.g. python gen_examples.py nebula_strike: just that one
     for fn,make in [('gem_hunter',gem_hunter),('deep_dive',deep_dive),('star_catcher',star_catcher),('dodge_ball',dodge_ball),
-                    ('firefly_night',firefly_night)]:
+                    ('firefly_night',firefly_night),('dig_deep',ex_dig_deep.dig_deep),
+                    ('nebula_strike',ex_shmup.nebula_strike),('starfire',ex_shmup.starfire),('jade_serpent',ex_aztec.jade_serpent),
+                    ('torchlight',ex_torch.torchlight)]:
+      if only and fn not in only: continue
+      for aga in (False,True):
+        # every example also comes as an A1200 version with smooth in-between colours (<name>_a1200.adam)
+        if aga: aga_begin()
         p=make()
+        aga_end()
         auto_groups(p)
-        json.dump(p,open(os.path.join(REPO,'datafiles','examples','%s.adam'%fn),'w'),separators=(',',':'))
+        merge_rules(p)
+        name=fn
+        if aga: name=fn+'_a1200'
+        json.dump(p,open(os.path.join(REPO,'datafiles','examples','%s.adam'%name),'w'),separators=(',',':'))
         bp,conf=to_builder(p)
         # build_test's pair colour rule takes the first actor on the pair
-        open(os.path.join(OUT,'%s.adf'%fn),'wb').write(adf(ENGINE+build(bp,False)))
-        preview(p,os.path.join(OUT,'%s.png'%fn))
-        print(fn,'conflicts' if any(conf) else 'ok', len(json.dumps(p)))
+        data=build(bp,aga)
+        ls=b''
+        if p.get('loadscr',{}).get('on'):         # ADAM Pro loading screen (read before the game)
+            ls=loadscr_block(p['loadscr'],p['pixels'],p['pal'],p['depth'],aga,bp.get('grad'),p['sprites'])
+        open(os.path.join(OUT,'%s.adf'%name),'wb').write(adf(ENGINE+data,bp.get('_need',0),ls))
+        if bp.get('_disk2'): open(os.path.join(OUT,'%s_disk2.adf'%name),'wb').write(bp['_disk2'])
+        preview(p,os.path.join(OUT,'%s.png'%name))
+        if p.get('tiles_on') and not aga: ex_dig_deep.map_png(p,os.path.join(OUT,'%s_map.png'%fn))
+        print(name,'conflicts' if any(conf) else 'ok', len(json.dumps(p)), 'colours', 1<<p['depth'], 'blends', len(AGA['order']) if aga else 0)

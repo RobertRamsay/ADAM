@@ -15,6 +15,9 @@ switch (ws)
     case WS_BACKDROP: ws_backdrop_draw(_x1, _y1, _x2, _y2); break;
     case WS_SPRITES:  ws_sprites_draw(_x1, _y1, _x2, _y2);  break;
     case WS_ACTORS:   ws_actors_draw(_x1, _y1, _x2, _y2);   break;
+    case WS_ANIMATE:  ws_animate_draw(_x1, _y1, _x2, _y2);  break;
+    case WS_TILES:    ws_tiles_draw(_x1, _y1, _x2, _y2);    break;
+    case WS_UI:       ws_ui_draw(_x1, _y1, _x2, _y2);       break;
     case WS_LOGIC:    ws_logic_draw(_x1, _y1, _x2, _y2);    break;
     case WS_SOUND:    ws_sound_draw(_x1, _y1, _x2, _y2);    break;
     case WS_MUSIC:    ws_music_draw(_x1, _y1, _x2, _y2);    break;
@@ -26,7 +29,6 @@ draw_topbar(gui_w);
 ui_status_bar(gui_w, gui_h);
 ui_popup_draw(gui_w, gui_h);
 about_draw(gui_w, gui_h);
-ui_help_draw(gui_w, gui_h);
 toasts_draw(gui_w, gui_h);
 tut_offer_draw(gui_w, gui_h);
 update_card_draw(gui_w, gui_h);
@@ -35,6 +37,9 @@ lesson_draw(gui_w, gui_h);
 whatsnew_draw(gui_w, gui_h);
 machine_pick_draw(gui_w, gui_h);
 confirm_draw(gui_w, gui_h);
+// last, so a help bubble is never hidden under the corner cards or panels
+// (and the controls on those cards and panels get their bubbles too)
+ui_help_draw(gui_w, gui_h);
 ui_frame_end();
 if (_shot) { dev_shots_end(); }
 

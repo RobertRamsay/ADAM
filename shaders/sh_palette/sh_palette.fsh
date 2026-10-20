@@ -12,6 +12,9 @@ varying vec4 v_vColour;
 uniform vec3 u_pal[128];
 uniform float u_sky_on;
 uniform sampler2D u_sky_tex;
+// screen line = texture y * u_sky_map.x + u_sky_map.y (backdrop: 256, 0;
+// a tile map: its height and minus the camera; a single tile: 0 and a line)
+uniform vec2 u_sky_map;
 
 void main()
 {
@@ -27,7 +30,7 @@ void main()
     }
     if (idx < 0.5 && u_sky_on > 0.5)
     {
-        float line = floor(v_vTexcoord.y * 256.0);
+        float line = clamp(floor(v_vTexcoord.y * u_sky_map.x + u_sky_map.y), 0.0, 255.0);
         c = texture2D(u_sky_tex, vec2((line + 0.5) / 256.0, 0.5)).rgb;
     }
     gl_FragColor = vec4(c, t.a * v_vColour.a);

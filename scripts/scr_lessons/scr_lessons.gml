@@ -32,7 +32,7 @@ function les_rule_has(_when, _act)
         var _r = proj.rules[i];
         var _ok = true;
         if (_when >= 0 && _r.when != _when) { _ok = false; }
-        if (_act >= 0 && _r.act != _act) { _ok = false; }
+        if (_act >= 0 && !rule_has_act(_r, _act)) { _ok = false; }
         if (_ok) { return true; }
     }
     return false;
@@ -218,8 +218,124 @@ function lessons_init()
                 les_step(WS_BUILD, "build_run", "Build and play", "Build and play. The Build checklist counts your sprites and BOBs. Each BOB costs blitter time every frame: on the A500 about 20 is plenty, the A1200 copes with more.", function() { return les_built(); }),
                 les_step(WS_BUILD, "", "That's a swarm!", "BOBs give you as many moving things as a real Amiga game. To see them in a finished game, load the Firefly Night example: 12 fireflies are BOBs, the owl and the bats are sprites.", undefined)
             ]
+        },
+        {
+            name : "Pro - Shoot 'em up: Sky Raid", short : "Pro Shmup", mins : 20, pro : true,
+            steps : [
+                les_step(WS_HOME, "", "Lesson 6: A shoot 'em up (ADAM Pro)", "You'll make Sky Raid: a ship flies up a long scrolling map, waves of enemies come at it, and it shoots them down. You'll paint the map with tiles, place spawners that send out the waves, and write the shooting rules. A fresh project has been started for you.", undefined),
+                les_step(WS_SPRITES, "spr_grid", "Draw your ship", "Draw your ship in sprite 1, nose up - 20 squares or more.", function() { return les_spr_px(0) >= 20; }),
+                les_step(WS_SPRITES, "spr_slot_1", "An enemy and a shot", "Draw an enemy in sprite 2 and a small shot in sprite 3 (a short line is enough).", function() { return les_spr_px(1) >= 12 && les_spr_px(2) >= 2; }),
+                les_step(WS_ACTORS, "act_add", "Add your ship", "Add the first actor - it becomes the player.", function() { return array_length(proj.actors) >= 1; }),
+                les_step(WS_ACTORS, "act_add", "Add the enemy", "Add a second actor (it picks sprite 2), then set its behaviour to Flyer. Flyers wait off the screen until something sends them in.", function() { return les_role_has(10); }),
+                les_step(WS_ACTORS, "act_pat", "How it flies", "Pick a flight pattern for the enemy - Wave weaves from side to side as it comes down.", undefined),
+                les_step(WS_ACTORS, "act_copies", "Copies", "Set Copies to 4. One actor, four of them in the game: a whole wave from one set of settings, and every rule that names the enemy works for all four.", function() { for (var i = 0; i < array_length(proj.actors); i++) { if (proj.actors[i].role == 10 && proj.actors[i].copies >= 3) { return true; } } return false; }),
+                les_step(WS_ACTORS, "act_add", "Your shot", "Add a third actor (sprite 3) and set its behaviour to Shot, aimed Up. Give it Copies of 3 so several can fly at once.", function() { for (var i = 0; i < array_length(proj.actors); i++) { if (proj.actors[i].role == 9 && proj.actors[i].aim == 1) { return true; } } return false; }),
+                les_step(WS_TILES, "tile_world", "A shoot 'em up map", "The game can play on a scrolling map instead of the backdrop. Choose 'A shoot 'em up map': the ship flies up it once, from the bottom to the top.", function() { return proj.shmup_map; }),
+                les_step(WS_TILES, "tile_mw", "The play area", "Map width is the play area, centred on the screen: 12 to 20 tiles. Narrower is less for the Amiga to draw, so an A500 keeps up with more on the screen. 12 is a good start.", undefined),
+                les_step(WS_TILES, "tile_mh", "A long flight", "Make the map at least 48 tiles high - three screens of flying.", function() { return proj.shmup_map && proj.map_h >= 48; }),
+                les_step(WS_TILES, "tile_tab_1", "Draw some tiles", "Open Tile set, add tiles and draw them: ground, water, a wall - at least three.", function() { return les_tiles_drawn() >= 3; }),
+                les_step(WS_TILES, "tile_map", "Paint the map", "Back on Map, paint the ground the ship flies over. Paint plenty - at least 150 squares.", function() { return les_map_painted() >= 150; }),
+                les_step(WS_TILES, "tile_tool_3", "Stamps", "The Stamp tool copies a block of the map - a building, a gun platform - and stamps it down again wherever you click. Try it if you like.", undefined),
+                les_step(WS_TILES, "tile_tool_4", "Spawners", "Pick the Spawn tool and click the map to place a spawner. When the view reaches it, it sends out a wave.", function() { return array_length(proj.spawners) >= 1; }),
+                les_step(WS_TILES, "sp_n", "A wave", "In the right panel, make the spawner send out the enemy, 4 of them.", function() { for (var i = 0; i < array_length(proj.spawners); i++) { if (proj.spawners[i].n >= 3) { return true; } } return false; }),
+                les_step(WS_TILES, "tile_map", "More waves", "Place at least two more spawners further up the map. Try a different edge or pattern for each.", function() { return array_length(proj.spawners) >= 3; }),
+                les_step(WS_LOGIC, "logic_add", "Fire!", "Add a rule: WHEN 'Fire is held (auto-fire)' every 8 frames, DO 'Shoot (fire a shot actor)' - the shot, from your ship.", function() { return les_rule_has(14, 22); }),
+                les_step(WS_LOGIC, "logic_add", "Hit them", "Add: WHEN 'Thrown or shot actor hits' - your shot hits the enemy - DO 'Add to score', and AND DO 'Hide actor' (the enemy).", function() { return les_rule_has(11, 0) && les_rule_has(11, 6); }),
+                les_step(WS_LOGIC, "logic_add", "Don't crash", "Add: WHEN the player touches the enemy, DO 'Lose a life' and AND DO 'Make actor safe for a while' (the player).", function() { return les_rule_has(0, 1); }),
+                les_step(WS_LOGIC, "logic_add", "The end of the map", "Add: WHEN 'The map reaches its end', DO 'You win!' (or show a boss there).", function() { return les_rule_has(15, -1); }),
+                les_step(WS_LOGIC, "logic_tpl_3", "Game over", "This recipe ends the game when the lives run out.", function() { return les_rule_has(4, 9); }),
+                les_step(WS_LEVELS, "lvl_sspeed", "Scroll speed", "Set how fast the map scrolls. 3 is steady; faster is harder.", undefined),
+                les_step(WS_BUILD, "build_run", "Build and play", "Build and play. Hold fire to shoot, and fly to the top of the map.", function() { return les_built(); }),
+                les_step(WS_BUILD, "", "You made a shoot 'em up!", "Map, spawners, copies, shots and rules. To see more - enemies that fire back, homing missiles, power-ups and a boss - load the Jade Serpent example.", undefined)
+            ]
+        },
+        {
+            name : "Pro - A loading screen", short : "Pro Loading", mins : 8, pro : true,
+            steps : [
+                les_step(WS_HOME, "", "Lesson 7: A loading screen (ADAM Pro)", "Real Amiga games showed a picture while they loaded, with a bar creeping across. You'll give a small game one. A fresh project has been started for you.", undefined),
+                les_step(WS_BACKDROP, "bd_canvas", "A quick backdrop", "Paint a sky and some ground: pick a colour and fill the picture, then box in the ground with a second colour.", function() { return les_bd_at(0, 0) != 0 && les_bd_at(160, 250) != les_bd_at(160, 20); }),
+                les_step(WS_BACKDROP, "bd_tab_sky", "A copper sky", "Open Copper sky and pick a ready-made sky. The loading screen shows it too.", function() { return proj.sky_on; }),
+                les_step(WS_SPRITES, "spr_grid", "A hero", "Draw a hero in sprite 1 - 20 squares or more.", function() { return les_spr_px(0) >= 20; }),
+                les_step(WS_ACTORS, "act_add", "Add the hero", "Add the first actor - it becomes the player.", function() { return array_length(proj.actors) >= 1; }),
+                les_step(WS_UI, "ui_page_1", "The Loading screen tab", "On the UI page, open the Loading screen tab.", function() { return ui_page_tab == 1; }),
+                les_step(WS_UI, "ls_on", "Switch it on", "Switch the loading screen on. It shows your backdrop while the disk loads, with a bar along the bottom.", function() { return proj.loadscr.on; }),
+                les_step(WS_UI, "ls_style", "Dress the bar", "Pick a frame style for the bar - Stone, Wood, Neon... It is drawn in your picture's own colours.", function() { return proj.loadscr.style != "Metal"; }),
+                les_step(WS_UI, "ls_preview", "Place the bar", "Drag the bar on the picture to move it, or use the steppers for its place and size.", function() { return proj.loadscr.bar_x != 32 || proj.loadscr.bar_y != 216 || proj.loadscr.bar_w != 256 || proj.loadscr.bar_h != 16; }),
+                les_step(WS_UI, "ls_mode", "Which way it fills", "Fills: left to right, right to left, or up or down. A tall bar that fills bottom to top looks like something being built.", undefined),
+                les_step(WS_UI, "ls_pic_add", "Pictures as it loads", "Press Add picture: your hero appears on the loading screen once a quarter of the game has loaded. Drag it on the preview to place it, and add more at other percentages.", function() { return array_length(proj.loadscr.pics) >= 1; }),
+                les_step(WS_UI, "ls_play", "Watch it load", "Press Play to see the bar fill, and the pictures turn up, as they will on the Amiga.", undefined),
+                les_step(WS_UI, "ls_src", "Your own picture", "Instead of the backdrop, the loading screen can have its own picture: switch the picture to its own and import a PNG (up to 32 colours on an A500, 256 on an A1200). Try it if you have one.", undefined),
+                les_step(WS_BUILD, "build_run", "Build and play", "Build and play, and watch the bar fill while the game loads.", function() { return les_built(); }),
+                les_step(WS_BUILD, "", "Loading in style!", "The picture loads first, then fills its bar as the game comes off the disk. Load the Dig Deep example to see a stone bar under a copper sky.", undefined)
+            ]
+        },
+        {
+            name : "Pro - Items: The locked door", short : "Pro Items", mins : 12, pro : true,
+            steps : [
+                les_step(WS_HOME, "", "Lesson 8: Items (ADAM Pro)", "Items are things the player picks up and carries - a key, a stick, a torch. Rules can check for them with IF lines, and recipes make one item from two others. You'll make a key that opens a locked door. A fresh project has been started for you.", undefined),
+                les_step(WS_BACKDROP, "bd_canvas", "A quick backdrop", "Paint a sky and some ground: pick a colour and fill the picture, then box in the ground with a second colour.", function() { return les_bd_at(0, 0) != 0 && les_bd_at(160, 250) != les_bd_at(160, 20); }),
+                les_step(WS_SPRITES, "spr_grid", "Hero, key and door", "Draw your hero in sprite 1, a key in sprite 2 and a door in sprite 3.", function() { return les_spr_px(0) >= 20 && les_spr_px(1) >= 6 && les_spr_px(2) >= 12; }),
+                les_step(WS_ACTORS, "act_add", "Add them", "Add three actors: the hero (the first is the player), then the key and the door - each new actor picks the next sprite.", function() { return array_length(proj.actors) >= 3; }),
+                les_step(WS_ACTORS, "act_role", "Keep them still", "Set the key's and the door's behaviour to Still, and drag them apart on the stage.", function() { return array_length(proj.actors) >= 3 && proj.actors[1].role == 5 && proj.actors[2].role == 5; }),
+                les_step(WS_LOGIC, "logic_tab_items", "The Items tab", "On the Logic page, open the Items tab. This is where the things the player carries live.", function() { return logic_tab == 1; }),
+                les_step(WS_LOGIC, "item_add", "Add an item", "Press '+ Add item', then call it KEY in its name box.", function() { return array_length(proj.items) >= 1; }),
+                les_step(WS_LOGIC, "item_0_actor", "Found as", "Set 'found as' to your key actor. In the game, touching the key puts a KEY in the player's pockets and the key actor disappears.", function() { return array_length(proj.items) >= 1 && proj.items[0].actor >= 0; }),
+                les_step(WS_LOGIC, "item_0_use", "Used up or kept", "'When used' says what happens to an item when a rule uses it. A key is Used up - one key, one door. A lantern would be Kept, a torch might have a few uses.", undefined),
+                les_step(WS_LOGIC, "logic_add", "The door rule", "Back on the Rules tab, add a rule: WHEN the hero touches the door, DO 'Hide actor' - the door.", function() { return les_rule_has(0, 6); }),
+                les_step(WS_LOGIC, "rule_0_addif", "IF the player uses a KEY", "Press '+ IF' on that rule and choose 'uses' and KEY. Now the door only opens for a player with a key - and the key is used up.", function() { return les_rule_if(1); }),
+                les_step(WS_LOGIC, "item_idea_5", "A recipe", "On the Items tab, press 'Stick + cloth make a torch'. It adds three items and a recipe: a stick and a cloth make a torch.", function() { return array_length(proj.recipes) >= 1; }),
+                les_step(WS_ACTORS, "act_add", "A stick and a cloth", "Add two more actors for the stick and the cloth (any sprites will do - draw them if you like) and set them to Still.", function() { return array_length(proj.actors) >= 5; }),
+                les_step(WS_LOGIC, "item_1_actor", "Where they are found", "Set STICK's 'found as' to the stick actor, and CLOTH's to the cloth actor.", function() { return array_length(proj.items) >= 3 && proj.items[1].actor >= 0 && proj.items[2].actor >= 0; }),
+                les_step(WS_LOGIC, "recipe_0_out", "Making things", "In the game the space bar opens a menu in the HUD row: what the player carries ('USE KEY 1' - used on the actor it is touching) and what it can make ('MAKE TORCH'). Left / right choose, fire takes it.", undefined),
+                les_step(WS_BUILD, "build_run", "Build and play", "Build and play. Walk into the door without the key, then pick it up and try again. Collect the stick and the cloth and press space to make a torch.", function() { return les_built(); }),
+                les_step(WS_BUILD, "", "Items unlocked!", "Items, IF lines, recipes and the space bar menu. Load the Torchlight example to see more: the torch lights a dark cave when it is used on the wall bracket (WHEN 'Player uses an item on'), and the HUD shows what the player carries.", undefined)
+            ]
         }
     ];
+}
+
+/// Is there a rule with an IF line of this kind (0 has, 1 uses, 2 has no, 3 has at least)?
+function les_rule_if(_cond)
+{
+    for (var i = 0; i < array_length(proj.rules); i++)
+    {
+        var _r = proj.rules[i];
+        for (var f = 0; f < array_length(_r.ifs); f++)
+        {
+            if (_r.ifs[f].cond == _cond) { return true; }
+        }
+    }
+    return false;
+}
+
+/// How many tiles (after air) have some pixels drawn
+function les_tiles_drawn()
+{
+    var _n = 0;
+    for (var i = 1; i < array_length(proj.tiles); i++)
+    {
+        var _px = proj.tiles[i].px;
+        for (var k = 0; k < array_length(_px); k++)
+        {
+            if (_px[k] != 0)
+            {
+                _n += 1;
+                break;
+            }
+        }
+    }
+    return _n;
+}
+
+/// How many map cells are not air
+function les_map_painted()
+{
+    var _n = 0;
+    for (var i = 0; i < array_length(proj.map); i++)
+    {
+        if (proj.map[i] != 0) { _n += 1; }
+    }
+    return _n;
 }
 
 /// How many actors are set to BOB
@@ -239,7 +355,7 @@ function les_touch_any(_act)
     for (var i = 0; i < array_length(proj.rules); i++)
     {
         var _r = proj.rules[i];
-        if (_r.when == 0 && _r.a == _r.b && _r.act == _act) { return true; }
+        if (_r.when == 0 && _r.a == _r.b && rule_has_act(_r, _act)) { return true; }
     }
     return false;
 }
@@ -296,6 +412,17 @@ function lesson_show_step(_st)
     if (ws != _st.tab) { ws_set(_st.tab); }
     // the Backdrop page remembers Paint / Copper sky - its paint steps need Paint
     if (_st.tab == WS_BACKDROP && _st.target != "bd_tab_sky") { bd_panel = 0; }
+    // the Tiles page remembers Map / Tile set - the map and spawner steps need Map
+    if (_st.tab == WS_TILES && (string_pos("tile_tool_", _st.target) == 1 || _st.target == "tile_map" || string_pos("sp_", _st.target) == 1)) { tile_page = 0; }
+    if (_st.tab == WS_TILES && string_pos("sp_", _st.target) == 1) { tile_tool = 4; }
+    // the loading screen steps are on the UI page's Loading screen tab
+    if (_st.tab == WS_UI && string_pos("ls_", _st.target) == 1) { ui_page_tab = 1; }
+    // the Logic page remembers Rules / Items - the item and recipe steps need Items
+    if (_st.tab == WS_LOGIC)
+    {
+        if (string_pos("item_", _st.target) == 1 || string_pos("recipe_", _st.target) == 1) { logic_tab = 1; }
+        else if (_st.target != "logic_tab_items") { logic_tab = 0; }
+    }
 }
 
 function lesson_finish()
@@ -329,7 +456,7 @@ function lesson_menu_names()
     for (var i = 0; i < array_length(les_defs); i++)
     {
         var _s = string(i + 1) + ". " + les_defs[i].name + "  (" + string(les_defs[i].mins) + " min)";
-        if (les_defs[i].pro && !pro_on()) { _s += "  - Pro"; }
+        if (les_defs[i].pro && !pro_edition()) { _s += "  - Pro"; }
         if (les_done[i]) { _s += "  - done"; }
         array_push(_n, _s);
     }
@@ -378,12 +505,14 @@ function lesson_draw(_gw, _gh)
     }
 
     // card: in the bottom corner away from the target
-    var _cw = 400;
+    // wide enough for the title with "Done!" in front (it does not change width when ticked off)
+    draw_set_font(global.f_title);
+    var _cw = min(max(400, ceil(ui_sw("Done!  " + _st.title)) + 48), _gw - 40);
     var _body = _st.body;
     if (!_on_page) { _body = "This step is on the " + ws_name(_st.tab) + " page."; }
     draw_set_font(global.f_body);
     var _bh = ui_sh_ext(_body, _cw - 48);
-    var _ch = 128 + _bh;
+    var _ch = 140 + _bh;     // body ends 16 px above the buttons
     var _cx = _gw - _cw - 20;
     if (!is_undefined(_r))
     {
@@ -404,7 +533,7 @@ function lesson_draw(_gw, _gh)
     ui_rrect(_cx + 24, _cy + 36, _cx + 24 + (_cw - 48) * ((les_index + 1) / _n), _cy + 40, 2, global.TH.warn, global.TH.warn, _a);
     var _title = _st.title;
     if (les_done_t >= 0) { _title = "Done!  " + _title; }
-    ui_text(_cx + 24, _cy + 50, _title, c_white, fa_left, fa_top, global.f_title, _a);
+    ui_text(_cx + 24, _cy + 50, ui_text_fit(_title, global.f_title, _cw - 48), c_white, fa_left, fa_top, global.f_title, _a);
     ui_text_wrap(_cx + 24, _cy + 80, _body, global.TH.text_dim, _cw - 48, global.f_body, _a);
 
     // buttons
@@ -442,6 +571,7 @@ function lesson_draw(_gw, _gh)
             lesson_go(les_index - 1);
         }
     }
+    draw_set_font(global.f_bold);
     var _qw = ceil(ui_sw("Stop lesson")) + 28;
     if (ui_button("les_quit", _cx + 24, _by, _qw, 32, "Stop lesson", "Stop the lesson|Your project stays as it is. Start the lesson again from Learn ADAM at the top right.", BTN_GHOST))
     {

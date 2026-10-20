@@ -60,6 +60,10 @@ if (keyboard_check_pressed(vk_f11))
 {
     window_set_fullscreen(!window_get_fullscreen());
 }
+if (keyboard_check_pressed(vk_f12) && keyboard_check(vk_shift))
+{
+    pro_preview_toggle();
+}
 
 // step right back while another window (FS-UAE) has the focus, so the
 // emulator gets the CPU and GPU instead of ADAM redrawing at full speed
@@ -121,13 +125,23 @@ if (launch_timer > 0)
     }
 }
 
+// memory bar: measure again a moment after a change, never in the middle of a stroke
+if (mem_proj_ref != proj || mem_machine != proj.machine)
+{
+    if (!mem_stale) { mem_mark_stale(); }
+}
+if (mem_stale && !mouse_check_button(mb_left) && !mouse_check_button(mb_right) && current_time - mem_stale_time > 400)
+{
+    mem_measure();
+}
+
 // Music page preview: keep Paula's four channels streaming
 music_preview_step();
 
 shortcuts_step();
 
 var _edition = "Lite";
-if (pro_on()) { _edition = "Pro"; }
+if (pro_edition()) { _edition = "Pro"; }
 var _cap = "ADAM " + _edition + " " + ADAM_VERSION + " - " + proj.name + "  (" + machine_cur().name + ")";
 if (proj_dirty) { _cap += " *"; }
 if (_cap != caption_last)

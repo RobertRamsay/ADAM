@@ -3,7 +3,7 @@
 /// At start-up ADAM fetches latest.json from the public repo (one small GET,
 /// nothing about the user is sent) and, when its version is newer than
 /// ADAM_VERSION, shows a card in the bottom-right corner with a link to the
-/// itch.io page. Off with Home > Game settings > "Check for updates".
+/// itch.io page. Off with Home > Studio > "Check for updates".
 /// latest.json is updated (and pushed) only AFTER a release is on itch.io -
 /// see docs/RELEASE.md. It holds:
 ///   { "version" : "1.0.2", "lite_url" : "https://...", "pro_url" : "https://...",
@@ -59,7 +59,7 @@ function update_async()
     if (!is_string(_ver)) { return; }
     if (!version_newer(_ver, ADAM_VERSION)) { return; }
     var _url = _data[$ "lite_url"];
-    if (pro_on()) { _url = _data[$ "pro_url"]; }
+    if (pro_edition()) { _url = _data[$ "pro_url"]; }
     if (!is_string(_url) || _url == "") { _url = ADAM_PRO_URL; }
     var _notes = _data[$ "notes"];
     if (!is_string(_notes)) { _notes = ""; }
@@ -95,7 +95,7 @@ function update_card_draw(_gw, _gh)
     ui_force_input = true;
     ui_panel(_x1, _y1, _x2, _y2, "");
     draw_boing(_x1 + 20, _y1 + 20, 26, _a);
-    ui_text(_x1 + 56, _y1 + 33, "ADAM " + update_latest + " is out", c_white, fa_left, fa_middle, global.f_title, _a);
+    ui_text(_x1 + 56, _y1 + 33, ui_text_fit("ADAM " + update_latest + " is out", global.f_title, _w - 56 - 20), c_white, fa_left, fa_middle, global.f_title, _a);
     ui_text_wrap(_x1 + 20, _y1 + 20 + 26 + 8, _body, global.TH.text, _w - 40, global.f_body, _a);
     var _by = _y2 - 18 - 34;
     var _close = false;
@@ -104,7 +104,7 @@ function update_card_draw(_gw, _gh)
         url_open(update_url);
         _close = true;
     }
-    if (ui_button("update_later", _x2 - 20 - 120 - 10 - 110, _by, 110, 34, "Not now", "Not now|Hides this until you next start ADAM. Turn the check off on Home > Game settings.", BTN_NORMAL)) { _close = true; }
+    if (ui_button("update_later", _x2 - 20 - 120 - 10 - 110, _by, 110, 34, "Not now", "Not now|Hides this until you next start ADAM. Turn the check off on Home > Studio.", BTN_NORMAL)) { _close = true; }
     ui_force_input = false;
     if (_close)
     {

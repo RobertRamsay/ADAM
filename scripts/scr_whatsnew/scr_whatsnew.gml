@@ -9,6 +9,22 @@ function whatsnew_entries()
 {
     return [
         {
+            ver : "1.1.0",
+            items : [
+                "Lite and Pro now have the same features. Pro raises the limits (16 frames per animation instead of 6, sprites and BOBs up to 64 x 64 instead of 32 x 32, 32 actors on the disk instead of 12, 128 sprites instead of 64, 64 sounds instead of 8, 512 tile types instead of 96) and adds extra example games and lessons.",
+                "Animate page: named animations for every actor - Idle, Walk, Jump, Fall, Hit and Die - with Loop, Once or Ping-pong, 8 directions, Fire animations for the joystick, a library to drag animations between actors, and a Test mode. The sprite editor has onion skin.",
+                "Tile worlds (Tiles page): build a big scrolling map from tiles, then dig, build, climb ladders, swing a sword and switch tools with the space bar. Try the Dig Deep example (Pro).",
+                "Shoot 'em ups: scrolling backdrops and tile maps, flyers with flight patterns, enemy fire, homing missiles, power-ups, options that follow you, spawners and big bosses. Three new Pro examples - Nebula Strike, Starfire and Jade Serpent - and Lesson 6, Sky Raid.",
+                "Items and recipes (Logic page, Items tab): keys, potions and anything else the player picks up, used up or kept, combined into new items, with IF lines on rule cards (\"IF the player has the KEY\"). The Torchlight example and Lesson 8 show how (Pro).",
+                "UI page: design your own HUD - a framed panel in your game's colours, fonts and fields for score, lives, items and more - and, in its Loading screen tab, a loading picture with a progress bar and pictures that appear as it loads (Lesson 7).",
+                "Named palettes: switch or fade the whole picture to another palette from a rule (night falls, a red alert), and pick the palette each level starts with.",
+                "Sound and music: a new Patch synth with three oscillators, a filter, envelopes, LFOs and effects; up to 64 sounds in folders (only the sounds your game uses go on the disk); a much improved music editor; and level music can go on a second disk when a game is too big for one.",
+                "New rule parts: shoot, throw, pick up, spawn, play an animation, switch palette, give / take / make / drop items, and WHENs for hits, animation ends, items, auto-fire and more.",
+                "The A1200 versions of the example games use the A1200's extra colours for smooth gradients instead of dithering.",
+                "Flash the screen now flashes mid red instead of white, which is easier on the eyes."
+            ]
+        },
+        {
             ver : "1.0.1",
             items : [
                 "FS-UAE, the free Amiga emulator, now comes with ADAM: Build & play works straight after installing. On Windows it is included; on a Mac, ADAM downloads the right one for your Mac the first time. (If you picked your own FS-UAE with Find, ADAM keeps using it.)",
@@ -16,7 +32,7 @@ function whatsnew_entries()
                 "Questions such as \"Quit ADAM?\" and \"Start a new project?\" now appear in ADAM's own panel, with Enter for yes and Esc for cancel.",
                 "Fixed: on some older graphics cards ADAM could go black when you came back to it from a game running full screen.",
                 "ADAM uses far less graphics memory (about half on a 4K screen), so it runs better on older PCs.",
-                "ADAM now tells you when a new version is out, with a small card and a link to it. Turn it off on Home > Game settings > Check for updates.",
+                "ADAM now tells you when a new version is out, with a small card and a link to it. Turn it off on Home > Studio > Check for updates.",
                 "This What's new panel. Open it again any time from the Learn ADAM menu."
             ]
         },

@@ -1,0 +1,267 @@
+From 8d626b28de95fe83770b8baa8035a0044a0a8d19 Mon Sep 17 00:00:00 2001
+From: Bob <robertramsay78@googlemail.com>
+Date: Mon, 12 Oct 2026 19:44:32 +0100
+Subject: [PATCH] Lite and Pro: the same features - ADAM Pro adds extra example
+ games and lessons
+
+pro_on() and feature_gate() (the feature switches) are always on, so ADAM
+Lite gets BOBs, bigger sprites, gradients and dither patterns too.
+pro_edition() / pro_gate() now only gate the Pro extras: Pro example games
+and lessons show 'ADAM Pro' in Lite and say where to get them. Edition chip,
+About page and CLAUDE.md say so.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01BQFSzGarhTTpK2DHf8XzFr
+---
+ CLAUDE.md                                   |  1 +
+ objects/obj_app/Step_0.gml                  |  2 +-
+ scripts/scr_about/scr_about.gml             |  6 ++---
+ scripts/scr_examples/scr_examples.gml       | 17 +++++-------
+ scripts/scr_lessons/scr_lessons.gml         |  2 +-
+ scripts/scr_licence/scr_licence.gml         | 29 ++++++++++++++++-----
+ scripts/scr_update/scr_update.gml           |  2 +-
+ scripts/scr_ws_actors/scr_ws_actors.gml     |  2 +-
+ scripts/scr_ws_backdrop/scr_ws_backdrop.gml |  4 +--
+ scripts/scr_ws_shell/scr_ws_shell.gml       |  6 ++---
+ scripts/scr_ws_sprites/scr_ws_sprites.gml   |  2 +-
+ 11 files changed, 43 insertions(+), 30 deletions(-)
+
+diff --git a/CLAUDE.md b/CLAUDE.md
+index b500eae..241b86e 100644
+--- a/CLAUDE.md
++++ b/CLAUDE.md
+@@ -101,6 +101,7 @@ the layout changed, examples regenerated if needed, and a short "how to verify"
+ 
+ ### Product: ADAM Lite (free) and ADAM Pro (paid)
+ - **Lite** makes and shares a complete small game: backdrop, copper sky, sprites, actors, rules, levels, Sound page (synth + WAV import), Music page (loop library, step editor, .mod import/export), lessons, bootable ADF. Never cripple Lite; Pro adds power and polish.
++- **Decision (Bob, Oct 2026): Lite and Pro have the same features; Pro adds extra example games and lessons.** `pro_on()` / `feature_gate()` are now always true (the switch for a feature), `pro_edition()` / `pro_gate()` gate the Pro extras (`pro : true` examples and lessons). The text below about Pro-only features is history.
+ - **Pro** = the Phase 4 features below. Two builds from one project: `#macro ADAM_PRO` in `scr_licence` (0 = Lite, 1 = Pro); Bob builds `_LITE` and `_PRO` zips himself (docs/RELEASE.md). No licence keys. Optional "Made with ADAM" card in Lite games that Pro removes.
+ - Gate a Pro feature in one place: `pro_on()` (or `pro_gate("Feature")` for a button) in `scr_licence`, so the UI shows it locked with a short "Pro" note rather than hiding it.
+ 
+diff --git a/objects/obj_app/Step_0.gml b/objects/obj_app/Step_0.gml
+index aa49634..3b1b6cd 100644
+--- a/objects/obj_app/Step_0.gml
++++ b/objects/obj_app/Step_0.gml
+@@ -137,7 +137,7 @@ music_preview_step();
+ shortcuts_step();
+ 
+ var _edition = "Lite";
+-if (pro_on()) { _edition = "Pro"; }
++if (pro_edition()) { _edition = "Pro"; }
+ var _cap = "ADAM " + _edition + " " + ADAM_VERSION + " - " + proj.name + "  (" + machine_cur().name + ")";
+ if (proj_dirty) { _cap += " *"; }
+ if (_cap != caption_last)
+diff --git a/scripts/scr_about/scr_about.gml b/scripts/scr_about/scr_about.gml
+index 9964ab6..3c14322 100644
+--- a/scripts/scr_about/scr_about.gml
++++ b/scripts/scr_about/scr_about.gml
+@@ -118,18 +118,18 @@ function about_pro_page(_tx1, _ty1, _tx2, _ty2, _a)
+     var _x = _tx1 + 24;
+     var _w = _tx2 - _tx1 - 48;
+     var _y = _ty1 + 24;
+-    if (pro_on())
++    if (pro_edition())
+     {
+         ui_text(_x, _y, "This is ADAM Pro", global.TH.accent2, fa_left, fa_top, global.f_title, _a);
+         _y += 44;
+-        var _thanks = "Thank you for supporting ADAM! All the Pro features are on.";
++        var _thanks = "Thank you for supporting ADAM! The extra Pro example games and lessons are all yours.";
+         ui_text_wrap(_x, _y, _thanks, global.TH.text, _w, global.f_body, _a);
+         return;
+     }
+ 
+     ui_text(_x, _y, "This is ADAM Lite", c_white, fa_left, fa_top, global.f_title, _a);
+     _y += 44;
+-    var _intro = "ADAM Lite is free and makes complete games - backdrops, copper skies, sprites, rules, levels, sounds and music, on a real bootable disk. ADAM Pro adds more: dither drawing and gradients, BOBs (more moving things), scrolling, shooting, tracker effects, play-in-browser export and more. Pro features show a Pro label in ADAM Lite.";
++    var _intro = "ADAM Lite is free and has every feature: backdrops, copper skies, sprites and animations, BOBs, tile worlds, rules, levels, sounds and music, on a real bootable disk. ADAM Pro adds extra example games and lessons to learn from and remix - they show an ADAM Pro label here.";
+     ui_text_wrap(_x, _y, _intro, global.TH.text, _w, global.f_body, _a);
+     _y += ceil(ui_sh_ext(_intro, _w)) + 24;
+     var _how = "ADAM Pro is a separate download on itch.io. Your projects open in either one.";
+diff --git a/scripts/scr_examples/scr_examples.gml b/scripts/scr_examples/scr_examples.gml
+index 91e651f..87b700d 100644
+--- a/scripts/scr_examples/scr_examples.gml
++++ b/scripts/scr_examples/scr_examples.gml
+@@ -18,7 +18,7 @@ function example_names()
+     {
+         var _e = global.EXAMPLES[i];
+         var _s = _e.name + "  -  " + _e.desc;
+-        if (_e.pro) { _s = _e.name + " (Pro)  -  " + _e.desc; }
++        if (_e.pro && !pro_edition()) { _s = _e.name + " (ADAM Pro)  -  " + _e.desc; }
+         array_push(_n, _s);
+     }
+     return _n;
+@@ -27,6 +27,11 @@ function example_names()
+ /// Loads example _i, keeping the machine that is selected now
+ function example_load(_i)
+ {
++    var _ex = global.EXAMPLES[clamp(_i, 0, array_length(global.EXAMPLES) - 1)];
++    if (_ex.pro)
++    {
++        if (!pro_gate(_ex.name)) { return; }
++    }
+     if (proj_dirty)
+     {
+         confirm_open("Load the example?", confirm_unsaved_text("Loading the example"), "Load example", "Cancel", true, example_load_now, _i);
+@@ -61,15 +66,7 @@ function example_load_now(_i)
+     undo_clear_all();
+     project_after_change();
+     settings_save();
+-    if (_e.pro && !pro_on())
+-    {
+-        // Lite can look round a Pro example; its disk only gets the first 8 actors, as sprites
+-        toast(_e.name + " uses BOBs, part of ADAM Pro - ADAM Lite puts only its first 8 actors on the disk", 1);
+-    }
+-    else
+-    {
+-        toast(_e.name + " loaded - try Build to play it!", 0);
+-    }
++    toast(_e.name + " loaded - try Build & play (F5)!", 0);
+ }
+ 
+ /// Button that opens a menu. Returns the chosen index, or -1.
+diff --git a/scripts/scr_lessons/scr_lessons.gml b/scripts/scr_lessons/scr_lessons.gml
+index 3d68c90..08c9fc8 100644
+--- a/scripts/scr_lessons/scr_lessons.gml
++++ b/scripts/scr_lessons/scr_lessons.gml
+@@ -329,7 +329,7 @@ function lesson_menu_names()
+     for (var i = 0; i < array_length(les_defs); i++)
+     {
+         var _s = string(i + 1) + ". " + les_defs[i].name + "  (" + string(les_defs[i].mins) + " min)";
+-        if (les_defs[i].pro && !pro_on()) { _s += "  - Pro"; }
++        if (les_defs[i].pro && !pro_edition()) { _s += "  - Pro"; }
+         if (les_done[i]) { _s += "  - done"; }
+         array_push(_n, _s);
+     }
+diff --git a/scripts/scr_licence/scr_licence.gml b/scripts/scr_licence/scr_licence.gml
+index a4b3569..453ebad 100644
+--- a/scripts/scr_licence/scr_licence.gml
++++ b/scripts/scr_licence/scr_licence.gml
+@@ -3,22 +3,37 @@
+ /// ADAM Lite is free; ADAM Pro is a separate paid download on itch.io. Both
+ /// come from this one project: set ADAM_PRO below and build each one
+ /// (ADAM_..._LITE and ADAM_..._PRO, see docs/RELEASE.md).
+-/// Every Pro feature asks pro_on() (or pro_gate() for a button press).
++/// Both editions have the same features (Bob, Oct 2026); ADAM Pro adds extra
++/// example games and lessons. pro_edition() / pro_gate() decide those;
++/// pro_on() and feature_gate() are the old feature switches, now always on -
++/// the one place to make a feature Pro-only again.
+ 
+ #macro ADAM_PRO 1               // 0 = build ADAM Lite, 1 = build ADAM Pro
+ #macro ADAM_PRO_URL "https://polytricity.itch.io/adam-amiga-developmental-machine"          // the ADAM Pro page on itch.io ("" hides the 'Get ADAM Pro' button)
+ 
+-/// True when Pro features may be used
+-function pro_on()
++/// True when this is the ADAM Pro build (the extra example games and lessons)
++function pro_edition()
+ {
+     return ADAM_PRO == 1;
+ }
+ 
+-/// For a Pro button or action: true if Pro is on, otherwise a friendly
+-/// message saying it is in ADAM Pro. _what names the feature.
++/// True when the editing features may be used: every edition
++function pro_on()
++{
++    return true;
++}
++
++/// For a feature button: always allowed (see the note at the top)
++function feature_gate(_what)
++{
++    return true;
++}
++
++/// For Pro extras (example games, lessons): true in ADAM Pro, otherwise a
++/// friendly message saying it comes with ADAM Pro. _what names it.
+ function pro_gate(_what)
+ {
+-    if (pro_on()) { return true; }
+-    toast(_what + " is part of ADAM Pro - click LITE at the top to find out more", 1);
++    if (pro_edition()) { return true; }
++    toast(_what + " comes with ADAM Pro - click LITE at the top to find out more", 1);
+     return false;
+ }
+diff --git a/scripts/scr_update/scr_update.gml b/scripts/scr_update/scr_update.gml
+index bb3f17f..153008d 100644
+--- a/scripts/scr_update/scr_update.gml
++++ b/scripts/scr_update/scr_update.gml
+@@ -59,7 +59,7 @@ function update_async()
+     if (!is_string(_ver)) { return; }
+     if (!version_newer(_ver, ADAM_VERSION)) { return; }
+     var _url = _data[$ "lite_url"];
+-    if (pro_on()) { _url = _data[$ "pro_url"]; }
++    if (pro_edition()) { _url = _data[$ "pro_url"]; }
+     if (!is_string(_url) || _url == "") { _url = ADAM_PRO_URL; }
+     var _notes = _data[$ "notes"];
+     if (!is_string(_notes)) { _notes = ""; }
+diff --git a/scripts/scr_ws_actors/scr_ws_actors.gml b/scripts/scr_ws_actors/scr_ws_actors.gml
+index 2994890..3ab08a1 100644
+--- a/scripts/scr_ws_actors/scr_ws_actors.gml
++++ b/scripts/scr_ws_actors/scr_ws_actors.gml
+@@ -476,7 +476,7 @@ function ws_actors_draw(_x1, _y1, _x2, _y2)
+     var _bobv = ui_toggle("act_bob", _fx2, _y, _boblabel, _s.bob && pro_on(), "Draw as a BOB|A BOB (blitter object) is drawn into the backdrop by the Amiga's blitter instead of being a hardware sprite. BOBs use the nearest backdrop colours and do not take one of the 8 sprites, so a game can have up to 32 actors. Actors after the 8th sprite become BOBs anyway. Part of ADAM Pro.");
+     if (_bobv != (_s.bob && pro_on()))
+     {
+-        if (pro_gate("BOBs")) { set_val(_s, "bob", _bobv, "actbob"); }
++        if (feature_gate("BOBs")) { set_val(_s, "bob", _bobv, "actbob"); }
+     }
+     _y += 34;
+ 
+diff --git a/scripts/scr_ws_backdrop/scr_ws_backdrop.gml b/scripts/scr_ws_backdrop/scr_ws_backdrop.gml
+index dedb987..351569d 100644
+--- a/scripts/scr_ws_backdrop/scr_ws_backdrop.gml
++++ b/scripts/scr_ws_backdrop/scr_ws_backdrop.gml
+@@ -443,7 +443,7 @@ function ws_backdrop_draw(_x1, _y1, _x2, _y2)
+     if (!pro_on()) { _glabel = "Gradient  (Pro)"; }
+     if (ui_button("bd_tool_6", _fx, _y + 76, _fw, 32, _glabel, "Gradient|Drag across an area of one colour: it shades from the selected colour where you start to the 'To' colour where you let go, blended with an Amiga-style dither pattern. Great for skies, sunsets and metal. Part of ADAM Pro.", _gst))
+     {
+-        if (pro_gate("The gradient tool")) { bd_tool = 6; }
++        if (feature_gate("The gradient tool")) { bd_tool = 6; }
+     }
+     _y += 120;
+     if (bd_tool == 6)
+@@ -476,7 +476,7 @@ function ws_backdrop_draw(_x1, _y1, _x2, _y2)
+             if (pro_on() && bd_pattern == pt) { _pst = BTN_ON; }
+             if (ui_button("bd_pat_" + string(pt), _fx + pt * (_sw + 4), _y + 18, _sw, 28, global.BD_PATTERN_NAMES[pt], "Dither pattern|Brush, Line, Box and Fill paint only some pixels in an even Amiga-style pattern, so the colour underneath shows through: 50% is a checkerboard. Paint a pattern over another colour for in-between shades. Part of ADAM Pro.", _pst))
+             {
+-                if (pro_gate("Dither patterns")) { bd_pattern = pt; }
++                if (feature_gate("Dither patterns")) { bd_pattern = pt; }
+             }
+         }
+         _y += 56;
+diff --git a/scripts/scr_ws_shell/scr_ws_shell.gml b/scripts/scr_ws_shell/scr_ws_shell.gml
+index d830558..f3568a1 100644
+--- a/scripts/scr_ws_shell/scr_ws_shell.gml
++++ b/scripts/scr_ws_shell/scr_ws_shell.gml
+@@ -127,12 +127,12 @@ function draw_topbar(_gw)
+     var _ew = 54;
+     var _elab = "LITE";
+     var _est = BTN_GHOST;
+-    var _ehelp = "ADAM Lite|This is the free edition. Click to see what ADAM Pro adds.";
+-    if (pro_on())
++    var _ehelp = "ADAM Lite|This is the free edition, with every feature. Click to see the extra games and lessons ADAM Pro adds.";
++    if (pro_edition())
+     {
+         _elab = "PRO";
+         _est = BTN_ON;
+-        _ehelp = "ADAM Pro|The full edition, with every Pro feature on.";
++        _ehelp = "ADAM Pro|Every feature, plus the extra example games and lessons.";
+     }
+     if (ui_button("top_edition", _ex, 14, _ew, 32, _elab, _ehelp, _est))
+     {
+diff --git a/scripts/scr_ws_sprites/scr_ws_sprites.gml b/scripts/scr_ws_sprites/scr_ws_sprites.gml
+index 658e497..b4360ea 100644
+--- a/scripts/scr_ws_sprites/scr_ws_sprites.gml
++++ b/scripts/scr_ws_sprites/scr_ws_sprites.gml
+@@ -250,7 +250,7 @@ function ws_sprites_draw(_x1, _y1, _x2, _y2)
+     var _hnew = ui_dropdown("spr_h", _fx + _szw + 12, _y + 18, _szw, 32, ["16 high", "24 high", "32 high", "48 high", "64 high"], _hcur, "Sprite height|A hardware sprite is 16 x 24 pixels. In ADAM Pro a sprite can be 16, 24, 32, 48 or 64 pixels high; one bigger than 16 x 24 is drawn as a BOB. Making it smaller cuts off the bottom.");
+     if (_wnew != _wcur || _hnew != _hcur)
+     {
+-        if (pro_gate("Bigger sprites"))
++        if (feature_gate("Bigger sprites"))
+         {
+             undo_mark("sprsize" + string(current_time));
+             spr_resize(_s, _wvals[_wnew], _hvals[_hnew]);
+-- 
+2.43.0
+
