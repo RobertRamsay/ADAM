@@ -153,7 +153,7 @@ function logic_do_phrase(_d, _names, _na)
         case 0: _s += "add " + string(_d.value) + " to the score"; break;
         case 1: _s += "lose a life"; break;
         case 2: _s += "play sound '" + proj.sfx[clamp(_d.value, 0, array_length(proj.sfx) - 1)].name + "'"; break;
-        case 3: _s += "flash the screen"; break;
+        case 3: _s += "flash the player"; break;
         case 4: _s += "send " + _tn + " back to its start"; break;
         case 5: _s += "move " + _tn + " to a random spot"; break;
         case 6: _s += "hide " + _tn; break;
@@ -1118,7 +1118,7 @@ function ws_logic_draw(_x1, _y1, _x2, _y2)
     draw_set_font(global.f_small);
     _ry += max(50, ceil(ui_sh_ext(_rintro, _rw - 40)) + 14);
     var _rhelp = [
-        "Enemy hit|Adds 4 rules: when the player touches an enemy, lose a life, go back to the start, flash the screen and flash the player for 3 safe seconds.",
+        "Enemy hit|Adds 4 rules: when the player touches an enemy, lose a life, go back to the start, flash and stay safe for 3 seconds.",
         "Pickup|Adds 3 rules: when the player touches a pickup, add 10 points, move the pickup somewhere random and play the Coin sound.",
         "Win condition|Adds a rule: when the score reaches 100, you win.",
         "Lose condition|Adds a rule: when lives run out, it's game over.",

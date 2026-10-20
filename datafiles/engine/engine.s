@@ -403,7 +403,6 @@ v_fcount    rs.w 1
 v_sectick   rs.w 1
 v_lives     rs.w 1
 v_score     rs.l 1
-v_flash     rs.w 1
 v_bg        rs.l 1
 v_pfade     rs.w 1         ; palette fade: frames left, 0 = none
 v_pftot     rs.w 1         ; and how many it takes
@@ -1237,7 +1236,6 @@ clear_latches:
 clear_state:
             move.w  #0,v_fcount(a5)
             move.w  #0,v_sectick(a5)
-            move.w  #0,v_flash(a5)
             move.w  #-1,v_gradfix(a5)
             move.w  #-1,d1
             bsr     build_grad
@@ -1315,7 +1313,6 @@ setcol:
 ; ============================================================================
 frame:
             bsr     bob_flip                ; BOBs: show last frame's drawing (copper idle here too)
-            bsr     flash_tick              ; copper edits first, while the copper is idle
             bsr     pal_tick                ; a palette fading in
             addq.w  #1,v_anim(a5)
             move.l  #0,v_jumped(a5)
@@ -6854,8 +6851,15 @@ act_sound:  move.w  R_VAL(a3),d0
             and.w   #63,d0
             bra     play_sfx
 
-act_flash:  move.w  #16,v_flash(a5)
-            rts
+; DO 3 'Flash': the player blinks a moment (the screen no longer flashes - Bob: not pleasant,
+; and blinking a copper sky meant rebuilding the copper list every other frame)
+act_flash:  move.w  H_PLAYER(a4),d0
+            bmi.s   .r
+            cmp.w   H_NACT(a4),d0
+            bhs.s   .r
+            lsl.w   #ACTV_SHIFT,d0
+            move.w  #16,v_hitf(a5,d0.w)
+.r          rts
 
 act_home:   cmp.w   H_NACT(a4),d4
             bhs     act_none
@@ -7173,33 +7177,6 @@ rand:       move.l  d1,-(sp)
             move.l  d0,v_rand(a5)
             move.l  (sp)+,d1
             rts
-
-; ============================================================================
-;  border-style screen flash on colour 0
-; ============================================================================
-flash_tick:
-            move.w  v_flash(a5),d0
-            beq.s   .r
-            subq.w  #1,d0
-            move.w  d0,v_flash(a5)
-            beq.s   .restore
-            btst    #1,d0
-            beq.s   .restore
-            tst.l   H_GRAD(a4)              ; mid red (white was too harsh)
-            beq.s   .red
-            move.w  #$0800,d1
-            bra     build_grad
-.red        moveq   #0,d0
-            move.l  #$880000,d1
-            bra     setcol
-.restore    tst.l   H_GRAD(a4)
-            beq.s   .plain
-            move.w  v_gradfix(a5),d1
-            bra     build_grad
-.plain      moveq   #0,d0
-            move.l  v_bg(a5),d1
-            bra     setcol
-.r          rts
 
 ; ============================================================================
 ;  named palettes (version 11)
