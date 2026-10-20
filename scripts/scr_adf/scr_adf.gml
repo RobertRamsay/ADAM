@@ -232,13 +232,64 @@ function pal_nearest(_p, _rgb, _ncol)
 }
 
 /// Writes one BOB image (engine.s A_BSIZE) of sprite struct _s, _bw x _bh
-/// pixels (cropped or padded to that): _bw/16 x _bh mask words, then _depth
+/// pixels (cropped or padded to that): a BI_* header, _bw/16 x _bh mask words, then _depth
 /// planes the same size. Sprite pixel 1-3 becomes backdrop colour _map[0-2]. Returns its offset.
 function adf_bob_image(_b, _s, _bw, _bh, _map, _depth)
 {
     buf_align(_b, 8);
     var _o = buffer_tell(_b);
     var _nw = _bw div 16;
+    // header (version 14): the rows and word columns with pixels, the rightmost pixel from
+    // the left of the first of those words, the planes empty / solid under the mask
+    // (= adf_reference.py bimg); bob_draw only blits that part
+    var _x0 = _bw;
+    var _x1 = -1;
+    var _y0 = _bh;
+    var _y1 = -1;
+    var _zero = (1 << _depth) - 1;
+    var _full = (1 << _depth) - 1;
+    for (var hy = 0; hy < _bh; hy++)
+    {
+        for (var hx = 0; hx < _bw; hx++)
+        {
+            var _hv = spr_get(_s, hx, hy);
+            if (_hv != 0)
+            {
+                _x0 = min(_x0, hx);
+                _x1 = max(_x1, hx);
+                _y0 = min(_y0, hy);
+                _y1 = max(_y1, hy);
+                for (var hp = 0; hp < _depth; hp++)
+                {
+                    if (((_map[_hv - 1] >> hp) & 1) != 0)
+                    {
+                        _zero = _zero & ~(1 << hp);
+                    }
+                    else
+                    {
+                        _full = _full & ~(1 << hp);
+                    }
+                }
+            }
+        }
+    }
+    if (_x1 < 0)
+    {
+        be16(_b, 0); be16(_b, 0); be16(_b, 0); be16(_b, 0);
+        be16(_b, 0); be16(_b, (1 << _depth) - 1); be16(_b, 0); be16(_b, 0);
+    }
+    else
+    {
+        var _wx = _x0 div 16;
+        be16(_b, _y0);                   // BI_Y0
+        be16(_b, _y1 - _y0 + 1);         // BI_NH
+        be16(_b, _wx);                   // BI_WX
+        be16(_b, (_x1 div 16) - _wx + 1); // BI_NW
+        be16(_b, _x1 - _wx * 16);        // BI_LAST
+        be16(_b, _zero);                 // BI_ZERO
+        be16(_b, _full);                 // BI_FULL
+        be16(_b, 0);
+    }
     for (var my = 0; my < _bh; my++)
     {
         for (var mw = 0; mw < _nw; mw++)
@@ -1391,7 +1442,7 @@ function adam_data_block_raw(_p, _measure = false)
     if (_p.show_score) { _sc = 1; }
     var _lv = 0;
     if (_p.show_lives) { _lv = 1; }
-    poke16(_b, 4, 13);                   // data block version 13: items (H_ITEMS), IF lines, WHEN 17 / 18, DO 28..31; 12: disk 2 (H_DISK2); 11: named palettes (H_PALS); 10: shoot 'em up map (SC_MAP), A_TYPE..A_FPAT; 9: shoot 'em up (H_SCROLL, A_PAT..A_RANK); 8: 16-frame animation tables; 7: custom HUD (H_UI); 6: tile world (H_TILES); 5: animation tables (A_ANIM); 4: BOBs
+    poke16(_b, 4, 14);                   // data block version 14: BOB frame headers (BI_*); 13: items (H_ITEMS), IF lines, WHEN 17 / 18, DO 28..31; 12: disk 2 (H_DISK2); 11: named palettes (H_PALS); 10: shoot 'em up map (SC_MAP), A_TYPE..A_FPAT; 9: shoot 'em up (H_SCROLL, A_PAT..A_RANK); 8: 16-frame animation tables; 7: custom HUD (H_UI); 6: tile world (H_TILES); 5: animation tables (A_ANIM); 4: BOBs
     poke16(_b, 6, _flags);
     poke16(_b, 8, _depth);
     poke16(_b, 10, _na);

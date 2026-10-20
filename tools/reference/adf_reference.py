@@ -55,9 +55,22 @@ def build(proj, aga):
             blob.extend(struct.pack('>HH',w0,w1))
         blob.extend(b'\0\0\0\0'); return o
     def bimg(s,cmap,bw,bh):
-        # BOB image (engine.s A_BSIZE): bw/16 x bh mask words, then depth planes
-        # the same size; sprite pixel 1-3 becomes backdrop colour cmap[0-2]
+        # BOB image (engine.s A_BSIZE): a BI_* header, bw/16 x bh mask words, then depth
+        # planes the same size; sprite pixel 1-3 becomes backdrop colour cmap[0-2]
         align(8); o=len(blob)
+        # header (version 14): the rows and word columns with pixels, the rightmost pixel
+        # from the left of the first of those words, the planes empty / solid under the mask
+        pts=[(x,y,pix(s,x,y)) for y in range(bh) for x in range(bw) if pix(s,x,y)]
+        if pts:
+            x0=min(p[0] for p in pts); x1=max(p[0] for p in pts)
+            y0=min(p[1] for p in pts); y1=max(p[1] for p in pts)
+            wx=x0//16; zero=full=0
+            for p in range(depth):
+                bits=[(cmap[v-1]>>p)&1 for x,y,v in pts]
+                if not any(bits): zero|=1<<p
+                if all(bits): full|=1<<p
+            blob.extend(struct.pack('>8H',y0,y1-y0+1,wx,x1//16-wx+1,x1-wx*16,zero,full,0))
+        else: blob.extend(struct.pack('>8H',0,0,0,0,0,(1<<depth)-1,0,0))
         for y in range(bh):
             for wx in range(0,bw,16):
                 m=0
@@ -443,7 +456,7 @@ def build(proj, aga):
     player=-1
     for i,a in enumerate(actors):
         if a['role'] in (0,6): player=i; break
-    hdr=struct.pack('>4sHHHHHHHHHHHH',b'ADAM',13,1 if aga else 0,depth,len(actors),len(rules),proj['lives'],
+    hdr=struct.pack('>4sHHHHHHHHHHHH',b'ADAM',14,1 if aga else 0,depth,len(actors),len(rules),proj['lives'],
                     int(proj['show_score']),int(proj['show_lives']),proj['hud_row'],proj['hud_col'],proj['msg_col'],player & 0xffff)+struct.pack('>L',off_game)
     hdr+=struct.pack('>LLLLLLLLLLLLLLL',off_pal,off_planes,off_act,off_rules,off_sfx,off_over,off_win,off_sprcol,off_disp,off_grad,off_ground,off_work,off_music,off_disp2,off_back)
     hdr+=struct.pack('>LLLLLL',off_tiles,off_ui,off_scroll,off_pals,off_d2,off_items)

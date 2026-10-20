@@ -63,6 +63,17 @@ H_DISK2     equ 108        ; offset: disk 2 block, 0 = a one-disk game (version 
 H_ITEMS     equ 112        ; offset: items and recipes, 0 = none (version 13)
 HDR_SIZE    equ 116
 
+; a BOB frame (version 14): this header, then the mask and the planes (A_BSIZE's size);
+; bob_draw only blits the part where something is drawn
+BI_Y0       equ 0          ; first row with a pixel
+BI_NH       equ 2          ; rows from there with pixels, 0 = an empty frame
+BI_WX       equ 4          ; first word column with a pixel
+BI_NW       equ 6          ; word columns from there
+BI_LAST     equ 8          ; rightmost pixel, counted from the left of word BI_WX
+BI_ZERO     equ 10         ; bit p: plane p has no pixel set (drawn D = ~AC)
+BI_FULL     equ 12         ; bit p: plane p is set wherever the mask is (drawn D = A + C)
+BI_SIZE     equ 16
+
 ; items block (H_ITEMS): IT_N items of IT_SIZE bytes, then IT_NR recipes of RC_SIZE bytes
 IT_N        equ 0
 IT_NR       equ 2
@@ -489,9 +500,8 @@ v_aimx      rs.w 1         ; act_shoot: the way the volley flies, -1 / 0 / 1 acr
 v_aimy      rs.w 1         ;                                              down
 v_vside     rs.w 1         ; shoot_one: pixels to the side of the aim it starts
 v_vspr      rs.w 1         ;            -1 / 0 / 1: it veers to that side (spread)
-v_bstep     rs.l 1         ; bob_draw: bytes from one image plane to the next
-v_bcon      rs.w 1         ;           the BOB's shift (BLTCON0 bits 15-12)
-v_bflash    rs.w 1         ;           hit flash: BLTCON0 for the next plane, 0 = none
+v_bzero     rs.w 1         ; bob_draw: planes drawn empty under the mask (D = ~AC)
+v_bfull     rs.w 1         ;           planes drawn solid under the mask (D = A + C)
 v_sstride   rs.l 1         ; bytes from one scroll buffer to the next
 v_split     rs.w 1         ; 1 = the copper switches bitplanes under the HUD strip (tile world, scrolling)
 v_smod      rs.w 1         ; the modulo below the split
@@ -515,6 +525,7 @@ v_tbm       rs.w 1         ; bytes a tile picture (depth x 32)
 v_mword     rs.w 1         ; 1 = map cells are words
 v_mcols     rs.w 1         ; the map's tiles across
 v_arec      rs.l MAX_ACT   ; each actor's record (actor_rec reads it: no multiply)
+v_vismask   rs.l 1         ; move_actors: bit per actor shown when it started (shot_hits)
 v_hbx0      rs.w 1         ; shot_hits: the shot's box
 v_hbx1      rs.w 1
 v_hby0      rs.w 1
@@ -1718,6 +1729,18 @@ read_joy:
 move_actors:
             move.w  H_NACT(a4),d6
             beq     .done
+            moveq   #0,d0                   ; v_vismask: the actors shown now (only shots,
+            move.w  d6,d7                   ; options and effects - which no shot hits - come
+            subq.w  #1,d7                   ; out while they move)
+            move.w  d7,d5
+            lsl.w   #ACTV_SHIFT,d5
+.vm         add.l   d0,d0
+            tst.w   v_vis(a5,d5.w)
+            beq.s   .vm0
+            addq.l  #1,d0
+.vm0        sub.w   #1<<ACTV_SHIFT,d5
+            dbf     d7,.vm
+            move.l  d0,v_vismask(a5)
             move.l  H_ACTORS(a4),d0
             lea     0(a4,d0.l),a2
             moveq   #0,d7
@@ -4574,9 +4597,11 @@ hide_sprites:
 ;  draws them at their new places; bob_flip shows it at the start of the
 ;  next frame, so nothing is ever drawn into the picture being shown.
 ;  Cookie-cut per plane: A = mask, B = image plane, C = D = screen,
-;  D = AB + ~AC. The image is w words wide (A_BSIZE); the blit is one word
-;  wider for the shift, with A's last word masked off (BLTALWM = 0) and A/B
-;  modulo -2, and C/D modulo 40 - 2 * (w + 1).
+;  D = AB + ~AC. Only the rows and word columns of the frame that have pixels
+;  are blitted (BI_* header, version 14), one word wider when the shift pushes
+;  pixels into the next word (A's last word masked off, BLTALWM = 0). A plane
+;  that is empty or solid under the mask needs no B: D = ~AC or D = A + C.
+;  (The blitter is what limits a busy shoot 'em up: Starfire spent ~250 lines here.)
 ; ============================================================================
 ;
 ;  Waiting for the blitter: DMACONR's busy flag (BBUSY) only rises once a
@@ -4730,86 +4755,106 @@ bob_draw:
             bge     .nxt
 .in         add.w   v_bx0(a5),d0            ; d0 / d1 = its pixel in the display
             add.w   v_by0(a5),d1
-            move.w  d0,d2                   ; d2 = x, for the shift
-            mulu    v_bpr(a5),d1
-            lsr.w   #4,d0
-            add.w   d0,d0
-            and.l   #$ffff,d0
-            add.l   d1,d0                   ; byte offset in a plane
-            move.l  v_fofs(a5,d5.w),d1
-            lea     0(a4,d1.l),a0           ; a0 = mask, the planes follow
-            move.w  (a1),d1                 ; remember it for next time's wipe
-            lsl.w   #2,d1
-            move.w  d0,0(a3,d1.w)
-            move.w  A_BSIZE(a2),2(a3,d1.w)
-            addq.w  #1,(a1)
-            move.l  v_draw(a5),d3
-            add.l   d0,d3                   ; d3 = screen, plane 0
-            move.w  d2,d0
-            and.w   #15,d0
-            ror.w   #4,d0                   ; shift into bits 15-12
-            move.w  d0,v_bcon(a5)
-            move.w  #0,v_bflash(a5)         ; hit by a shot: a white flash (colour 1 under the mask)
-            tst.w   v_hitf(a5,d5.w)
+            move.l  v_fofs(a5,d5.w),d2
+            lea     0(a4,d2.l),a0           ; a0 = the frame: header, mask, planes
+            move.w  BI_NH(a0),d4            ; d4 = rows drawn
+            beq     .nxt                    ; nothing in this frame
+            move.w  BI_ZERO(a0),v_bzero(a5)
+            move.w  BI_FULL(a0),v_bfull(a5)
+            tst.w   v_hitf(a5,d5.w)         ; hit by a shot: a white flash (colour 1 under the mask)
             beq.s   .nf
             btst    #1,v_anim+1(a5)
             bne.s   .nf
-            move.w  #$0bfa,v_bflash(a5)
-.nf         bsr     bwait
-            move.w  d0,$42(a6)              ; BLTCON1: B shift
-            or.w    #$0fca,d0
-            move.w  d0,$40(a6)              ; BLTCON0: A shift, use ABCD, D = AB + ~AC
-            move.l  #$ffff0000,$44(a6)      ; keep A's first word, drop the extra one
-            move.w  #-2,$64(a6)             ; AMOD
-            move.w  #-2,$62(a6)             ; BMOD
-            move.w  A_BSIZE(a2),d4
-            move.w  d4,d0
-            and.w   #63,d0
-            add.w   d0,d0                   ; blit width in bytes
+            move.w  #1,v_bfull(a5)
+            move.w  #$fffe,v_bzero(a5)
+.nf         add.w   BI_Y0(a0),d1            ; the first row drawn
+            move.w  BI_WX(a0),d2
+            lsl.w   #4,d2
+            add.w   d0,d2                   ; d2 = x of the first word drawn
+            mulu    v_bpr(a5),d1
+            move.w  d2,d0
+            lsr.w   #4,d0
+            add.w   d0,d0
+            and.l   #$ffff,d0
+            add.l   d1,d0                   ; d0 = byte offset in a plane
+            and.w   #15,d2                  ; d2 = the shift
+            move.w  BI_LAST(a0),d3
+            add.w   d2,d3
+            lsr.w   #4,d3
+            addq.w  #1,d3                   ; d3 = words the blit covers (BI_NW, or one more for the shift)
+            lsl.w   #6,d4
+            or.w    d3,d4                   ; d4 = BLTSIZE
+            move.w  (a1),d1                 ; remember it for next time's wipe
+            lsl.w   #2,d1
+            move.w  d0,0(a3,d1.w)
+            move.w  d4,2(a3,d1.w)
+            addq.w  #1,(a1)
+            movem.l d5-d7/a1-a3,-(sp)
+            move.l  v_draw(a5),a3
+            add.l   d0,a3                   ; a3 = screen, plane 0
+            ror.w   #4,d2                   ; shift into bits 15-12
+            move.w  d2,d7                   ; d7 = the shift for BLTCON0
+            bsr     bwait
+            move.w  d2,$42(a6)              ; BLTCON1: B shift
+            move.l  #$ffff0000,d0           ; the extra word: A's is dropped
+            cmp.w   BI_NW(a0),d3
+            bhi.s   .xw
+            moveq   #-1,d0                  ; no extra word: all of A
+.xw         move.l  d0,$44(a6)
+            move.w  A_BSIZE(a2),d0
+            move.w  d0,d1
+            and.w   #63,d1
+            subq.w  #1,d1                   ; d1 = image width in words
+            lsr.w   #6,d0
+            mulu    d1,d0
+            add.l   d0,d0                   ; d0 = bytes per mask / plane
+            add.w   d1,d1                   ; d1 = bytes per image line
+            move.w  BI_Y0(a0),d5
+            mulu    d1,d5
+            move.w  BI_WX(a0),d6
+            add.w   d6,d6
+            add.w   d6,d5                   ; d5 = the first word drawn in the mask
+            sub.w   d3,d1
+            sub.w   d3,d1
+            move.w  d1,$64(a6)              ; AMOD: image line - blit width
+            move.w  d1,$62(a6)              ; BMOD
             move.w  v_bpr(a5),d1
-            sub.w   d0,d1
-            move.w  d1,$60(a6)              ; CMOD
+            sub.w   d3,d1
+            sub.w   d3,d1
+            move.w  d1,$60(a6)              ; CMOD: display line - blit width
             move.w  d1,$66(a6)              ; DMOD
-            subq.w  #2,d0                   ; image width in bytes
-            move.w  d4,d1
-            lsr.w   #6,d1                   ; lines
-            mulu    d1,d0                   ; d0 = bytes per mask / plane
-            move.l  d0,v_bstep(a5)
-            move.l  a0,d2
-            add.l   d0,d2                   ; d2 = image, plane 0
-            move.w  H_DEPTH(a4),d1
-            subq.w  #1,d1
-            tst.w   v_bflash(a5)
-            bne.s   .pl
-            move.l  v_plsz(a5),d5           ; (d5 = a plane: the actor's offset is done with)
+            lea     BI_SIZE(a0,d5.w),a1     ; a1 = mask (A)
+            lea     0(a1,d0.l),a0           ; a0 = image plane 0 (B)
+            move.l  d0,a2                   ; a2 = image plane to plane
+            move.l  v_plsz(a5),d6           ; d6 = display plane to plane
+            move.w  v_bzero(a5),d0
+            move.w  v_bfull(a5),d2
+            move.w  H_DEPTH(a4),d5
+            subq.w  #1,d5
+            moveq   #0,d3                   ; plane number
+.pl         move.w  #$0fca,d1               ; ABCD: D = AB + ~AC
+            btst    d3,d2
+            beq.s   .p1
+            move.w  #$0bfa,d1               ; solid under the mask: ACD, D = A + C
+            bra.s   .p2
+.p1         btst    d3,d0
+            beq.s   .p2
+            move.w  #$0b0a,d1               ; empty: ACD, D = ~AC
+.p2         or.w    d7,d1
 .pq         btst    #6,$1f(a6)              ; (bwait)
             beq.s   .pq
-            move.l  a0,$50(a6)              ; A = mask
-            move.l  d2,$4c(a6)              ; B = image plane
-            move.l  d3,$48(a6)              ; C = screen
-            move.l  d3,$54(a6)              ; D = screen
+            move.w  d1,$40(a6)              ; BLTCON0
+            move.l  a1,$50(a6)              ; A = mask
+            move.l  a0,$4c(a6)              ; B = image plane
+            move.l  a3,$48(a6)              ; C = screen
+            move.l  a3,$54(a6)              ; D = screen
             move.w  #$0040,$9c(a6)          ; (bgo)
             move.w  d4,$58(a6)
-            add.l   d0,d2
-            add.l   d5,d3
-            dbf     d1,.pq
-            bra.s   .nxt
-.pl         btst    #6,$1f(a6)              ; (bwait)
-            beq.s   .pl
-            move.w  v_bflash(a5),d0         ; the flash: plane 0 set (D = A + ~AC),
-            beq.s   .pn                     ; the others cleared (D = ~AC)
-            or.w    v_bcon(a5),d0
-            move.w  d0,$40(a6)
-            move.w  #$0b0a,v_bflash(a5)
-.pn         move.l  a0,$50(a6)              ; A = mask
-            move.l  d2,$4c(a6)              ; B = image plane
-            move.l  d3,$48(a6)              ; C = screen
-            move.l  d3,$54(a6)              ; D = screen
-            move.w  #$0040,$9c(a6)          ; (bgo)
-            move.w  d4,$58(a6)
-            add.l   v_bstep(a5),d2
-            add.l   v_plsz(a5),d3
-            dbf     d1,.pl
+            add.l   a2,a0
+            add.l   d6,a3
+            addq.w  #1,d3
+            dbf     d5,.pl
+            movem.l (sp)+,d5-d7/a1-a3
 .nxt        lea     ACT_SIZE(a2),a2
             addq.w  #1,d7
             cmp.w   d6,d7
@@ -6308,16 +6353,20 @@ shot_hits:
             add.w   A_BY1(a2),d1
             move.w  d1,v_hby1(a5)
             lea     v_arec(a5),a1
+            and.l   v_vismask(a5),d3        ; only actors that are shown
             moveq   #0,d6
 .j          tst.l   d3
             beq     .none
-            lsr.l   #1,d3
+            tst.b   d3                      ; none of the next 8: past them at once
+            bne.s   .bit
+            lsr.l   #8,d3
+            addq.w  #8,d6
+            bra.s   .j
+.bit        lsr.l   #1,d3
             bcc     .n
-            cmp.w   H_NACT(a4),d6
-            bhs     .none
             move.w  d6,d1
             lsl.w   #ACTV_SHIFT,d1          ; d1 = its offset
-            tst.w   v_vis(a5,d1.w)
+            tst.w   v_vis(a5,d1.w)          ; (hidden since move_actors began)
             beq     .n
             move.w  d6,d0
             add.w   d0,d0
