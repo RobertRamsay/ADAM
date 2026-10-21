@@ -47,7 +47,8 @@ function feature_gate(_what)
     return true;
 }
 
-/// For Pro extras (example games, lessons): true in ADAM Pro, otherwise a
+/// For Pro extras (example games, lessons) and the Pro-only features
+/// (animated tiles, docs/ISO_LAYERS_PLAN.md): true in ADAM Pro, otherwise a
 /// friendly message saying it comes with ADAM Pro. _what names it.
 function pro_gate(_what)
 {
@@ -288,6 +289,26 @@ function lite_trim(_p, _warn)
             _q.map_h = _mh;
             if (_cut_t) { array_push(_warn, "A tile set has " + string(LITE_TILES) + " tile types in ADAM Lite, so map cells using the others are air - ADAM Pro has " + string(TILE_MAX) + "."); }
             if (_mh < _p.map_h || _mw < _p.map_w) { array_push(_warn, "Tile maps are up to " + string(LITE_MAP_W) + " x " + string(LITE_MAP_H) + " tiles in ADAM Lite, so the map is cut to that - ADAM Pro goes to " + string(MAP_MAX) + " x " + string(MAP_MAX) + "."); }
+        }
+        // animated tiles are ADAM Pro: they stand still on a Lite disk
+        if (tile_anim_count(_q.tiles) > 0)
+        {
+            var _ts = [];
+            for (var ta = 0; ta < array_length(_q.tiles); ta++)
+            {
+                var _ta = _q.tiles[ta];
+                if (array_length(_ta.anim) > 0)
+                {
+                    var _tz = {};
+                    var _tzn = variable_struct_get_names(_ta);
+                    for (var tz = 0; tz < array_length(_tzn); tz++) { _tz[$ _tzn[tz]] = _ta[$ _tzn[tz]]; }
+                    _tz.anim = [];
+                    _ta = _tz;
+                }
+                array_push(_ts, _ta);
+            }
+            _q.tiles = _ts;
+            array_push(_warn, "Animated tiles are part of ADAM Pro - they stand still in this game.");
         }
     }
     return _q;

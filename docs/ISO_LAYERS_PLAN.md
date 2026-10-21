@@ -53,6 +53,10 @@ Steps 1-3 and step 4 touch different code and can run side by side.
 
 ## 1. Animated tiles
 
+**Done (21 Oct 2026), data version 15.** As planned, with one simplification:
+the frames are other tile types' pictures (the tiles after it in the set),
+so no extra picture store was needed. Details in CLAUDE.md.
+
 **Player sees:** water, lava, torches, conveyor belts that move on their own.
 
 **Editor (Tiles page, tile panel):** an *Animation* box per tile type: a strip

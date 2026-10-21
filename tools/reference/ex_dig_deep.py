@@ -11,6 +11,7 @@ W, H = 128, 64          # map size in tiles
 PAL = [0x000000, 0xffffff, 0x4a2a14, 0x7a4a24, 0xa86c3c, 0x34343e, 0x5e5e6a, 0x8a8a96,
        0x2a6a1a, 0x48a02a, 0x8ad04a, 0xffcc22, 0x40e8ff, 0xd83020, 0xff8820, 0x161626]
 AIR, GRASS, DIRT, STONE, SLATE, SAND, CLAY, COAL, IRON, GOLD, GEM, WOOD, LEAVES, BRICK, BEDROCK, MOSS, WATER, DWALL, SWALL, TORCH, LADDER = range(21)
+WATER2, WATER3, WATER4, TORCH2, TORCH3 = range(21, 26)    # animated tiles' frames (ADAM Pro, data version 15)
 
 def noise(x, y, s):
     v = (x * 374761393 + y * 668265263 + s * 2147483647) & 0xffffffff
@@ -117,24 +118,30 @@ def tiles():
         for x in range(16):
             if noise(x, y, 151) % 9 == 0 or (y < 3 and noise(x, y, 152) % 3 == 0): ms[y * 16 + x] = 9 if x % 2 else 8
     add("MOSS", ms, hard=22, sound=3, becomes=SWALL)
-    wt = []
-    for y in range(16):
-        for x in range(16):
-            v = 15 if (x + y) % 3 else 5
-            if ge.AGA['on']: v = ge.dmix(15, 5, 0.25 if (x + 2 * y) % 7 else 0.5, x, y)   # A1200: one shade, a ripple
-            if y == 0: v = 12 if (x // 2) % 2 else 7
-            elif (x + y * 3) % 11 == 0: v = 12
-            wt.append(v)
-    add("WATR", wt, False, False)
+    def water(ph):
+        # ph = 0..3: the surface ripple moves a pixel a frame and the sparkles move about
+        wt = []
+        for y in range(16):
+            for x in range(16):
+                v = 15 if (x + y) % 3 else 5
+                if ge.AGA['on']: v = ge.dmix(15, 5, 0.25 if (x + 2 * y) % 7 else 0.5, x, y)   # A1200: one shade, a ripple
+                if y == 0: v = 12 if ((x + ph) // 2) % 2 else 7
+                elif (x + y * 3 + ph * 5) % 11 == 0: v = 12
+                wt.append(v)
+        return wt
+    add("WATR", water(0), False, False)
     add("DWAL", tex(2, 15, 3, 17, 5), False, False)
     add("SWAL", tex(15, 5, 5, 18, 6), False, False)
-    tc = tex(15, 5, 5, 18, 6)
-    for y in range(16):
-        for x in range(16):
-            if 7 <= x <= 8 and 7 <= y <= 14: tc[y * 16 + x] = 3
-            if (x - 7.5) ** 2 / 3 + (y - 4.5) ** 2 / 6 < 1.5: tc[y * 16 + x] = 14
-            if (x - 7.5) ** 2 + (y - 5) ** 2 < 1.5: tc[y * 16 + x] = 11
-    add("TRCH", tc, False, True, hard=2, sound=4, becomes=SWALL)
+    def torch(dx, dt):
+        # the flame leans dx pixels and stands dt pixels taller
+        tc = tex(15, 5, 5, 18, 6)
+        for y in range(16):
+            for x in range(16):
+                if 7 <= x <= 8 and 7 <= y <= 14: tc[y * 16 + x] = 3
+                if (x - 7.5 - dx) ** 2 / 3 + (y - 4.5 + dt) ** 2 / (6 + dt) < 1.5: tc[y * 16 + x] = 14
+                if (x - 7.5 - dx / 2) ** 2 + (y - 5) ** 2 < 1.5: tc[y * 16 + x] = 11
+        return tc
+    add("TRCH", torch(0, 0), False, True, hard=2, sound=4, becomes=SWALL)
     # a ladder part: two rails and rungs, see-through between them (the player climbs it)
     ld = []
     for y in range(16):
@@ -146,6 +153,12 @@ def tiles():
             if 4 <= x <= 11 and y % 5 == 3: v = 2
             ld.append(v)
     add("LADR", ld, False, True, hard=4, sound=4, becomes=AIR, ladder=True)
+    # animated tiles (ADAM Pro): the frames go after the others, so the tile numbers stay put
+    for ph in (1, 2, 3): add("WAT" + str(ph + 1), water(ph), False, False)
+    add("TRC2", torch(-0.8, 0.6), False, False)
+    add("TRC3", torch(0.8, 0.0), False, False)
+    t[WATER].update(anim=[WATER, WATER2, WATER3, WATER4], anim_rate=9, anim_mode=0)
+    t[TORCH].update(anim=[TORCH, TORCH2, TORCH, TORCH3], anim_rate=6, anim_mode=0)
     return t
 
 def world(seed=1985):

@@ -201,7 +201,8 @@ T_NCOL      equ 34         ; tiles across the scrolling picture: 320 / S + 2
 T_NROW      equ 36         ; tiles down it: 256 / S + 2
 T_NTOOL     equ 38         ; tools in the space bar menu, 0 = none (fire + direction digs, fire places)
 T_RING      equ 40         ; long: NROW x S x LINE - the picture is a ring this big, kept twice
-T_PROPS     equ 44         ; NT x 8 bytes (TP_*), then NT x 4 bytes of names for the HUD,
+T_ANIM      equ 44         ; long offset: animated tiles (TA_*), 0 = none (version 15)
+T_PROPS     equ 48         ; NT x 8 bytes (TP_*), then NT x 4 bytes of names for the HUD,
                            ; then NTOOL x 12 bytes of tools (TL_*)
 TL_ACT      equ 0          ; byte: flags - bit 0 = Auto (a weapon swings by itself at whatever it may strike)
                            ; byte +1: what fire does: 0 dig (pickaxe), 1 build with the tile carried (hammer),
@@ -210,11 +211,29 @@ TL_TILE     equ 2          ; the tile it puts down; a weapon: its reach in pixel
 TL_NAME     equ 4          ; 8 bytes, 0 ends it early
 TL_SIZE     equ 12
 TP_FLAGS    equ 0          ; byte: bit 0 solid, bit 1 can be dug, bit 2 counts towards the level goal,
-                           ; bit 3 ladder (a platform player climbs it)
+                           ; bit 3 ladder (a platform player climbs it);
+                           ; bit 5 (set by the engine) = its picture changed, redraw it in view
 TP_SOUND    equ 1          ; byte: sound 0..63, $ff = none
 TP_HARD     equ 2          ; frames of digging it takes
 TP_POINTS   equ 4          ; score for digging it
 TP_BECOMES  equ 6          ; the tile left behind when it is dug
+; animated tiles (version 15, ADAM Pro): a tile type that shows other tile
+; types' pictures in turn. The map and the physics keep the tile type; only
+; the picture draw_cell draws changes. The block is in the data, and the
+; engine writes into it as the game runs (TA_PICS, TR_CNT..TR_DIR)
+TA_N        equ 0          ; animated tile types, 1..TILE_ANIM_MAX
+TA_PICS     equ 4          ; NT words: the picture each tile type shows now (written 0..NT-1),
+                           ; then TA_N records (TR_*)
+TR_TILE     equ 0          ; the animated tile type
+TR_RATE     equ 2          ; frames each picture shows, 1..250
+TR_MODE     equ 4          ; byte: 0 loop, 1 ping-pong
+TR_NFR      equ 5          ; byte: pictures 2..8
+TR_FR       equ 6          ; 8 words: the pictures (tile types) in order
+TR_CNT      equ 22         ; frames until the next picture
+TR_STEP     equ 24         ; the picture showing (0..NFR - 1)
+TR_DIR      equ 26         ; ping-pong: +1 / -1
+TR_SIZE     equ 28
+TANIM_DRAW  equ 16         ; redraws a frame, in eighths of a tile size (8 tiles of 16, 2 of 64)
 HUD_LINES   equ 8          ; the standard HUD strip above a tile world (v_hudlines: the custom one)
 ;  The scrolling picture is 22 x 18 tiles round the camera. Tile (c, r) is at
 ;  buf + r * 16 * 44 + (c + 1) * 2: moving right one tile only moves the
@@ -466,6 +485,9 @@ v_camy      rs.w 1
 v_tx0       rs.w 1         ; tiles drawn in the scrolling picture: NCOL x NROW from here
 v_ty0       rs.w 1
 v_tmode     rs.w 1         ; 1 while the tile world is on screen
+v_tanim     rs.l 1         ; animated tiles (TA_*), 0 = none
+v_tpic      rs.l 1         ; their TA_PICS: tile type -> picture, 0 = none
+v_tarow     rs.w 1         ; animated tiles: next row of the view to redraw, -1 = none
 v_csplit    rs.l 1         ; copper moves at the HUD split (bitplane pointers, modulos, scroll)
 v_hudrow    rs.w 1         ; text row of the HUD
 v_sel       rs.w 1         ; tile the player places (the last one dug)
@@ -724,9 +746,12 @@ init_display:
             move.w  d1,v_hudrow0(a5)
 .noui       move.l  #0,v_tiles(a5)          ; tile world
             move.w  #0,v_tmode(a5)
+            move.l  #0,v_tanim(a5)
+            move.l  #0,v_tpic(a5)
+            move.w  #-1,v_tarow(a5)
             move.w  v_hudrow0(a5),v_hudrow(a5)
             move.l  H_TILES(a4),d1
-            beq.s   .notile
+            beq     .notile
             lea     0(a4,d1.l),a0
             move.l  a0,v_tiles(a5)
             move.w  T_W(a0),v_tw(a5)
@@ -758,6 +783,12 @@ init_display:
             subq.w  #3,d2
             lsl.w   d2,d1
             move.w  d1,v_tbytes(a5)
+            move.l  T_ANIM(a0),d1           ; animated tiles
+            beq.s   .notile
+            add.l   a4,d1
+            move.l  d1,v_tanim(a5)
+            addq.l  #TA_PICS,d1
+            move.l  d1,v_tpic(a5)
 .notile
             move.l  H_DISP(a4),d0
             add.l   a4,d0
@@ -1352,6 +1383,7 @@ frame:
             move.w  v_joy(a5),v_joyprev(a5)
             bsr     cam_follow              ; tile world: camera, new tiles, scroll
             bsr     cam_window
+            bsr     tile_anim               ; animated tiles: next pictures, redrawn in view
             bsr     cop_scroll
             bsr     place_sprites
             bsr     bob_draw
@@ -3640,7 +3672,151 @@ tiles_start:
             move.w  #0,v_swcool(a5)
             move.w  #0,v_digt(a5)
             move.l  #-1,v_digc(a5)
+            bsr     tanim_reset
             bsr     tiles_on
+.r          rts
+
+; level start: every animated tile shows its first picture, none waits to be redrawn
+tanim_reset:
+            move.l  v_tanim(a5),d0
+            beq.s   .r
+            movem.l d0-d2/a0-a2,-(sp)
+            move.l  d0,a0
+            move.l  v_tpic(a5),a1
+            move.l  v_tiles(a5),a2
+            move.w  T_NT(a2),d0
+            add.w   d0,d0
+            move.w  TA_N(a0),d2
+            lea     TA_PICS(a0,d0.w),a0     ; a0 = the first record
+            lea     T_PROPS+TP_FLAGS(a2),a2 ; a2 = tile flags, 8 bytes a tile
+            subq.w  #1,d2
+.l          move.w  TR_RATE(a0),TR_CNT(a0)
+            move.w  #0,TR_STEP(a0)
+            move.w  #1,TR_DIR(a0)
+            move.w  TR_TILE(a0),d0
+            add.w   d0,d0
+            move.w  TR_FR(a0),0(a1,d0.w)
+            add.w   d0,d0
+            add.w   d0,d0
+            bclr    #5,0(a2,d0.w)
+            lea     TR_SIZE(a0),a0
+            dbf     d2,.l
+            move.w  #-1,v_tarow(a5)
+            movem.l (sp)+,d0-d2/a0-a2
+.r          rts
+
+; each frame: animated tiles that are due show their next picture, and the
+; cells of tiles whose picture changed are redrawn in view - a few rows a
+; frame (TANIM_DRAW), so a screen full of water does not drop a frame
+tile_anim:  tst.w   v_tmode(a5)
+            beq     .r
+            move.l  v_tanim(a5),d0
+            beq     .r
+            movem.l d0-d7/a0-a3,-(sp)
+            move.l  d0,a0
+            move.l  v_tpic(a5),a1
+            move.l  v_tiles(a5),a2
+            move.w  T_NT(a2),d0
+            add.w   d0,d0
+            move.w  TA_N(a0),d7
+            lea     TA_PICS(a0,d0.w),a3     ; a3 = the first record
+            lea     T_PROPS+TP_FLAGS(a2),a2 ; a2 = tile flags, 8 bytes a tile
+            subq.w  #1,d7
+            moveq   #0,d6                   ; d6 = 1 when a picture changed
+.an         subq.w  #1,TR_CNT(a3)
+            bgt.s   .anx
+            move.w  TR_RATE(a3),TR_CNT(a3)
+            move.w  TR_STEP(a3),d0
+            moveq   #0,d1
+            move.b  TR_NFR(a3),d1
+            tst.b   TR_MODE(a3)
+            bne.s   .png
+            addq.w  #1,d0                   ; loop
+            cmp.w   d1,d0
+            blt.s   .set
+            moveq   #0,d0
+            bra.s   .set
+.png        add.w   TR_DIR(a3),d0           ; ping-pong: turns round at either end
+            bmi.s   .turn
+            cmp.w   d1,d0
+            blt.s   .set
+.turn       neg.w   TR_DIR(a3)
+            add.w   TR_DIR(a3),d0
+            add.w   TR_DIR(a3),d0
+.set        move.w  d0,TR_STEP(a3)
+            add.w   d0,d0
+            move.w  TR_FR(a3,d0.w),d0       ; its picture now
+            move.w  TR_TILE(a3),d1
+            add.w   d1,d1
+            move.w  d0,0(a1,d1.w)
+            add.w   d1,d1
+            add.w   d1,d1
+            bset    #5,0(a2,d1.w)           ; redraw its cells
+            moveq   #1,d6
+.anx        lea     TR_SIZE(a3),a3
+            dbf     d7,.an
+            tst.w   d6
+            beq.s   .scan
+            move.w  #0,v_tarow(a5)          ; redraw from the top of the view
+.scan       move.w  v_tarow(a5),d4          ; d4 = row of the view
+            bmi     .out
+            moveq   #TANIM_DRAW,d5          ; d5 = redraws left this frame
+            move.w  v_tsz(a5),d6
+            lsr.w   #3,d6                   ; d6 = what one costs
+.row        cmp.w   v_tnrow(a5),d4
+            bge     .done
+            move.w  v_ty0(a5),d1
+            add.w   d4,d1                   ; d1 = map row
+            moveq   #0,d2
+            move.w  d1,d2
+            mulu    v_tw(a5),d2
+            moveq   #0,d0
+            move.w  v_tx0(a5),d0            ; d0 = map column
+            add.l   d0,d2
+            move.l  v_wmap(a5),a0
+            add.l   d2,a0
+            move.w  v_tncol(a5),d7
+            subq.w  #1,d7
+            tst.w   v_tcell(a5)
+            bne.s   .wc
+.cb         moveq   #0,d3                   ; byte cells
+            move.b  (a0)+,d3
+            lsl.w   #3,d3
+            btst    #5,0(a2,d3.w)
+            beq.s   .cbn
+            bsr     draw_cell
+            sub.w   d6,d5
+.cbn        addq.w  #1,d0
+            dbf     d7,.cb
+            bra.s   .rnx
+.wc         add.l   d2,a0                   ; word cells
+.cw         move.w  (a0)+,d3
+            lsl.w   #3,d3
+            btst    #5,0(a2,d3.w)
+            beq.s   .cwn
+            bsr     draw_cell
+            sub.w   d6,d5
+.cwn        addq.w  #1,d0
+            dbf     d7,.cw
+.rnx        addq.w  #1,d4
+            tst.w   d5
+            bgt     .row
+            move.w  d4,v_tarow(a5)          ; the rest next frame
+            bra.s   .out
+.done       move.w  #-1,v_tarow(a5)         ; all redrawn: clear the marks
+            move.l  v_tanim(a5),a0
+            move.w  TA_N(a0),d7
+            subq.w  #1,d7
+            move.l  v_tiles(a5),a3
+            move.w  T_NT(a3),d0
+            add.w   d0,d0
+            lea     TA_PICS(a0,d0.w),a3
+.clr        move.w  TR_TILE(a3),d0
+            lsl.w   #3,d0
+            bclr    #5,0(a2,d0.w)
+            lea     TR_SIZE(a3),a3
+            dbf     d7,.clr
+.out        movem.l (sp)+,d0-d7/a0-a3
 .r          rts
 
 ; the tile world on screen: the HUD strip shows the top lines of the normal
@@ -3863,7 +4039,12 @@ map_put:    move.l  a0,-(sp)
 ; and RING bytes further on.
 draw_cell:  movem.l d0-d7/a0-a3,-(sp)
             bsr     map_get
-            mulu    v_tbytes(a5),d3
+            move.l  v_tpic(a5),d4           ; animated tiles: the picture it shows now
+            beq.s   .pic
+            move.l  d4,a0
+            add.w   d3,d3
+            move.w  0(a0,d3.w),d3
+.pic        mulu    v_tbytes(a5),d3
             move.l  v_timg(a5),a0
             add.l   d3,a0                   ; its picture
             move.w  v_tsh(a5),d4

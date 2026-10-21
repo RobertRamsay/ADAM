@@ -248,6 +248,7 @@ def build(proj, aga):
         blob.extend(b'\0'*20)                  # T_IMG T_MAP T_WMAP T_BUF T_BUFPL, filled in below
         tools=t.get('tools',[])[:6] if t.get('dig') else []
         blob.extend(struct.pack('>HHHHHHL',S,sh,tline,ncol,nrow,len(tools),ring))
+        blob.extend(b'\0'*4)                   # T_ANIM, filled in below
         for td in t['tiles']:
             fl=(1 if td.get('solid') else 0)|(2 if td.get('dig') else 0)|(4 if td.get('goal') else 0)|(8 if td.get('ladder') else 0)
             snd=td.get('sound',-1); snd=0xff if snd<0 else max(0,min(nsnd-1,snd))
@@ -280,6 +281,19 @@ def build(proj, aga):
         else: blob.extend(bytes(t['map']))
         align(8)
         struct.pack_into('>LL',blob,tile_fix,off_img,off_map)
+        # animated tiles (version 15, engine.s TA_* / TR_*): a tile's 'anim' = [2..8 tile numbers
+        # whose pictures it shows in turn], 'anim_rate' frames each, 'anim_mode' 0 loop / 1 ping-pong
+        anims=tile_anims(t['tiles'])
+        if anims:
+            off_anim=len(blob)
+            blob.extend(struct.pack('>HH',len(anims),0))
+            blob.extend(b''.join(struct.pack('>H',i) for i in range(nt)))
+            for ti,fr,rate,mode in anims:
+                blob.extend(struct.pack('>HHBB',ti,rate,mode,len(fr)))
+                blob.extend(b''.join(struct.pack('>H',f) for f in fr+[0]*(8-len(fr))))
+                blob.extend(b'\0'*6)               # TR_CNT TR_STEP TR_DIR: the engine's
+            align(8)
+            struct.pack_into('>L',blob,tile_fix+36,off_anim)
     # custom HUD (engine.s UI_*, ADAM Pro): proj['ui'] = dict(bottom, rows, font (512 bytes or None),
     # panel (320 x rows*8 colour indexes or None), fields = [ui_ref field dicts])
     off_ui=0
@@ -456,7 +470,7 @@ def build(proj, aga):
     player=-1
     for i,a in enumerate(actors):
         if a['role'] in (0,6): player=i; break
-    hdr=struct.pack('>4sHHHHHHHHHHHH',b'ADAM',14,1 if aga else 0,depth,len(actors),len(rules),proj['lives'],
+    hdr=struct.pack('>4sHHHHHHHHHHHH',b'ADAM',15,1 if aga else 0,depth,len(actors),len(rules),proj['lives'],
                     int(proj['show_score']),int(proj['show_lives']),proj['hud_row'],proj['hud_col'],proj['msg_col'],player & 0xffff)+struct.pack('>L',off_game)
     hdr+=struct.pack('>LLLLLLLLLLLLLLL',off_pal,off_planes,off_act,off_rules,off_sfx,off_over,off_win,off_sprcol,off_disp,off_grad,off_ground,off_work,off_music,off_disp2,off_back)
     hdr+=struct.pack('>LLLLLL',off_tiles,off_ui,off_scroll,off_pals,off_d2,off_items)
@@ -469,6 +483,18 @@ def build(proj, aga):
 # instead of Walk, flip = frames turn round to face left (in 8 directions: a missing
 # side is the other side turned round); or the version 4 two-frame animation:
 # anim = second sprite, rate, amode (1 = only while moving)
+TILE_ANIM_MAX=32   # animated tile types in a game (scr_tiles.gml TILE_ANIM_MAX)
+
+def tile_anims(tiles):
+    """Animated tiles that go on the disk (scr_adf.gml adf_tile_anims): (tile, frames, rate, mode)"""
+    out=[]
+    nt=len(tiles)
+    for ti,td in enumerate(tiles):
+        fr=[f for f in td.get('anim',[]) if 0<=f<nt][:8]
+        if ti==0 or len(fr)<2 or len(out)>=TILE_ANIM_MAX: continue
+        out.append((ti,fr,max(1,min(250,td.get('anim_rate',8))),1 if td.get('anim_mode',0)==1 else 0))
+    return out
+
 DIR_CHAINS=[  # (entry, turned round) tried in order for each direction; 1 = Walk
     [(4,0),(1,0)],                        # N
     [(5,0),(11,1),(6,0),(10,1),(1,0)],    # NE
