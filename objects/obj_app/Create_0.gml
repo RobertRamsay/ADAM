@@ -472,6 +472,9 @@ update_card_rect = [0, 0, 0, 0];
 home_set_h = 0;              // height of the Home page settings (they scroll in a short window)
 home_shots = [];              // Example games list: each example's screenshot sprite (-1 = none), loaded on first use
 home_shots_aga = false;       // ... for the A1200 (its own versions) when true
+home_ex_click = -1;           // Example games: the row clicked last and when (a second click = build and play)
+home_ex_click_t = 0;
+example_last = -1;            // the example loaded last (example_load_now), -1 = none
 whatsnew_active = false;    // "What's new" panel (scr_whatsnew)
 whatsnew_manual = false;    // opened from the Learn ADAM menu (just Close)
 whatsnew_anim = 0;

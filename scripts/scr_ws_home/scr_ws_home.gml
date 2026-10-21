@@ -224,8 +224,14 @@ function ws_home_draw(_x1, _y1, _x2, _y2)
 
     // Example games: finished games to load, play and pull apart
     ui_panel(_mid + 10, _cy, _split - 10, _y2, "Example games");
-    ui_text(_split - 26, _cy + 19, "Click one to load it", global.TH.text_faint, fa_right, fa_top, global.f_small, 1);
-    ui_register("home_example", _mid + 10, _cy, _split - 10, _cy + 44, "Example games|Finished games to play and pull apart. Look around every page to see how they were made, then build them. The ADAM Pro ones show off BOBs, tile worlds, shoot 'em ups and items.");
+    // the longest hint that fits beside the title
+    var _hint = "Click to load, double-click to build and play";
+    var _room = _split - _mid - 20 - 210;
+    draw_set_font(global.f_small);
+    if (ui_sw(_hint) > _room) { _hint = "Click: load, double-click: play"; }
+    if (ui_sw(_hint) > _room) { _hint = "Double-click to play"; }
+    ui_text(_split - 26, _cy + 19, _hint, global.TH.text_faint, fa_right, fa_top, global.f_small, 1);
+    ui_register("home_example", _mid + 10, _cy, _split - 10, _cy + 44, "Example games|Finished games to play and pull apart. Click one to load it, then look around every page to see how it was made. Double-click one to build its disk and play it in FS-UAE straight away. The ADAM Pro ones show off BOBs, tile worlds, shoot 'em ups and items.");
     var _ex1 = _mid + 14;
     var _ex2 = _split - 14;
     var _nex = array_length(global.EXAMPLES);
@@ -249,9 +255,21 @@ function ws_home_draw(_x1, _y1, _x2, _y2)
             if (!pro_edition()) { _tag = "ADAM Pro"; }
         }
         var _erh = home_row_h(_ed.desc, _ex2 - _ex1, _exmin, _shw + 8);
-        if (home_row("home_ex_" + string(e), _ex1 + 8, _ry, _ex2 - 8, _erh, home_initials(_ed.name), _e1, _e2, _ed.name, _tag, _ed.desc, _ed.name + "|" + _ed.desc + " Click to load it.", home_shot(e), _shw))
+        if (home_row("home_ex_" + string(e), _ex1 + 8, _ry, _ex2 - 8, _erh, home_initials(_ed.name), _e1, _e2, _ed.name, _tag, _ed.desc, _ed.name + "|" + _ed.desc + " Click to load it; double-click to build it and play it in FS-UAE.", home_shot(e), _shw))
         {
-            example_load(e);
+            // the first click loads it; a second one within 0.4 s builds a test disk
+            // and plays it (as Build & play) - only once that example really is loaded
+            if (home_ex_click == e && current_time - home_ex_click_t < 400)
+            {
+                home_ex_click = -1;
+                if (example_last == e && !proj_dirty) { build_ws_build(true); }
+            }
+            else
+            {
+                home_ex_click = e;
+                home_ex_click_t = current_time;
+                example_load(e);
+            }
         }
         _ry += _erh + 6;
     }
