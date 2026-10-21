@@ -34,6 +34,12 @@ CLAUDE.md, Phase 4).
 - Rules to add: e.g. WHEN reaches end of level, DO stop / start scrolling.
 - Foundation for later Pro items: parallax / dual playfield, rooms.
 
+## 4. Isometric rooms, tile layers, animated tiles
+
+- Plan: docs/ISO_LAYERS_PLAN.md (asked for by a buyer, Oct 2026).
+- Order: animated tiles, back layer, front layer (dual playfield),
+  depth-sorted BOBs, then isometric rooms (A500 speed spike first).
+
 ## Order
 
 Music editor (in progress) → multi-frame animation → scrolling.
