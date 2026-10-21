@@ -53,11 +53,35 @@ function home_new_now(_unused)
 }
 
 /// Height of a Home list row _w wide: the title line and the wrapped text,
-/// at least the icon (about four text rows)
-function home_row_h(_desc, _w)
+/// at least _min (the icon: about four text rows). _pic_w = room for a picture on the right.
+function home_row_h(_desc, _w, _min, _pic_w)
 {
     draw_set_font(global.f_small);
-    return max(64, 34 + ceil(ui_sh_ext(_desc, _w - 16 - 76 - 12)) + 10);
+    return max(_min, 34 + ceil(ui_sh_ext(_desc, _w - 16 - 76 - 12 - _pic_w)) + 10);
+}
+
+/// Example _i's screenshot sprite (datafiles/examples/shots, made by gen_examples.py
+/// shot()), the A1200 version on the A1200; -1 when there is none
+function home_shot(_i)
+{
+    var _aga = (machine_cur().id == "A1200");
+    var _n = array_length(global.EXAMPLES);
+    if (array_length(home_shots) != _n || home_shots_aga != _aga)
+    {
+        for (var k = 0; k < array_length(home_shots); k++)
+        {
+            if (home_shots[k] >= 0) { sprite_delete(home_shots[k]); }
+        }
+        home_shots = array_create(_n, -1);
+        home_shots_aga = _aga;
+        for (var e = 0; e < _n; e++)
+        {
+            var _path = working_directory + "examples/shots/" + filename_change_ext(example_file(global.EXAMPLES[e]), ".png");
+            if (file_exists(_path)) { home_shots[e] = sprite_add(_path, 1, false, false, 0, 0); }
+        }
+    }
+    if (_i < 0 || _i >= _n) { return -1; }
+    return home_shots[_i];
 }
 
 /// The first letters of a name's words, for an example's icon ("Dig Deep" -> "DD")
@@ -70,8 +94,9 @@ function home_initials(_name)
 }
 
 /// A row in a Home list: an icon (_badge on a rounded square), the title, a tag
-/// (e.g. "ADAM Pro") and the text. Returns true when it is clicked.
-function home_row(_id, _x1, _y1, _x2, _h, _badge, _c1, _c2, _title, _tag, _desc, _help)
+/// (e.g. "ADAM Pro"), the text and a picture on the right (sprite _pic, -1 = none,
+/// _pic_w wide). Returns true when it is clicked.
+function home_row(_id, _x1, _y1, _x2, _h, _badge, _c1, _c2, _title, _tag, _desc, _help, _pic, _pic_w)
 {
     var _hot = ui_register(_id, _x1, _y1, _x2, _y1 + _h, _help);
     var _tgt = 0;
@@ -84,6 +109,24 @@ function home_row(_id, _x1, _y1, _x2, _h, _badge, _c1, _c2, _title, _tag, _desc,
     var _iy = _y1 + floor((_h - 48) / 2);
     ui_rrect(_x1 + 10, _iy, _x1 + 58, _iy + 48, 10, _c1, _c2, 1);
     ui_text(_x1 + 34, _iy + 24, _badge, c_white, fa_center, fa_middle, global.f_bold, 1);
+    if (_pic_w > 0)
+    {
+        // the picture: the 320 x 256 screen at _pic_w wide, on the right, centred in the
+        // row's height (an empty frame without one)
+        var _pw = _pic_w;
+        var _ph = round(_pw * 0.8);
+        var _px1 = _x2 - 8 - _pw;
+        var _py1 = _y1 + floor((_h - _ph) / 2);
+        if (_pic >= 0)
+        {
+            gpu_set_texfilter(true);
+            draw_sprite_stretched(_pic, 0, _px1, _py1, _pw, _ph);
+            gpu_set_texfilter(false);
+        }
+        else { ui_rrect(_px1, _py1, _px1 + _pw, _py1 + _ph, 4, global.TH.panel_bot, global.TH.panel_bot, 1); }
+        ui_rrect_line(_px1, _py1, _px1 + _pw, _py1 + _ph, 4, merge_colour(global.TH.panel_edge, global.TH.accent, _a), 0.8, 1);
+        _x2 -= _pw + 8;
+    }
     var _tx = _x1 + 72;
     var _tw = _x2 - _tx - 12;
     var _tagw = 0;
@@ -148,7 +191,7 @@ function ws_home_draw(_x1, _y1, _x2, _y2)
     var _ly1 = _cy + 48;
     var _ly2 = _y2 - 8;
     var _rows_h = 0;
-    for (var hq = 0; hq < _ncard; hq++) { _rows_h += home_row_h(_desc[hq], _lx2 - _lx1) + 6; }
+    for (var hq = 0; hq < _ncard; hq++) { _rows_h += home_row_h(_desc[hq], _lx2 - _lx1, 64, 0) + 6; }
     var _off = ui_scroll_begin("home_flow", _lx1, _ly1, _lx2, _ly2, _rows_h + 6);
     var _ry = _ly1 + 4 - _off;
     for (var i = 0; i < _ncard; i++)
@@ -169,8 +212,8 @@ function ws_home_draw(_x1, _y1, _x2, _y2)
             _c1 = global.TH.accent2;
             _c2 = merge_colour(global.TH.accent2, c_black, 0.35);
         }
-        var _rh = home_row_h(_desc[i], _lx2 - _lx1);
-        if (home_row("home_card_" + string(i), _lx1 + 8, _ry, _lx2 - 8, _rh, _num, _c1, _c2, _title, "", _desc[i], _title + "|" + _desc[i] + " " + _go))
+        var _rh = home_row_h(_desc[i], _lx2 - _lx1, 64, 0);
+        if (home_row("home_card_" + string(i), _lx1 + 8, _ry, _lx2 - 8, _rh, _num, _c1, _c2, _title, "", _desc[i], _title + "|" + _desc[i] + " " + _go, -1, 0))
         {
             if (_dest[i] >= 0) { ws_set(_dest[i]); }
             else { tut_start(-1); }
@@ -186,8 +229,11 @@ function ws_home_draw(_x1, _y1, _x2, _y2)
     var _ex1 = _mid + 14;
     var _ex2 = _split - 14;
     var _nex = array_length(global.EXAMPLES);
+    // about eight text rows each, with a screenshot on the right (narrower panels: smaller)
+    var _shw = clamp(floor((_ex2 - _ex1) * 0.36), 120, 180);
+    var _exmin = max(64, round(_shw * 0.8) + 16);
     var _ex_h = 0;
-    for (var eq = 0; eq < _nex; eq++) { _ex_h += home_row_h(global.EXAMPLES[eq].desc, _ex2 - _ex1) + 6; }
+    for (var eq = 0; eq < _nex; eq++) { _ex_h += home_row_h(global.EXAMPLES[eq].desc, _ex2 - _ex1, _exmin, _shw + 8) + 6; }
     var _eoff = ui_scroll_begin("home_examples", _ex1, _ly1, _ex2, _ly2, _ex_h + 6);
     _ry = _ly1 + 4 - _eoff;
     for (var e = 0; e < _nex; e++)
@@ -202,8 +248,8 @@ function ws_home_draw(_x1, _y1, _x2, _y2)
             _e2 = merge_colour(global.TH.accent2, c_black, 0.35);
             if (!pro_edition()) { _tag = "ADAM Pro"; }
         }
-        var _erh = home_row_h(_ed.desc, _ex2 - _ex1);
-        if (home_row("home_ex_" + string(e), _ex1 + 8, _ry, _ex2 - 8, _erh, home_initials(_ed.name), _e1, _e2, _ed.name, _tag, _ed.desc, _ed.name + "|" + _ed.desc + " Click to load it."))
+        var _erh = home_row_h(_ed.desc, _ex2 - _ex1, _exmin, _shw + 8);
+        if (home_row("home_ex_" + string(e), _ex1 + 8, _ry, _ex2 - 8, _erh, home_initials(_ed.name), _e1, _e2, _ed.name, _tag, _ed.desc, _ed.name + "|" + _ed.desc + " Click to load it.", home_shot(e), _shw))
         {
             example_load(e);
         }

@@ -1012,32 +1012,58 @@ def to_builder(p):
         bp['scroll']=dict(dir=p['scroll_dir'],speed=p.get('scroll_speed',4))
     return bp, conf
 
-def preview(p,fn):
+def shot(p):
+    # the game's first screen, 320 x 256 (the Home page's Example games list):
+    # the backdrop, or the map around the player (a tile world) or the bottom of a
+    # shoot 'em up map (its play area centred), with the actors that are out
     aga=p.get("machine")=="A1200"
     pal=[q(c) for c in p["pal"]]; g=sky_table(p,aga)
     if aga: pal=list(p["pal"])
+    def rgb(c): return ((c>>16)&255,(c>>8)&255,c&255)
     im=Image.new('RGB',(W,H))
-    for y in range(H):
-        sc=g[y]; sr=(sc>>16)&255; sg=(sc>>8)&255; sb=sc&255
-        for x in range(W):
-            v=p['pixels'][y*W+x]
-            if v==0: im.putpixel((x,y),(sr,sg,sb))
-            else: c=pal[v]; im.putpixel((x,y),((c>>16)&255,(c>>8)&255,c&255))
+    dx=dy=0
+    if p.get('tiles_on') or p.get('shmup_map'):
+        S=p['tile_size']; mw=p['map_w']; mh=p['map_h']
+        if p.get('tiles_on'):
+            pl=[a for a in p['actors'] if a['role'] in (0,6)][0]
+            cx=max(0,min(mw*S-W,pl['x']+8-W//2)); cy=max(0,min(mh*S-H,pl['y']+12-H//2)); xo=0
+            dx,dy=-cx,-cy
+        else:
+            cx=0; cy=mh*S-H; xo=(W-mw*S)//2
+            dx=xo
+        for y in range(H):
+            sky=rgb(g[y])
+            for x in range(W):
+                wx=x-xo+cx; wy=y+cy; v=0
+                if 0<=wx<mw*S and 0<=wy<mh*S: v=p['tiles'][p['map'][(wy//S)*mw+wx//S]]['px'][(wy%S)*S+wx%S]
+                im.putpixel((x,y),sky if v==0 else rgb(pal[v]))
+    else:
+        for y in range(H):
+            sky=rgb(g[y])
+            for x in range(W):
+                v=p['pixels'][y*W+x]
+                im.putpixel((x,y),sky if v==0 else rgb(pal[v]))
     chan,conf,owner=alloc(p)
     for i,a in enumerate(p['actors'][:32]):
         s=p['sprites'][a['sprite']]
         if chan[i]<0: oc=[pal[pal_nearest(p,c)] for c in s['cols']]        # BOB: nearest backdrop colours
         else: oc=p['sprites'][p['actors'][owner[chan[i]//2]]['sprite']]['cols']
         if not a.get('visible',True): continue
-        sw=s.get('w',16); sh=s.get('h',24)
+        sw=s.get('w',16); sh=s.get('h',24); ax=a['x']+dx; ay=a['y']+dy
         for yy in range(sh):
             for xx in range(sw):
                 v=s['px'][yy*sw+xx]
-                if v and 0<=a['x']+xx<W and 0<=a['y']+yy<H: c=q(oc[v-1]); im.putpixel((a['x']+xx,a['y']+yy),((c>>16)&255,(c>>8)&255,c&255))
+                if v and 0<=ax+xx<W and 0<=ay+yy<H: im.putpixel((ax+xx,ay+yy),rgb(q(oc[v-1])))
+    return im
+
+def preview(p,fn):
+    im=shot(p)
+    im.save(os.path.join(REPO,'datafiles','examples','shots',os.path.splitext(os.path.basename(fn))[0]+'.png'))
     im.resize((640,512),Image.NEAREST).save(fn)
 
 if __name__=='__main__':
     OUT=os.path.join(HERE,'out'); os.makedirs(OUT,exist_ok=True)
+    os.makedirs(os.path.join(REPO,'datafiles','examples','shots'),exist_ok=True)    # shot(): the Home page's pictures
     sys.modules['gen_examples']=sys.modules['__main__']   # one AGA state for ex_dig_deep too
     import ex_dig_deep, ex_shmup, ex_aztec, ex_torch
     only=sys.argv[1:]                           # e.g. python gen_examples.py nebula_strike: just that one

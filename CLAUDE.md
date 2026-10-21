@@ -25,7 +25,7 @@ sounds and levels, then ADAM writes a **bootable .ADF** for a stock
 - **Compile GameMaker from the command line** with Igor (GameMaker's build CLI) so compile errors can be read and fixed. Locate the installed runtime (usually under `%ProgramData%\GameMakerStudio2\Cache\runtimes\runtime-*\bin\igor\windows\x64\Igor.exe`) and run a Windows VM build of `ADAM.yyp`. Iterate until there are **zero errors**; also clear Feather errors where possible.
 - **Engine:** `powershell -File tools\assemble_engine.ps1` (needs vasmm68k_mot.exe).
 - **Engine test without GameMaker:** `python tools\reference\gen_examples.py` then `powershell -File tools\run_adf.ps1 -Adf tools\reference\out\gem_hunter.adf` (or `-Model A1200`).
-- `gen_examples.py` is deterministic: running it must not change `datafiles/examples/*.adam` unless the examples were meant to change.
+- `gen_examples.py` is deterministic: running it must not change `datafiles/examples/*.adam` unless the examples were meant to change. It also writes `datafiles/examples/shots/<name>.png` (`shot()`: the first screen, 320 x 256 - the backdrop, the map round the player or the bottom of a shoot 'em up map, with the actors) for the Home page's Example games list (`home_shot`; new files must be added to `ADAM.yyp`'s included files).
 - Bob does the hands-on UI checks in the running app; describe exactly what to click to verify each change.
 
 ## Architecture
