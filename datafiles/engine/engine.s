@@ -63,6 +63,17 @@ H_DISK2     equ 108        ; offset: disk 2 block, 0 = a one-disk game (version 
 H_ITEMS     equ 112        ; offset: items and recipes, 0 = none (version 13)
 HDR_SIZE    equ 116
 
+; a BOB frame (version 14): this header, then the mask and the planes (A_BSIZE's size);
+; bob_draw only blits the part where something is drawn
+BI_Y0       equ 0          ; first row with a pixel
+BI_NH       equ 2          ; rows from there with pixels, 0 = an empty frame
+BI_WX       equ 4          ; first word column with a pixel
+BI_NW       equ 6          ; word columns from there
+BI_LAST     equ 8          ; rightmost pixel, counted from the left of word BI_WX
+BI_ZERO     equ 10         ; bit p: plane p has no pixel set (drawn D = ~AC)
+BI_FULL     equ 12         ; bit p: plane p is set wherever the mask is (drawn D = A + C)
+BI_SIZE     equ 16
+
 ; items block (H_ITEMS): IT_N items of IT_SIZE bytes, then IT_NR recipes of RC_SIZE bytes
 IT_N        equ 0
 IT_NR       equ 2
@@ -190,7 +201,8 @@ T_NCOL      equ 34         ; tiles across the scrolling picture: 320 / S + 2
 T_NROW      equ 36         ; tiles down it: 256 / S + 2
 T_NTOOL     equ 38         ; tools in the space bar menu, 0 = none (fire + direction digs, fire places)
 T_RING      equ 40         ; long: NROW x S x LINE - the picture is a ring this big, kept twice
-T_PROPS     equ 44         ; NT x 8 bytes (TP_*), then NT x 4 bytes of names for the HUD,
+T_ANIM      equ 44         ; long offset: animated tiles (TA_*), 0 = none (version 15)
+T_PROPS     equ 48         ; NT x 8 bytes (TP_*), then NT x 4 bytes of names for the HUD,
                            ; then NTOOL x 12 bytes of tools (TL_*)
 TL_ACT      equ 0          ; byte: flags - bit 0 = Auto (a weapon swings by itself at whatever it may strike)
                            ; byte +1: what fire does: 0 dig (pickaxe), 1 build with the tile carried (hammer),
@@ -199,11 +211,29 @@ TL_TILE     equ 2          ; the tile it puts down; a weapon: its reach in pixel
 TL_NAME     equ 4          ; 8 bytes, 0 ends it early
 TL_SIZE     equ 12
 TP_FLAGS    equ 0          ; byte: bit 0 solid, bit 1 can be dug, bit 2 counts towards the level goal,
-                           ; bit 3 ladder (a platform player climbs it)
+                           ; bit 3 ladder (a platform player climbs it);
+                           ; bit 5 (set by the engine) = its picture changed, redraw it in view
 TP_SOUND    equ 1          ; byte: sound 0..63, $ff = none
 TP_HARD     equ 2          ; frames of digging it takes
 TP_POINTS   equ 4          ; score for digging it
 TP_BECOMES  equ 6          ; the tile left behind when it is dug
+; animated tiles (version 15, ADAM Pro): a tile type that shows other tile
+; types' pictures in turn. The map and the physics keep the tile type; only
+; the picture draw_cell draws changes. The block is in the data, and the
+; engine writes into it as the game runs (TA_PICS, TR_CNT..TR_DIR)
+TA_N        equ 0          ; animated tile types, 1..TILE_ANIM_MAX
+TA_PICS     equ 4          ; NT words: the picture each tile type shows now (written 0..NT-1),
+                           ; then TA_N records (TR_*)
+TR_TILE     equ 0          ; the animated tile type
+TR_RATE     equ 2          ; frames each picture shows, 1..250
+TR_MODE     equ 4          ; byte: 0 loop, 1 ping-pong
+TR_NFR      equ 5          ; byte: pictures 2..8
+TR_FR       equ 6          ; 8 words: the pictures (tile types) in order
+TR_CNT      equ 22         ; frames until the next picture
+TR_STEP     equ 24         ; the picture showing (0..NFR - 1)
+TR_DIR      equ 26         ; ping-pong: +1 / -1
+TR_SIZE     equ 28
+TANIM_DRAW  equ 16         ; redraws a frame, in eighths of a tile size (8 tiles of 16, 2 of 64)
 HUD_LINES   equ 8          ; the standard HUD strip above a tile world (v_hudlines: the custom one)
 ;  The scrolling picture is 22 x 18 tiles round the camera. Tile (c, r) is at
 ;  buf + r * 16 * 44 + (c + 1) * 2: moving right one tile only moves the
@@ -403,7 +433,6 @@ v_fcount    rs.w 1
 v_sectick   rs.w 1
 v_lives     rs.w 1
 v_score     rs.l 1
-v_flash     rs.w 1
 v_bg        rs.l 1
 v_pfade     rs.w 1         ; palette fade: frames left, 0 = none
 v_pftot     rs.w 1         ; and how many it takes
@@ -456,6 +485,9 @@ v_camy      rs.w 1
 v_tx0       rs.w 1         ; tiles drawn in the scrolling picture: NCOL x NROW from here
 v_ty0       rs.w 1
 v_tmode     rs.w 1         ; 1 while the tile world is on screen
+v_tanim     rs.l 1         ; animated tiles (TA_*), 0 = none
+v_tpic      rs.l 1         ; their TA_PICS: tile type -> picture, 0 = none
+v_tarow     rs.w 1         ; animated tiles: next row of the view to redraw, -1 = none
 v_csplit    rs.l 1         ; copper moves at the HUD split (bitplane pointers, modulos, scroll)
 v_hudrow    rs.w 1         ; text row of the HUD
 v_sel       rs.w 1         ; tile the player places (the last one dug)
@@ -490,9 +522,8 @@ v_aimx      rs.w 1         ; act_shoot: the way the volley flies, -1 / 0 / 1 acr
 v_aimy      rs.w 1         ;                                              down
 v_vside     rs.w 1         ; shoot_one: pixels to the side of the aim it starts
 v_vspr      rs.w 1         ;            -1 / 0 / 1: it veers to that side (spread)
-v_bstep     rs.l 1         ; bob_draw: bytes from one image plane to the next
-v_bcon      rs.w 1         ;           the BOB's shift (BLTCON0 bits 15-12)
-v_bflash    rs.w 1         ;           hit flash: BLTCON0 for the next plane, 0 = none
+v_bzero     rs.w 1         ; bob_draw: planes drawn empty under the mask (D = ~AC)
+v_bfull     rs.w 1         ;           planes drawn solid under the mask (D = A + C)
 v_sstride   rs.l 1         ; bytes from one scroll buffer to the next
 v_split     rs.w 1         ; 1 = the copper switches bitplanes under the HUD strip (tile world, scrolling)
 v_smod      rs.w 1         ; the modulo below the split
@@ -516,6 +547,7 @@ v_tbm       rs.w 1         ; bytes a tile picture (depth x 32)
 v_mword     rs.w 1         ; 1 = map cells are words
 v_mcols     rs.w 1         ; the map's tiles across
 v_arec      rs.l MAX_ACT   ; each actor's record (actor_rec reads it: no multiply)
+v_vismask   rs.l 1         ; move_actors: bit per actor shown when it started (shot_hits)
 v_hbx0      rs.w 1         ; shot_hits: the shot's box
 v_hbx1      rs.w 1
 v_hby0      rs.w 1
@@ -714,9 +746,12 @@ init_display:
             move.w  d1,v_hudrow0(a5)
 .noui       move.l  #0,v_tiles(a5)          ; tile world
             move.w  #0,v_tmode(a5)
+            move.l  #0,v_tanim(a5)
+            move.l  #0,v_tpic(a5)
+            move.w  #-1,v_tarow(a5)
             move.w  v_hudrow0(a5),v_hudrow(a5)
             move.l  H_TILES(a4),d1
-            beq.s   .notile
+            beq     .notile
             lea     0(a4,d1.l),a0
             move.l  a0,v_tiles(a5)
             move.w  T_W(a0),v_tw(a5)
@@ -748,6 +783,12 @@ init_display:
             subq.w  #3,d2
             lsl.w   d2,d1
             move.w  d1,v_tbytes(a5)
+            move.l  T_ANIM(a0),d1           ; animated tiles
+            beq.s   .notile
+            add.l   a4,d1
+            move.l  d1,v_tanim(a5)
+            addq.l  #TA_PICS,d1
+            move.l  d1,v_tpic(a5)
 .notile
             move.l  H_DISP(a4),d0
             add.l   a4,d0
@@ -1237,7 +1278,6 @@ clear_latches:
 clear_state:
             move.w  #0,v_fcount(a5)
             move.w  #0,v_sectick(a5)
-            move.w  #0,v_flash(a5)
             move.w  #-1,v_gradfix(a5)
             move.w  #-1,d1
             bsr     build_grad
@@ -1315,7 +1355,6 @@ setcol:
 ; ============================================================================
 frame:
             bsr     bob_flip                ; BOBs: show last frame's drawing (copper idle here too)
-            bsr     flash_tick              ; copper edits first, while the copper is idle
             bsr     pal_tick                ; a palette fading in
             addq.w  #1,v_anim(a5)
             move.l  #0,v_jumped(a5)
@@ -1344,6 +1383,7 @@ frame:
             move.w  v_joy(a5),v_joyprev(a5)
             bsr     cam_follow              ; tile world: camera, new tiles, scroll
             bsr     cam_window
+            bsr     tile_anim               ; animated tiles: next pictures, redrawn in view
             bsr     cop_scroll
             bsr     place_sprites
             bsr     bob_draw
@@ -1721,6 +1761,18 @@ read_joy:
 move_actors:
             move.w  H_NACT(a4),d6
             beq     .done
+            moveq   #0,d0                   ; v_vismask: the actors shown now (only shots,
+            move.w  d6,d7                   ; options and effects - which no shot hits - come
+            subq.w  #1,d7                   ; out while they move)
+            move.w  d7,d5
+            lsl.w   #ACTV_SHIFT,d5
+.vm         add.l   d0,d0
+            tst.w   v_vis(a5,d5.w)
+            beq.s   .vm0
+            addq.l  #1,d0
+.vm0        sub.w   #1<<ACTV_SHIFT,d5
+            dbf     d7,.vm
+            move.l  d0,v_vismask(a5)
             move.l  H_ACTORS(a4),d0
             lea     0(a4,d0.l),a2
             moveq   #0,d7
@@ -3620,7 +3672,151 @@ tiles_start:
             move.w  #0,v_swcool(a5)
             move.w  #0,v_digt(a5)
             move.l  #-1,v_digc(a5)
+            bsr     tanim_reset
             bsr     tiles_on
+.r          rts
+
+; level start: every animated tile shows its first picture, none waits to be redrawn
+tanim_reset:
+            move.l  v_tanim(a5),d0
+            beq.s   .r
+            movem.l d0-d2/a0-a2,-(sp)
+            move.l  d0,a0
+            move.l  v_tpic(a5),a1
+            move.l  v_tiles(a5),a2
+            move.w  T_NT(a2),d0
+            add.w   d0,d0
+            move.w  TA_N(a0),d2
+            lea     TA_PICS(a0,d0.w),a0     ; a0 = the first record
+            lea     T_PROPS+TP_FLAGS(a2),a2 ; a2 = tile flags, 8 bytes a tile
+            subq.w  #1,d2
+.l          move.w  TR_RATE(a0),TR_CNT(a0)
+            move.w  #0,TR_STEP(a0)
+            move.w  #1,TR_DIR(a0)
+            move.w  TR_TILE(a0),d0
+            add.w   d0,d0
+            move.w  TR_FR(a0),0(a1,d0.w)
+            add.w   d0,d0
+            add.w   d0,d0
+            bclr    #5,0(a2,d0.w)
+            lea     TR_SIZE(a0),a0
+            dbf     d2,.l
+            move.w  #-1,v_tarow(a5)
+            movem.l (sp)+,d0-d2/a0-a2
+.r          rts
+
+; each frame: animated tiles that are due show their next picture, and the
+; cells of tiles whose picture changed are redrawn in view - a few rows a
+; frame (TANIM_DRAW), so a screen full of water does not drop a frame
+tile_anim:  tst.w   v_tmode(a5)
+            beq     .r
+            move.l  v_tanim(a5),d0
+            beq     .r
+            movem.l d0-d7/a0-a3,-(sp)
+            move.l  d0,a0
+            move.l  v_tpic(a5),a1
+            move.l  v_tiles(a5),a2
+            move.w  T_NT(a2),d0
+            add.w   d0,d0
+            move.w  TA_N(a0),d7
+            lea     TA_PICS(a0,d0.w),a3     ; a3 = the first record
+            lea     T_PROPS+TP_FLAGS(a2),a2 ; a2 = tile flags, 8 bytes a tile
+            subq.w  #1,d7
+            moveq   #0,d6                   ; d6 = 1 when a picture changed
+.an         subq.w  #1,TR_CNT(a3)
+            bgt.s   .anx
+            move.w  TR_RATE(a3),TR_CNT(a3)
+            move.w  TR_STEP(a3),d0
+            moveq   #0,d1
+            move.b  TR_NFR(a3),d1
+            tst.b   TR_MODE(a3)
+            bne.s   .png
+            addq.w  #1,d0                   ; loop
+            cmp.w   d1,d0
+            blt.s   .set
+            moveq   #0,d0
+            bra.s   .set
+.png        add.w   TR_DIR(a3),d0           ; ping-pong: turns round at either end
+            bmi.s   .turn
+            cmp.w   d1,d0
+            blt.s   .set
+.turn       neg.w   TR_DIR(a3)
+            add.w   TR_DIR(a3),d0
+            add.w   TR_DIR(a3),d0
+.set        move.w  d0,TR_STEP(a3)
+            add.w   d0,d0
+            move.w  TR_FR(a3,d0.w),d0       ; its picture now
+            move.w  TR_TILE(a3),d1
+            add.w   d1,d1
+            move.w  d0,0(a1,d1.w)
+            add.w   d1,d1
+            add.w   d1,d1
+            bset    #5,0(a2,d1.w)           ; redraw its cells
+            moveq   #1,d6
+.anx        lea     TR_SIZE(a3),a3
+            dbf     d7,.an
+            tst.w   d6
+            beq.s   .scan
+            move.w  #0,v_tarow(a5)          ; redraw from the top of the view
+.scan       move.w  v_tarow(a5),d4          ; d4 = row of the view
+            bmi     .out
+            moveq   #TANIM_DRAW,d5          ; d5 = redraws left this frame
+            move.w  v_tsz(a5),d6
+            lsr.w   #3,d6                   ; d6 = what one costs
+.row        cmp.w   v_tnrow(a5),d4
+            bge     .done
+            move.w  v_ty0(a5),d1
+            add.w   d4,d1                   ; d1 = map row
+            moveq   #0,d2
+            move.w  d1,d2
+            mulu    v_tw(a5),d2
+            moveq   #0,d0
+            move.w  v_tx0(a5),d0            ; d0 = map column
+            add.l   d0,d2
+            move.l  v_wmap(a5),a0
+            add.l   d2,a0
+            move.w  v_tncol(a5),d7
+            subq.w  #1,d7
+            tst.w   v_tcell(a5)
+            bne.s   .wc
+.cb         moveq   #0,d3                   ; byte cells
+            move.b  (a0)+,d3
+            lsl.w   #3,d3
+            btst    #5,0(a2,d3.w)
+            beq.s   .cbn
+            bsr     draw_cell
+            sub.w   d6,d5
+.cbn        addq.w  #1,d0
+            dbf     d7,.cb
+            bra.s   .rnx
+.wc         add.l   d2,a0                   ; word cells
+.cw         move.w  (a0)+,d3
+            lsl.w   #3,d3
+            btst    #5,0(a2,d3.w)
+            beq.s   .cwn
+            bsr     draw_cell
+            sub.w   d6,d5
+.cwn        addq.w  #1,d0
+            dbf     d7,.cw
+.rnx        addq.w  #1,d4
+            tst.w   d5
+            bgt     .row
+            move.w  d4,v_tarow(a5)          ; the rest next frame
+            bra.s   .out
+.done       move.w  #-1,v_tarow(a5)         ; all redrawn: clear the marks
+            move.l  v_tanim(a5),a0
+            move.w  TA_N(a0),d7
+            subq.w  #1,d7
+            move.l  v_tiles(a5),a3
+            move.w  T_NT(a3),d0
+            add.w   d0,d0
+            lea     TA_PICS(a0,d0.w),a3
+.clr        move.w  TR_TILE(a3),d0
+            lsl.w   #3,d0
+            bclr    #5,0(a2,d0.w)
+            lea     TR_SIZE(a3),a3
+            dbf     d7,.clr
+.out        movem.l (sp)+,d0-d7/a0-a3
 .r          rts
 
 ; the tile world on screen: the HUD strip shows the top lines of the normal
@@ -3843,7 +4039,12 @@ map_put:    move.l  a0,-(sp)
 ; and RING bytes further on.
 draw_cell:  movem.l d0-d7/a0-a3,-(sp)
             bsr     map_get
-            mulu    v_tbytes(a5),d3
+            move.l  v_tpic(a5),d4           ; animated tiles: the picture it shows now
+            beq.s   .pic
+            move.l  d4,a0
+            add.w   d3,d3
+            move.w  0(a0,d3.w),d3
+.pic        mulu    v_tbytes(a5),d3
             move.l  v_timg(a5),a0
             add.l   d3,a0                   ; its picture
             move.w  v_tsh(a5),d4
@@ -4577,9 +4778,11 @@ hide_sprites:
 ;  draws them at their new places; bob_flip shows it at the start of the
 ;  next frame, so nothing is ever drawn into the picture being shown.
 ;  Cookie-cut per plane: A = mask, B = image plane, C = D = screen,
-;  D = AB + ~AC. The image is w words wide (A_BSIZE); the blit is one word
-;  wider for the shift, with A's last word masked off (BLTALWM = 0) and A/B
-;  modulo -2, and C/D modulo 40 - 2 * (w + 1).
+;  D = AB + ~AC. Only the rows and word columns of the frame that have pixels
+;  are blitted (BI_* header, version 14), one word wider when the shift pushes
+;  pixels into the next word (A's last word masked off, BLTALWM = 0). A plane
+;  that is empty or solid under the mask needs no B: D = ~AC or D = A + C.
+;  (The blitter is what limits a busy shoot 'em up: Starfire spent ~250 lines here.)
 ; ============================================================================
 ;
 ;  Waiting for the blitter: DMACONR's busy flag (BBUSY) only rises once a
@@ -4733,86 +4936,106 @@ bob_draw:
             bge     .nxt
 .in         add.w   v_bx0(a5),d0            ; d0 / d1 = its pixel in the display
             add.w   v_by0(a5),d1
-            move.w  d0,d2                   ; d2 = x, for the shift
-            mulu    v_bpr(a5),d1
-            lsr.w   #4,d0
-            add.w   d0,d0
-            and.l   #$ffff,d0
-            add.l   d1,d0                   ; byte offset in a plane
-            move.l  v_fofs(a5,d5.w),d1
-            lea     0(a4,d1.l),a0           ; a0 = mask, the planes follow
-            move.w  (a1),d1                 ; remember it for next time's wipe
-            lsl.w   #2,d1
-            move.w  d0,0(a3,d1.w)
-            move.w  A_BSIZE(a2),2(a3,d1.w)
-            addq.w  #1,(a1)
-            move.l  v_draw(a5),d3
-            add.l   d0,d3                   ; d3 = screen, plane 0
-            move.w  d2,d0
-            and.w   #15,d0
-            ror.w   #4,d0                   ; shift into bits 15-12
-            move.w  d0,v_bcon(a5)
-            move.w  #0,v_bflash(a5)         ; hit by a shot: a white flash (colour 1 under the mask)
-            tst.w   v_hitf(a5,d5.w)
+            move.l  v_fofs(a5,d5.w),d2
+            lea     0(a4,d2.l),a0           ; a0 = the frame: header, mask, planes
+            move.w  BI_NH(a0),d4            ; d4 = rows drawn
+            beq     .nxt                    ; nothing in this frame
+            move.w  BI_ZERO(a0),v_bzero(a5)
+            move.w  BI_FULL(a0),v_bfull(a5)
+            tst.w   v_hitf(a5,d5.w)         ; hit by a shot: a white flash (colour 1 under the mask)
             beq.s   .nf
             btst    #1,v_anim+1(a5)
             bne.s   .nf
-            move.w  #$0bfa,v_bflash(a5)
-.nf         bsr     bwait
-            move.w  d0,$42(a6)              ; BLTCON1: B shift
-            or.w    #$0fca,d0
-            move.w  d0,$40(a6)              ; BLTCON0: A shift, use ABCD, D = AB + ~AC
-            move.l  #$ffff0000,$44(a6)      ; keep A's first word, drop the extra one
-            move.w  #-2,$64(a6)             ; AMOD
-            move.w  #-2,$62(a6)             ; BMOD
-            move.w  A_BSIZE(a2),d4
-            move.w  d4,d0
-            and.w   #63,d0
-            add.w   d0,d0                   ; blit width in bytes
+            move.w  #1,v_bfull(a5)
+            move.w  #$fffe,v_bzero(a5)
+.nf         add.w   BI_Y0(a0),d1            ; the first row drawn
+            move.w  BI_WX(a0),d2
+            lsl.w   #4,d2
+            add.w   d0,d2                   ; d2 = x of the first word drawn
+            mulu    v_bpr(a5),d1
+            move.w  d2,d0
+            lsr.w   #4,d0
+            add.w   d0,d0
+            and.l   #$ffff,d0
+            add.l   d1,d0                   ; d0 = byte offset in a plane
+            and.w   #15,d2                  ; d2 = the shift
+            move.w  BI_LAST(a0),d3
+            add.w   d2,d3
+            lsr.w   #4,d3
+            addq.w  #1,d3                   ; d3 = words the blit covers (BI_NW, or one more for the shift)
+            lsl.w   #6,d4
+            or.w    d3,d4                   ; d4 = BLTSIZE
+            move.w  (a1),d1                 ; remember it for next time's wipe
+            lsl.w   #2,d1
+            move.w  d0,0(a3,d1.w)
+            move.w  d4,2(a3,d1.w)
+            addq.w  #1,(a1)
+            movem.l d5-d7/a1-a3,-(sp)
+            move.l  v_draw(a5),a3
+            add.l   d0,a3                   ; a3 = screen, plane 0
+            ror.w   #4,d2                   ; shift into bits 15-12
+            move.w  d2,d7                   ; d7 = the shift for BLTCON0
+            bsr     bwait
+            move.w  d2,$42(a6)              ; BLTCON1: B shift
+            move.l  #$ffff0000,d0           ; the extra word: A's is dropped
+            cmp.w   BI_NW(a0),d3
+            bhi.s   .xw
+            moveq   #-1,d0                  ; no extra word: all of A
+.xw         move.l  d0,$44(a6)
+            move.w  A_BSIZE(a2),d0
+            move.w  d0,d1
+            and.w   #63,d1
+            subq.w  #1,d1                   ; d1 = image width in words
+            lsr.w   #6,d0
+            mulu    d1,d0
+            add.l   d0,d0                   ; d0 = bytes per mask / plane
+            add.w   d1,d1                   ; d1 = bytes per image line
+            move.w  BI_Y0(a0),d5
+            mulu    d1,d5
+            move.w  BI_WX(a0),d6
+            add.w   d6,d6
+            add.w   d6,d5                   ; d5 = the first word drawn in the mask
+            sub.w   d3,d1
+            sub.w   d3,d1
+            move.w  d1,$64(a6)              ; AMOD: image line - blit width
+            move.w  d1,$62(a6)              ; BMOD
             move.w  v_bpr(a5),d1
-            sub.w   d0,d1
-            move.w  d1,$60(a6)              ; CMOD
+            sub.w   d3,d1
+            sub.w   d3,d1
+            move.w  d1,$60(a6)              ; CMOD: display line - blit width
             move.w  d1,$66(a6)              ; DMOD
-            subq.w  #2,d0                   ; image width in bytes
-            move.w  d4,d1
-            lsr.w   #6,d1                   ; lines
-            mulu    d1,d0                   ; d0 = bytes per mask / plane
-            move.l  d0,v_bstep(a5)
-            move.l  a0,d2
-            add.l   d0,d2                   ; d2 = image, plane 0
-            move.w  H_DEPTH(a4),d1
-            subq.w  #1,d1
-            tst.w   v_bflash(a5)
-            bne.s   .pl
-            move.l  v_plsz(a5),d5           ; (d5 = a plane: the actor's offset is done with)
+            lea     BI_SIZE(a0,d5.w),a1     ; a1 = mask (A)
+            lea     0(a1,d0.l),a0           ; a0 = image plane 0 (B)
+            move.l  d0,a2                   ; a2 = image plane to plane
+            move.l  v_plsz(a5),d6           ; d6 = display plane to plane
+            move.w  v_bzero(a5),d0
+            move.w  v_bfull(a5),d2
+            move.w  H_DEPTH(a4),d5
+            subq.w  #1,d5
+            moveq   #0,d3                   ; plane number
+.pl         move.w  #$0fca,d1               ; ABCD: D = AB + ~AC
+            btst    d3,d2
+            beq.s   .p1
+            move.w  #$0bfa,d1               ; solid under the mask: ACD, D = A + C
+            bra.s   .p2
+.p1         btst    d3,d0
+            beq.s   .p2
+            move.w  #$0b0a,d1               ; empty: ACD, D = ~AC
+.p2         or.w    d7,d1
 .pq         btst    #6,$1f(a6)              ; (bwait)
             beq.s   .pq
-            move.l  a0,$50(a6)              ; A = mask
-            move.l  d2,$4c(a6)              ; B = image plane
-            move.l  d3,$48(a6)              ; C = screen
-            move.l  d3,$54(a6)              ; D = screen
+            move.w  d1,$40(a6)              ; BLTCON0
+            move.l  a1,$50(a6)              ; A = mask
+            move.l  a0,$4c(a6)              ; B = image plane
+            move.l  a3,$48(a6)              ; C = screen
+            move.l  a3,$54(a6)              ; D = screen
             move.w  #$0040,$9c(a6)          ; (bgo)
             move.w  d4,$58(a6)
-            add.l   d0,d2
-            add.l   d5,d3
-            dbf     d1,.pq
-            bra.s   .nxt
-.pl         btst    #6,$1f(a6)              ; (bwait)
-            beq.s   .pl
-            move.w  v_bflash(a5),d0         ; the flash: plane 0 set (D = A + ~AC),
-            beq.s   .pn                     ; the others cleared (D = ~AC)
-            or.w    v_bcon(a5),d0
-            move.w  d0,$40(a6)
-            move.w  #$0b0a,v_bflash(a5)
-.pn         move.l  a0,$50(a6)              ; A = mask
-            move.l  d2,$4c(a6)              ; B = image plane
-            move.l  d3,$48(a6)              ; C = screen
-            move.l  d3,$54(a6)              ; D = screen
-            move.w  #$0040,$9c(a6)          ; (bgo)
-            move.w  d4,$58(a6)
-            add.l   v_bstep(a5),d2
-            add.l   v_plsz(a5),d3
-            dbf     d1,.pl
+            add.l   a2,a0
+            add.l   d6,a3
+            addq.w  #1,d3
+            dbf     d5,.pl
+            movem.l (sp)+,d5-d7/a1-a3
 .nxt        lea     ACT_SIZE(a2),a2
             addq.w  #1,d7
             cmp.w   d6,d7
@@ -6311,16 +6534,20 @@ shot_hits:
             add.w   A_BY1(a2),d1
             move.w  d1,v_hby1(a5)
             lea     v_arec(a5),a1
+            and.l   v_vismask(a5),d3        ; only actors that are shown
             moveq   #0,d6
 .j          tst.l   d3
             beq     .none
-            lsr.l   #1,d3
+            tst.b   d3                      ; none of the next 8: past them at once
+            bne.s   .bit
+            lsr.l   #8,d3
+            addq.w  #8,d6
+            bra.s   .j
+.bit        lsr.l   #1,d3
             bcc     .n
-            cmp.w   H_NACT(a4),d6
-            bhs     .none
             move.w  d6,d1
             lsl.w   #ACTV_SHIFT,d1          ; d1 = its offset
-            tst.w   v_vis(a5,d1.w)
+            tst.w   v_vis(a5,d1.w)          ; (hidden since move_actors began)
             beq     .n
             move.w  d6,d0
             add.w   d0,d0
@@ -6854,8 +7081,15 @@ act_sound:  move.w  R_VAL(a3),d0
             and.w   #63,d0
             bra     play_sfx
 
-act_flash:  move.w  #16,v_flash(a5)
-            rts
+; DO 3 'Flash': the player blinks a moment (the screen no longer flashes - Bob: not pleasant,
+; and blinking a copper sky meant rebuilding the copper list every other frame)
+act_flash:  move.w  H_PLAYER(a4),d0
+            bmi.s   .r
+            cmp.w   H_NACT(a4),d0
+            bhs.s   .r
+            lsl.w   #ACTV_SHIFT,d0
+            move.w  #16,v_hitf(a5,d0.w)
+.r          rts
 
 act_home:   cmp.w   H_NACT(a4),d4
             bhs     act_none
@@ -7173,33 +7407,6 @@ rand:       move.l  d1,-(sp)
             move.l  d0,v_rand(a5)
             move.l  (sp)+,d1
             rts
-
-; ============================================================================
-;  border-style screen flash on colour 0
-; ============================================================================
-flash_tick:
-            move.w  v_flash(a5),d0
-            beq.s   .r
-            subq.w  #1,d0
-            move.w  d0,v_flash(a5)
-            beq.s   .restore
-            btst    #1,d0
-            beq.s   .restore
-            tst.l   H_GRAD(a4)              ; mid red (white was too harsh)
-            beq.s   .red
-            move.w  #$0800,d1
-            bra     build_grad
-.red        moveq   #0,d0
-            move.l  #$880000,d1
-            bra     setcol
-.restore    tst.l   H_GRAD(a4)
-            beq.s   .plain
-            move.w  v_gradfix(a5),d1
-            bra     build_grad
-.plain      moveq   #0,d0
-            move.l  v_bg(a5),d1
-            bra     setcol
-.r          rts
 
 ; ============================================================================
 ;  named palettes (version 11)

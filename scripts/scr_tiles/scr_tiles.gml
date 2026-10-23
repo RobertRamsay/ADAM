@@ -13,6 +13,8 @@
 #macro MAP_MAX 1024             // map width / height in tiles, ADAM Pro (lim_map_w / lim_map_h)
 #macro WORLD_PX_MAX 32640       // the world is at most this many pixels across and down (engine words)
 #macro TILE_ATLAS_COLS 32       // tiles across the atlas surface
+#macro TILE_ANIM_MAX 32         // animated tile types in a game (engine.s TA_N, adf_reference TILE_ANIM_MAX)
+#macro TILE_ANIM_FRAMES 8       // pictures in a tile animation (engine.s TR_FR)
 #macro TOOL_MAX 6               // tools in the space bar menu (engine.s T_NTOOL / TL_*)
 #macro TOOL_NAME_LEN 8
 
@@ -113,8 +115,75 @@ function tile_new(_name, _s)
         goal : false,                       // counts towards the level goal
         ladder : false,                     // a platform player climbs it (up / down, no falling)
         sound : -1,                         // sound when it is dug, -1 = none
-        becomes : 0                         // the tile left behind
+        becomes : 0,                        // the tile left behind
+        anim : [],                          // ADAM Pro: 2..8 tile numbers whose pictures it shows in turn, [] = still
+        anim_rate : 8,                      // 50ths of a second each picture shows
+        anim_mode : 0                       // 0 loop, 1 ping-pong
     };
+}
+
+/// Drops the frames of tile _t that are not in a set of _nt tiles (one frame left = still)
+function tile_anim_trim(_t, _nt)
+{
+    var _fr = [];
+    for (var f = 0; f < array_length(_t.anim); f++)
+    {
+        if (_t.anim[f] < _nt) { array_push(_fr, _t.anim[f]); }
+    }
+    if (array_length(_fr) < 2) { _fr = []; }
+    _t.anim = _fr;
+}
+
+/// The animated tiles that go on the disk (adf_reference.py tile_anims):
+/// [{ tile, frames, rate, mode }], at most TILE_ANIM_MAX, air never
+function tile_anims_on_disk(_tiles)
+{
+    var _out = [];
+    var _nt = array_length(_tiles);
+    for (var i = 1; i < _nt; i++)
+    {
+        var _t = _tiles[i];
+        var _fr = [];
+        for (var f = 0; f < array_length(_t.anim); f++)
+        {
+            if (_t.anim[f] >= 0 && _t.anim[f] < _nt && array_length(_fr) < TILE_ANIM_FRAMES) { array_push(_fr, _t.anim[f]); }
+        }
+        if (array_length(_fr) < 2 || array_length(_out) >= TILE_ANIM_MAX) { continue; }
+        var _md = 0;
+        if (_t.anim_mode == 1) { _md = 1; }
+        array_push(_out, { tile : i, frames : _fr, rate : clamp(_t.anim_rate, 1, 250), mode : _md });
+    }
+    return _out;
+}
+
+/// The tile whose picture tile _k shows now in the editor (its animation at real speed)
+function tile_anim_pic(_k)
+{
+    var _t = proj.tiles[_k];
+    var _n = array_length(_t.anim);
+    if (_n < 2) { return _k; }
+    var _step = floor(current_time / (20 * max(1, _t.anim_rate)));
+    var _i = _step mod _n;
+    if (_t.anim_mode == 1)
+    {
+        var _cyc = _step mod (2 * _n - 2);         // ping-pong: 0 1 2 1 0 1 2 ...
+        _i = _cyc;
+        if (_cyc >= _n) { _i = 2 * _n - 2 - _cyc; }
+    }
+    var _pic = _t.anim[_i];
+    if (_pic < 0 || _pic >= array_length(proj.tiles)) { return _k; }
+    return _pic;
+}
+
+/// Number of animated tiles in the project (ADAM Pro: at most TILE_ANIM_MAX go on the disk)
+function tile_anim_count(_tiles)
+{
+    var _n = 0;
+    for (var i = 1; i < array_length(_tiles); i++)
+    {
+        if (array_length(_tiles[i].anim) >= 2) { _n += 1; }
+    }
+    return _n;
 }
 
 /// A small pattern helper for the starter tiles: _base with _dark / _light specks
@@ -274,6 +343,20 @@ function tile_from_loaded(_raw, _s)
     _t.sound = clamp(floor(_t.sound), -1, SFX_MAX - 1);
     if (!is_numeric(_t.becomes)) { _t.becomes = 0; }
     _t.becomes = clamp(floor(_t.becomes), 0, TILE_MAX - 1);
+    var _fr = [];
+    if (is_array(_t.anim))
+    {
+        for (var f = 0; f < min(TILE_ANIM_FRAMES, array_length(_t.anim)); f++)
+        {
+            if (is_numeric(_t.anim[f])) { array_push(_fr, clamp(floor(_t.anim[f]), 0, TILE_MAX - 1)); }
+        }
+    }
+    if (array_length(_fr) < 2) { _fr = []; }
+    _t.anim = _fr;
+    if (!is_numeric(_t.anim_rate)) { _t.anim_rate = 8; }
+    _t.anim_rate = clamp(floor(_t.anim_rate), 1, 250);
+    if (!is_numeric(_t.anim_mode)) { _t.anim_mode = 0; }
+    _t.anim_mode = clamp(floor(_t.anim_mode), 0, 1);
     return _t;
 }
 
@@ -293,9 +376,11 @@ function tiles_fix(_p)
     if (array_length(_t) == 0) { _t = tiles_default(_s); }
     _t[0].solid = false;                    // air is always air
     _t[0].dig = false;
+    _t[0].anim = [];
     for (var k = 0; k < array_length(_t); k++)
     {
         if (_t[k].becomes >= array_length(_t)) { _t[k].becomes = 0; }
+        tile_anim_trim(_t[k], array_length(_t));
     }
     _p.tiles = _t;
     if (!is_numeric(_p.map_w)) { _p.map_w = 64; }
@@ -821,6 +906,7 @@ function ws_tiles_draw(_x1, _y1, _x2, _y2)
                 for (var q = 0; q < _S * _S; q++) { _nt.px[q] = 1; }
             }
             else { _nt.name = string_copy(_nt.name, 1, 3) + "2"; }
+            _nt.anim = [];                  // a frame of an animation, usually: it stands still
             array_push(proj.tiles, _nt);
             tile_sel = array_length(proj.tiles) - 1;
             tile_atlas_dirty = true;
@@ -843,6 +929,7 @@ function ws_tiles_draw(_x1, _y1, _x2, _y2)
             for (var k = 0; k < array_length(proj.tiles); k++)
             {
                 if (proj.tiles[k].becomes >= _last) { proj.tiles[k].becomes = 0; }
+                tile_anim_trim(proj.tiles[k], _last);
             }
             for (var tq = 0; tq < array_length(proj.tools); tq++)
             {
@@ -1027,6 +1114,50 @@ function ws_tiles_draw(_x1, _y1, _x2, _y2)
     for (var k2 = 0; k2 < array_length(proj.tiles); k2++) { array_push(_tn, string(k2) + ": " + proj.tiles[k2].name); }
     set_val(_t, "becomes", ui_dropdown("tile_bec", _fx, _y + 18, _fw, 30, _tn, _t.becomes, "Leaves behind|What is left when it is dug: air (the sky shows), or a background tile like a dark cave wall."), "tilebec");
     _y += 58;
+
+    // animation (ADAM Pro): this tile and the ones after it in the set, shown in turn
+    var _pro_t = "";
+    if (!pro_edition()) { _pro_t = " - Pro"; }
+    ui_heading(_fx, _y, "Animation" + _pro_t);
+    ui_heading(_fx + _half + 12, _y, "50ths each");
+    var _nfr = max(1, array_length(_t.anim));
+    var _nnf = ui_stepper("tile_anim_n", _fx, _y + 18, _half, _nfr, 1, TILE_ANIM_FRAMES, "Pictures|1 = the tile stands still. 2 to 8: it shows its own picture, then the pictures of the tiles after it in the set, in turn - water, lava, torches, conveyor belts. Draw the frames in the next tiles first (New tile copies the one picked). It still behaves as this tile (solid, dig, ladder...); paint only this one on the map. Up to " + string(TILE_ANIM_MAX) + " animated tiles in a game. ADAM Pro.");
+    if (_nnf != _nfr && pro_gate("Animated tiles"))
+    {
+        var _fr = [];
+        if (_nfr >= 2) { _fr = array_create(_nfr, 0); array_copy(_fr, 0, _t.anim, 0, _nfr); }
+        else { _fr = [tile_sel]; }
+        var _next = _fr[array_length(_fr) - 1] + 1;  // a picture more: the tile after the last one
+        if (_nnf > _nfr && _next >= array_length(proj.tiles)) { toast("Add a tile after tile " + string(_next - 1) + " for the next picture (New tile)", 1); }
+        else if (_nnf >= 2 && _nfr < 2 && tile_anim_count(proj.tiles) >= TILE_ANIM_MAX) { toast("A game has up to " + string(TILE_ANIM_MAX) + " animated tiles", 1); }
+        else
+        {
+            undo_mark("tileanim");
+            if (_nnf > _nfr) { array_push(_fr, _next); }
+            else { array_resize(_fr, _nnf); }
+            if (array_length(_fr) < 2) { _fr = []; }
+            _t.anim = _fr;
+        }
+    }
+    set_val(_t, "anim_rate", ui_stepper("tile_anim_rate", _fx + _half + 12, _y + 18, _half, _t.anim_rate, 1, 250, "Speed|How long each picture shows, in 50ths of a second: 4 is fast flicker, 8 running water, 25 a slow glow. Hold Shift for steps of 10."), "tileanimrate");
+    _y += 56;
+    set_val(_t, "anim_mode", ui_dropdown("tile_anim_mode", _fx, _y, _half, 30, ["Loop", "Ping-pong"], _t.anim_mode, "Order|Loop: 1 2 3 1 2 3... Ping-pong: 1 2 3 2 1 2 3... (fewer frames to draw for a smooth glow or a swaying plant)."), "tileanimmode");
+    if (array_length(_t.anim) >= 2)
+    {
+        // the frames in a row, the one showing now outlined
+        var _sz = 22;
+        var _fx2 = _fx + _half + 12;
+        var _now = tile_anim_pic(tile_sel);
+        for (var fs = 0; fs < array_length(_t.anim); fs++)
+        {
+            var _fxx = _fx2 + (fs mod 6) * (_sz + 3);
+            var _fyy = _y + 4 + (fs div 6) * (_sz + 3);
+            if (_t.anim[fs] >= array_length(proj.tiles)) { continue; }
+            tile_draw(_t.anim[fs], _fxx, _fyy, _sz);
+            if (_t.anim[fs] == _now) { ui_rrect_line(_fxx - 2, _fyy - 2, _fxx + _sz + 2, _fyy + _sz + 2, 2, global.TH.accent, 1, 2); }
+        }
+    }
+    _y += 42;
     if (_y + 90 < _y2)
     {
         ui_heading(_fx, _y, "Actual size");
@@ -1035,9 +1166,10 @@ function ws_tiles_draw(_x1, _y1, _x2, _y2)
         // actual size (twice as big for small tiles), then three in a row to check how it tiles
         var _shown = min(56, _S * max(1, 32 div _S));
         ui_rrect(_ax - 2, _y + 26, _ax + _shown + 2, _y + 28 + _shown, 2, pal_col(0), pal_col(0), 1);
-        tile_draw(tile_sel, _ax, _y + 27, _shown);
+        var _pic = tile_anim_pic(tile_sel);         // (animated tiles play)
+        tile_draw(_pic, _ax, _y + 27, _shown);
         _ax += _shown + 16;
-        for (var rr = 0; rr < 3; rr++) { tile_draw(tile_sel, _ax + rr * 32, _y + 27, 32); }
+        for (var rr = 0; rr < 3; rr++) { tile_draw(_pic, _ax + rr * 32, _y + 27, 32); }
     }
 }
 

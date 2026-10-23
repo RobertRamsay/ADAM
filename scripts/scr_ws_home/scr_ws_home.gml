@@ -52,6 +52,101 @@ function home_new_now(_unused)
     toast("New project ready", 0);
 }
 
+/// Height of a Home list row _w wide: the title line and the wrapped text,
+/// at least _min (the icon: about four text rows). _pic_w = room for a picture on the right.
+function home_row_h(_desc, _w, _min, _pic_w)
+{
+    draw_set_font(global.f_small);
+    return max(_min, 34 + ceil(ui_sh_ext(_desc, _w - 16 - 76 - 12 - _pic_w)) + 10);
+}
+
+/// Example _i's screenshot sprite (datafiles/examples/shots, made by gen_examples.py
+/// shot()), the A1200 version on the A1200; -1 when there is none
+function home_shot(_i)
+{
+    var _aga = (machine_cur().id == "A1200");
+    var _n = array_length(global.EXAMPLES);
+    if (array_length(home_shots) != _n || home_shots_aga != _aga)
+    {
+        for (var k = 0; k < array_length(home_shots); k++)
+        {
+            if (home_shots[k] >= 0) { sprite_delete(home_shots[k]); }
+        }
+        home_shots = array_create(_n, -1);
+        home_shots_aga = _aga;
+        for (var e = 0; e < _n; e++)
+        {
+            var _path = working_directory + "examples/shots/" + filename_change_ext(example_file(global.EXAMPLES[e]), ".png");
+            if (file_exists(_path)) { home_shots[e] = sprite_add(_path, 1, false, false, 0, 0); }
+        }
+    }
+    if (_i < 0 || _i >= _n) { return -1; }
+    return home_shots[_i];
+}
+
+/// The first letters of a name's words, for an example's icon ("Dig Deep" -> "DD")
+function home_initials(_name)
+{
+    var _s = string_upper(string_char_at(_name, 1));
+    var _p = string_pos(" ", _name);
+    if (_p > 0) { _s += string_upper(string_char_at(_name, _p + 1)); }
+    return _s;
+}
+
+/// A row in a Home list: an icon (_badge on a rounded square), the title, a tag
+/// (e.g. "ADAM Pro"), the text and a picture on the right (sprite _pic, -1 = none,
+/// _pic_w wide). Returns true when it is clicked.
+function home_row(_id, _x1, _y1, _x2, _h, _badge, _c1, _c2, _title, _tag, _desc, _help, _pic, _pic_w)
+{
+    var _hot = ui_register(_id, _x1, _y1, _x2, _y1 + _h, _help);
+    var _tgt = 0;
+    if (_hot) { _tgt = 1; }
+    var _a = ui_anim_to(_id, _tgt);
+    ui_rrect(_x1, _y1, _x2, _y1 + _h, 10, merge_colour(global.TH.btn_top, global.TH.btn_hot_top, _a), merge_colour(global.TH.panel_bot, global.TH.btn_bot, _a), 1);
+    ui_rrect_line(_x1, _y1, _x2, _y1 + _h, 10, merge_colour(global.TH.panel_edge, global.TH.accent, _a), 0.6 + 0.4 * _a, 1);
+    ui_glow(_x1, _y1, _x2, _y1 + _h, 10, global.TH.accent, _a * 0.6);
+    // the icon: 48 x 48, centred in the row's height
+    var _iy = _y1 + floor((_h - 48) / 2);
+    ui_rrect(_x1 + 10, _iy, _x1 + 58, _iy + 48, 10, _c1, _c2, 1);
+    ui_text(_x1 + 34, _iy + 24, _badge, c_white, fa_center, fa_middle, global.f_bold, 1);
+    if (_pic_w > 0)
+    {
+        // the picture: the 320 x 256 screen at _pic_w wide, on the right, centred in the
+        // row's height (an empty frame without one)
+        var _pw = _pic_w;
+        var _ph = round(_pw * 0.8);
+        var _px1 = _x2 - 8 - _pw;
+        var _py1 = _y1 + floor((_h - _ph) / 2);
+        if (_pic >= 0)
+        {
+            gpu_set_texfilter(true);
+            draw_sprite_stretched(_pic, 0, _px1, _py1, _pw, _ph);
+            gpu_set_texfilter(false);
+        }
+        else { ui_rrect(_px1, _py1, _px1 + _pw, _py1 + _ph, 4, global.TH.panel_bot, global.TH.panel_bot, 1); }
+        ui_rrect_line(_px1, _py1, _px1 + _pw, _py1 + _ph, 4, merge_colour(global.TH.panel_edge, global.TH.accent, _a), 0.8, 1);
+        _x2 -= _pw + 8;
+    }
+    var _tx = _x1 + 72;
+    var _tw = _x2 - _tx - 12;
+    var _tagw = 0;
+    if (_tag != "")
+    {
+        draw_set_font(global.f_small);
+        _tagw = ui_sw(_tag) + 16;
+        ui_rrect(_x2 - 10 - _tagw, _y1 + 8, _x2 - 10, _y1 + 28, 9, global.TH.accent2, merge_colour(global.TH.accent2, c_black, 0.35), 0.9);
+        ui_text(_x2 - 10 - _tagw / 2, _y1 + 18, _tag, c_white, fa_center, fa_middle, global.f_small, 1);
+    }
+    ui_text(_tx, _y1 + 18, ui_text_fit(_title, global.f_bold, _tw - _tagw - 8), global.TH.text, fa_left, fa_middle, global.f_bold, 1);
+    ui_text_wrap(_tx, _y1 + 34, _desc, global.TH.text_dim, _tw, global.f_small, 1);
+    if (_hot && ui_pressed)
+    {
+        ui_take_click();
+        return true;
+    }
+    return false;
+}
+
 function ws_home_draw(_x1, _y1, _x2, _y2)
 {
     var _split = _x1 + floor((_x2 - _x1) * 0.6);
@@ -65,17 +160,18 @@ function ws_home_draw(_x1, _y1, _x2, _y2)
     ui_text_wrap(_x1 + 28, _y1 + 104, "Paint a backdrop, draw sprites, choose how things move and write the rules as simple WHEN / DO sentences. ADAM builds a bootable Amiga disk for the " + _m.name + ".", global.TH.text_dim, _split - _x1 - 220, global.f_body, 1);
     var _bx = _x1 + 28;
     var _by = _y1 + 184;
-    var _ex = ui_menu_button("home_example", _bx, _by, 190, 40, "Example games...", example_names(), "Example games|Finished games to play and pull apart: Gem Hunter, Deep Dive, Star Catcher and Dodge Ball, plus Firefly Night for ADAM Pro, with a swarm of BOBs. Look around every page to see how they were made, then build them.", BTN_ON);
-    if (_ex >= 0) { example_load(_ex); }
-    if (ui_button("home_new", _bx + 200, _by, 80, 40, "New", "New project|Starts a blank project for the same machine.", BTN_NORMAL)) { home_new(); }
-    if (ui_button("home_open", _bx + 288, _by, 80, 40, "Open", "Open project|Opens a .adam project file you saved earlier.", BTN_NORMAL)) { home_open(); }
-    if (ui_button("home_save", _bx + 376, _by, 80, 40, "Save", "Save project|Saves your project (Ctrl+S). The first time it asks where to put it.", BTN_NORMAL)) { home_save(false); }
-    if (ui_button("home_saveas", _bx + 464, _by, 96, 40, "Save as", "Save as|Saves a copy of your project under a new name.", BTN_GHOST)) { home_save(true); }
+    if (ui_button("home_new", _bx, _by, 80, 40, "New", "New project|Starts a blank project for the same machine.", BTN_NORMAL)) { home_new(); }
+    if (ui_button("home_open", _bx + 88, _by, 80, 40, "Open", "Open project|Opens a .adam project file you saved earlier.", BTN_NORMAL)) { home_open(); }
+    if (ui_button("home_save", _bx + 176, _by, 80, 40, "Save", "Save project|Saves your project (Ctrl+S). The first time it asks where to put it.", BTN_NORMAL)) { home_save(false); }
+    if (ui_button("home_saveas", _bx + 264, _by, 96, 40, "Save as", "Save as|Saves a copy of your project under a new name.", BTN_GHOST)) { home_save(true); }
 
-    // ---------- workflow cards: every editor, in top bar order, then the guided tour ----------
+    // ---------- two lists side by side, each scrolling when it outgrows its panel ----------
     var _cy = _y1 + 248;
-    ui_panel(_x1, _cy, _split - 10, _y2, "How it works");
-    ui_text(_split - 26, _cy + 19, "Click a card to open that page", global.TH.text_faint, fa_right, fa_top, global.f_small, 1);
+    var _mid = _x1 + floor((_split - 10 - _x1 - 10) / 2);
+
+    // How it works: every editor, in top bar order, then the guided tour
+    ui_panel(_x1, _cy, _mid, _y2, "How it works");
+    ui_text(_mid - 16, _cy + 19, "Click one to open that page", global.TH.text_faint, fa_right, fa_top, global.f_small, 1);
     var _dest = [WS_BACKDROP, WS_TILES, WS_LEVELS, WS_SPRITES, WS_ACTORS, WS_ANIMATE, WS_UI, WS_LOGIC, WS_SOUND, WS_MUSIC, WS_BUILD, -1];
     var _desc = ["Paint or import the 320 x 256 picture (up to " + string(1 << _m.max_depth) + " colours).",
                  "Draw tiles and paint a big scrolling world to dig through.",
@@ -90,50 +186,94 @@ function ws_home_draw(_x1, _y1, _x2, _y2)
                  "A bootable .ADF disk for FS-UAE or a real Amiga.",
                  "New here? A five-minute walk through every page."];
     var _ncard = array_length(_dest);
-    var _cols = 4;
-    var _rows = ceil(_ncard / _cols);
-    var _cw = floor((_split - 10 - _x1 - 32 - (_cols - 1) * 8) / _cols);
-    // at 760 high a card is about 104 px: title row, then three lines of small text (60 px)
-    var _ch = floor((_y2 - _cy - 50 - 12 - (_rows - 1) * 8) / _rows);
+    var _lx1 = _x1 + 4;
+    var _lx2 = _mid - 4;
+    var _ly1 = _cy + 48;
+    var _ly2 = _y2 - 8;
+    var _rows_h = 0;
+    for (var hq = 0; hq < _ncard; hq++) { _rows_h += home_row_h(_desc[hq], _lx2 - _lx1, 64, 0) + 6; }
+    var _off = ui_scroll_begin("home_flow", _lx1, _ly1, _lx2, _ly2, _rows_h + 6);
+    var _ry = _ly1 + 4 - _off;
     for (var i = 0; i < _ncard; i++)
     {
-        var _cx = _x1 + 16 + (i mod _cols) * (_cw + 8);
-        var _cyy = _cy + 50 + (i div _cols) * (_ch + 8);
-        var _id = "home_card_" + string(i);
         var _title = "Guided tour";
         var _num = "?";
         var _go = "Click to start it.";
+        var _c1 = global.TH.accent;
+        var _c2 = global.TH.accent_dark;
         if (_dest[i] >= 0)
         {
             _title = ws_name(_dest[i]);
             _num = string(i + 1);
             _go = "Click to go to that page.";
         }
-        var _hot = ui_register(_id, _cx, _cyy, _cx + _cw, _cyy + _ch, _title + "|" + _desc[i] + " " + _go);
-        var _tgt = 0;
-        if (_hot) { _tgt = 1; }
-        var _a = ui_anim_to(_id, _tgt);
-        ui_rrect(_cx, _cyy, _cx + _cw, _cyy + _ch, 12, merge_colour(global.TH.btn_top, global.TH.btn_hot_top, _a), merge_colour(global.TH.panel_bot, global.TH.btn_bot, _a), 1);
-        ui_rrect_line(_cx, _cyy, _cx + _cw, _cyy + _ch, 12, merge_colour(global.TH.panel_edge, global.TH.accent, _a), 0.6 + 0.4 * _a, 1);
-        ui_glow(_cx, _cyy, _cx + _cw, _cyy + _ch, 12, global.TH.accent, _a * 0.6);
-        var _c1 = global.TH.accent;
-        var _c2 = global.TH.accent_dark;
-        if (_dest[i] < 0)
+        else
         {
             _c1 = global.TH.accent2;
             _c2 = merge_colour(global.TH.accent2, c_black, 0.35);
         }
-        draw_circle_colour(_cx + 22, _cyy + 20, 12, _c1, _c2, false);
-        ui_text(_cx + 22, _cyy + 20, _num, c_white, fa_center, fa_middle, global.f_bold, 1);
-        ui_text(_cx + 42, _cyy + 20, ui_text_fit(_title, global.f_bold, _cw - 50), global.TH.text, fa_left, fa_middle, global.f_bold, 1);
-        ui_text_wrap(_cx + 12, _cyy + 36, _desc[i], global.TH.text_dim, _cw - 22, global.f_small, 1);
-        if (_hot && ui_pressed)
+        var _rh = home_row_h(_desc[i], _lx2 - _lx1, 64, 0);
+        if (home_row("home_card_" + string(i), _lx1 + 8, _ry, _lx2 - 8, _rh, _num, _c1, _c2, _title, "", _desc[i], _title + "|" + _desc[i] + " " + _go, -1, 0))
         {
-            ui_take_click();
             if (_dest[i] >= 0) { ws_set(_dest[i]); }
             else { tut_start(-1); }
         }
+        _ry += _rh + 6;
     }
+    ui_scroll_end("home_flow", _lx1, _ly1, _lx2, _ly2, _rows_h + 6);
+
+    // Example games: finished games to load, play and pull apart
+    ui_panel(_mid + 10, _cy, _split - 10, _y2, "Example games");
+    // the longest hint that fits beside the title
+    var _hint = "Click to load, double-click to build and play";
+    var _room = _split - _mid - 20 - 210;
+    draw_set_font(global.f_small);
+    if (ui_sw(_hint) > _room) { _hint = "Click: load, double-click: play"; }
+    if (ui_sw(_hint) > _room) { _hint = "Double-click to play"; }
+    ui_text(_split - 26, _cy + 19, _hint, global.TH.text_faint, fa_right, fa_top, global.f_small, 1);
+    ui_register("home_example", _mid + 10, _cy, _split - 10, _cy + 44, "Example games|Finished games to play and pull apart. Click one to load it, then look around every page to see how it was made. Double-click one to build its disk and play it in FS-UAE straight away. The ADAM Pro ones show off BOBs, tile worlds, shoot 'em ups and items.");
+    var _ex1 = _mid + 14;
+    var _ex2 = _split - 14;
+    var _nex = array_length(global.EXAMPLES);
+    // about eight text rows each, with a screenshot on the right (narrower panels: smaller)
+    var _shw = clamp(floor((_ex2 - _ex1) * 0.36), 120, 180);
+    var _exmin = max(64, round(_shw * 0.8) + 16);
+    var _ex_h = 0;
+    for (var eq = 0; eq < _nex; eq++) { _ex_h += home_row_h(global.EXAMPLES[eq].desc, _ex2 - _ex1, _exmin, _shw + 8) + 6; }
+    var _eoff = ui_scroll_begin("home_examples", _ex1, _ly1, _ex2, _ly2, _ex_h + 6);
+    _ry = _ly1 + 4 - _eoff;
+    for (var e = 0; e < _nex; e++)
+    {
+        var _ed = global.EXAMPLES[e];
+        var _tag = "";
+        var _e1 = global.TH.accent;
+        var _e2 = global.TH.accent_dark;
+        if (_ed.pro)
+        {
+            _e1 = global.TH.accent2;
+            _e2 = merge_colour(global.TH.accent2, c_black, 0.35);
+            if (!pro_edition()) { _tag = "ADAM Pro"; }
+        }
+        var _erh = home_row_h(_ed.desc, _ex2 - _ex1, _exmin, _shw + 8);
+        if (home_row("home_ex_" + string(e), _ex1 + 8, _ry, _ex2 - 8, _erh, home_initials(_ed.name), _e1, _e2, _ed.name, _tag, _ed.desc, _ed.name + "|" + _ed.desc + " Click to load it; double-click to build it and play it in FS-UAE.", home_shot(e), _shw))
+        {
+            // the first click loads it; a second one within 0.4 s builds a test disk
+            // and plays it (as Build & play) - only once that example really is loaded
+            if (home_ex_click == e && current_time - home_ex_click_t < 400)
+            {
+                home_ex_click = -1;
+                if (example_last == e && !proj_dirty) { build_ws_build(true); }
+            }
+            else
+            {
+                home_ex_click = e;
+                home_ex_click_t = current_time;
+                example_load(e);
+            }
+        }
+        _ry += _erh + 6;
+    }
+    ui_scroll_end("home_examples", _ex1, _ly1, _ex2, _ly2, _ex_h + 6);
 
     // ---------- settings ----------
     // two panels with a clear split: the game's own settings (saved in the project) above,

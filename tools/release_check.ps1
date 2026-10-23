@@ -56,9 +56,12 @@ if ($Zip -ne "") {
     $z = [System.IO.Compression.ZipFile]::OpenRead((Resolve-Path $Zip))
     $names = $z.Entries | ForEach-Object { $_.FullName.Replace('\', '/') }
     $z.Dispose()
-    $want = @("ADAM.exe", "data.win", "LICENCES.txt", "fonts/OFL.txt", "fonts/Poppins-OFL.txt",
+    # release_build.ps1 names the exe ADAM_V<version>_LITE|PRO.exe
+    $exe = @($names | Where-Object { $_ -match '^ADAM[^/]*\.exe$' -and $_ -notmatch '_Setup\.exe$' })
+    if ($exe.Count -gt 0) { Ok "zip has $($exe[0])" } else { Bad "zip has no ADAM exe" }
+    $want = @("data.win", "LICENCES.txt", "fonts/OFL.txt", "fonts/Poppins-OFL.txt",
               "fonts/Poppins-Regular.ttf", "fonts/Poppins-Medium.ttf", "fonts/Poppins-Bold.ttf",
-              "engine/engine.bin", "engine/boot.bin", "examples/gem_hunter.adam")
+              "engine/engine.bin", "engine/boot.bin", "examples/gem_hunter.adam", "examples/shots/gem_hunter.png")
     foreach ($w in $want) {
         if ($names -contains $w) { Ok "zip has $w" } else { Bad "zip is missing $w" }
     }

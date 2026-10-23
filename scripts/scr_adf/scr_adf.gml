@@ -232,13 +232,64 @@ function pal_nearest(_p, _rgb, _ncol)
 }
 
 /// Writes one BOB image (engine.s A_BSIZE) of sprite struct _s, _bw x _bh
-/// pixels (cropped or padded to that): _bw/16 x _bh mask words, then _depth
+/// pixels (cropped or padded to that): a BI_* header, _bw/16 x _bh mask words, then _depth
 /// planes the same size. Sprite pixel 1-3 becomes backdrop colour _map[0-2]. Returns its offset.
 function adf_bob_image(_b, _s, _bw, _bh, _map, _depth)
 {
     buf_align(_b, 8);
     var _o = buffer_tell(_b);
     var _nw = _bw div 16;
+    // header (version 14): the rows and word columns with pixels, the rightmost pixel from
+    // the left of the first of those words, the planes empty / solid under the mask
+    // (= adf_reference.py bimg); bob_draw only blits that part
+    var _x0 = _bw;
+    var _x1 = -1;
+    var _y0 = _bh;
+    var _y1 = -1;
+    var _zero = (1 << _depth) - 1;
+    var _full = (1 << _depth) - 1;
+    for (var hy = 0; hy < _bh; hy++)
+    {
+        for (var hx = 0; hx < _bw; hx++)
+        {
+            var _hv = spr_get(_s, hx, hy);
+            if (_hv != 0)
+            {
+                _x0 = min(_x0, hx);
+                _x1 = max(_x1, hx);
+                _y0 = min(_y0, hy);
+                _y1 = max(_y1, hy);
+                for (var hp = 0; hp < _depth; hp++)
+                {
+                    if (((_map[_hv - 1] >> hp) & 1) != 0)
+                    {
+                        _zero = _zero & ~(1 << hp);
+                    }
+                    else
+                    {
+                        _full = _full & ~(1 << hp);
+                    }
+                }
+            }
+        }
+    }
+    if (_x1 < 0)
+    {
+        be16(_b, 0); be16(_b, 0); be16(_b, 0); be16(_b, 0);
+        be16(_b, 0); be16(_b, (1 << _depth) - 1); be16(_b, 0); be16(_b, 0);
+    }
+    else
+    {
+        var _wx = _x0 div 16;
+        be16(_b, _y0);                   // BI_Y0
+        be16(_b, _y1 - _y0 + 1);         // BI_NH
+        be16(_b, _wx);                   // BI_WX
+        be16(_b, (_x1 div 16) - _wx + 1); // BI_NW
+        be16(_b, _x1 - _wx * 16);        // BI_LAST
+        be16(_b, _zero);                 // BI_ZERO
+        be16(_b, _full);                 // BI_FULL
+        be16(_b, 0);
+    }
     for (var my = 0; my < _bh; my++)
     {
         for (var mw = 0; mw < _nw; mw++)
@@ -960,6 +1011,7 @@ function adam_data_block_raw(_p, _measure = false)
         if (_p.tile_dig) { _ntool = min(array_length(_p.tools), TOOL_MAX); }
         be16(_b, _ntool);
         be32(_b, _tg.ring);
+        be32(_b, 0);                    // T_ANIM, filled in below
         for (var ti = 0; ti < _nt; ti++)
         {
             var _td = _p.tiles[ti];
@@ -1036,6 +1088,32 @@ function adam_data_block_raw(_p, _measure = false)
         buf_align(_b, 8);
         poke32(_b, _tile_fix, _off_timg);
         poke32(_b, _tile_fix + 4, _off_tmap);
+        // animated tiles (engine.s TA_* / TR_*): the picture each tile shows now
+        // (0..NT-1 to start with), then a record per animated tile
+        var _tan = tile_anims_on_disk(_p.tiles);
+        if (array_length(_tan) > 0)
+        {
+            poke32(_b, _tile_fix + 36, buffer_tell(_b));
+            be16(_b, array_length(_tan));
+            be16(_b, 0);
+            for (var tq = 0; tq < _nt; tq++) { be16(_b, tq); }
+            for (var ta = 0; ta < array_length(_tan); ta++)
+            {
+                var _an = _tan[ta];
+                be16(_b, _an.tile);
+                be16(_b, _an.rate);
+                buffer_write(_b, buffer_u8, _an.mode);
+                buffer_write(_b, buffer_u8, array_length(_an.frames));
+                for (var tfr = 0; tfr < 8; tfr++)
+                {
+                    var _fv = 0;
+                    if (tfr < array_length(_an.frames)) { _fv = _an.frames[tfr]; }
+                    be16(_b, _fv);
+                }
+                buf_zeros(_b, 6);       // TR_CNT TR_STEP TR_DIR: the engine's
+            }
+            buf_align(_b, 8);
+        }
     }
 
     // custom HUD (ADAM Pro UI page, engine.s UI_*): flags, rows, the fields, the
@@ -1391,7 +1469,7 @@ function adam_data_block_raw(_p, _measure = false)
     if (_p.show_score) { _sc = 1; }
     var _lv = 0;
     if (_p.show_lives) { _lv = 1; }
-    poke16(_b, 4, 13);                   // data block version 13: items (H_ITEMS), IF lines, WHEN 17 / 18, DO 28..31; 12: disk 2 (H_DISK2); 11: named palettes (H_PALS); 10: shoot 'em up map (SC_MAP), A_TYPE..A_FPAT; 9: shoot 'em up (H_SCROLL, A_PAT..A_RANK); 8: 16-frame animation tables; 7: custom HUD (H_UI); 6: tile world (H_TILES); 5: animation tables (A_ANIM); 4: BOBs
+    poke16(_b, 4, 15);                   // data block version 15: animated tiles (T_ANIM); 14: BOB frame headers (BI_*); 13: items (H_ITEMS), IF lines, WHEN 17 / 18, DO 28..31; 12: disk 2 (H_DISK2); 11: named palettes (H_PALS); 10: shoot 'em up map (SC_MAP), A_TYPE..A_FPAT; 9: shoot 'em up (H_SCROLL, A_PAT..A_RANK); 8: 16-frame animation tables; 7: custom HUD (H_UI); 6: tile world (H_TILES); 5: animation tables (A_ANIM); 4: BOBs
     poke16(_b, 6, _flags);
     poke16(_b, 8, _depth);
     poke16(_b, 10, _na);
@@ -1460,6 +1538,8 @@ function adam_data_block_raw(_p, _measure = false)
     }
     if (_p.tiles_on && array_length(_acts) > ACT_MAX_TILE) { array_push(_warn, "A tile world has up to " + string(ACT_MAX_TILE) + " actors (hardware sprites - the scrolling display uses sprite 8's time) - only the first " + string(ACT_MAX_TILE) + " go on the disk."); }
     if (_p.tiles_on && _p.scroll_dir > 0) { array_push(_warn, "The backdrop does not scroll in a tile world - the map scrolls with the player instead."); }
+    if (_p.tiles_on && tile_anim_count(_p.tiles) > TILE_ANIM_MAX) { array_push(_warn, "A game has up to " + string(TILE_ANIM_MAX) + " animated tiles - the others stand still."); }
+    if (!_p.tiles_on && _p.shmup_map && tile_anim_count(_p.tiles) > 0) { array_push(_warn, "Animated tiles play in a tile world - on a shoot 'em up map they stand still."); }
     return { buf : _b, size : _size, warnings : _warn, sound_bytes : _snd_bytes + _mus.bytes, plane_bytes : _depth * 10240 * _nbuf, bss : _bss,
              d2 : _mus.d2, d2_bytes : _mus.d2_bytes };
 }
@@ -1939,6 +2019,12 @@ function dev_cli_shots()
         ui_scale_pref = 1;
         // the player's sprite is the one to show off on the Sprites page
         if (array_length(proj.actors) > 0) { spr_sel = clamp(proj.actors[0].sprite, 0, SPR_COUNT - 1); }
+        // and the first animated tile (else the first after air) on the Tiles page
+        tile_sel = min(1, array_length(proj.tiles) - 1);
+        for (var ta = array_length(proj.tiles) - 1; ta >= 1; ta--)
+        {
+            if (array_length(proj.tiles[ta].anim) >= 2) { tile_sel = ta; }
+        }
         return true;
     }
     return false;

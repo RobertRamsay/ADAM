@@ -9,6 +9,16 @@ function whatsnew_entries()
 {
     return [
         {
+            ver : "1.2.0",
+            items : [
+                "Home page: How it works and the Example games now sit side by side, and every example game shows a picture of its first screen (the A1200 version's picture when the A1200 is picked). Double-click an example game to build it and play it straight away.",
+                "Animated tiles (Pro): water, lava, torches and lights that move on their own. On the Tiles page, give a tile 2 to 8 pictures in its Animation box, with a speed and Loop or Ping-pong; the tile still behaves as itself (solid, dig, ladder...). The water and torches in Dig Deep show how.",
+                "Flash the player: the DO 'Flash the player' (it used to flash the screen) now makes the player blink instead, the same blink a hit gives. No more flashing screens.",
+                "Faster BOBs: the blitter now only draws the part of each BOB that has pixels in it, so busy games with many BOBs drop far fewer frames - Starfire on the A1200 keeps up almost all the time.",
+                "Fixed: lowering the bitplanes on the Backdrop page (or switching an A1200 project to the A500 / A600) no longer leaves a custom HUD in colours that are gone."
+            ]
+        },
+        {
             ver : "1.1.0",
             items : [
                 "Lite and Pro now have the same features. Pro raises the limits (16 frames per animation instead of 6, sprites and BOBs up to 64 x 64 instead of 32 x 32, 32 actors on the disk instead of 12, 128 sprites instead of 64, 64 sounds instead of 8, 512 tile types instead of 96) and adds extra example games and lessons.",

@@ -105,7 +105,8 @@ GameMaker copies every Included File next to `ADAM.exe`. The zip must contain:
 | `fonts/OFL.txt`, `fonts/Poppins-OFL.txt` | **required** by the SIL OFL: the copyright notice and licence must travel with the fonts |
 | `engine/engine.bin`, `engine/boot.bin` | the Amiga engine and bootblock |
 | `engine/engine.s`, `engine/boot.s`, `engine/font.inc` | engine source (included today; drop them from Included Files if they should not ship) |
-| `examples/*.adam` | the example games (four Lite, plus Firefly Night for Pro - both builds ship all five) |
+| `examples/*.adam` | the example games and their `_a1200` versions (four Lite, six Pro extras - both builds ship all of them; Lite shows the Pro ones with a Pro label) |
+| `examples/shots/*.png` | the first screen of each example, shown in Home's Example games list |
 
 | `FS-UAE/` | the official FS-UAE Windows release, unchanged, with its `Licenses` folder (only when built with `-FsUae`) |
 
@@ -117,7 +118,7 @@ Use a clean save folder (rename `%LOCALAPPDATA%\ADAM` first) so it behaves like 
 first run.
 
 1. Launch: the machine picker appears; pick **Amiga 500/600**. Window title reads "ADAM Lite 1.0.0 - ..." (or Pro).
-2. **Home**: guided tour starts and can be closed; Example games > Gem Hunter loads; New / Open / Save / Save as work; **About ADAM & licences** opens, scrolls to the end of the OFL text, closes with Close and with Esc.
+2. **Home**: guided tour starts and can be closed; the Example games list shows a picture for every game; clicking Gem Hunter loads it and double-clicking it builds and plays it; New / Open / Save / Save as work; **About ADAM & licences** opens, scrolls to the end of the OFL text, closes with Close and with Esc.
 3. **Backdrop**: paint, fill, text, import a PNG, undo/redo.
 4. **Levels**: change the seed, shape a hill, set title and goal.
 5. **Sprites**: draw, copy/paste, change colours.
@@ -128,8 +129,8 @@ first run.
 10. **Boot as A600**: Build and play - the loading bar shows, the game runs, joystick in port 2 moves the player, score/lives show, game over and fire to restart work.
 11. Change machine to **Amiga 1200** (top bar), build and play again - boots as A1200 (AGA); a 128-colour backdrop shows correctly.
 12. Load each example game and build it for both machines.
-13. **Lite build**: the top bar says LITE; Example games shows "Firefly Night (Pro)" and loading it says only 8 actors go on the disk; Learn ADAM > 5 shows the Pro message; the BOB toggle, Gradient tool, Pattern brushes and the sprite Size dropdowns show the Pro message.
-14. **Pro build**: the top bar says PRO; Firefly Night builds with its 12 BOBs and plays on the A600; Lesson 5 starts; a sprite set to 64 x 64 on the Sprites page plays as a big BOB.
+13. **Lite build**: the top bar says LITE; Example games marks the six Pro games "ADAM Pro"; Learn ADAM shows the Pro lessons with the Pro message; the sprite Size dropdowns stop at 32 x 32; a tile's Animation box on the Tiles page shows the Pro message. The BOB toggle, Gradient tool and Pattern brushes work (same features since 1.1.0).
+14. **Pro build**: the top bar says PRO; Firefly Night builds with its 12 BOBs and plays on the A600; Dig Deep's water and torches animate; Lesson 5 starts; a sprite set to 64 x 64 on the Sprites page plays as a big BOB.
 15. Quit and relaunch: the last session is restored, window size/place remembered.
 
 ## 7. Publish on itch.io
@@ -160,5 +161,8 @@ OFL), font8x8 (public domain) and FS-UAE (GPL v2).
 
 ## 8. After the release
 
-- Tag the commit: `git tag v1.0.0` and push the tag.
+- Tag the commit the release was built from: `git tag vx.y.z <commit>` and push the tag
+  (`git push origin vx.y.z`). Earlier tags: v1.0.1, v1.1.0.
+- Merge `main` into `mac` (`git checkout mac && git merge main`) so the Mac
+  build has the release, and push `mac`.
 - Set `ADAM_DEV_TOOLS` back to `true` on the development branch.
