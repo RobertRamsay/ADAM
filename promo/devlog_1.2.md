@@ -13,6 +13,10 @@ ADAM 1.2 is a smaller update than 1.1, but it's one you'll see as soon as it ope
 - **Faster BOBs.** The blitter now draws only the part of each BOB that actually has pixels in it, and draws planes that are empty or solid more cheaply. Busy games with lots of BOBs drop far fewer frames: Starfire on the A1200 now keeps up almost all the time.
 - ***Flash the screen* is now *Flash the player*.** A flashing screen wasn't pleasant to play, so this DO now makes the player blink instead, the same blink a hit gives. Your rules keep working as they are. It's also quicker for the Amiga, especially in games with a copper sky.
 
+## Fixed
+
+- Lowering the bitplanes on the Backdrop page, or switching an A1200 project to the A500 / A600, no longer leaves a custom HUD's frame and text in colours that are gone (they showed as a flat bar).
+
 ## Known issue
 
 - Starfire still drops frames on the A500 / A600 when the screen is very busy: there's simply more going on than a 7 MHz 68000 can keep up with at 50 frames a second. The A1200 version is fine.

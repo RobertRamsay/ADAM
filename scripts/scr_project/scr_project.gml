@@ -1635,7 +1635,7 @@ function undo_keys(_ws)
     switch (_ws)
     {
         case WS_HOME:     return ["name", "lives", "show_score", "show_lives", "hud_row", "hud_colour", "msg_colour", "over_text", "win_text"];
-        case WS_BACKDROP: return ["pixels", "pal", "depth", "solid", "sky_on", "sky_top", "sky_mid", "sky_bot", "sky_mid_y", "hud_colour", "msg_colour", "terrain_cols", "palettes", "level_pal"];
+        case WS_BACKDROP: return ["pixels", "pal", "depth", "solid", "sky_on", "sky_top", "sky_mid", "sky_bot", "sky_mid_y", "hud_colour", "msg_colour", "terrain_cols", "palettes", "level_pal", "ui"];
         case WS_LEVELS:   return ["levels_on", "levels", "terrain_cols", "goal_on", "goal", "goal_label", "title_on", "title1", "title2", "lev_text", "level_song", "scroll_dir", "scroll_speed", "hills_on", "level_pal"];
         case WS_SPRITES:  return ["sprites"];
         case WS_ACTORS:   return ["actors", "rules", "spawners", "items"];
@@ -1862,6 +1862,18 @@ function backdrop_set_depth(_depth)
         }
         proj.hud_colour = _map[clamp(proj.hud_colour, 0, PAL_MAX - 1)];
         proj.msg_colour = _map[clamp(proj.msg_colour, 0, PAL_MAX - 1)];
+        // the custom HUD's frame and fields too (else they show colour & (count - 1))
+        var _u = proj.ui;
+        for (var c = 0; c < array_length(_u.frame); c++)
+        {
+            if (_u.frame[c] >= _count) { _u.frame[c] = _map[clamp(_u.frame[c], 0, PAL_MAX - 1)]; }
+        }
+        for (var f = 0; f < array_length(_u.fields); f++)
+        {
+            var _f = _u.fields[f];
+            if (_f.colour >= _count) { _f.colour = _map[clamp(_f.colour, 0, PAL_MAX - 1)]; }
+            if (_f.shadow >= _count) { _f.shadow = _map[clamp(_f.shadow, 0, PAL_MAX - 1)]; }
+        }
     }
     proj.depth = _new;
     bd_dirty = true;
