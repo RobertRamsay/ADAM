@@ -161,7 +161,7 @@ OFL), font8x8 (public domain) and FS-UAE (GPL v2).
 
 ## 8. After the release
 
-- Tag the `Version x.y.z` commit: `git tag vx.y.z <commit>` and push the tag
+- Tag the commit the release was built from: `git tag vx.y.z <commit>` and push the tag
   (`git push origin vx.y.z`). Earlier tags: v1.0.1, v1.1.0.
 - Merge `main` into `mac` (`git checkout mac && git merge main`) so the Mac
   build has the release, and push `mac`.
