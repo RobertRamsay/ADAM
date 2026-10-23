@@ -171,7 +171,13 @@ function ws_home_draw(_x1, _y1, _x2, _y2)
 
     // How it works: every editor, in top bar order, then the guided tour
     ui_panel(_x1, _cy, _mid, _y2, "How it works");
-    ui_text(_mid - 16, _cy + 19, "Click one to open that page", global.TH.text_faint, fa_right, fa_top, global.f_small, 1);
+    // the longest hint that fits beside the title
+    var _fhint = "Click one to open that page";
+    var _froom = _mid - _x1 - 190;
+    draw_set_font(global.f_small);
+    if (ui_sw(_fhint) > _froom) { _fhint = "Click to open"; }
+    if (ui_sw(_fhint) > _froom) { _fhint = ""; }
+    ui_text(_mid - 16, _cy + 19, _fhint, global.TH.text_faint, fa_right, fa_top, global.f_small, 1);
     var _dest = [WS_BACKDROP, WS_TILES, WS_LEVELS, WS_SPRITES, WS_ACTORS, WS_ANIMATE, WS_UI, WS_LOGIC, WS_SOUND, WS_MUSIC, WS_BUILD, -1];
     var _desc = ["Paint or import the 320 x 256 picture (up to " + string(1 << _m.max_depth) + " colours).",
                  "Draw tiles and paint a big scrolling world to dig through.",

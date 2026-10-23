@@ -85,7 +85,7 @@ var _wh = window_get_height();
 if (_ww > 0 && _wh > 0)
 {
     var _s = ui_scale_for(_ww, _wh);
-    if (ui_scale_pref > 0) { _s = max(1, min(ui_scale_pref, _ww / 1100, _wh / 640)); }
+    if (ui_scale_pref > 0) { _s = ui_scale_fixed(ui_scale_pref, _ww, _wh); }
     var _scale_changed = (_s != global.ui_scale);
     if (_scale_changed)
     {

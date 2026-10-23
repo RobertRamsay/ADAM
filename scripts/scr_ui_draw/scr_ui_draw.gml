@@ -1,5 +1,11 @@
 /// ADAM - rounded, gradient drawing primitives
 
+#macro UI_MIN_W 1280        // every page is laid out for at least this much room (interface pixels)
+#macro UI_MIN_H 720
+#macro UI_SCALE_MIN 0.6     // smallest interface scale, for a window far below 1280 x 720
+#macro WIN_MIN_W 960        // smallest window (fits a 1366 x 768 laptop, or 1080p at 150% scaling)
+#macro WIN_MIN_H 540
+
 function ui_rr_points(_x1, _y1, _x2, _y2, _r)
 {
     var _pts = [];
@@ -149,15 +155,29 @@ function ui_scissor(_x, _y, _w, _h)
 
 function ui_scissor_reset()
 {
-    gpu_set_scissor(0, 0, window_get_width(), window_get_height());
+    // = the window; in interface pixels while a dev shot draws into its surface
+    gpu_set_scissor(0, 0, ceil(display_get_gui_width() * global.ui_sx), ceil(display_get_gui_height() * global.ui_sy));
 }
 
-/// Automatic interface scale: 1080p = 100%, 1440p = 125%, 4K = 200%
+/// Automatic interface scale: 1080p = 100%, 1440p = 125%, 4K = 200%. A window
+/// smaller than 1280 x 720 (a small laptop, or a 1080p one at 150% Windows
+/// scaling) shrinks the interface instead, so every page keeps the layout it
+/// has at 1280 x 720 - just smaller - rather than running off the bottom.
 function ui_scale_for(_ww, _wh)
 {
     var _s = floor((_wh / 1080) * 4) / 4;
     _s = min(_s, floor((_wh / 720) * 4) / 4, floor((_ww / 1280) * 4) / 4);
-    return max(1, _s);
+    _s = max(1, _s);
+    var _fit = min(_ww / UI_MIN_W, _wh / UI_MIN_H);
+    if (_fit < 1) { _s = max(UI_SCALE_MIN, _fit); }
+    return _s;
+}
+
+/// The scale picked on Home (Interface size), held down so the page is never
+/// smaller than 1280 x 720 (shrinking below 100% in a small window, as Auto does)
+function ui_scale_fixed(_pref, _ww, _wh)
+{
+    return max(UI_SCALE_MIN, min(_pref, _ww / UI_MIN_W, _wh / UI_MIN_H));
 }
 
 function ui_text_fit(_str, _font, _w)

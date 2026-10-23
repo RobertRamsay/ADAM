@@ -46,6 +46,12 @@ function ws_sound_draw(_x1, _y1, _x2, _y2)
         sound_patch_panel(_s, _fx, _y, _colw, _cx1, _x2, _y1, _y2);
         return;
     }
+    // ---- the settings, scrolling if the window is short; Play sound stays in view below them ----
+    var _sy1 = _y;
+    var _play_y = min(_sy1 + snd_synth_content_h + 10, _y2 - 52);
+    var _sy2 = _play_y - 10;
+    var _off = ui_scroll_begin("snd_synth_scroll", _fx - 4, _sy1, _fx + _colw + 18, _sy2, snd_synth_content_h);
+    _y = _sy1 - _off;
     ui_heading(_fx, _y, "Waveform");
     set_val(_s, "wave", ui_dropdown("snd_wave", _fx, _y + 18, _colw, 32, global.WAVE_NAMES, _s.wave, "Waveform|The basic tone. Triangle is soft and flute-like, sawtooth is buzzy, square is the classic chip sound and noise is for explosions and drums."), "sndwave");
     _y += 62;
@@ -81,8 +87,9 @@ function ws_sound_draw(_x1, _y1, _x2, _y2)
         ui_text(_fx + _colw, _y + 13, string(_s[$ _keys[e]]), global.TH.text, fa_right, fa_middle, global.f_bold, 1);
         _y += 32;
     }
-    _y += 10;
-    if (ui_button("snd_preview", _fx, _y, _colw, 40, "Play sound", "Play|Hear the sound exactly as the Amiga will play it - ADAM turns it into an 8-bit sample for Paula.", BTN_ACCENT))
+    snd_synth_content_h = _y + _off - _sy1;
+    ui_scroll_end("snd_synth_scroll", _fx - 4, _sy1, _fx + _colw + 18, _sy2, snd_synth_content_h);
+    if (ui_button("snd_preview", _fx, _play_y, _colw, 40, "Play sound", "Play|Hear the sound exactly as the Amiga will play it - ADAM turns it into an 8-bit sample for Paula.", BTN_ACCENT))
     {
         sfx_preview_play(_s);
     }
