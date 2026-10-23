@@ -12,9 +12,13 @@ ADAM 1.2 is a smaller update than 1.1, but it's one you'll see as soon as it ope
 
 - **Faster BOBs.** The blitter now draws only the part of each BOB that actually has pixels in it, and draws planes that are empty or solid more cheaply. Busy games with lots of BOBs drop far fewer frames: Starfire on the A1200 now keeps up almost all the time.
 - ***Flash the screen* is now *Flash the player*.** A flashing screen wasn't pleasant to play, so this DO now makes the player blink instead, the same blink a hit gives. Your rules keep working as they are. It's also quicker for the Amiga, especially in games with a copper sky.
+- **Small screens.** On a smaller laptop (1366 x 768, or 1080p with Windows set to 150%) ADAM's window could run off the bottom of the screen. Now, when the window is smaller than 1280 x 720, the whole interface shrinks to fit and every page keeps the same layout. The smallest window is 960 x 540.
 
 ## Fixed
 
+- The Sound page's *Play sound* button could end up half off the bottom of the panel on a 1280 x 720 screen. The settings above it now scroll instead, and the button stays in view.
+- On the Tiles page, the white first-screen box and the actors no longer draw past the edge of the map.
+- The tip under the Music page's loop list no longer runs out of its panel.
 - Lowering the bitplanes on the Backdrop page, or switching an A1200 project to the A500 / A600, no longer leaves a custom HUD's frame and text in colours that are gone (they showed as a flat bar).
 
 ## Known issue
