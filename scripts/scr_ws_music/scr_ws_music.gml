@@ -578,7 +578,8 @@ function music_library_panel(_x1, _y1, _x2, _y2)
     }
     var _tip = "Click a loop to hear it. Click or drag on the timeline to paint it in, right-click to rub out, double-click a bar to edit its notes.";
     draw_set_font(global.f_small);
-    var _ly2 = _y2 - 72;
+    var _tip_h = ui_sh_ext(_tip, _x2 - _x1 - 32);      // the tip sits at the bottom, as tall as it wraps
+    var _ly2 = _y2 - 24 - _tip_h;
     if (mus_edit >= 0) { _ly2 = _y2 - 108; }
     var _items = music_lib_items(mus_cat);
     var _song = music_cur_song();
@@ -716,7 +717,7 @@ function music_library_panel(_x1, _y1, _x2, _y2)
     }
     else
     {
-        ui_text_wrap(_x1 + 16, _y2 - 42, _tip, global.TH.text_faint, _x2 - _x1 - 32, global.f_small, 1);
+        ui_text_wrap(_x1 + 16, _y2 - 14 - _tip_h, _tip, global.TH.text_faint, _x2 - _x1 - 32, global.f_small, 1);
     }
 }
 

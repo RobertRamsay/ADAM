@@ -15,6 +15,7 @@ function whatsnew_entries()
                 "Animated tiles (Pro): water, lava, torches and lights that move on their own. On the Tiles page, give a tile 2 to 8 pictures in its Animation box, with a speed and Loop or Ping-pong; the tile still behaves as itself (solid, dig, ladder...). The water and torches in Dig Deep show how.",
                 "Flash the player: the DO 'Flash the player' (it used to flash the screen) now makes the player blink instead, the same blink a hit gives. No more flashing screens.",
                 "Faster BOBs: the blitter now only draws the part of each BOB that has pixels in it, so busy games with many BOBs drop far fewer frames - Starfire on the A1200 keeps up almost all the time.",
+                "Small screens: on a laptop screen, or a window smaller than 1280 x 720, ADAM now shrinks to fit instead of running off the bottom of the screen, and every page keeps the same layout. The Sound page's Play sound button always stays in view.",
                 "Fixed: lowering the bitplanes on the Backdrop page (or switching an A1200 project to the A500 / A600) no longer leaves a custom HUD in colours that are gone."
             ]
         },

@@ -1397,6 +1397,7 @@ function tiles_map_editor(_x1, _y1, _x2, _y2)
     var _dy = _vy1;
     ui_rrect(_dx - 4, _dy - 4, _dx + _vw * _sc + 4, _dy + _vh * _sc + 4, 8, c_black, c_black, 0.35);
     tile_map_draw(_dx, _dy, tile_camx, tile_camy, _vw, _vh, _sc);
+    ui_scissor(_dx, _dy, _vw * _sc, _vh * _sc);         // the screen box, actors and spawners stay on the map
 
     // the screen the Amiga shows at the start (round the player; a shoot 'em up map: the bottom)
     var _pl = -1;
@@ -1440,6 +1441,7 @@ function tiles_map_editor(_x1, _y1, _x2, _y2)
         draw_sprite_amiga_cols(actor_preview_sprite(_ac), _ax, _ay, _sc, actor_cols_from(_alloc, d), _alpha);
         if (_inview && point_in_rectangle(ui_mx, ui_my, _ax, _ay, _ax + SPR_W * _sc, _ay + SPR_H * _sc) && _hover < 0) { _hover = d; }
     }
+    ui_scissor_reset();
     var _help = "Map|Paint with the tile picked on the left (right-click: air). Drag an actor to move where it starts. Mouse wheel scrolls (Shift: sideways, Ctrl: zoom); drag with the middle button or Space held to move the view. The white box is the first screen the Amiga shows.";
     if (_shm) { _help = "Shoot 'em up map|The ship flies up it from the white box at the bottom. Paint with the tile picked on the left (right-click: air); Stamp copies blocks of tiles; Spawn places spawners (the actors on it). Mouse wheel scrolls (Ctrl: zoom); drag with the middle button or Space held to move the view."; }
     ui_register("tile_map", _dx, _dy, _dx + _vw * _sc, _dy + _vh * _sc, _help);

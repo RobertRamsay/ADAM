@@ -8,8 +8,8 @@ app_aa = 0;
 if ((display_aa & 2) != 0) { app_aa = 2; }
 display_reset(app_aa, true);
 draw_set_circle_precision(48);
-window_set_min_width(1280);
-window_set_min_height(760);
+window_set_min_width(WIN_MIN_W);         // smaller than 1280 x 720 shrinks the interface (ui_scale_for)
+window_set_min_height(WIN_MIN_H);
 application_surface_draw_enable(false);
 gui_w = max(1280, window_get_width());
 gui_h = max(720, window_get_height());
@@ -321,6 +321,7 @@ snd_cache_count = 0;
 snd_patch_tab = 0;                    // Patch editor tab: 0 Osc, 1 Filter, 2 Amp, 3 Mod, 4 FX
 snd_patch_osc = 0;                    // oscillator shown on the Osc tab
 snd_patch_content_h = 0;              // height of the tab's settings last frame (scroll region)
+snd_synth_content_h = 0;              // height of the synth settings last frame (scroll region)
 snd_patch_last = array_create(SFX_MAX, 0);  // last render of each patch sound, kept while a slider is dragged
 snd_drag = -1;                        // Sound page: sound pressed in the list (dragged onto a folder), -1 = none
 snd_drag_y0 = 0;
@@ -544,6 +545,8 @@ shot_wait = 0;
 shot_w = 1920;
 shot_h = 1080;
 shot_surf = -1;
+shot_sx = 1;
+shot_sy = 1;
 shot_pages = [
     { ws : WS_HOME,     panel : 0, name : "home" },
     { ws : WS_BACKDROP, panel : 0, name : "backdrop" },

@@ -2014,6 +2014,8 @@ function dev_cli_shots()
         shot_wait = 0;
         shot_w = _sw;
         shot_h = _sh;
+        window_set_min_width(min(_sw, WIN_MIN_W));     // any size can be shot
+        window_set_min_height(min(_sh, WIN_MIN_H));
         auto_tutorials = false;
         start_fullscreen = false;
         ui_scale_pref = 1;
@@ -2083,11 +2085,20 @@ function dev_shots_begin()
     }
     surface_set_target(shot_surf);
     draw_clear(c_black);
+    // the surface is interface-sized: clip in interface pixels while it is drawn
+    shot_sx = global.ui_sx;
+    shot_sy = global.ui_sy;
+    global.ui_sx = 1;
+    global.ui_sy = 1;
+    gpu_set_scissor(0, 0, gui_w, gui_h);
     return true;
 }
 
 function dev_shots_end()
 {
+    global.ui_sx = shot_sx;
+    global.ui_sy = shot_sy;
+    ui_scissor_reset();
     surface_reset_target();
     var _f = shot_dir + "/" + string(shot_i + 1) + "_" + shot_pages[shot_i].name + ".png";
     surface_save(shot_surf, _f);
