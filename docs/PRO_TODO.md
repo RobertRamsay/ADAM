@@ -1,46 +1,31 @@
 # ADAM Pro — to-do
 
-Pro-only features queued up. Each one is gated with `pro_on()` / `pro_gate()`
-in `scr_licence`, and ships with a Pro example game and a Pro lesson (see
-CLAUDE.md, Phase 4).
+Pro extras queued up. Since 1.1.0 Lite and Pro have the same features and
+Pro raises the limits (`lim_*()` in `scr_licence`); new Pro-only features are
+gated with `pro_edition()` / `pro_gate()`, and each ships with a Pro example
+game and a Pro lesson (see CLAUDE.md, Phase 4).
 
-## 1. Expanded music editor
+## Done
 
-- Being worked on in a separate session.
-- Builds on the Lite Music page (loop library, step editor, .mod import/export).
-- Likely scope: instrument editor (synth envelopes, sample loop points),
-  tracker effects in the step editor (slides, vibrato, arpeggio, volume).
+- **Expanded music editor** (1.1.0): Patch synth, up to 64 sounds in
+  folders, the improved step editor.
+- **Multi-frame animation** (1.1.0): the Animate page - Idle, Walk, Jump,
+  Fall, Hit, Die, 8 directions, Fire animations, onion skin.
+- **Scrolling playfields** (1.1.0): tile worlds (Dig Deep) and shoot 'em
+  ups with scrolling backdrops and maps (Nebula Strike, Starfire, Jade
+  Serpent).
+- **Animated tiles** (1.2.0): step 1 of docs/ISO_LAYERS_PLAN.md.
 
-## 2. Multi-frame animation for players and enemies
-
-- Today: two frames per actor (`A_SPR` / `A_SPR2`, rate `A_ARATE`, `v_frame`).
-- Goal: several frames per sprite, and separate animations per state —
-  e.g. walk left / walk right, jump, idle, hit / die.
-- Questions to settle: max frames per sprite (chip RAM budget), whether
-  hardware sprites and BOBs both get it, flipping (mirror at build time so
-  one drawn walk cycle covers both directions).
-- Touches: Sprites page (frame strip, onion skin, animated preview), actor
-  record layout (frame table offset + count), engine frame pick, so
-  **engine.s, scr_adf.gml and adf_reference.py** all change together.
-
-## 3. Scrolling playfields
-
-- Horizontal (left / right), vertical (up / down), maybe both.
-- Needs a tile-based level editor (a backdrop bigger than 320 x 256 won't
-  fit in chip RAM as one bitmap for long levels).
-- Engine: hardware scroll (BPLCON1 fine scroll + bitplane pointers), new
-  tile column / row drawn by the blitter as the camera moves; actors in
-  world coordinates, camera follows the player.
-- Rules to add: e.g. WHEN reaches end of level, DO stop / start scrolling.
-- Foundation for later Pro items: parallax / dual playfield, rooms.
-
-## 4. Isometric rooms, tile layers, animated tiles
+## Next: isometric rooms, tile layers
 
 - Plan: docs/ISO_LAYERS_PLAN.md (asked for by a buyer, Oct 2026).
-- Order: animated tiles, back layer, front layer (dual playfield),
-  depth-sorted BOBs, then isometric rooms (A500 speed spike first).
+- Order: back layer, front layer (dual playfield), depth-sorted BOBs, then
+  isometric rooms (A500 speed spike first).
 
-## Order
+## Also asked for
 
-Music editor (in progress) → multi-frame animation → scrolling.
-Animation first because it is smaller and scrolling games will want it.
+- Fewer bitplanes as a memory saving; a Pro lesson for palette switching.
+- Multi-disk games part 2: per-level maps and backdrops on disk 2.
+- A big-BOB example and lesson.
+- Parallax (reuses the front layer's dual playfield), colour cycling,
+  IFF/ILBM import and export, high-score table, two players.
