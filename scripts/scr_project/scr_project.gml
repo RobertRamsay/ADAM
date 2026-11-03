@@ -1874,6 +1874,20 @@ function backdrop_set_depth(_depth)
             if (_f.colour >= _count) { _f.colour = _map[clamp(_f.colour, 0, PAL_MAX - 1)]; }
             if (_f.shadow >= _count) { _f.shadow = _map[clamp(_f.shadow, 0, PAL_MAX - 1)]; }
         }
+        // the tiles' pictures and the hill colours as well (the disk keeps only the low planes)
+        for (var t = 0; t < array_length(proj.tiles); t++)
+        {
+            var _tp = proj.tiles[t].px;
+            for (var k = 0; k < array_length(_tp); k++)
+            {
+                if (_tp[k] >= _count) { _tp[@ k] = _map[clamp(_tp[k], 0, PAL_MAX - 1)]; }
+            }
+        }
+        for (var h = 0; h < array_length(proj.terrain_cols); h++)
+        {
+            if (proj.terrain_cols[h] >= _count) { proj.terrain_cols[@ h] = _map[clamp(proj.terrain_cols[h], 0, PAL_MAX - 1)]; }
+        }
+        tiles_mark_all();
     }
     proj.depth = _new;
     bd_dirty = true;

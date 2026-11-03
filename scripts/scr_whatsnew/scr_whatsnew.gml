@@ -9,6 +9,16 @@ function whatsnew_entries()
 {
     return [
         {
+            ver : "1.2.1",
+            items : [
+                "Page tutorials (Learn ADAM, or F1) now cover everything ADAM Lite can do: BOBs, shots, flyers and enemy fire, pick up and throw, shoot 'em up maps with stamps and spawners, scrolling, items and recipes, AND DO and IF lines, palettes, tools, Hit and Die animations, the Patch synth, sample loops, note effects and more. Each step opens the right tab for you.",
+                "Fixed: deleting a song now renumbers the 'Play music' rules, so they keep playing the same songs.",
+                "Fixed: removing a level now moves the later levels' music, palette and 'Joins on level' actors up with them.",
+                "Fixed: Undo after deleting a palette also puts back the 'Switch palette' rules that used it.",
+                "Fixed: using fewer colours (or switching an A1200 project to the A500 / A600) now moves tile pictures and hill colours to the nearest colour left, as it already did for the backdrop."
+            ]
+        },
+        {
             ver : "1.2.0",
             items : [
                 "Home page: How it works and the Example games now sit side by side, and every example game shows a picture of its first screen (the A1200 version's picture when the A1200 is picked). Double-click an example game to build it and play it straight away.",
