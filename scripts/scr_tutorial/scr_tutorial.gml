@@ -17,6 +17,7 @@ function tut_init()
         tut_step(WS_HOME, "home_lives", "Lives and score", "Choose how many lives the player gets and where the score and lives are shown. A rule on the Logic page takes lives away."),
         tut_step(WS_HOME, "home_over", "Messages", "These messages appear when the game ends. The player presses fire to play again."),
         tut_step(WS_HOME, "home_helpers", "Hover helpers", "Rest your mouse on anything and a helper line points to a bubble that explains it. Switch them off here (or with Helpers at the top) once you know your way around."),
+        tut_step(WS_HOME, "home_scale", "Interface size", "Auto fits ADAM to your screen. Pick a size if you like things bigger; Ctrl + and Ctrl - change it anywhere, Ctrl 0 goes back to Auto. On a small laptop screen ADAM shrinks to fit."),
         tut_step(WS_HOME, "top_learn", "Learn ADAM", "Up here any time: the tutorial for the page you are on (or press F1), this tour, and lessons that build a whole game with you step by step."),
         tut_step(WS_HOME, "top_play", "Build and play", "When you want to try your game, click Build & play (or press F5) on any page. ADAM makes the Amiga disk and starts it in FS-UAE."),
         tut_step(WS_HOME, "top_undo", "Undo and Redo", "Made a mistake? Undo (Ctrl+Z) takes it back and Redo (Ctrl+Y) puts it back again. Every page keeps its own history, so undoing on one page never touches the others."),
@@ -27,12 +28,15 @@ function tut_init()
         tut_step(WS_BACKDROP, "bd_pal", "The palette", "Click a colour to paint with it. The sliders below mix it from red, green and blue - 4096 colours on the 500/600 and 16.8 million on the 1200."),
         tut_step(WS_BACKDROP, "bd_import", "Import a picture", "Got artwork already? Import a PNG or JPG. ADAM fits it to the screen and chooses the best colours for it, with optional dithering."),
         tut_step(WS_BACKDROP, "bd_solid", "Ground colours", "Mark the colours of your grass, floors and platforms as ground. Platform players, hoppers and fallers walk along the top of them - up and down every hill."),
+        tut_step(WS_BACKDROP, "bd_tab_pals", "Palettes", "Make named palettes - night, sunset, a red alert - from the main one with a quick look or by hand. A level can start with one, and the rule 'Switch palette' changes or fades to one during the game."),
         tut_step(WS_BACKDROP, "bd_tab_sky", "Copper sky", "The classic Amiga trick: the copper chip changes colour 0 on every line, painting a smooth sunset, sea or night sky behind your backdrop for free. Paint the sky areas in colour 0 to let it show."),
         // ---------- TILES ----------
-        tut_step(WS_TILES, "tile_on", "A tile world", "Switch this on and your game plays on a big map of tiles - up to 256 x 256 tiles (1024 x 1024 in ADAM Pro) - that scrolls every way as the player moves. Great for cave diggers and platformers."),
+        tut_step(WS_TILES, "tile_world", "What the game plays on", "The backdrop, a tile world - a big map of tiles, up to 256 x 256 (1024 x 1024 in ADAM Pro), that scrolls every way as the player moves, great for cave diggers and platformers - or a shoot 'em up map that the ship flies up."),
         tut_step(WS_TILES, "tile_tab_1", "Tile set", "Pick a tile size (8 x 8 to 64 x 64) and draw up to 96 kinds of tile (512 in ADAM Pro): grass, dirt, stone, gold, brick... Each says if it is solid, if it can be dug, how long it takes and what it scores."),
         tut_step(WS_TILES, "tile_tab_0", "Map", "Paint the map with the tile picked on the left. Box fills a rectangle, Pick grabs a tile from the map. Drag actors to place them anywhere in the world."),
         tut_step(WS_TILES, "tile_dig", "Dig and place", "The player digs with fire + a direction and puts tiles back with fire on its own - just like Terraria. Load the Dig Deep example to try it."),
+        tut_step(WS_TILES, "tile_tab_2", "Tools", "Give the player tools to pick with the space bar in the game: a pickaxe to dig, a hammer to build, ladder parts or torches to put down, or a sword that strikes enemies (the rule WHEN 'The player's weapon strikes an actor')."),
+        tut_step(WS_TILES, "tile_anim_n", "Animated tiles", "ADAM Pro: a tile can show 2 to 8 pictures in turn - water, lava, torches. It shows its own picture, then the next tiles' in the set, and still behaves as itself. Pick the speed and Loop or Ping-pong."),
         // ---------- LEVELS ----------
         tut_step(WS_LEVELS, "lvl_on", "Levels", "Switch levels on for a game of up to 10 levels. Each one has its own hills for platform players, hoppers and fallers to walk on."),
         tut_step(WS_LEVELS, "lvl_canvas", "Shape the ground", "Drag across the picture to draw where the ground is, or right-drag to smooth it. The hills are drawn by the Amiga at the start of each level, so they cost almost no memory."),
@@ -40,24 +44,26 @@ function tut_init()
         tut_step(WS_LEVELS, "lvl_goal_on", "The level goal", "Show a counter like GEMS 00/20. The 'Count towards the level goal' action adds one, and reaching the target moves on to the next level."),
         tut_step(WS_LEVELS, "lvl_title_on", "Title and level cards", "A title screen before the game, a 'LEVEL 2 - PRESS FIRE' card between levels, and your Win message after the last one."),
         // ---------- SPRITES ----------
-        tut_step(WS_SPRITES, "spr_slot_0", "Your sprites", "Sprites are the pictures for the things that move. Each one is an Amiga hardware sprite: 16 pixels wide, 24 tall, 3 colours plus see-through."),
+        tut_step(WS_SPRITES, "spr_slot_0", "Your sprites", "Sprites are the pictures for the things that move. At 16 x 24 with 3 colours (plus see-through) a sprite is one of the Amiga's hardware sprites. Bigger sizes - up to 32 x 32, or 64 x 64 in ADAM Pro - are drawn by the blitter as BOBs, in the backdrop's colours."),
         tut_step(WS_SPRITES, "spr_grid", "Draw pixels", "Left-click draws with the selected pen, right-click rubs out."),
         tut_step(WS_SPRITES, "spr_pen_0", "Three colours", "Pick a pen, then mix its colour with the sliders below. Every sprite has its own three colours."),
         tut_step(WS_SPRITES, "spr_name", "Name it", "Give each sprite a name - you will pick sprites by name on the Actors page."),
         tut_step(WS_SPRITES, "spr_op_fliph", "Quick changes", "Flip, shift, copy and paste the whole sprite with one click. Flip H makes a character face the other way."),
+        tut_step(WS_SPRITES, "spr_onion", "Onion skin", "Shows the sprite before (or after) this one faintly under the grid, so each frame of an animation lines up with the last."),
         // ---------- ACTORS ----------
-        tut_step(WS_ACTORS, "act_add", "Add actors", "Actors are the things in your game: the player, enemies, pickups. Each one is one of the Amiga's 8 hardware sprites. The first actor you add is your player."),
+        tut_step(WS_ACTORS, "act_add", "Add actors", "Actors are the things in your game: the player, enemies, pickups. The first 8 use the Amiga's hardware sprites; ADAM draws the rest - and big ones - as BOBs with the blitter (12 actors in ADAM Lite, 32 in Pro). The first actor you add is your player."),
         tut_step(WS_ACTORS, "act_stage", "Place them", "Drag actors around the stage to choose where they start. Guide lines show the exact position while you drag."),
         tut_step(WS_ACTORS, "act_role", "Choose a behaviour", "This is the magic part: a Player follows the joystick, a Chaser hunts the player, Bouncers bounce and Still things stay put. No code needed."),
         tut_step(WS_ACTORS, "act_speed", "Speed", "How fast this actor moves. Try 1 or 2 for enemies to start with - you can always speed them up with a rule."),
         tut_step(WS_ACTORS, "act_vis", "Hidden actors", "Actors can start hidden and appear later using the 'Show actor' action."),
-        tut_step(WS_ACTORS, "act_anim", "Animation", "Give an actor a second sprite and it flips between the two - a walk cycle, a flapping fin or a twinkling star. 'Only when moving' is perfect for walking."),
+        tut_step(WS_ACTORS, "act_anim", "Animation", "A quick two-frame animation: give an actor a second sprite and it flips between the two. For walk, jump, fire, hit and die animations in 8 directions, use the Animate page."),
         // ---------- ANIMATE ----------
         tut_step(WS_ANIMATE, "anim_mid_0", "Two joysticks", "The Moving joystick: Idle in the middle (click the stick) and an animation for each of the 8 ways it can move - people walking every way, a ship that veers and holds its lean (set it to Once). Hover a direction and the stick pushes that way."),
         tut_step(WS_ANIMATE, "anim_slot_0", "Frames", "Up to 6 frames each (16 in ADAM Pro). Click a frame - or the + after the last one - then click sprites in the bank to fill it in."),
         tut_step(WS_ANIMATE, "anim_bank_0", "The sprite bank", "All your sprites, ready to use as frames. Draw them on the Sprites page - there is room for 64 (128 in ADAM Pro)."),
         tut_step(WS_ANIMATE, "anim_rate", "Speed and style", "How long each frame stays on screen, and whether it loops, plays once or ping-pongs back and forth."),
         tut_step(WS_ANIMATE, "anim_mid_1", "With Fire", "The second joystick is for the player holding fire: Fire in the middle and fire + each direction - digging, shooting, swinging a sword. Its fire button lights up."),
+        tut_step(WS_ANIMATE, "anim_tab_21", "Hit and Die", "These play once when a rule says so - DO 'Play an animation' - and hold the last frame: a flinch, a squash, a puff of smoke. The rule WHEN 'An animation ends' can then send the actor home or hide it."),
         tut_step(WS_ANIMATE, "anim_tab_2", "In air and Falling", "Walk is used by any direction without frames of its own. In air and Falling play while a platform player, hopper or faller jumps and drops."),
         tut_step(WS_ANIMATE, "anim_lib_tab_1", "Animation library", "Every animation your actors already have, playing live. Drag one onto any joystick slot - or onto Walk, In air or Falling - to copy it there. You can also drag one slot onto another."),
         tut_step(WS_ANIMATE, "anim_test", "Test it", "Switch Test on and drive the preview with the arrow keys, WASD or a gamepad, to see each animation as the Amiga will play it."),
@@ -70,9 +76,11 @@ function tut_init()
         // ---------- LOGIC ----------
         tut_step(WS_LOGIC, "", "Rules make it a game", "Each rule is a sentence: WHEN something happens, DO something. For example: WHEN Hero touches Gem, DO add 10 to the score."),
         tut_step(WS_LOGIC, "logic_add", "Add a rule", "Press this to add a new rule, then change its parts with the drop-down menus."),
-        tut_step(WS_LOGIC, "rule_0_when", "The WHEN part", "Choose what triggers the rule: two actors touching, the fire button, a timer, a score target, running out of lives or the game starting. (Add a rule first if the list is empty.)"),
-        tut_step(WS_LOGIC, "rule_0_act", "The DO part", "Choose what happens: add score, lose or gain a life, play a sound, move or hide actors, change the background colour, win or game over."),
-        tut_step(WS_LOGIC, "logic_addgroup", "Groups", "Keep related rules together in named groups, like 'Hoppers hit the hero'. Collapse a group to tidy the list, or switch it off to test your game without those rules."),
+        tut_step(WS_LOGIC, "rule_0_when", "The WHEN part", "Choose what triggers the rule: two actors touching, the fire button, a timer, a score target, a shot or a weapon hitting something, picking up or using an item, an animation ending and more. (Add a rule first if the list is empty.)"),
+        tut_step(WS_LOGIC, "rule_0_act", "The DO part", "Choose what happens: add score, lose or gain a life, play a sound or music, move, hide, show or spawn actors, shoot, power up, play an animation, switch palette, give or take items, win or game over."),
+        tut_step(WS_LOGIC, "rule_0_anddo", "AND DO", "One thing is rarely enough: add up to 4 more lines that happen at the same moment - add to the score AND play a sound AND send the enemy home."),
+        tut_step(WS_LOGIC, "rule_0_addif", "IF lines", "Only fire the rule when the player has (or uses) an item - WHEN the hero touches the door, IF the player uses a KEY, DO hide the door. Make items on the Items tab."),
+        tut_step(WS_LOGIC, "logic_addgroup", "Groups", "Keep related rules together in named groups, like 'Hoppers hit the hero'. Groups can sit inside other groups. Collapse a group to tidy the list, or switch it off to test your game without those rules."),
         tut_step(WS_LOGIC, "logic_tpl_0", "Quick recipes", "Not sure where to start? These buttons add complete, ready-made rules for the most common game ideas."),
         // ---------- SOUND ----------
         tut_step(WS_SOUND, "snd_slot_0", "Your sounds", "Your game starts with 8 sounds. Pick one to edit it, or press Play to hear it. + Sound adds more (ADAM Pro: up to 64), + Folder keeps them tidy."),
@@ -81,6 +89,7 @@ function tut_init()
         tut_step(WS_SOUND, "snd_sweep", "Pitch slide", "Make the pitch rise or fall. Falling slides sound like lasers, rising slides like coins and power-ups."),
         tut_step(WS_SOUND, "snd_preview", "Listen", "ADAM turns the sound into a sample for the Amiga's Paula chip, so what you hear here is exactly what the game plays."),
         tut_step(WS_SOUND, "snd_kind_1", "Your own samples", "Switch a sound to Sample to import a WAV file. Lower the sample rate and the bits for that crunchy Amiga sound - and to save chip RAM."),
+        tut_step(WS_SOUND, "snd_kind_2", "The Patch synth", "A big synth: three oscillators, a filter with its own envelope, LFOs, modulation and effects. ADAM renders it into a sample, one-shot or with a looped sustain so it works as a music instrument too."),
         // ---------- MUSIC ----------
         tut_step(WS_MUSIC, "", "Make some music", "Songs are built from 1-bar loops, like a music maker: pick a loop on the left, paint it onto the timeline, press Play. The Amiga plays your song as a real ProTracker module."),
         tut_step(WS_MUSIC, "mus_song", "Your songs", "A game can have up to 4 songs. Press New to start one, or Import .mod to bring in a module made in ProTracker or OpenMPT."),
@@ -96,6 +105,7 @@ function tut_init()
         tut_step(WS_BUILD, "build_adf", "Build", "Press Build to create an .ADF disk image. It boots in FS-UAE or WinUAE, on a Gotek drive, or written to a real floppy."),
         tut_step(WS_BUILD, "build_fsuae", "Set up FS-UAE", "FS-UAE is a free Amiga emulator. Point ADAM at fs-uae.exe once and it will remember. No Kickstart ROM is needed - FS-UAE's free AROS ROM boots ADAM games."),
         tut_step(WS_BUILD, "build_run", "Build and play", "Builds your game and boots it straight away on a stock Amiga of the type you picked."),
+        tut_step(WS_BUILD, "build_disk2", "Two disks", "Level music can go on a second disk - the game asks for it when a level needs its song. ADAM uses one by itself when a game does not fit on a single disk."),
         tut_step(WS_BUILD, "build_showasm", "Peek under the hood", "Curious? This shows the 68000 engine your game runs on. ADAM never writes code: your game is data that the engine reads."),
         tut_step(WS_BUILD, "", "You're ready!", "That's everything. Load the example, change something, build it and see what happens. Have fun making Amiga games!")
     ];
@@ -106,6 +116,24 @@ function tut_init()
     tut_target_rect = [];
     tut_card_rect = [0, 0, 0, 0];
     tut_allow_target = true;
+    tut_shown = -1;                     // the step tut_show_step last opened the page for
+}
+
+/// Opens the part of a page that holds a tutorial step's target
+function tut_show_step(_step)
+{
+    var _t = _step.target;
+    if (_step.tab == WS_LOGIC) { logic_tab = 0; }       // the Logic page tour is about rules
+    if (_step.tab == WS_BACKDROP && string_pos("bd_tab_", _t) != 1 && _t != "bd_canvas") { bd_panel = 0; }
+    if (_step.tab == WS_UI && string_pos("ui_", _t) == 1) { ui_page_tab = 0; }
+    if (_step.tab == WS_ANIMATE && string_pos("anim_bank_", _t) == 1) { anim_lib_tab = 0; }
+    if (_step.tab == WS_TILES && _t == "tile_anim_n")
+    {
+        // the tile panel shows on the Map and Tile set tabs, for a tile that is not air
+        if (tile_page == 2) { tile_page = 1; }
+        if (tile_tool == 3 || tile_tool == 4) { tile_tool = 0; }
+        if (tile_sel == 0 && array_length(proj.tiles) > 1) { tile_sel = 1; }
+    }
 }
 
 /// _tab = -1 for the full tour, otherwise just that page
@@ -125,6 +153,7 @@ function tut_start(_tab)
     }
     if (array_length(tut_list) == 0) { return; }
     tut_index = 0;
+    tut_shown = -1;
     tut_active = true;
     tut_offer_on = false;
     tut_anim = 0;
@@ -148,7 +177,11 @@ function tut_draw(_gw, _gh)
         tut_target_rect = [];
         return;
     }
-    if (_step.tab == WS_LOGIC) { logic_tab = 0; }       // the Logic page tour is about rules
+    if (tut_shown != tut_index)
+    {
+        tut_shown = tut_index;
+        tut_show_step(_step);
+    }
     tut_anim = lerp(tut_anim, 1, 0.15);
     var _a = tut_anim;
     var _r = undefined;
