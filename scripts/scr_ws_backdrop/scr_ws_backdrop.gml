@@ -507,7 +507,7 @@ function ws_backdrop_draw(_x1, _y1, _x2, _y2)
     var _nd = ui_dropdown("bd_depth", _fx + 90, _y - 6, _fw - 90, 26, _dn, proj.depth - 1, "Number of colours|More colours means more bitplanes: more memory and more work for the Amiga. The " + _m.name + " backdrop can use up to " + string(1 << _m.max_depth) + ". Fewer colours moves pixels to the nearest colour that is left.") + 1;
     if (_nd != proj.depth)
     {
-        undo_mark("bddepth" + string(current_time));
+        undo_mark_full("bddepth" + string(current_time));     // (tiles change too)
         backdrop_set_depth(_nd);
     }
     _y += 28;
@@ -625,7 +625,7 @@ function backdrop_pals_panel(_px, _fx, _y, _fw, _x2, _y1, _y2)
     {
         if (ui_button("bd_pal_del", _fx + _bw + 8, _y, _bw, 32, "Delete", "Delete palette|Removes this palette. Levels and rules that used it go back to the main palette. You can Undo this.", BTN_DANGER))
         {
-            undo_mark("paldel" + string(current_time));
+            undo_mark_full("paldel" + string(current_time));      // (rules change too)
             palette_delete(bd_pview);
             bd_pview = 0;
             proj_dirty = true;

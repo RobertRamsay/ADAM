@@ -760,11 +760,12 @@ function music_toolbar(_cx1, _y1, _x2, _song)
             _song.name = _nm;
         }
         _bx += 168;
-        if (ui_button("mus_del", _bx, _ty, 72, 32, "Delete", "Delete song|Removes this song. Levels that played it go quiet. You can Undo this.", BTN_DANGER))
+        if (ui_button("mus_del", _bx, _ty, 72, 32, "Delete", "Delete song|Removes this song. Levels that played it go quiet and 'Play music' rules that played it play the first song. You can Undo this.", BTN_DANGER))
         {
             if (mus_playing) { music_preview_stop(); }
-            undo_mark("musdel" + string(current_time));
-            music_song_delete(mus_song);
+            undo_mark_full("musdel" + string(current_time));      // (rules change too)
+            var _was = music_song_delete(mus_song);
+            if (_was > 0) { toast(string(_was) + " 'Play music' rule(s) played it - they play the first song now", 1); }
             mus_song = max(0, mus_song - 1);
             mus_edit = -1;
             mus_brush = [-1, -1];

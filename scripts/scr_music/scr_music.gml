@@ -2040,7 +2040,8 @@ function music_song_loop_for_lib(_song, _lib)
     return array_length(_song.arr.loops) - 1;
 }
 
-/// Deletes song _i and fixes the level music choices
+/// Deletes song _i and fixes the level music choices and the 'Play music' rules
+/// (a rule that played it plays the first song). Returns how many rules played it.
 function music_song_delete(_i)
 {
     array_delete(proj.songs, _i, 1);
@@ -2052,6 +2053,24 @@ function music_song_delete(_i)
             if (proj.level_song[l] > _i) { proj.level_song[l] -= 1; }
         }
     }
+    var _hit = 0;
+    for (var r = 0; r < array_length(proj.rules); r++)
+    {
+        var _ru = proj.rules[r];
+        var _ds = [_ru];
+        for (var m = 0; m < array_length(_ru.more); m++) { array_push(_ds, _ru.more[m]); }
+        for (var d = 0; d < array_length(_ds); d++)
+        {
+            if (_ds[d].act != 18) { continue; }
+            if (_ds[d].value == _i)
+            {
+                _ds[d].value = 0;
+                _hit += 1;
+            }
+            else if (_ds[d].value > _i) { _ds[d].value -= 1; }
+        }
+    }
+    return _hit;
 }
 
 // ---------------------------------------------------------------------------

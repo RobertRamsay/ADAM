@@ -192,8 +192,8 @@ function ws_levels_draw(_x1, _y1, _x2, _y2)
     {
         if (_nl > 1)
         {
-            undo_mark("lvldel" + string(current_time));
-            array_delete(proj.levels, lvl_sel, 1);
+            undo_mark_full("lvldel" + string(current_time));      // (actors change too)
+            level_remove(lvl_sel);
             lvl_sel = max(0, lvl_sel - 1);
             terrain_changed();
         }
@@ -426,4 +426,24 @@ function levels_side_panel(_px, _y1, _x2, _y2)
     _y += 60;
     ui_text_wrap(_fx, _y, _endnote, global.TH.text_faint, _fw, global.f_small, 1);
     ui_scroll_end("lvl_side", _px + 4, _y1 + 46, _x2 - 4, _y2 - 6, _content);
+}
+
+/// Removes level _i (0-based): the later levels' music and palette move up with
+/// them, and actors that join on a later level join one level sooner
+function level_remove(_i)
+{
+    array_delete(proj.levels, _i, 1);
+    for (var l = _i; l < LEVEL_MAX - 1; l++)
+    {
+        proj.level_song[l] = proj.level_song[l + 1];
+        proj.level_pal[l] = proj.level_pal[l + 1];
+    }
+    proj.level_song[LEVEL_MAX - 1] = -1;
+    proj.level_pal[LEVEL_MAX - 1] = 0;
+    for (var a = 0; a < array_length(proj.actors); a++)
+    {
+        var _ac = proj.actors[a];
+        if (_ac.from_level > _i + 1) { _ac.from_level -= 1; }
+        _ac.from_level = max(1, _ac.from_level);
+    }
 }
