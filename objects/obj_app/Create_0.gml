@@ -564,6 +564,18 @@ shot_pages = [
     { ws : WS_MUSIC,    panel : 0, name : "music" },
     { ws : WS_BUILD,    panel : 0, name : "build" }
 ];
+// -adam_shots_tut: pages with one of their tutorial steps showing (devlog pictures)
+shot_tut_on = false;
+shot_tut_pages = [
+    { ws : WS_LOGIC,   panel : 1, name : "tut_items",    tut : "item_add" },
+    { ws : WS_LOGIC,   panel : 0, name : "tut_anddo",    tut : "rule_0_anddo" },
+    { ws : WS_ACTORS,  panel : 0, name : "tut_shots",    tut : "act_role" },
+    { ws : WS_ACTORS,  panel : 0, name : "tut_bob",      tut : "act_bob" },
+    { ws : WS_TILES,   panel : 0, name : "tut_tools",    tut : "tile_tab_2" },
+    { ws : WS_ANIMATE, panel : 0, name : "tut_hitdie",   tut : "anim_tab_21" },
+    { ws : WS_SOUND,   panel : 0, name : "tut_patch",    tut : "snd_kind_2" },
+    { ws : WS_MUSIC,   panel : 0, name : "tut_notes",    tut : "mus_grid" }
+];
 if (ADAM_DEV_TOOLS) { dev_cli_shots(); }
 
 // pick the Amiga before anything else (the Home tutorial follows it)

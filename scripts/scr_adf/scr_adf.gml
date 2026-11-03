@@ -1979,7 +1979,8 @@ function dev_cli_build()
 }
 
 /// Dev tool (ADAM_DEV_TOOLS): a PNG of every page, then quit.
-///     Runner.exe -game data.win -adam_shots in.adam outdir [-adam_shots_w 1920 -adam_shots_h 1080]
+///     Runner.exe -game data.win -adam_shots in.adam outdir [-adam_shots_w 1920 -adam_shots_h 1080] [-adam_shots_tut]
+/// -adam_shots_tut shoots shot_tut_pages instead: pages with one tutorial step showing.
 /// The window is set to that size at 100% scale, the mouse is ignored and nothing is
 /// saved (no autosave, settings or window place), so the session is unchanged.
 function dev_cli_shots()
@@ -1997,6 +1998,11 @@ function dev_cli_shots()
             if (parameter_string(k) == "-adam_shots_w") { _sw = real(parameter_string(k + 1)); }
             if (parameter_string(k) == "-adam_shots_h") { _sh = real(parameter_string(k + 1)); }
         }
+        for (var t = 0; t < _n; t++)
+        {
+            if (parameter_string(t) == "-adam_shots_tut") { shot_tut_on = true; }
+        }
+        if (shot_tut_on) { shot_pages = shot_tut_pages; }
         try
         {
             proj = project_from_loaded(json_parse(file_read_text(_in)));
@@ -2060,6 +2066,22 @@ function dev_shots_step()
     if (_pg.ws == WS_UI) { ui_page_tab = _pg.panel; }
     logic_tab = 0;
     if (_pg.ws == WS_LOGIC) { logic_tab = _pg.panel; }
+    if (shot_tut_on)
+    {
+        // -adam_shots_tut: the page with one of its tutorial steps showing
+        tut_active = false;
+        for (var i = 0; i < array_length(tut_steps); i++)
+        {
+            if (tut_steps[i].tab == _pg.ws && tut_steps[i].target == _pg.tut)
+            {
+                tut_list = [i];
+                tut_index = 0;
+                if (shot_wait == 0) { tut_shown = -1; }     // opens the step's tab once
+                tut_active = true;
+                tut_anim = 1;
+            }
+        }
+    }
     shot_wait += 1;
 }
 
