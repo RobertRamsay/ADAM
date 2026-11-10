@@ -70,7 +70,6 @@ function fonts_load(_scale)
     {
         global.f_hero = font_add(_dir + "Poppins-Bold.ttf", round(26 * _scale), false, false, 32, 255);
     }
-    if (global.f_body == -1)  { global.f_body  = -1; }
     if (global.f_bold == -1)  { global.f_bold  = global.f_body; }
     if (global.f_title == -1) { global.f_title = global.f_bold; }
     if (global.f_hero == -1)  { global.f_hero  = global.f_title; }

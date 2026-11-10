@@ -440,11 +440,10 @@ function sfx_preview_selftest()
 function sfx_preview_pitched(_s, _r, _sample, _note, _what)
 {
     if (array_length(_sample.data) < 2) { return; }
-    // a 2-pattern song: pattern 0 starts the note on channels 1 and 4 (index
-    // 0 and 3), pattern 1 is empty and its last row B01 jumps back to itself,
+    // a 2-pattern song: pattern 0 starts the note on channels 1 and 2 (index
+    // 0 and 1: one left, one right in music_player_mix, so it sounds in the
+    // middle), pattern 1 is empty and its last row B01 jumps back to itself,
     // so a looped sample keeps sounding until the preview is stopped.
-    // Note: channels 1 and 4 are both left in music_player_mix, so this plays
-    // on the left side only.
     var _ms = { title : _s.name, samples : [], order : [0, 1], restart : 1, patterns : [music_empty_pattern(), music_empty_pattern()] };
     for (var _i = 0; _i < 31; _i++) { array_push(_ms.samples, music_empty_sample()); }
     _ms.samples[0].data = _sample.data;
@@ -454,8 +453,8 @@ function sfx_preview_pitched(_s, _r, _sample, _note, _what)
     _ms.samples[0].loop_len = _sample.loop_len;
     _ms.patterns[0][0][0].note = _note;
     _ms.patterns[0][0][0].sample = 1;
-    _ms.patterns[0][0][3].note = _note;
-    _ms.patterns[0][0][3].sample = 1;
+    _ms.patterns[0][0][1].note = _note;
+    _ms.patterns[0][0][1].sample = 1;
     _ms.patterns[1][63][3].effect = 11;
     _ms.patterns[1][63][3].param = 1;
     music_preview_start(_ms, false, 0, 0, _what, 100 / 64);

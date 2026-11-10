@@ -374,13 +374,13 @@ function ws_actors_draw(_x1, _y1, _x2, _y2)
     var _sthelp = "Stage|Drag actors to set where they start. Hidden actors are drawn faded.";
     if (proj.tiles_on) { _sthelp = "Stage|A screen of the tile world round the selected actor: drag actors to set where they start. To place them anywhere on the map, use the Map on the Tiles page."; }
     ui_register("act_stage", _fx, _fy, _fx + _fw, _fy + _fh, _sthelp);
-    // which actor is under the mouse: searched from the highest number down, first hit wins.
-    // Note: actors are drawn highest number first (actor 0 in front), so where two overlap this
-    // picks the one drawn behind.
+    // which actor is under the mouse: searched from actor 0 up, first hit wins. Actors are
+    // drawn highest number first (actor 0 in front), so where two overlap this picks the
+    // one in front, as on the Amiga.
     var _hover = -1;
     if (ui_hit(_fx, _fy, _fx + _fw, _fy + _fh))
     {
-        for (var h = _na - 1; h >= 0; h--)
+        for (var h = 0; h < _na; h++)
         {
             var _hx = _fx + (proj.actors[h].x - _ox) * _scale;
             var _hy = _fy + (proj.actors[h].y - _oy) * _scale;
@@ -411,20 +411,22 @@ function ws_actors_draw(_x1, _y1, _x2, _y2)
         _ad.y = clamp(round((ui_my - act_drag_dy - _fy) / _scale) + _oy, 0, world_h() - _dd[1]);
         proj_dirty = true;
     }
-    // draw back to front: lower channels are in front on the Amiga
+    // draw back to front: lower channels are in front on the Amiga. Clipped to the stage, so
+    // an actor partly off it does not spill over the panel round it.
+    ui_scissor(_fx, _fy, _fw, _fh);
     for (var d = _na - 1; d >= 0; d--)
     {
         var _ac2 = proj.actors[d];
         var _dx = _fx + (_ac2.x - _ox) * _scale;
         var _dy = _fy + (_ac2.y - _oy) * _scale;
-        if (_dx < _fx - SPR_W * _scale || _dy < _fy - SPR_H * _scale || _dx > _fx + _fw || _dy > _fy + _fh) { continue; }
+        var _dd2 = actor_dims(_ac2);
+        if (_dx < _fx - _dd2[0] * _scale || _dy < _fy - _dd2[1] * _scale || _dx > _fx + _fw || _dy > _fy + _fh) { continue; }
         var _alpha = 1;
         if (!_ac2.visible) { _alpha = 0.4; }
         var _frame_spr = actor_preview_sprite(_ac2);
         draw_sprite_amiga_cols(_frame_spr, _dx, _dy, _scale, actor_cols_from(_alloc, d), _alpha);
     }
     // platforms: their tops (what is stood on) in a bright line
-    ui_scissor(_fx, _fy, _fw, _fh);
     for (var pq = 0; pq < _na; pq++)
     {
         var _pa = proj.actors[pq];
@@ -472,8 +474,8 @@ function ws_actors_draw(_x1, _y1, _x2, _y2)
         var _ac3 = proj.actors[d2];
         var _ex = _fx + (_ac3.x - _ox) * _scale;
         var _ey = _fy + (_ac3.y - _oy) * _scale;
-        if (_ex < _fx - SPR_W * _scale || _ey < _fy - SPR_H * _scale || _ex > _fx + _fw || _ey > _fy + _fh) { continue; }
         var _ed = actor_dims(_ac3);
+        if (_ex < _fx - _ed[0] * _scale || _ey < _fy - _ed[1] * _scale || _ex > _fx + _fw || _ey > _fy + _fh) { continue; }
         if (d2 == sel_actor)
         {
             ui_rrect_line(_ex - 4, _ey - 4, _ex + _ed[0] * _scale + 4, _ey + _ed[1] * _scale + 4, 6, global.TH.accent, 1, 2);

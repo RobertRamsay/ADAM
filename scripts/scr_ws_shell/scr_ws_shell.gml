@@ -222,7 +222,7 @@ function draw_topbar(_gw)
     var _rx = _gw - 14;
     _rx -= _tutw;
     // Learn ADAM: this page's tutorial (F1), the guided tour and the lessons
-    var _learn = ui_menu_button("top_learn", _rx, 14, _tutw, 32, _tutlab, learn_menu_names(), "Learn ADAM|This page's tutorial (also F1), the guided tour of every page, and lessons that each make a whole game step by step: Basics, Beginner, Intermediate and Experienced, then BOBs for ADAM Pro.", BTN_ACCENT);
+    var _learn = ui_menu_button("top_learn", _rx, 14, _tutw, 32, _tutlab, learn_menu_names(), "Learn ADAM|This page's tutorial (also F1), the guided tour of every page, and lessons that each make a whole game step by step: Basics, Beginner, Intermediate and Experienced, then for ADAM Pro: BOBs, a shoot 'em up, a loading screen and items.", BTN_ACCENT);
     // menu index -> action; must match the order built in learn_menu_names (scr_lessons)
     if (_learn == 0) { tut_start(ws); }
     if (_learn == 1) { tut_start(-1); }
@@ -352,7 +352,7 @@ function ws_help(_w)
     var _h = [
         "Home|Start here: open or create projects, pick the Amiga, and set game-wide options.",
         "Backdrop|Paint the 320 x 256 background picture, choose its colours, or import a picture.",
-        "Sprites|Draw up to 128 sprite pictures, 16 x 24 pixels with 3 colours each, for your players, enemies and pickups.",
+        "Sprites|Draw the pictures for your players, enemies and pickups (64 in ADAM Lite, 128 in Pro): 16 x 24 hardware sprites with 3 colours, or bigger BOBs in the backdrop's colours (up to 32 x 32 in Lite, 64 x 64 in Pro).",
         "Actors|Place the things that move: the player, enemies and pickups. Choose how each one behaves.",
         "Logic|Make the game rules in plain English: WHEN something happens, DO something. The Items tab holds the things the player carries, and recipes that make one item from two others.",
         "Sound|Design sound effects and instruments for the Amiga's Paula chip and hear them instantly - 8 in ADAM Lite, up to 64 in ADAM Pro, in folders.",
@@ -361,7 +361,7 @@ function ws_help(_w)
         "Music|Make up to 4 songs from ready-made loops on Paula's 4 channels, edit their notes, and choose the music for each level.",
         "Animate|Give each actor Idle, Walk, Jump and Fall animations from the sprite bank (6 frames each in ADAM Lite, 16 in ADAM Pro). The Amiga picks the right one as the actor moves.",
         "Tiles|Draw a tile set - tiles of 8 x 8 up to 64 x 64 pixels, 96 kinds in ADAM Lite, 512 in Pro - and paint a tile world (up to 256 x 256 tiles in Lite, 1024 x 1024 in Pro) that scrolls both ways - with digging and placing tiles, Terraria style.",
-        "UI|ADAM Pro: design the game's HUD - a framed panel (metal, wood, stone, neon, parchment or your own 9-slice frame), a font style or your own font, and fields for score, lives, the goal, the tile carried, the level and text, each with its own place, colour and shadow."
+        "UI|Design the game's HUD - a framed panel (metal, wood, stone, neon, parchment or your own 9-slice frame), a font style (or your own font in ADAM Pro), and fields for score, lives, the goal, the tile carried, the level, the tool, items and text, each with its own place, colour and shadow. ADAM Pro also makes a loading screen here."
     ];
     return _h[_w];
 }

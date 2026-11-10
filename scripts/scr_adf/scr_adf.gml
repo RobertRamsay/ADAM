@@ -1684,10 +1684,10 @@ function adam_data_block_raw(_p, _measure = false)
     {
         array_push(_warn, string(_nbobs) + " BOBs is a lot for the " + _m.short_name + " at " + string(_ncol) + " colours - about " + string(_bmax) + " small ones run at full speed (big BOBs count as several); with more the game slows down. Fewer BOBs or fewer colours help.");
     }
-    if (array_length(_acts) > _na)
+    if (array_length(_acts) > _na && !_p.tiles_on)      // (a tile world has its own warning below)
     {
-        if (pro_on()) { array_push(_warn, "Only the first " + string(ACT_MAX_ALL) + " actors go on the disk."); }
-        else { array_push(_warn, "Only the first " + string(ACT_MAX_SPR) + " actors go on the disk - more actors (as BOBs) are part of ADAM Pro."); }
+        // _na = how many this edition writes: lim_actors() (Lite 12, Pro 32)
+        array_push(_warn, "Only the first " + string(_na) + " actors go on the disk.");
     }
     if (_p.tiles_on && array_length(_acts) > ACT_MAX_TILE) { array_push(_warn, "A tile world has up to " + string(ACT_MAX_TILE) + " actors (hardware sprites - the scrolling display uses sprite 8's time) - only the first " + string(ACT_MAX_TILE) + " go on the disk."); }
     if (_p.tiles_on && _p.scroll_dir > 0) { array_push(_warn, "The backdrop does not scroll in a tile world - the map scrolls with the player instead."); }
