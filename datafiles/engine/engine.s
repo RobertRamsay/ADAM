@@ -265,7 +265,9 @@ A_BY1       equ 20
 A_SPR       equ 22         ; long offset of this actor's hardware sprite block
 A_CHAN      equ 26         ; hardware sprite channel 0..7 (colour pair = channel / 2)
 A_SPR2      equ 28         ; long offset of a hopper's crouch frame, 0 = none
-A_CARRY     equ 32         ; 1 = the player can pick it up (fire) and throw it (fire again)
+A_CARRY     equ 32         ; bit 0 = the player can pick it up (fire) and throw it (fire again);
+                           ; bit 1 = it can be stood on (a moving platform, plat_stand);
+                           ; byte 0 = a patrol's distance / 8 from where it starts (pat_lim), 0 = edge to edge
 A_AMODE     equ 34         ; animation flags: bit 0 = 8 directions (table has 12 entries),
                            ; bit 1 = Fire animations for the player (table has 21 entries),
                            ; bit 2 = Hit and Die: two more entries after those (DO 26)
@@ -342,6 +344,7 @@ SFX_PERIOD  equ 322        ; ~11015 Hz on PAL
 SCORE_MAX   equ 99999
 GRAVITY     equ 4          ; 1/16 pixel per frame per frame
 MAX_FALL    equ 96
+PLAT_GRAB   equ 12         ; a faller this far below a platform's top still lands on it
 JUMP_V      equ 59         ; platform player jump speed (1/16 px)
 HOP_SQUAT   equ 14         ; frames a hopper crouches before it jumps
 HOP_JUMP    equ 52         ; hopper jump speed (+8 per speed step)
@@ -418,6 +421,9 @@ v_ael       rs.w 1         ; its animation: 50ths counted since it started (plac
 v_arem      rs.w 1         ;   50ths into this step
 v_astep     rs.w 1         ;   steps since it started
 v_afr       rs.w 1         ;   steps into its cycle (loop: n, ping-pong: 2n - 2)
+v_onp       rs.w 1         ; standing on actor n - 1 that can be stood on (plat_stand), 0 = not
+v_plx       rs.w 1         ; an actor that can be stood on: where it was before move_actors
+v_ply       rs.w 1
             rsset   -128+MAX_ACT*ACTV_SIZE
 v_anim      rs.w 1
 v_joyprev   rs.w 1
@@ -549,6 +555,8 @@ v_mword     rs.w 1         ; 1 = map cells are words
 v_mcols     rs.w 1         ; the map's tiles across
 v_arec      rs.l MAX_ACT   ; each actor's record (actor_rec reads it: no multiply)
 v_vismask   rs.l 1         ; move_actors: bit per actor shown when it started (shot_hits)
+v_platall   rs.l 1         ; bit per actor that can be stood on (A_CARRY bit 1)
+v_platm     rs.l 1         ;   ... of those, the ones shown this frame (plat_save)
 v_hbx0      rs.w 1         ; shot_hits: the shot's box
 v_hbx1      rs.w 1
 v_hby0      rs.w 1
@@ -1168,8 +1176,16 @@ init_actors:
             move.l  H_ACTORS(a4),d0
             lea     0(a4,d0.l),a2
             moveq   #0,d7
+            move.l  #0,v_platall(a5)
+            move.l  #0,v_platm(a5)
 .a          move.w  d7,d5
             lsl.w   #ACTV_SHIFT,d5
+            btst    #1,A_CARRY+1(a2)        ; it can be stood on
+            beq.s   .npl
+            move.l  v_platall(a5),d0
+            bset    d7,d0
+            move.l  d0,v_platall(a5)
+.npl        move.w  #0,v_onp(a5,d5.w)
             move.w  A_X(a2),v_ax(a5,d5.w)
             move.w  A_Y(a2),v_ay(a5,d5.w)
             move.w  A_SPD(a2),d0            ; faster on later levels
@@ -1388,6 +1404,7 @@ frame:
             bsr     spawn_tick              ; a scrolling map's spawners
             bsr     carry_tick              ; fire picks up / throws
             bsr     move_actors
+            bsr     plat_carry              ; riders move with the platforms they stand on
             bsr     carry_follow            ; what the player carries rides on its head
             bsr     opt_follow              ; options follow the player's trail
             move.w  v_joy(a5),v_joyprev(a5)
@@ -1783,6 +1800,7 @@ move_actors:
 .vm0        sub.w   #1<<ACTV_SHIFT,d5
             dbf     d7,.vm
             move.l  d0,v_vismask(a5)
+            bsr     plat_save               ; where the actors that can be stood on start the frame
             move.l  H_ACTORS(a4),d0
             lea     0(a4,d0.l),a2
             moveq   #0,d7
@@ -1888,37 +1906,47 @@ move_actors:
 .pr1        move.w  d0,v_ax(a5,d5.w)
 .pr         bra     .next
 
-.horiz      move.w  v_spd(a5,d5.w),d1
+.horiz      move.w  A_X(a2),d0              ; d2..d3: where it patrols
+            move.w  A_LEFT(a2),d2
+            move.w  A_XMAX(a2),d3
+            bsr     pat_lim
+            move.w  v_spd(a5,d5.w),d1
             move.w  v_ax(a5,d5.w),d0
             tst.w   v_dx(a5,d5.w)
             bne.s   .hl
             add.w   d1,d0
-            cmp.w   A_XMAX(a2),d0
+            cmp.w   d3,d0
             ble.s   .hs
-            move.w  A_XMAX(a2),d0
+            move.w  d3,d0
             move.w  #1,v_dx(a5,d5.w)
             bra.s   .hs
 .hl         sub.w   d1,d0
+            cmp.w   d2,d0
             bge.s   .hs
-            moveq   #0,d0
+            move.w  d2,d0
             move.w  #0,v_dx(a5,d5.w)
 .hs         move.w  d0,v_ax(a5,d5.w)
             cmp.w   #1,A_ROLE(a2)           ; bouncer also moves vertically
             bne     .next
 
-.vert       move.w  v_spd(a5,d5.w),d1
+.vert       move.w  A_Y(a2),d0
+            move.w  A_UP(a2),d2
+            move.w  A_YMAX(a2),d3
+            bsr     pat_lim
+            move.w  v_spd(a5,d5.w),d1
             move.w  v_ay(a5,d5.w),d0
             tst.w   v_dy(a5,d5.w)
             bne.s   .vu
             add.w   d1,d0
-            cmp.w   A_YMAX(a2),d0
+            cmp.w   d3,d0
             ble.s   .vs
-            move.w  A_YMAX(a2),d0
+            move.w  d3,d0
             move.w  #1,v_dy(a5,d5.w)
             bra.s   .vs
 .vu         sub.w   d1,d0
+            cmp.w   d2,d0
             bge.s   .vs
-            moveq   #0,d0
+            move.w  d2,d0
             move.w  #0,v_dy(a5,d5.w)
 .vs         move.w  d0,v_ay(a5,d5.w)
             bra     .next
@@ -2174,8 +2202,11 @@ ground_y:   move.l  v_game(a5),d2           ; level hills win over painted groun
 .none       move.w  #256,d2
             rts
 
-; gravity and ground contact for actor d5 (record a2)
-physics:    tst.w   v_tmode(a5)
+; gravity and ground contact for actor d5 (record a2), then platforms it lands on
+physics:    bsr     phys_core
+            bra     plat_stand
+
+phys_core:  tst.w   v_tmode(a5)
             bne     tile_phys
             move.w  v_vy(a5,d5.w),d0
             cmp.w   #7,A_ROLE(a2)           ; hoppers float down more slowly
@@ -6399,7 +6430,7 @@ carry_tick:
             beq.s   .pn
             move.w  d6,d4
             bsr     actor_rec
-            tst.w   A_CARRY(a0)
+            btst    #0,A_CARRY+1(a0)
             beq.s   .pn
             move.w  A_FROM(a0),d0
             cmp.w   v_level(a5),d0
@@ -7037,6 +7068,157 @@ act_goal:   move.l  v_game(a5),d0
             bge     act_win
             bra     level_next
 
+; a patrol's limits: d0 where it starts, d2 1 = it starts going left / up, d3 the screen
+; limit -> d2 the low end, d3 the high end. A_CARRY byte 0 = the distance / 8 it goes from
+; its start the way it starts (0 = edge to edge)
+pat_lim:    move.l  d4,-(sp)
+            moveq   #0,d4
+            move.b  A_CARRY(a2),d4
+            beq.s   .all
+            lsl.w   #3,d4
+            tst.w   d2
+            beq.s   .fwd
+            move.w  d0,d2                   ; going left / up first: start - distance .. start
+            sub.w   d4,d2
+            bge.s   .l0
+            moveq   #0,d2
+.l0         cmp.w   d3,d0
+            bgt.s   .r
+            move.w  d0,d3
+            bra.s   .r
+.fwd        move.w  d0,d2                   ; start .. start + distance
+            add.w   d4,d0
+            cmp.w   d3,d0
+            bgt.s   .r
+            move.w  d0,d3
+            bra.s   .r
+.all        moveq   #0,d2
+.r          move.l  (sp)+,d4
+            rts
+
+; move_actors, first: where each actor that can be stood on is (v_plx / v_ply),
+; v_platm = those shown
+plat_save:  move.l  v_platall(a5),d0
+            move.l  d0,v_platm(a5)
+            beq.s   .r
+            movem.l d0-d2/d6,-(sp)
+            moveq   #-1,d6
+.lp         tst.l   d0
+            beq.s   .o
+            addq.w  #1,d6
+            lsr.l   #1,d0
+            bcc.s   .lp
+            move.w  d6,d1
+            lsl.w   #ACTV_SHIFT,d1
+            move.w  v_ax(a5,d1.w),v_plx(a5,d1.w)
+            move.w  v_ay(a5,d1.w),v_ply(a5,d1.w)
+            tst.w   v_vis(a5,d1.w)
+            bne.s   .lp
+            move.l  v_platm(a5),d2          ; hidden: nothing stands on it
+            bclr    d6,d2
+            move.l  d2,v_platm(a5)
+            bra.s   .lp
+.o          movem.l (sp)+,d0-d2/d6
+.r          rts
+
+; after physics: actor d5 (record a2) falling onto the top of an actor that can be stood
+; on (where that was at the start of the frame) stands on it; v_onp = it + 1
+plat_stand: move.w  #0,v_onp(a5,d5.w)
+            move.l  v_platm(a5),d0
+            beq     .r0
+            tst.w   v_vy(a5,d5.w)           ; going up: through it
+            bmi     .r0
+            movem.l d0-d7/a0,-(sp)
+            move.w  v_ax(a5,d5.w),d1
+            move.w  d1,d2
+            add.w   A_BX0(a2),d1            ; d1 its left, d2 its right
+            add.w   A_BX1(a2),d2
+            move.w  v_ay(a5,d5.w),d3
+            add.w   A_BY1(a2),d3
+            addq.w  #1,d3                   ; d3 its feet
+            moveq   #-1,d6
+.lp         tst.l   d0
+            beq.s   .out
+            addq.w  #1,d6
+            lsr.l   #1,d0
+            bcc.s   .lp
+            move.w  d6,d4
+            lsl.w   #ACTV_SHIFT,d4
+            cmp.w   d4,d5                   ; not on itself
+            beq.s   .lp
+            lea     v_arec(a5),a0
+            move.w  d6,d7
+            add.w   d7,d7
+            add.w   d7,d7
+            move.l  0(a0,d7.w),a0
+            move.w  v_plx(a5,d4.w),d7
+            add.w   A_BX1(a0),d7
+            cmp.w   d7,d1                   ; its left past the platform's right
+            bgt.s   .lp
+            move.w  v_plx(a5,d4.w),d7
+            add.w   A_BX0(a0),d7
+            cmp.w   d7,d2                   ; its right before the platform's left
+            blt.s   .lp
+            move.w  v_ply(a5,d4.w),d7
+            add.w   A_BY0(a0),d7            ; the platform's top
+            cmp.w   d7,d3
+            blt.s   .lp                     ; still above it
+            add.w   #PLAT_GRAB,d7
+            cmp.w   d7,d3
+            bgt.s   .lp                     ; too far below its top
+            sub.w   #PLAT_GRAB+1,d7         ; stand on it
+            sub.w   A_BY1(a2),d7
+            move.w  d7,v_ay(a5,d5.w)
+            move.w  #0,v_vy(a5,d5.w)
+            move.w  #0,v_ysub(a5,d5.w)
+            move.w  #1,v_gnd(a5,d5.w)
+            addq.w  #1,d6
+            move.w  d6,v_onp(a5,d5.w)
+.out        movem.l (sp)+,d0-d7/a0
+.r0         rts
+
+; after move_actors: each actor standing on one moves as far as it did this frame
+; (stopped at the screen edges, and by walls in a tile world)
+plat_carry: tst.l   v_platm(a5)
+            beq.s   .r
+            movem.l d0-d7/a0/a2,-(sp)
+            move.w  H_NACT(a4),d6
+            moveq   #0,d7
+.lp         move.w  d7,d5
+            lsl.w   #ACTV_SHIFT,d5
+            move.w  v_onp(a5,d5.w),d4
+            beq.s   .nx
+            subq.w  #1,d4
+            lsl.w   #ACTV_SHIFT,d4
+            move.w  v_ay(a5,d4.w),d1
+            sub.w   v_ply(a5,d4.w),d1
+            add.w   d1,v_ay(a5,d5.w)        ; up / down with it
+            move.w  v_ax(a5,d4.w),d0
+            sub.w   v_plx(a5,d4.w),d0
+            beq.s   .nx
+            lea     v_arec(a5),a0
+            move.w  d7,d2
+            add.w   d2,d2
+            add.w   d2,d2
+            move.l  0(a0,d2.w),a2
+            add.w   v_ax(a5,d5.w),d0
+            bpl.s   .x0
+            moveq   #0,d0
+.x0         cmp.w   A_XMAX(a2),d0
+            ble.s   .x1
+            move.w  A_XMAX(a2),d0
+.x1         tst.w   v_tmode(a5)
+            beq.s   .set
+            move.w  v_ay(a5,d5.w),d1        ; a tile world: not into a wall
+            bsr     box_solid
+            bne.s   .nx
+.set        move.w  d0,v_ax(a5,d5.w)
+.nx         addq.w  #1,d7
+            cmp.w   d6,d7
+            blt.s   .lp
+            movem.l (sp)+,d0-d7/a0/a2
+.r          rts
+
 ; God mode's F8: the level ends as if its goal were met (the last one, or a game with no
 ; levels, is won)
 level_skip: move.l  v_game(a5),d0
@@ -7048,6 +7230,7 @@ level_skip: move.l  v_game(a5),d0
             bra     level_next
 
 stop_fall:  move.w  #0,v_vy(a5,d5.w)
+            move.w  #0,v_onp(a5,d5.w)       ; off any platform
             move.w  #0,v_ysub(a5,d5.w)
             move.w  #0,v_gnd(a5,d5.w)
             move.w  #0,v_thr(a5,d5.w)       ; a thrown actor lands where it is sent

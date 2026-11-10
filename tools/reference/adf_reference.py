@@ -152,7 +152,7 @@ def build(proj, aga):
         if plans[i] and dirs_on(a) and nmain>=12: aflags|=1
         if plans[i] and nmain>12: aflags|=2
         if plans[i] and hd_used(a): aflags|=4
-        blob+=struct.pack('>HLHHHHHHHH',a.get('chan',i),spr2_offs[i],1 if a.get('carry') else 0,aflags,a.get('from',1),a.get('fast',0),
+        blob+=struct.pack('>HLHHHHHHHH',a.get('chan',i),spr2_offs[i],(1 if a.get('carry') else 0)|(2 if a.get('stand_on') else 0)|(min(255,a.get('patrol',0))<<8),aflags,a.get('from',1),a.get('fast',0),
                           1 if a.get('bob') else 0,ww-bw,wh-bh,bsize)
         blob+=struct.pack('>L',anim_offs[i])
         # shoot 'em up (version 9): A_PAT, A_ENTER (byte: comes back, byte: edge 0 top 1 right

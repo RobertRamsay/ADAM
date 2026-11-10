@@ -137,6 +137,8 @@ function actor_new(_name)
         faster_every : 0,
         bob : false,            // ADAM Pro: drawn by the blitter instead of a hardware sprite
         carry : false,          // the player picks it up (fire on it) and throws it (fire again)
+        stand_on : false,       // a moving platform: actors with gravity stand on it and ride along
+        patrol : 0,             // a patrol (roles 1-3): how far it goes from its start, in 8-pixel steps (0 = edge to edge)
         aim : 0,                // a shot (role 9): 0 the way the shooter moves, 1 up, 2 down, 3 left, 4 right, 5 at the player
         pattern : 0,            // a flyer (role 10): 0 straight, 1 wave, 2 zigzag, 3 homing, 4 with the scenery, 5 comes in and stays (boss)
         enter : 1,              // a flyer's edge: 0 top, 1 right, 2 bottom, 3 left
@@ -150,6 +152,7 @@ function actor_new(_name)
 }
 
 #macro COPIES_MAX 16            // copies of one actor on the disk
+#macro PATROL_MAX 255           // a patrol's distance: up to 255 steps of 8 pixels (A_CARRY byte 0)
 #macro SPAWN_MAX 128            // spawners on a shoot 'em up map
 #macro STAMP_MAX 64             // saved stamps (metatiles) on the Tiles page
 #macro SHMUP_COLS_MIN 12        // a shoot 'em up map's play area: 12 to 20 tiles of 16 across, an even
@@ -965,6 +968,14 @@ function project_from_loaded(_raw)
             _lact.fire_rate = clamp(floor(_lact.fire_rate), 10, 500);
             if (!is_numeric(_lact.fire_pat)) { _lact.fire_pat = 0; }
             _lact.fire_pat = clamp(floor(_lact.fire_pat), 0, 4);
+            if (!is_bool(_lact.stand_on))
+            {
+                var _so = false;
+                if (is_numeric(_lact.stand_on)) { _so = (_lact.stand_on != 0); }
+                _lact.stand_on = _so;
+            }
+            if (!is_numeric(_lact.patrol)) { _lact.patrol = 0; }
+            _lact.patrol = clamp(floor(_lact.patrol), 0, PATROL_MAX);
             array_push(_acts, _lact);
         }
     }

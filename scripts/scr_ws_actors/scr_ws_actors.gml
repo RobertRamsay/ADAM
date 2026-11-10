@@ -510,6 +510,15 @@ function ws_actors_draw(_x1, _y1, _x2, _y2)
         set_val(_s, "start_up", ui_toggle("act_up", _fx2, _y, "Starts moving up", _s.start_up, "Start direction|Whether this actor starts heading up instead of down."), "actup");
         _y += 32;
     }
+    if (_s.role >= 1 && _s.role <= 3)
+    {
+        ui_heading(_fx2, _y, "Patrols (8-pixel steps)");
+        set_val(_s, "patrol", ui_stepper("act_patrol", _fx2, _y + 18, _half, _s.patrol, 0, PATROL_MAX, "Patrol distance|How far it goes from where it starts before turning back, in steps of 8 pixels, the way it starts moving (4 = 32 pixels). 0 = right across the screen (or until a wall in a tile world). Hold Shift for steps of 10."), "actpatrol");
+        var _ptxt = "edge to edge";
+        if (_s.patrol > 0) { _ptxt = string(_s.patrol * 8) + " pixels"; }
+        ui_text(_fx2 + _half + 12, _y + 34, _ptxt, global.TH.text_dim, fa_left, fa_middle, global.f_body, 1);
+        _y += 62;
+    }
     if (_s.role == 9)
     {
         ui_heading(_fx2, _y, "Flies");
@@ -633,6 +642,8 @@ function ws_actors_draw(_x1, _y1, _x2, _y2)
     if (_s.role != 0 && _s.role != 6 && _s.role != 9)
     {
         set_val(_s, "carry", ui_toggle("act_carry", _fx2, _y, "Can be carried", _s.carry, "Can be carried|The player picks it up by touching it and pressing fire - it rides on the player's head - and fire again throws it the way the player faces, in an arc. Make rules with WHEN 'Thrown actor hits actor' (knock out an enemy, break a box) and 'Player picks up actor'. A rock, a barrel, a bomb, a key."), "actcarry");
+        _y += 34;
+        set_val(_s, "stand_on", ui_toggle("act_standon", _fx2, _y, "Can be stood on (a platform)", _s.stand_on, "Can be stood on|A moving platform: a platform player (and hoppers, fallers and thrown things) landing on its top stands on it and rides along - jump up through it from below. Make it Patrol left-right or Patrol up-down and set how far it patrols for a lift or a ferry. Its top is the top of its drawn pixels, so draw a flat sprite."), "actstandon");
         _y += 34;
     }
     var _yend = _y;
