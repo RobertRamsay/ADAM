@@ -1465,6 +1465,7 @@ function adam_data_block_raw(_p, _measure = false)
     buffer_poke(_b, 3, buffer_u8, ord("M"));
     var _flags = 0;
     if (_m.aga) { _flags = 1; }
+    _flags |= build_tflags;             // a test copy: God mode bits 1 / 2, the start level in the high byte
     var _sc = 0;
     if (_p.show_score) { _sc = 1; }
     var _lv = 0;

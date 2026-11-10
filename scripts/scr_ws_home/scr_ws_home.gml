@@ -268,7 +268,7 @@ function ws_home_draw(_x1, _y1, _x2, _y2)
             if (home_ex_click == e && current_time - home_ex_click_t < 400)
             {
                 home_ex_click = -1;
-                if (example_last == e && !proj_dirty) { build_ws_build(true); }
+                if (example_last == e && !proj_dirty) { build_ws_build(true, 0, false); }     // never in God mode
             }
             else
             {

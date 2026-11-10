@@ -115,6 +115,10 @@ fsuae_path = "";
 kick_paths = array_create(array_length(global.MACHINES), "");  // Kickstart ROM per machine ("" = FS-UAE's AROS)
 fsuae_light = true;
 fsuae_pad = 0;              // FS-UAE joystick: 0 keyboard (cursors + right Ctrl), 1 gamepad
+god_mode = false;           // Build page: Build and play makes a test copy with the choices below
+god_lives = true;           //     the lives never run out (H_FLAGS bit 1)
+god_skip = true;            //     F8 ends the level (H_FLAGS bit 2)
+build_tflags = 0;           // test copy bits OR'd into H_FLAGS while a test disk is written (0 = the real game)
 global.FSUAE_PAD_NAMES = ["Keyboard", "Gamepad"];
 app_focused = true;
 logo_quit_k = 0;            // top-left ball fading into the quit X (0 ball - 1 X)

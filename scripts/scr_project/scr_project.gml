@@ -1908,6 +1908,9 @@ function settings_load()
     }
     fsuae_light = ini_read_real("emulator", "light", 1) == 1;
     fsuae_pad = clamp(round(ini_read_real("emulator", "pad", 0)), 0, 1);
+    god_mode = ini_read_real("god", "on", 0) == 1;
+    god_lives = ini_read_real("god", "lives", 1) == 1;
+    god_skip = ini_read_real("god", "skip", 1) == 1;
     out_path = ini_read_string("paths", "adf", "");
     proj_path = ini_read_string("paths", "project", "");
     last_machine = ini_read_string("machine", "last", "A1200");
@@ -1948,6 +1951,15 @@ function settings_save()
     if (fsuae_light) { _light = 1; }
     ini_write_real("emulator", "light", _light);
     ini_write_real("emulator", "pad", fsuae_pad);
+    var _g = 0;
+    if (god_mode) { _g = 1; }
+    ini_write_real("god", "on", _g);
+    _g = 0;
+    if (god_lives) { _g = 1; }
+    ini_write_real("god", "lives", _g);
+    _g = 0;
+    if (god_skip) { _g = 1; }
+    ini_write_real("god", "skip", _g);
     ini_write_string("paths", "adf", out_path);
     ini_write_string("paths", "project", proj_path);
     ini_write_string("machine", "last", last_machine);

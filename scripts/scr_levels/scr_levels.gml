@@ -157,7 +157,12 @@ function ws_levels_draw(_x1, _y1, _x2, _y2)
         var _atxt = string(_en) + " actors";
         if (_en == 1) { _atxt = "1 actor"; }
         ui_text(_x1 + 92, _ry + 25, _atxt, _acol, fa_left, fa_middle, global.f_small, 1);
-        if (_hot && ui_pressed)
+        // Test: play from this level straight away (a test copy, God mode as on the Build page)
+        if (proj.levels_on && ui_button("lvl_test_" + string(i), _x1 + _lw - 58, _ry + 5, 44, 24, "Test", "Test this level|Plays the game from this level straight away in FS-UAE, with no title screen. It builds a test copy in the temp folder - your own disk is not changed - and the God mode choices on the Build page apply when God mode is on. The score and lives start as at the beginning of the game.", BTN_GHOST))
+        {
+            build_ws_build(true, i + 1);
+        }
+        if (_hot && ui_pressed && ui_hot == _id)
         {
             lvl_sel = i;
             ui_take_click();

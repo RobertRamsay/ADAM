@@ -28,7 +28,8 @@ NULL_IS_CLEARED equ 1
 ; ---------------- game data header (offsets from data_start) ----------------
 H_MAGIC     equ 0
 H_VERSION   equ 4
-H_FLAGS     equ 6          ; bit 0 = AGA machine
+H_FLAGS     equ 6          ; bit 0 = AGA machine; test copies (God mode, Test a level): bit 1 lives never
+                           ; run out, bit 2 F8 ends the level; high byte = the level to start on (0 = title, level 1)
 H_DEPTH     equ 8          ; backdrop bitplanes 1..8
 H_NACT      equ 10
 H_NRULE     equ 12
@@ -645,7 +646,12 @@ game_restart:
             bsr     tiles_off
             bsr     hide_sprites
             bsr     restore_backdrop
-            move.l  v_game(a5),d0           ; title screen
+            moveq   #0,d0                   ; a test copy can start on a later level, with no title
+            move.b  H_FLAGS(a4),d0
+            beq.s   .title
+            move.w  d0,v_level(a5)
+            bra.s   .notitle
+.title      move.l  v_game(a5),d0           ; title screen
             beq.s   .notitle
             move.l  d0,a0
             tst.w   G_TITLE(a0)
@@ -1363,7 +1369,11 @@ frame:
             move.w  #0,v_hitn(a5)
             bsr     read_joy
             bsr     read_key
-            bsr     tool_menu               ; space bar: the tool menu - the game waits while it is open
+            btst    #2,H_FLAGS+1(a4)        ; God mode: F8 ends the level
+            beq.s   .nof8
+            cmp.w   #$157,v_key(a5)
+            beq     level_skip
+.nof8       bsr     tool_menu               ; space bar: the tool menu - the game waits while it is open
             bne     .wait
             move.w  v_igot(a5),v_igotp(a5)  ; items got last frame: WHEN 17 sees them now
             move.w  #0,v_igot(a5)
@@ -7027,6 +7037,16 @@ act_goal:   move.l  v_game(a5),d0
             bge     act_win
             bra     level_next
 
+; God mode's F8: the level ends as if its goal were met (the last one, or a game with no
+; levels, is won)
+level_skip: move.l  v_game(a5),d0
+            beq     act_win
+            move.l  d0,a0
+            move.w  v_level(a5),d0
+            cmp.w   G_NLEVELS(a0),d0
+            bge     act_win
+            bra     level_next
+
 stop_fall:  move.w  #0,v_vy(a5,d5.w)
             move.w  #0,v_ysub(a5,d5.w)
             move.w  #0,v_gnd(a5,d5.w)
@@ -7065,6 +7085,8 @@ act_score:  moveq   #0,d0
             bra     draw_hud
 
 act_loselife:
+            btst    #1,H_FLAGS+1(a4)        ; God mode: the lives never run out
+            bne.s   .z
             tst.w   v_lives(a5)
             beq.s   .z
             subq.w  #1,v_lives(a5)

@@ -17,13 +17,40 @@ function build_choose_output()
     return true;
 }
 
-function build_ws_build(_run)
+/// True when God mode is on with something ticked
+function god_on()
+{
+    return god_mode && (god_lives || god_skip);
+}
+
+/// The H_FLAGS bits of a God mode test copy (engine.s H_FLAGS)
+function god_flags()
+{
+    var _f = 0;
+    if (!god_mode) { return 0; }
+    if (god_lives) { _f |= 2; }
+    if (god_skip) { _f |= 4; }
+    return _f;
+}
+
+/// _run: play it in FS-UAE. _start: a test copy that starts on this level (Levels page Test,
+/// 0 = the real start). _god: God mode applies (Build and play; never for a game played from Home)
+function build_ws_build(_run, _start = 0, _god = true)
 {
     // Build & play with no disk chosen yet (an example, a new game): play a test
     // disk from the temp folder straight away. Build on its own asks where to save.
     var _path = out_path;
     var _test = false;
-    if (_path == "")
+    var _tf = 0;
+    if (_run && _god) { _tf = god_flags(); }
+    if (_run && _start > 0) { _tf |= clamp(_start, 1, LEVEL_MAX) << 8; }
+    if (_tf != 0)
+    {
+        // a test copy never overwrites the disk you chose
+        _path = temp_directory + "adam_test.adf";
+        _test = true;
+    }
+    else if (_path == "")
     {
         if (_run)
         {
@@ -37,10 +64,21 @@ function build_ws_build(_run)
         }
     }
     var _t0 = current_time;
-    if (build_adf(_path))
+    build_tflags = _tf;
+    var _ok = build_adf(_path);
+    build_tflags = 0;
+    if (_ok)
     {
         build_log_add(build_msg + "  (" + string(current_time - _t0) + " ms)", 0);
-        if (_test) { build_log_add("Test disk in the temp folder - press Build to save the disk where you want it.", 0); }
+        if (_tf != 0)
+        {
+            var _what = "Test copy";
+            if (_start > 0) { _what += ", starting on level " + string(_start); }
+            if ((_tf & 2) != 0) { _what += ", lives never run out"; }
+            if ((_tf & 4) != 0) { _what += ", F8 ends the level"; }
+            build_log_add(_what + " - your own disk is not changed. Build makes the real game.", 0);
+        }
+        else if (_test) { build_log_add("Test disk in the temp folder - press Build to save the disk where you want it.", 0); }
         for (var i = 0; i < array_length(build_warnings); i++) { build_log_add(build_warnings[i], 1); }
         toast("Build complete!", 0);
         build_make_listing();
@@ -179,7 +217,12 @@ function ws_build_draw(_x1, _y1, _x2, _y2)
         array_push(_ih, _ihk);
         _content += _ihk;
     }
-    _content += 10 + 54 + 62 + 60 + 36 + 132 + 68 + 20 + 34 + 16 + 12;
+    _content += 10 + 54 + 62 + 60 + 36 + 40 + 132 + 68 + 20 + 34 + 16 + 12;
+    if (god_mode)
+    {
+        _content += 60;
+        if (!god_on()) { _content += 24; }
+    }
     var _sx1 = _x1 + 2;
     var _sy1 = _y1 + 46;
     var _sx2 = _x1 + _lw - 2;
@@ -230,6 +273,34 @@ function ws_build_draw(_x1, _y1, _x2, _y2)
         mem_mark_stale();
     }
     _y += 36;
+    // God mode: Build and play (F5) makes a test copy (build_tflags); Build always the real game
+    var _gm = ui_toggle("build_god", _fx, _y, "God mode while testing", god_mode, "God mode|For testing: Build and play (and F5) make a copy of the game with the choices ticked below, in the temp folder. Build .ADF always makes the real game, and games played from Home are never in God mode.");
+    if (_gm != god_mode)
+    {
+        god_mode = _gm;
+        settings_save();
+    }
+    _y += 34;
+    if (god_mode)
+    {
+        var _gx = _fx + 24;
+        var _gl = ui_toggle("build_god_lives", _gx, _y, "Lives never run out", god_lives, "Lives never run out|'Lose a life' rules still do everything else (send the player home, take items away), but the lives never go down - no game over from losing lives.");
+        if (_gl != god_lives)
+        {
+            god_lives = _gl;
+            settings_save();
+        }
+        _y += 30;
+        var _gs = ui_toggle("build_god_skip", _gx, _y, "Skip a level with F8", god_skip, "Skip a level with F8|Pressing F8 in FS-UAE ends the level as if its goal were met, so the next level starts (after the last one, or in a game with no levels, the game is won).");
+        if (_gs != god_skip)
+        {
+            god_skip = _gs;
+            settings_save();
+        }
+        _y += 30;
+        if (!god_on()) { ui_text(_gx, _y + 2, "Nothing ticked: Build and play makes the real game.", global.TH.text_faint, fa_left, fa_top, global.f_small, 1); _y += 24; }
+    }
+    _y += 6;
     // FS-UAE: the user's own copy, ADAM's test copy, or an install found on disk
     ui_heading(_fx, _y, "FS-UAE emulator");
     var _btn_w = 88;
