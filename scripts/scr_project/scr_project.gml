@@ -803,7 +803,7 @@ function project_new()
         level_pal : array_create(LEVEL_MAX, 0),  // the palette each level starts with: 0 main, k = palettes[k - 1]
         items : [],                              // inventory items (Logic page, Items tab): item_new
         recipes : [],                            // item + item makes an item: recipe_new
-        disk2_music : false,                     // the songs levels start with go on disk 2 (Build page)
+        disk2_music : false,                     // the songs levels start with, and the levels' own maps, go on disk 2 (Build page)
         tiles_on : false,                        // play on the tile map (Tiles page) instead of the backdrop
         tile_size : 16,                          // 8, 16, 32 or 64 pixels: every tile in the game
         tiles : tiles_default(16),               // up to TILE_MAX tiles; 0 = air

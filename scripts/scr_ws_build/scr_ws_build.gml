@@ -203,7 +203,7 @@ function ws_build_draw(_x1, _y1, _x2, _y2)
         else { array_push(_items, "Nothing finishes a level - add a 'Count towards the level goal' rule"); array_push(_kinds, 1); }
     }
     if (proj.show_lives && !_lose) { array_push(_items, "Lives are shown but no rule takes a life away"); array_push(_kinds, 1); }
-    if (build_ok && build_disk2 != "") { array_push(_items, "Two disks: " + filename_name(build_disk2) + " holds the level music (FS-UAE puts it in DF1)"); array_push(_kinds, 0); }
+    if (build_ok && build_disk2 != "") { array_push(_items, "Two disks: " + filename_name(build_disk2) + " holds level music or maps (FS-UAE puts it in DF1)"); array_push(_kinds, 0); }
 
     // long checklist lines wrap instead of being cut short; the column scrolls
     // when it is taller than the panel (a 760-high window, a long checklist)
@@ -265,7 +265,7 @@ function ws_build_draw(_x1, _y1, _x2, _y2)
         build_choose_output();
     }
     _y += 60;
-    var _two = ui_toggle("build_disk2", _fx, _y, "Level music on a second disk", proj.disk2_music, "Second disk|Puts the songs your levels start with on disk 2 (" + "<name>_disk2.adf, next to the game disk), leaving the game disk more room. The game asks for disk 2 the first time a level needs it - or reads it from a second drive (DF1) - while the level card is up. ADAM does this by itself when a game does not fit on one disk. Songs a 'play music' rule plays stay on the game disk.");
+    var _two = ui_toggle("build_disk2", _fx, _y, "Level music and maps on a second disk", proj.disk2_music, "Second disk|Puts the songs your levels start with, and the levels' own tile maps (Tiles page), on disk 2 (" + "<name>_disk2.adf, next to the game disk), leaving the game disk more room - only one level's map is in chip RAM at a time. The game asks for disk 2 the first time a level needs it - or reads it from a second drive (DF1) - while the level card is up. ADAM does this by itself when a game does not fit on one disk or in chip RAM. Songs a 'play music' rule plays, and level 1's map, stay on the game disk.");
     if (_two != proj.disk2_music)
     {
         proj.disk2_music = _two;

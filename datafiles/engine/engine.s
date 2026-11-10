@@ -106,6 +106,9 @@ IF_LINE     equ $8000      ; a rule line with this bit in its act word is an IF 
 D2_ID       equ 0          ; long: the id disk 2 must carry
 D2_RAW      equ 4          ; long: offset (cleared memory after the data) of the raw track buffer
 D2_BUF      equ 8          ; long: offset of the song buffer (the biggest disk 2 song, whole tracks)
+D2_MAP      equ 12         ; long: offset of the map buffer (a level's tile map, whole tracks), 0 = no
+                           ; maps on disk 2 (version 17: a level map table entry with bit 31 set is a
+                           ; byte offset on disk 2, read at the level card by map_fetch)
 TRK_BYTES   equ 5632       ; 11 sectors of 512
 RAW_WORDS   equ 6400       ; read a whole turn of the disk and a bit (12800 bytes)
 
@@ -446,6 +449,7 @@ v_pfade     rs.w 1         ; palette fade: frames left, 0 = none
 v_pftot     rs.w 1         ; and how many it takes
 v_cophold   rs.w 1         ; setcol: the caller holds the copper (AGA with a copper sky)
 v_d2song    rs.w 1         ; disk 2: the song in the buffer, -1 = none
+v_d2map     rs.l 1         ; disk 2: the level map in the map buffer (its table entry, bit 31 set), -1 = none
 v_d2drv     rs.w 1         ; the drive disk 2 was last found in, -1 = not yet
 v_dcyl      rs.w 4         ; each drive's head: cylinder, -1 = not known
 v_curpal    rs.l PAL_FADE  ; the backdrop colours shown now
@@ -3693,15 +3697,20 @@ tiles_start:
             btst    #2,T_FLAGS+1(a0)        ; a map per level: T_MAP is a table of them
             beq.s   .one
             lea     0(a4,d0.l),a1
-            move.w  v_level(a5),d1
-            subq.w  #1,d1
-            cmp.w   #9,d1
-            bls.s   .lv
-            moveq   #9,d1
-.lv         lsl.w   #2,d1
-            move.l  0(a1,d1.w),d1
+            move.l  d5,-(sp)
+            bsr     lmap_entry
+            move.l  d5,d1
+            move.l  (sp)+,d5
+            tst.l   d1
             beq.s   .l1                     ; 0: level 1's map
-            move.l  d1,d0
+            bpl.s   .mem
+            cmp.l   v_d2map(a5),d1          ; on disk 2: from the map buffer (map_fetch)
+            bne.s   .l1                     ; (it would not read: level 1's)
+            move.l  H_DISK2(a4),d0
+            lea     0(a4,d0.l),a0
+            move.l  D2_MAP(a0),d0
+            bra.s   .one
+.mem        move.l  d1,d0
             bra.s   .one
 .l1         move.l  (a1),d0
 .one        lea     0(a4,d0.l),a0           ; designed map -> map as played
@@ -7960,6 +7969,7 @@ music_play:
 ;  disk 2 (version 12)
 ; ============================================================================
 disk2_init: move.w  #-1,v_d2song(a5)
+            move.l  #-1,v_d2map(a5)
             move.w  #-1,v_d2drv(a5)
             move.l  #-1,v_dcyl(a5)
             move.l  #-1,v_dcyl+4(a5)
@@ -7985,6 +7995,72 @@ level_disk2:
             beq.s   .out
             bsr     song_fetch
 .out        movem.l (sp)+,d0-d1/a0
+            bra     map_fetch               ; and its tile map, if that lives there
+
+; at a level card: when this level's own tile map lives on disk 2 and is not in the map
+; buffer, read it in (tiles_start copies it from there; level 1's map if it would not read)
+map_fetch:
+            movem.l d0-d7/a0-a3,-(sp)
+            tst.l   H_DISK2(a4)
+            beq     .out
+            move.l  v_tiles(a5),d0
+            beq     .out
+            move.l  d0,a0
+            btst    #2,T_FLAGS+1(a0)
+            beq     .out
+            move.l  T_MAP(a0),d0
+            lea     0(a4,d0.l),a1
+            bsr     lmap_entry              ; -> d5
+            tst.l   d5
+            bpl     .out                    ; in memory (or level 1's)
+            cmp.l   v_d2map(a5),d5
+            beq     .out                    ; in the buffer already
+            move.l  #-1,v_d2map(a5)
+            move.w  v_tw(a5),d6             ; its bytes
+            mulu    v_th(a5),d6
+            move.w  v_tcell(a5),d0
+            lsl.l   d0,d6
+            move.l  H_DISK2(a4),d2
+            lea     0(a4,d2.l),a2
+            move.l  D2_MAP(a2),d2
+            beq     .out
+            lea     0(a4,d2.l),a2           ; a2 = the map buffer
+            bsr     disk2_find              ; -> d0 drive
+            lea     str_loading(pc),a0
+            moveq   #15,d2
+            bsr     say
+            move.l  d5,d1
+            and.l   #$7fffffff,d1
+            divu    #TRK_BYTES,d1           ; d1.w = its first track
+            add.l   #TRK_BYTES-1,d6
+            divu    #TRK_BYTES,d6           ; d6.w = tracks
+            subq.w  #1,d6
+.trk        bsr     track_read
+            bne.s   .bad
+            lea     TRK_BYTES(a2),a2
+            addq.w  #1,d1
+            dbf     d6,.trk
+            move.l  d5,v_d2map(a5)
+            bra.s   .done
+.bad        bsr     drive_off               ; a damaged disk 2: say so, then play level 1's map
+            lea     str_d2err(pc),a0
+            moveq   #17,d2
+            bsr     say
+            bsr     wait_fire
+.done       bsr     drive_off
+            bsr     restore_backdrop
+.out        movem.l (sp)+,d0-d7/a0-a3
+            rts
+
+; a1 = the level map table (T_FLAGS bit 2) -> d5.l = this level's entry: 0 level 1's, bit 31
+; set = on disk 2, else an offset from the data start
+lmap_entry: move.w  v_level(a5),d5
+            subq.w  #1,d5
+            cmp.w   #9,d5
+            bls.s   .lv
+            moveq   #9,d5
+.lv         lsl.w   #2,d5
+            move.l  0(a1,d5.w),d5
             rts
 
 ; d0.w = song: when it lives on disk 2 and is not in the buffer, find disk 2 and read it
@@ -8007,6 +8083,10 @@ song_fetch:
             and.l   #$7fffffff,d5
             bsr     music_stop
             move.w  #-1,v_d2song(a5)
+            move.l  H_DISK2(a4),d2
+            lea     0(a4,d2.l),a2
+            move.l  D2_BUF(a2),d2
+            lea     0(a4,d2.l),a2           ; a2 = the song buffer
             bsr     disk2_find              ; -> d0 drive
             lea     str_loading(pc),a0
             moveq   #15,d2
@@ -8015,10 +8095,6 @@ song_fetch:
             divu    #TRK_BYTES,d1           ; d1.w = its first track
             add.l   #TRK_BYTES-1,d6
             divu    #TRK_BYTES,d6           ; d6.w = tracks
-            move.l  H_DISK2(a4),d2
-            lea     0(a4,d2.l),a2
-            move.l  D2_BUF(a2),d2
-            lea     0(a4,d2.l),a2           ; a2 = the song buffer
             subq.w  #1,d6
 .trk        bsr     track_read
             bne.s   .bad
@@ -8043,6 +8119,7 @@ say:        movem.l d0-d7/a0-a3,-(sp)
             movem.l (sp)+,d0-d7/a0-a3
             rts
 
+; a2 = the buffer about to be filled (at least a track; disk2_check reads track 0 into it)
 ; -> d0.w = the drive disk 2 is in: where it was last, then DF1, then DF0; while it is
 ; in none of them the screen asks for it
 disk2_find:
@@ -8076,13 +8153,13 @@ disk2_find:
 .r          movem.l (sp)+,d1-d7/a0-a3
             rts
 
-; d0.w = drive: Z set when disk 2 (its 'ADM2' sector with D2_ID) is in it
+; d0.w = drive, a2 = a buffer of a track: Z set when disk 2 (its 'ADM2' sector with
+; D2_ID) is in it. Track 0 is read into the buffer about to be filled, so a song or map
+; already in the other buffer stays.
 disk2_check:
             movem.l d0-d2/a0-a2,-(sp)
             move.l  H_DISK2(a4),d1
             lea     0(a4,d1.l),a1
-            move.l  D2_BUF(a1),d1
-            lea     0(a4,d1.l),a2           ; read track 0 into the song buffer
             moveq   #0,d1
             bsr     track_read
             bne.s   .no

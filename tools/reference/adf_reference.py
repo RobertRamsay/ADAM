@@ -235,6 +235,8 @@ def build(proj, aga):
     # px (size x size colour indexes), solid, dig, hard, points, goal, sound (-1 none), becomes)],
     # map=[w*h tile numbers]). More than 256 tile types: map cells are words.
     off_tiles=0; tile_fix=None
+    d2maps=[]                                  # levels' own maps for disk 2: (table slot, bytes), placed after the songs
+    d2mapbuf=0
     t=proj.get('tiles')
     if t:
         align(8)
@@ -287,13 +289,18 @@ def build(proj, aga):
         if own:
             while len(blob)%8: blob.append(0)
             offs=[0]*10; offs[0]=off_map
+            pend=[]
             for l in own:
+                cells=b''.join(struct.pack('>H',v) for v in lms[l]) if wcell else bytes(lms[l])
+                if proj.get('d2maps'):             # version 17: on disk 2 (proj['d2maps'], Build page switch)
+                    pend.append((l,cells)); continue
                 offs[l]=len(blob)
-                if wcell: blob.extend(b''.join(struct.pack('>H',v) for v in lms[l]))
-                else: blob.extend(bytes(lms[l]))
+                blob.extend(cells)
                 while len(blob)%8: blob.append(0)
             off_map=len(blob)
             blob.extend(struct.pack('>10L',*offs))
+            d2maps=[(off_map+l*4,c) for l,c in pend]
+            if pend: d2mapbuf=(len(pend[0][1])+5631)//5632*5632
             struct.pack_into('>H',blob,tile_fix-2,struct.unpack_from('>H',blob,tile_fix-2)[0]|4)
         align(8)
         struct.pack_into('>LL',blob,tile_fix,off_img,off_map)
@@ -369,6 +376,15 @@ def build(proj, aga):
             struct.pack_into('>LL',blob,tab+i*8,len(blob),len(m))
             blob.extend(m)
         align(8)
+    nd2maps=0
+    for slot,m in d2maps:                      # the levels' own maps after the songs, each from a track start
+        if d2pos+len(m)>901120: continue       # disk 2 full: level 1's map
+        if disk2 is None: disk2=bytearray(901120)
+        disk2[d2pos:d2pos+len(m)]=m
+        d2id=disk2_id_add(d2id,m)
+        struct.pack_into('>L',blob,slot,0x80000000|d2pos)
+        d2pos+=(len(m)+5631)//5632*5632; nd2maps+=1
+    if not nd2maps: d2mapbuf=0
     off_work=len(blob)
     blob+=b'\0'*(depth*10240)
     align(8)
@@ -459,7 +475,7 @@ def build(proj, aga):
         disk2[0:8]=b'ADM2'+struct.pack('>L',d2id)
         align(8)
         off_d2=len(blob)
-        blob.extend(struct.pack('>LLL',d2id,0,0))
+        blob.extend(struct.pack('>LLLL',d2id,0,0,0))    # D2_ID, D2_RAW, D2_BUF, D2_MAP (version 17)
         align(8)
     proj['_disk2']=bytes(disk2) if disk2 is not None else None
     # tile world: the map as played and the scrolling picture go in cleared memory after the data
@@ -480,8 +496,10 @@ def build(proj, aga):
     if off_d2:
         size_now=(len(blob)+7)//8*8
         base=(size_now+bss+7)//8*8
+        songbuf=(d2max+5631)//5632*5632
         struct.pack_into('>LL',blob,off_d2+4,base,base+12800)
-        bss=base+12800+(d2max+5631)//5632*5632-size_now
+        if d2mapbuf: struct.pack_into('>L',blob,off_d2+12,base+12800+songbuf)
+        bss=base+12800+songbuf+d2mapbuf-size_now
     proj['_need']=((len(blob)+7)//8*8)+bss if (t or sc or off_d2) else 0     # bytes needed from the data start
     player=-1
     for i,a in enumerate(actors):
@@ -489,7 +507,7 @@ def build(proj, aga):
     # H_FLAGS: bit 0 AGA; a test copy (God mode, Test a level - ADAM only, proj['_test']) ORs in
     # bit 1 lives never run out, bit 2 F8 ends the level, and the level to start on << 8
     flags=(1 if aga else 0)|proj.get('_test',0)
-    hdr=struct.pack('>4sHHHHHHHHHHHH',b'ADAM',16,flags,depth,len(actors),len(rules),proj['lives'],
+    hdr=struct.pack('>4sHHHHHHHHHHHH',b'ADAM',17,flags,depth,len(actors),len(rules),proj['lives'],
                     int(proj['show_score']),int(proj['show_lives']),proj['hud_row'],proj['hud_col'],proj['msg_col'],player & 0xffff)+struct.pack('>L',off_game)
     hdr+=struct.pack('>LLLLLLLLLLLLLLL',off_pal,off_planes,off_act,off_rules,off_sfx,off_over,off_win,off_sprcol,off_disp,off_grad,off_ground,off_work,off_music,off_disp2,off_back)
     hdr+=struct.pack('>LLLLLL',off_tiles,off_ui,off_scroll,off_pals,off_d2,off_items)
