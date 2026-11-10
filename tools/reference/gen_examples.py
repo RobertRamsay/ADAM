@@ -3,7 +3,7 @@
 # Usage: python gen_examples.py
 import json, math, random, struct, sys, os
 from PIL import Image, ImageDraw
-import art
+import art, gh_art
 from adf_reference import build, adf, loadscr_block, ENGINE, ENGINE_DIR, HERE, REPO
 
 W,H=320,256
@@ -342,24 +342,13 @@ def gem_hunter():
             if hw>0: P[x+hw,yy]=dmix(8,15,0.5,x+hw,yy)
     d.rectangle([0,0,319,11],fill=2)
     hero_cols=[0xffd23a,0x3a2410,0xffffff]; hop_cols=[0xff5060,0x601020,0xffffff]; cloud_cols=[0xffffff,0xa8b8d0,0xd8e4f4]
-    def grid(fn): return ["".join(".123"[fn(x,y)] for x in range(16)) for y in range(24)]
-    def hero(x,y):
-        v=1 if math.hypot(x-7.5,y-9.5)<=7.4 else 0
-        if x in(5,10) and y in(7,8): v=2
-        if y==12 and 5<=x<=10: v=2
-        if y==11 and x in(4,11): v=2
-        if x in(5,10) and y==6: v=3
-        if 17<=y<=22 and x in(5,6,9,10): v=2
-        return v
-    def hero2(x,y):
-        v=hero(x,y)
-        if 17<=y<=22 and x in(5,6,9,10): v=1 if math.hypot(x-7.5,y-9.5)<=7.4 else 0
-        if 17<=y<=22 and ((x in(4,5) and y<21) or (x in(10,11) and y<21) or (y>=21 and x in(3,4,11,12))): v=2
-        return v
-    art.A['gh_hero']=grid(hero); art.A['gh_hero2']=grid(hero2)
+    # round, shaded cast (gh_art: lit from the upper left, a dithered shadow, a shine)
+    gh_stand,gh_walk,gh_idle,gh_jump,gh_fall=gh_art.hero_frames()
+    art.A['gh_hero']=gh_stand; art.A['gh_hero2']=gh_walk[0]
+    art.A['gh_hop']=gh_art.hopper(2); art.A['gh_hop2']=gh_art.hopper(0)
     # the gem shares the hero's colour pair (gold), so 4 hoppers still fit the 8 hardware sprites
-    sprites=[("Hero","gh_hero",hero_cols),("Hopper","hop2",hop_cols),("Gem","gem",hero_cols),("Cloud","cloud",cloud_cols),
-             ("Hero walk","gh_hero2",hero_cols),("Hopper squat","hop",hop_cols),("Gem sparkle","gem2",hero_cols),("Cloud puff","cloud2",cloud_cols),
+    sprites=[("Hero","gh_hero",hero_cols),("Hopper","gh_hop2",hop_cols),("Gem","gem",hero_cols),("Cloud","cloud",cloud_cols),
+             ("Hero walk","gh_hero2",hero_cols),("Hopper squat","gh_hop",hop_cols),("Gem sparkle","gem2",hero_cols),("Cloud puff","cloud2",cloud_cols),
              ("Pop","pop",cloud_cols),("Pop big","pop2",cloud_cols)]
     def hop(name,x,frm,left=False):
         a=actor(name,1,7,1,x,120,5,10,left=left); a['from_level']=frm; a['faster_every']=3; return a
@@ -398,13 +387,15 @@ def gem_hunter():
         levels.append(dict(seed=seed,hilly=hilly,base=200,heights=terrain(seed,hilly,200)))
     p.update(levels_on=True,levels=levels,terrain_cols=[10,9,11,12],goal_on=True,goal=20,goal_label="GEMS",
              title_on=True,title1="GEM HUNTER",title2="PRESS FIRE TO START",lev_text="LEVEL")
-    H=art.A['gh_hero']; H2=art.A['gh_hero2']; HP=art.A['hop2']; C=art.A['cloud']; C2=art.A['cloud2']; G2=art.A['gem2']; P2=art.A['pop2']
-    hero=dict(flip=True,anims={0:([0,("Hero bob",tf_shift(H,dy=-1)),("Hero bob 2",tf_shift(H,dy=-2))],12,2),
-                               1:([0,4,("Hero step",tf_shift(H,dy=-1)),("Hero walk 2",tf_flip_from(H2,15))],5,0),
-                               2:([4,("Hero leap",tf_shift(H2,dy=-1)),("Hero leap 2",tf_shift(H2,dy=-2))],4,1)})
-    hero['anims'][3]=([("Hero bob",tf_shift(H,dy=-1)),("Hero drop",tf_shift(H,dy=1)),0],4,1)
-    hopper=dict(anims={0:([1,("Hopper wobble",tf_shift(HP,dy=1)),("Hopper wobble 2",tf_shift(HP,dx=1,dy=1))],10,2),
-                       2:([1,("Hopper stretch",tf_shift(HP,dy=-1)),("Hopper stretch 2",tf_shift(HP,dy=-2))],4,1)})
+    HP=art.A['gh_hop2']; C=art.A['cloud']; C2=art.A['cloud2']; G2=art.A['gem2']; P2=art.A['pop2']
+    # idle breathes and blinks; a four-step walk; tucks its feet up to jump, flails as it falls
+    hero=dict(flip=True,anims={0:([0,("Hero breathe",gh_idle[1]),0,("Hero blink",gh_idle[3])],14,0),
+                               1:([4,("Hero walk 2",gh_walk[1]),("Hero walk 3",gh_walk[2]),("Hero walk 4",gh_walk[3])],5,0),
+                               2:([("Hero jump",gh_jump[0]),("Hero tuck",gh_jump[1])],6,1),
+                               3:([("Hero fall",gh_fall[0]),("Hero fall 2",gh_fall[1])],8,2)})
+    # hoppers look round and blink while they wait, stretch as they spring
+    hopper=dict(anims={0:([1,("Hopper look",gh_art.hopper(0,1)),1,("Hopper blink",gh_art.hopper(0,blink=True))],16,0),
+                       2:([("Hopper crouch",gh_art.hopper(1)),("Hopper stretch",tf_shift(HP,dy=-1)),("Hopper stretch 2",tf_shift(HP,dy=-2))],4,1)})
     animate(p,"gh",{0:hero,1:hopper,2:hopper,3:hopper,4:hopper,
                     5:dict(anims={0:([3,7,("Cloud drift",tf_shift(C,dx=1)),("Cloud drift puff",tf_shift(C2,dx=1))],25,0)}),
                     6:dict(anims={0:([2,6,("Gem sparkle 2",tf_hflip(G2))],10,0)}),
