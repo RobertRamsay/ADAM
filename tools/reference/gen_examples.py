@@ -3,7 +3,7 @@
 # Usage: python gen_examples.py
 import json, math, random, struct, sys, os
 from PIL import Image, ImageDraw
-import art, gh_art
+import art, gh_art, shade
 from adf_reference import build, adf, loadscr_block, ENGINE, ENGINE_DIR, HERE, REPO
 
 W,H=320,256
@@ -1054,6 +1054,15 @@ def preview(p,fn):
     im.save(os.path.join(REPO,'datafiles','examples','shots',os.path.splitext(os.path.basename(fn))[0]+'.png'))
     im.resize((640,512),Image.NEAREST).save(fn)
 
+# the examples' flat-coloured actors get light from the upper left (shade.py): a shine and a
+# dithered shadow on round bodies ('round'), a lit rim and a shadow edge on others ('edge')
+R_=dict(mode='round'); E_=dict(mode='edge')
+SHADE={'dodge_ball':{'Player':R_,'Red 1':R_,'Red 2':R_,'Yellow 1':R_,'Yellow 2':R_},
+       'dig_deep':{'Slime 1':R_,'Slime 2':R_,'Rock':R_,'Mole':R_},
+       'torchlight':{'Hopper':R_},
+       'star_catcher':{'Asteroid 1':R_,'Asteroid 2':R_,'UFO':E_},
+       'deep_dive':{'Pearl':R_}}
+
 if __name__=='__main__':
     OUT=os.path.join(HERE,'out'); os.makedirs(OUT,exist_ok=True)
     os.makedirs(os.path.join(REPO,'datafiles','examples','shots'),exist_ok=True)    # shot(): the Home page's pictures
@@ -1070,6 +1079,7 @@ if __name__=='__main__':
         if aga: aga_begin()
         p=make()
         aga_end()
+        if fn in SHADE: shade.shade_actors(p,SHADE[fn])     # round, lit bodies for the flat sprites
         auto_groups(p)
         merge_rules(p)
         name=fn
