@@ -408,6 +408,49 @@ function ws_actors_draw(_x1, _y1, _x2, _y2)
         var _frame_spr = actor_preview_sprite(_ac2);
         draw_sprite_amiga_cols(_frame_spr, _dx, _dy, _scale, actor_cols_from(_alloc, d), _alpha);
     }
+    // platforms: their tops (what is stood on) in a bright line
+    ui_scissor(_fx, _fy, _fw, _fh);
+    for (var pq = 0; pq < _na; pq++)
+    {
+        var _pa = proj.actors[pq];
+        if (!_pa.stand_on || _pa.role == 0 || _pa.role == 6 || _pa.role == 9) { continue; }
+        var _pd = actor_dims(_pa);
+        var _ptx = _fx + (_pa.x - _ox) * _scale;
+        var _pty = _fy + (_pa.y + sprite_top(_pa.sprite) - _oy) * _scale;
+        draw_set_alpha(0.85);
+        draw_line_width_colour(_ptx, _pty - 1, _ptx + _pd[0] * _scale, _pty - 1, 2, global.TH.accent2, global.TH.accent2);
+        draw_set_alpha(1);
+    }
+    // the selected patroller: where it goes (ghosts at both ends, joined by a dotted line)
+    if (_na > 0)
+    {
+        var _sa = proj.actors[sel_actor];
+        if (_sa.role >= 1 && _sa.role <= 3)
+        {
+            var _sd = actor_dims(_sa);
+            for (var ax = 0; ax < 2; ax++)
+            {
+                var _across = (ax == 0);
+                if (_across && _sa.role == 3) { continue; }
+                if (!_across && _sa.role == 2) { continue; }
+                var _rg = act_patrol_range(_sa, _across);
+                var _x0 = _sa.x;
+                var _y0 = _sa.y;
+                var _x1r = _sa.x;
+                var _y1r = _sa.y;
+                if (_across) { _x0 = _rg[0]; _x1r = _rg[1]; }
+                else { _y0 = _rg[0]; _y1r = _rg[1]; }
+                var _ga = _fx + (_x0 - _ox) * _scale;
+                var _gb = _fy + (_y0 - _oy) * _scale;
+                var _gc = _fx + (_x1r - _ox) * _scale;
+                var _gd = _fy + (_y1r - _oy) * _scale;
+                ui_dotted_line(_ga + _sd[0] * _scale / 2, _gb + _sd[1] * _scale / 2, _gc + _sd[0] * _scale / 2, _gd + _sd[1] * _scale / 2, global.TH.accent, 0.8, 6);
+                ui_rrect_line(_ga, _gb, _ga + _sd[0] * _scale, _gb + _sd[1] * _scale, 4, global.TH.accent, 0.45, 1);
+                ui_rrect_line(_gc, _gd, _gc + _sd[0] * _scale, _gd + _sd[1] * _scale, 4, global.TH.accent, 0.45, 1);
+            }
+        }
+    }
+    ui_scissor_reset();
     for (var d2 = 0; d2 < _na; d2++)
     {
         var _ac3 = proj.actors[d2];
@@ -476,8 +519,8 @@ function ws_actors_draw(_x1, _y1, _x2, _y2)
     var _rdesc = [
         "Moves with a joystick in port 2. Stops at the edges of the screen.",
         "Moves diagonally and bounces off every edge like a ball.",
-        "Moves left and right, turning around at the screen edges.",
-        "Moves up and down, turning around at the top and bottom.",
+        "Moves left and right, turning around at the screen edges - or after the distance set under Patrols.",
+        "Moves up and down, turning around at the top and bottom - or after the distance set under Patrols. With 'Can be stood on' it is a lift.",
         "Always heads towards the player. Speed 1 is gentle, 3 is scary!",
         "Stays where you put it. Great for pickups, doors and goals.",
         "Walks left and right on the ground and jumps with fire (or up). Follows the hills - set your ground colours on the Backdrop page.",
@@ -696,6 +739,39 @@ function ws_actors_draw(_x1, _y1, _x2, _y2)
     }
     ds_map_replace(ui_scroll, "act_props_h", _yend + _soff - _sy1 + 12);
     ui_scroll_end("act_props", _px + 4, _sy1, _x2 - 4, _sy2, _sh);
+}
+
+/// Where actor _a patrols (engine.s pat_lim): [low end, high end] of its x (_across) or y,
+/// from where it starts the way it starts moving; edge to edge when its patrol is 0
+function act_patrol_range(_a, _across)
+{
+    var _d = actor_dims(_a);
+    var _start = _a.x;
+    var _back = _a.start_left;
+    var _max = world_w() - _d[0];
+    if (!_across)
+    {
+        _start = _a.y;
+        _back = _a.start_up;
+        _max = world_h() - _d[1];
+    }
+    var _lo = 0;
+    var _hi = _max;
+    if (_a.patrol > 0)
+    {
+        var _dist = _a.patrol * 8;
+        if (_back)
+        {
+            _lo = max(0, _start - _dist);
+            _hi = min(_start, _max);
+        }
+        else
+        {
+            _lo = _start;
+            _hi = min(_start + _dist, _max);
+        }
+    }
+    return [_lo, _hi];
 }
 
 /// Colours for actor _i from an allocation result
