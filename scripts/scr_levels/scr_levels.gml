@@ -49,7 +49,7 @@ function level_names()
 /// Heights of the level shown in the editors, or undefined
 function level_heights_shown()
 {
-    if (!proj.levels_on || !proj.hills_on || array_length(proj.levels) == 0) { return undefined; }
+    if (!proj.levels_on || !proj.hills_on || proj.tiles_on || array_length(proj.levels) == 0) { return undefined; }
     return proj.levels[clamp(lvl_sel, 0, array_length(proj.levels) - 1)].heights;
 }
 
@@ -138,15 +138,28 @@ function ws_levels_draw(_x1, _y1, _x2, _y2)
         var _a = ui_anim_to(_id, _tgt);
         if (lvl_sel == i) { ui_rrect(_x1 + 10, _ry, _x1 + _lw - 10, _ry + 34, 9, global.TH.accent, global.TH.accent_dark, 0.9); }
         else { ui_rrect(_x1 + 10, _ry, _x1 + _lw - 10, _ry + 34, 9, global.TH.btn_hot_top, global.TH.btn_hot_bot, 0.25 + _a * 0.75); }
-        // little hill thumbnail
+        // little hill thumbnail (a tile world: a map's worth of tiles - own map or level 1's)
         var _hh = proj.levels[i].heights;
-        draw_set_colour(pal_col(proj.terrain_cols[1]));
-        for (var t = 0; t < 64; t++)
+        var _tw2 = 40;
+        if (proj.tiles_on)
         {
-            var _hy = (_hh[t * 5] - 100) / 140 * 22;
-            draw_line(_x1 + 18 + t, _ry + 6 + _hy, _x1 + 18 + t, _ry + 29);
+            var _mc = global.TH.text_faint;
+            if (i == 0 || level_map_own(i)) { _mc = global.TH.accent2; }
+            ui_rrect(_x1 + 18, _ry + 7, _x1 + 18 + _tw2, _ry + 27, 4, _mc, merge_colour(_mc, c_black, 0.35), 0.8);
+            var _mt = "MAP";
+            if (i > 0 && !level_map_own(i)) { _mt = "= 1"; }
+            ui_text(_x1 + 18 + _tw2 / 2, _ry + 17, _mt, c_white, fa_center, fa_middle, global.f_small, 1);
         }
-        ui_text(_x1 + 92, _ry + 11, "Level " + string(i + 1), global.TH.text, fa_left, fa_middle, global.f_bold, 1);
+        else
+        {
+            draw_set_colour(pal_col(proj.terrain_cols[1]));
+            for (var t = 0; t < _tw2; t++)
+            {
+                var _hy = (_hh[t * 8] - 100) / 140 * 22;
+                draw_line(_x1 + 18 + t, _ry + 6 + _hy, _x1 + 18 + t, _ry + 29);
+            }
+        }
+        ui_text(_x1 + 68, _ry + 11, "Level " + string(i + 1), global.TH.text, fa_left, fa_middle, global.f_bold, 1);
         var _en = 0;
         for (var a = 0; a < array_length(proj.actors); a++)
         {
@@ -156,9 +169,9 @@ function ws_levels_draw(_x1, _y1, _x2, _y2)
         if (lvl_sel == i) { _acol = global.TH.text; }
         var _atxt = string(_en) + " actors";
         if (_en == 1) { _atxt = "1 actor"; }
-        ui_text(_x1 + 92, _ry + 25, _atxt, _acol, fa_left, fa_middle, global.f_small, 1);
+        ui_text(_x1 + 68, _ry + 25, _atxt, _acol, fa_left, fa_middle, global.f_small, 1);
         // Test: play from this level straight away (a test copy, God mode as on the Build page)
-        if (proj.levels_on && ui_button("lvl_test_" + string(i), _x1 + _lw - 58, _ry + 5, 44, 24, "Test", "Test this level|Plays the game from this level straight away in FS-UAE, with no title screen. It builds a test copy in the temp folder - your own disk is not changed - and the God mode choices on the Build page apply when God mode is on. The score and lives start as at the beginning of the game.", BTN_GHOST))
+        if (proj.levels_on && ui_button("lvl_test_" + string(i), _x1 + _lw - 70, _ry + 5, 56, 24, "Test", "Test this level|Plays the game from this level straight away in FS-UAE, with no title screen. It builds a test copy in the temp folder - your own disk is not changed - and the God mode choices on the Build page apply when God mode is on. The score and lives start as at the beginning of the game.", BTN_GHOST))
         {
             build_ws_build(true, i + 1);
         }
@@ -220,6 +233,30 @@ function ws_levels_draw(_x1, _y1, _x2, _y2)
     if (!proj.levels_on || _nl == 0)
     {
         ui_text_wrap(_fx + 20, _fy + 20, "Turn on 'Levels and hills' to give your game up to 10 levels, each with its own ground to walk on.", c_white, _fw - 40, global.f_body, 1);
+        levels_side_panel(_x2 - _rw, _y1, _x2, _y2);
+        return;
+    }
+    if (proj.tiles_on)
+    {
+        // a tile world: the map is the ground (no hills) - say which map this level plays on
+        var _own = (lvl_sel == 0 || level_map_own(lvl_sel));
+        var _msg = "Level " + string(lvl_sel + 1) + " plays on level 1's map.";
+        if (lvl_sel == 0) { _msg = "Level 1 plays on the main map."; }
+        else if (_own) { _msg = "Level " + string(lvl_sel + 1) + " plays on a map of its own."; }
+        _msg += " In a tile world the map is the ground, so levels have no hills.";
+        if (lvl_sel > 0 && !_own) { _msg += " Give it its own map on the Tiles page (Map for)."; }
+        var _bw4 = min(_fw - 60, 420);
+        var _bx4 = _fx + (_fw - _bw4) / 2;
+        var _by4 = _fy + _fh / 2 - 70;
+        ui_rrect(_bx4, _by4, _bx4 + _bw4, _by4 + 140, 12, global.TH.panel_top, global.TH.panel_bot, 0.94);
+        ui_text_wrap(_bx4 + 20, _by4 + 16, _msg, global.TH.text, _bw4 - 40, global.f_body, 1);
+        if (ui_button("lvl_openmap", _bx4 + 20, _by4 + 92, _bw4 - 40, 34, "Open this level's map", "Open this level's map|Goes to the Tiles page with this level's map showing.", BTN_ACCENT))
+        {
+            tile_page = 0;
+            tmap_lvl = lvl_sel;
+            tile_map_dirty = true;
+            ws_set(WS_TILES);
+        }
         levels_side_panel(_x2 - _rw, _y1, _x2, _y2);
         return;
     }
@@ -287,6 +324,17 @@ function ws_levels_draw(_x1, _y1, _x2, _y2)
     levels_side_panel(_x2 - _rw, _y1, _x2, _y2);
 }
 
+/// Highest drawn row of a sprite (a platform's top)
+function sprite_top(_si)
+{
+    var _s = proj.sprites[clamp(_si, 0, SPR_COUNT - 1)];
+    for (var q = 0; q < _s.w * _s.h; q++)
+    {
+        if (_s.px[q] != 0) { return q div _s.w; }
+    }
+    return 0;
+}
+
 /// Lowest drawn row of a sprite (feet)
 function sprite_bottom(_si)
 {
@@ -312,33 +360,42 @@ function levels_side_panel(_px, _y1, _x2, _y2)
     var _content = 10 + 174 + 106 + 116 + 226 + ceil(ui_sh_ext(_endnote, _fw)) + 12;
     if (proj.levels_on && _nl > 0) { _content += 256; }
     if (proj.levels_on && _nl > 0 && array_length(proj.palettes) > 0) { _content += 62; }
+    var _hills = !proj.tiles_on;            // a tile world: the map is the ground (no hill settings)
+    if (!_hills)
+    {
+        _content -= 174 + 42;
+        if (proj.levels_on && _nl > 0) { _content -= 194; }
+    }
     var _off = ui_scroll_begin("lvl_side", _px + 4, _y1 + 46, _x2 - 4, _y2 - 6, _content);
     _y -= _off;
     if (proj.levels_on && _nl > 0)
     {
         var _lev = proj.levels[lvl_sel];
-        ui_heading(_fx, _y, "Level " + string(lvl_sel + 1) + " hills");
-        _y += 20;
-        ui_heading(_fx, _y, "Seed");
-        var _ns = ui_stepper("lvl_seed", _fx, _y + 18, _half, _lev.seed, 1, 99999, "Seed|The number the hills grow from. The same seed always gives the same hills. Change it, then press Generate.");
-        if (_ns != _lev.seed)
+        if (_hills)
         {
-            undo_mark("lvlseed");
-            _lev.seed = _ns;
+            ui_heading(_fx, _y, "Level " + string(lvl_sel + 1) + " hills");
+            _y += 20;
+            ui_heading(_fx, _y, "Seed");
+            var _ns = ui_stepper("lvl_seed", _fx, _y + 18, _half, _lev.seed, 1, 99999, "Seed|The number the hills grow from. The same seed always gives the same hills. Change it, then press Generate.");
+            if (_ns != _lev.seed)
+            {
+                undo_mark("lvlseed");
+                _lev.seed = _ns;
+            }
+            if (ui_button("lvl_gen", _fx + _half + 12, _y + 18, _half, 30, "Generate", "Generate hills|Replaces this level's ground with fresh hills from the seed, hilliness and height. You can then reshape them by drawing.", BTN_ACCENT))
+            {
+                undo_mark("lvlgen" + string(current_time));
+                _lev.heights = terrain_generate(_lev.seed, _lev.hilly, _lev.base);
+                terrain_changed();
+            }
+            _y += 60;
+            ui_heading(_fx, _y, "Hilliness  " + string(_lev.hilly) + "%");
+            set_val(_lev, "hilly", ui_slider("lvl_hilly", _fx, _y + 18, _fw, _lev.hilly, 0, 150, "Hilliness|How steep and tall the hills are when you press Generate."), "lvlhilly");
+            _y += 52;
+            ui_heading(_fx, _y, "Ground height  " + string(256 - _lev.base));
+            set_val(_lev, "base", ui_slider("lvl_base", _fx, _y + 18, _fw, _lev.base, 150, 230, "Ground height|Where the middle of the hills sits when you press Generate. Higher numbers here mean lower ground."), "lvlbase");
+            _y += 62;
         }
-        if (ui_button("lvl_gen", _fx + _half + 12, _y + 18, _half, 30, "Generate", "Generate hills|Replaces this level's ground with fresh hills from the seed, hilliness and height. You can then reshape them by drawing.", BTN_ACCENT))
-        {
-            undo_mark("lvlgen" + string(current_time));
-            _lev.heights = terrain_generate(_lev.seed, _lev.hilly, _lev.base);
-            terrain_changed();
-        }
-        _y += 60;
-        ui_heading(_fx, _y, "Hilliness  " + string(_lev.hilly) + "%");
-        set_val(_lev, "hilly", ui_slider("lvl_hilly", _fx, _y + 18, _fw, _lev.hilly, 0, 150, "Hilliness|How steep and tall the hills are when you press Generate."), "lvlhilly");
-        _y += 52;
-        ui_heading(_fx, _y, "Ground height  " + string(256 - _lev.base));
-        set_val(_lev, "base", ui_slider("lvl_base", _fx, _y + 18, _fw, _lev.base, 150, 230, "Ground height|Where the middle of the hills sits when you press Generate. Higher numbers here mean lower ground."), "lvlbase");
-        _y += 62;
         // Phase 2: the song that starts with this level
         ui_heading(_fx, _y, "Level " + string(lvl_sel + 1) + " music");
         var _mopts = music_song_options();
@@ -366,24 +423,27 @@ function levels_side_panel(_px, _y1, _x2, _y2)
         }
     }
 
-    ui_heading(_fx, _y, "Hill colours (all levels)");
-    _y += 18;
-    var _tn = ["Edge", "Grass", "Soil", "Specks"];
-    var _th = ["Edge colour|The top line of the ground.", "Grass colour|The band under the edge.", "Soil colour|Everything below the grass.", "Speck colour|Little stones scattered through the soil."];
-    // one per row, the name on the left: a half-width drop cut "Colour 12  $0F0" short
-    for (var k = 0; k < 4; k++)
+    if (_hills)
     {
-        var _cy = _y + k * 38;
-        ui_text(_fx, _cy + 15, _tn[k], global.TH.text_faint, fa_left, fa_middle, global.f_small, 1);
-        var _v = ui_colour_drop("lvl_col_" + string(k), _fx + 64, _cy, _fw - 64, 30, proj.terrain_cols[k], _th[k]);
-        if (_v != proj.terrain_cols[k])
+        ui_heading(_fx, _y, "Hill colours (all levels)");
+        _y += 18;
+        var _tn = ["Edge", "Grass", "Soil", "Specks"];
+        var _th = ["Edge colour|The top line of the ground.", "Grass colour|The band under the edge.", "Soil colour|Everything below the grass.", "Speck colour|Little stones scattered through the soil."];
+        // one per row, the name on the left: a half-width drop cut "Colour 12  $0F0" short
+        for (var k = 0; k < 4; k++)
         {
-            undo_mark("lvlcol" + string(k));
-            proj.terrain_cols[k] = _v;
-            terrain_changed();
+            var _cy = _y + k * 38;
+            ui_text(_fx, _cy + 15, _tn[k], global.TH.text_faint, fa_left, fa_middle, global.f_small, 1);
+            var _v = ui_colour_drop("lvl_col_" + string(k), _fx + 64, _cy, _fw - 64, 30, proj.terrain_cols[k], _th[k]);
+            if (_v != proj.terrain_cols[k])
+            {
+                undo_mark("lvlcol" + string(k));
+                proj.terrain_cols[k] = _v;
+                terrain_changed();
+            }
         }
+        _y += 156;
     }
-    _y += 156;
 
     // a scrolling backdrop (shoot 'em ups): the picture wraps round as the player flies on
     ui_heading(_fx, _y, "Scrolling backdrop");
@@ -403,8 +463,11 @@ function levels_side_panel(_px, _y1, _x2, _y2)
         set_val(proj, "scroll_speed", ui_stepper("lvl_sspeed", _fx + _half + 12, _y, _half, proj.scroll_speed, 1, 16, "Scroll speed|In quarter pixels a frame: 4 is one pixel a frame (50 a second), 2 a gentle drift, 8 fast."), "scrollspeed");
     }
     _y += 44;
-    set_val(proj, "hills_on", ui_toggle("lvl_hills_on", _fx, _y, "Draw the hills", proj.hills_on, "Hills|With levels on, each level's hills are drawn over the backdrop. Turn off for space games and shoot 'em ups (the levels stay)."), "hillson");
-    _y += 42;
+    if (_hills)
+    {
+        set_val(proj, "hills_on", ui_toggle("lvl_hills_on", _fx, _y, "Draw the hills", proj.hills_on, "Hills|With levels on, each level's hills are drawn over the backdrop. Turn off for space games and shoot 'em ups (the levels stay)."), "hillson");
+        _y += 42;
+    }
 
     ui_heading(_fx, _y, "Level goal");
     _y += 20;

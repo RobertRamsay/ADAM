@@ -870,7 +870,7 @@ def ground_table(p):
 def game_block(p):
     if not (p['levels_on'] or p['goal_on'] or p['title_on']): return None
     lv=[l['heights'] for l in p['levels']] if p['levels_on'] and p['levels'] else [[256]*320]
-    return dict(levels=lv,terrain=p['levels_on'] and bool(p['levels']) and p.get('hills_on',True),cols=p['terrain_cols'],goal=p['goal'] if p['goal_on'] else 0,
+    return dict(levels=lv,terrain=p['levels_on'] and bool(p['levels']) and p.get('hills_on',True) and not p.get('tiles_on'),cols=p['terrain_cols'],goal=p['goal'] if p['goal_on'] else 0,
                 title=p['title_on'],label=p['goal_label'],title1=p['title1'],title2=p['title2'],levtxt=p['lev_text'])
 
 def disk_actors(p):
@@ -967,8 +967,8 @@ def to_builder(p):
     for i,a in enumerate(p['actors'][:32]):
         d=dict(x=a['x'],y=a['y'],role=a['role'],speed=a['speed'],visible=int(a['visible']),left=int(a['start_left']),up=int(a['start_up']),
                sprite=a['sprite'],chan=max(0,chan[i]),anim=a['anim_sprite'],rate=a['anim_rate'],amode=int(a['anim_moving']),anims=a.get('anims',[]),carry=a.get('carry',False),aim=a.get('aim',0),flip=a.get('anim_flip',False),dirs=a.get('anim_dirs',False),
-               pattern=a.get('pattern',0),enter=a.get('enter',0),comeback=a.get('comeback',True),hits=a.get('hits',1),
-               type=a['_type'],fire=a['_fire'],frate=a.get('fire_rate',60),fpat=a.get('fire_pat',0),**{'from':a['from_level'],'fast':a['faster_every']})
+               pattern=a.get('pattern',0),enter=a.get('enter',1),comeback=a.get('comeback',True),hits=a.get('hits',1),
+               type=a['_type'],fire=a['_fire'],frate=a.get('fire_rate',60),fpat=a.get('fire_pat',0),stand_on=a.get('stand_on',False),patrol=a.get('patrol',0),**{'from':a['from_level'],'fast':a['faster_every']})
         if chan[i]<0:
             d['bob']=1; d['bobmap']=[pal_nearest(p,c) for c in p['sprites'][a['sprite']]['cols']]
         acts.append(d)
@@ -1003,7 +1003,9 @@ def to_builder(p):
                       font=(ui_ref.font_bytes(u) if u.get('font_style',0)!=0 else None),
                       panel=(ui_ref.panel_pixels(uu,p['pixels']) if u.get('frame_on',True) else None))
     if p.get('tiles_on'):
-        bp['tiles']=dict(w=p['map_w'],h=p['map_h'],dig=p['tile_dig'],tiles=p['tiles'],map=p['map'],size=p.get('tile_size',16),tools=p.get('tools',[]))
+        bp['tiles']=dict(w=p['map_w'],h=p['map_h'],dig=p['tile_dig'],tiles=p['tiles'],map=p['map'],size=p.get('tile_size',16),tools=p.get('tools',[]),
+                         level_maps=p.get('level_maps') if p.get('levels_on') else None)
+        if p.get('disk2_music'): bp['d2maps']=True             # the levels' own maps go on disk 2 too (version 17)
     elif p.get('shmup_map'):
         # a shoot 'em up map (version 10): 20 x map_h tiles of 16 that scroll past once, flying up
         bp['scroll']=dict(dir=1,speed=p.get('scroll_speed',4),
