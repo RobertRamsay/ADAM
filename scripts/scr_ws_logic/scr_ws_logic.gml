@@ -20,9 +20,9 @@ function logic_find_role(_roles, _fallback)
 /// every 10 s, 5 fire plays sound 2 (value 1). One undo step.
 function logic_add_template(_t)
 {
-    if (array_length(proj.rules) > 96)
+    if (array_length(proj.rules) >= RULES_DISK_MAX)    // each recipe adds one rule card
     {
-        toast("That is a lot of rules! The limit is 100.", 1);
+        toast("That is a lot of rules! The limit is " + string(RULES_DISK_MAX) + ".", 1);
         return;
     }
     undo_mark("tpl" + string(current_time));
@@ -856,8 +856,8 @@ function ws_logic_draw(_x1, _y1, _x2, _y2)
     ui_text(_x1 + 200, _y1 + 15, ui_text_fit(string(_nr) + " rule(s) in " + string(_ngr) + " group(s). Checked every frame, top to bottom.", global.f_small, _subr - _x1 - 200), global.TH.text_faint, fa_left, fa_top, global.f_small, 1);
     if (ui_button("logic_add", _lx2 - 150, _y1 + 8, 136, 30, "+ Add rule", "Add rule|Adds a new WHEN / DO rule (outside any group). Use the + Rule button on a group to add straight into it.", BTN_ACCENT))
     {
-        // (the editor stops at 100 rules; the disk and engine take up to RULES_DISK_MAX 128)
-        if (_nr < 100)
+        // the editor stops at the disk and engine limit, RULES_DISK_MAX (128)
+        if (_nr < RULES_DISK_MAX)
         {
             undo_mark("ruleadd" + string(current_time));
             var _nrule = rule_new();
@@ -867,7 +867,7 @@ function ws_logic_draw(_x1, _y1, _x2, _y2)
             logic_sort_rules();
             logic_reveal = _nrule;
         }
-        else { toast("100 rules is the limit", 1); }
+        else { toast(string(RULES_DISK_MAX) + " rules is the limit", 1); }
     }
     if (ui_button("logic_addgroup", _lx2 - 296, _y1 + 8, 136, 30, "+ Add group", "Add group|Makes a new named group. Put rules in it with the Group drop-down on each rule, put groups inside groups (+ Group, or 'In:' on a group), fold it to tidy up, or switch it off to test without those rules.", BTN_NORMAL))
     {
@@ -1111,7 +1111,7 @@ function ws_logic_draw(_x1, _y1, _x2, _y2)
         }
         if (_gop == "add")
         {
-            if (array_length(proj.rules) < 100)
+            if (array_length(proj.rules) < RULES_DISK_MAX)
             {
                 undo_mark("ruleadd" + string(current_time));
                 var _nr2 = rule_new();
@@ -1131,7 +1131,7 @@ function ws_logic_draw(_x1, _y1, _x2, _y2)
                 logic_sort_rules();
                 logic_reveal = _nr2;
             }
-            else { toast("100 rules is the limit", 1); }
+            else { toast(string(RULES_DISK_MAX) + " rules is the limit", 1); }
         }
     }
 
@@ -1144,8 +1144,8 @@ function ws_logic_draw(_x1, _y1, _x2, _y2)
     draw_set_font(global.f_small);
     _ry += max(50, ceil(ui_sh_ext(_rintro, _rw - 40)) + 14);
     var _rhelp = [
-        "Enemy hit|Adds 4 rules: when the player touches an enemy, lose a life, go back to the start, flash and stay safe for 3 seconds.",
-        "Pickup|Adds 3 rules: when the player touches a pickup, add 10 points, move the pickup somewhere random and play the Coin sound.",
+        "Enemy hit|Adds a rule card: when the player touches an enemy, lose a life, AND go back to the start, flash and stay safe for 3 seconds.",
+        "Pickup|Adds a rule card: when the player touches a pickup, add 10 points, AND move the pickup somewhere random and play the Coin sound.",
         "Win condition|Adds a rule: when the score reaches 100, you win.",
         "Lose condition|Adds a rule: when lives run out, it's game over.",
         "Getting harder|Adds a rule: every 10 seconds the enemy speeds up.",

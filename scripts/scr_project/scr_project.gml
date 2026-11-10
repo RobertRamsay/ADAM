@@ -1035,8 +1035,8 @@ function project_from_loaded(_raw)
     var _lr = _raw[$ "rules"];
     if (is_array(_lr))
     {
-        // 100 = the Logic page's limit (scr_ws_logic); the disk takes up to RULES_DISK_MAX (128)
-        for (var m = 0; m < min(100, array_length(_lr)); m++)
+        // up to RULES_DISK_MAX (128), the Logic page's limit and the most the disk takes
+        for (var m = 0; m < min(RULES_DISK_MAX, array_length(_lr)); m++)
         {
             var _ru = struct_overlay(rule_new(), _lr[m]);
             var _mo = [];                   // AND DO lines (older files have none)
