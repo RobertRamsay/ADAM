@@ -325,6 +325,36 @@ def miner_rows(legs=0, arm=None, bob=0):
         rows = rows[bob:] + ["................"] * bob
     return rows
 
+def miner_pose(arm, bend=0, rise=0):
+    """the miner swinging the pick: bend 1..2 = bent into the stroke (head lower, knees
+    bent), rise 1 = stretched up tall on his toes for the flick. The feet stay on the same
+    row, so he does not hop."""
+    base = miner_rows(0)
+    armed = miner_rows(0, arm)
+    armpx = [(x, y, armed[y][x]) for y in range(24) for x in range(16) if armed[y][x] != base[y][x]]
+    dy = bend - rise
+    if bend == 1:
+        legs = ["....22....22....", "...22......22...", "...11......11...", "..111......111.."]
+    elif bend >= 2:
+        legs = ["...22......22...", "...11......11...", "..111......111.."]
+    elif rise:
+        legs = [".....22..22....."] * 4 + [".....11..11.....", ".....11..11....."]
+    else:
+        legs = base[15:20]
+    rows = [["."] * 16 for _ in range(24)]
+    for y in range(15):                        # head and body, lower when bent, higher on his toes
+        for x in range(16):
+            if base[y][x] != "." and 0 <= y + dy < 24:
+                rows[y + dy][x] = base[y][x]
+    for k, r in enumerate(legs):
+        for x in range(16):
+            if r[x] != ".":
+                rows[15 + dy + k][x] = r[x]
+    for x, y, c in armpx:                      # the arm and the pick move with him
+        if 0 <= y + dy < 24:
+            rows[y + dy][x] = c if c != "." else rows[y + dy][x]
+    return ["".join(r) for r in rows]
+
 ROCK = ["................"] * 14 + [
     "......2222......",
     "....22333322....",
@@ -519,9 +549,11 @@ def dig_deep():
         1: (walk, 5, 0),
         2: ([("Miner leap", miner_rows(1)), ("Miner leap 2", miner_rows(3))], 6, 1),
         3: ([("Miner drop", miner_rows(2)), ("Miner drop 2", miner_rows(2, bob=1))], 6, 0),
-        15: ([("Miner pick up", miner_rows(0, "up")), ("Miner pick fwd", miner_rows(0, "fwd")), ("Miner pick fwd 2", miner_rows(0, "fwd", 1))], 5, 0),
-        17: ([("Miner pick up", None), ("Miner pick down", miner_rows(0, "down")), ("Miner pick down 2", miner_rows(0, "down", 1))], 5, 0),
-        13: ([("Miner pick up", None), ("Miner pick high", miner_rows(0, "high")), ("Miner pick high 2", miner_rows(0, "high", 1))], 5, 0),
+        # digging: up tall as the pick goes up, bent into the stroke as it bites, half back up
+        15: ([("Miner pick up", miner_pose("up", rise=1)), ("Miner pick fwd", miner_pose("fwd", bend=2)), ("Miner pick fwd 2", miner_pose("fwd", bend=1))], 5, 0),
+        17: ([("Miner pick up", None), ("Miner pick down", miner_pose("down", bend=2)), ("Miner pick down 2", miner_pose("down", bend=1))], 5, 0),
+        # digging up: crouch, then spring up on his toes as he flicks the pick at the roof
+        13: ([("Miner pick crouch", miner_pose("up", bend=1)), ("Miner pick high", miner_pose("high", rise=1)), ("Miner pick high 2", miner_pose("high"))], 5, 0),
         # Fire on its own: the sword's swing (the pickaxe uses Fire + the way he faces)
         12: ([("Miner sword up", miner_rows(0, "sword up")), ("Miner sword fwd", miner_rows(0, "sword fwd")), ("Miner sword low", miner_rows(0, "sword low"))], 5, 1)}),
         1: dict(anims={0: ([1, ("Slime wobble", T(SLIME, dy=1)), ("Slime squash", SLIME_SQ)], 10, 2),
