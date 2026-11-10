@@ -1922,14 +1922,20 @@ move_actors:
             add.w   d1,d0
             cmp.w   d3,d0
             ble.s   .hs
+            move.w  #1,v_dx(a5,d5.w)        ; the end: turn round (where it is, if a rule
+            move.w  v_ax(a5,d5.w),d0        ; put it past the end - it walks back in)
+            cmp.w   d3,d0
+            bge.s   .hs
             move.w  d3,d0
-            move.w  #1,v_dx(a5,d5.w)
             bra.s   .hs
 .hl         sub.w   d1,d0
             cmp.w   d2,d0
             bge.s   .hs
-            move.w  d2,d0
             move.w  #0,v_dx(a5,d5.w)
+            move.w  v_ax(a5,d5.w),d0
+            cmp.w   d2,d0
+            ble.s   .hs
+            move.w  d2,d0
 .hs         move.w  d0,v_ax(a5,d5.w)
             cmp.w   #1,A_ROLE(a2)           ; bouncer also moves vertically
             bne     .next
@@ -1945,14 +1951,20 @@ move_actors:
             add.w   d1,d0
             cmp.w   d3,d0
             ble.s   .vs
+            move.w  #1,v_dy(a5,d5.w)        ; (as across)
+            move.w  v_ay(a5,d5.w),d0
+            cmp.w   d3,d0
+            bge.s   .vs
             move.w  d3,d0
-            move.w  #1,v_dy(a5,d5.w)
             bra.s   .vs
 .vu         sub.w   d1,d0
             cmp.w   d2,d0
             bge.s   .vs
-            move.w  d2,d0
             move.w  #0,v_dy(a5,d5.w)
+            move.w  v_ay(a5,d5.w),d0
+            cmp.w   d2,d0
+            ble.s   .vs
+            move.w  d2,d0
 .vs         move.w  d0,v_ay(a5,d5.w)
             bra     .next
 
