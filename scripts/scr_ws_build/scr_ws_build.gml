@@ -6,6 +6,8 @@ function build_log_add(_text, _kind)
     if (array_length(build_log) > 200) { array_delete(build_log, 0, 1); }
 }
 
+/// Asks where to save the .adf (file dialog, named after the game) and stores it
+/// in out_path and the settings ini. Returns false when the dialog is cancelled.
 function build_choose_output()
 {
     var _name = string_replace_all(proj.name, " ", "_");
@@ -91,6 +93,8 @@ function build_ws_build(_run, _start = 0, _god = true)
     }
 }
 
+/// Checklist mark centred on (_x, _y): _kind 0 green tick, 1 warning "!",
+/// 2 error "!", anything else an accent "!" (information)
 function draw_check(_x, _y, _kind)
 {
     var _c = global.TH.accent2;
@@ -121,6 +125,9 @@ function build_path_row(_id, _x, _y, _w, _label, _value, _empty, _btn, _help)
     return ui_button(_id, _x + _w - 88, _y + 18, 88, 32, _btn, _help, BTN_NORMAL);
 }
 
+/// Draws the Build page in the rect (_x1, _y1)-(_x2, _y2): left column with the
+/// checklist, God mode, FS-UAE / Kickstart / joystick settings and the chip RAM
+/// bar (from the last build); right panel with the build log and listing.
 function ws_build_draw(_x1, _y1, _x2, _y2)
 {
     var _lw = min(500, floor((_x2 - _x1) * 0.42));

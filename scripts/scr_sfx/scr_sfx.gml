@@ -112,6 +112,9 @@ function sfx_render(_s)
     return _out;
 }
 
+/// Stops the Sound page preview, both kinds: a looped or pitched sound played
+/// through the music player (mus_play_what "sound" / "sound_note") and a plain
+/// one-shot buffer sound. Clears the progress state and the keyboard jam note.
 function sfx_preview_stop()
 {
     if (mus_playing && (mus_play_what == "sound" || mus_play_what == "sound_note")) { music_preview_stop(); }
@@ -183,6 +186,7 @@ function sfx_render_ex(_s, _exact = false)
     if (!is_undefined(_hit)) { return _hit; }
     var _res;
     if (_s.kind == 1) { _res = sfx_sample_render(_s); }
+    // synth sounds play at Paula period 322 = 11015 Hz (SFX_RATE, the rate sfx_render works at)
     else { _res = { smp : sfx_render(_s), rate : PAULA_CLOCK / 322, period : 322, capped : false, loop_start : 0, loop_len : 0 }; }
     snd_cache_count += 1;
     if (snd_cache_count > 24)
@@ -249,7 +253,9 @@ function sfx_sample_render(_s)
     return _res;
 }
 
-/// Reads a .WAV file into sound _s (kept as an 8-bit mono source, up to 5 s at up to 22 kHz)
+/// Reads a .WAV file into sound _s (kept as an 8-bit mono source, up to
+/// SMP_SRC_MAX_SECONDS (10) s at up to SMP_SRC_MAX_RATE (22050 Hz)).
+/// PCM 8/16/24/32-bit or 32-bit float, any channel count. Returns false if unreadable.
 function sfx_import_wav(_s, _path)
 {
     var _b = buffer_load(_path);
@@ -382,6 +388,9 @@ function sfx_preview_pcm(_r)
     return _pcm;
 }
 
+/// How far the preview of sound _s (render _r) has played, 0..1 (for the
+/// playhead on the waveform); -1 if that sound is not playing. With a loop the
+/// position wraps inside the loop.
 function sfx_preview_progress(_s, _r)
 {
     if (preview_duration <= 0 || preview_source != _s || preview_render != _r) { return -1; }
@@ -396,6 +405,8 @@ function sfx_preview_progress(_s, _r)
     return clamp(audio_sound_get_track_position(preview_inst) / preview_duration, 0, 1);
 }
 
+/// Self-test (debug output PASS / FAIL): sfx_preview_pcm gives a rate GameMaker
+/// accepts (8000..48000) and the right length for low and odd sample rates
 function sfx_preview_selftest()
 {
     var _ok = true;
@@ -421,9 +432,19 @@ function sfx_preview_selftest()
     else { show_debug_message("ADAM sound preview sample-rate self-test: FAIL"); }
 }
 
+/// Plays _sample (from music_sample_from_render of render _r of sound _s) at
+/// note _note (1..36) through the music preview player, so loops and pitch
+/// sound as Paula plays them. _what = mus_play_what ("sound" / "sound_note").
+/// Sets preview_duration, preview_note_end and the loop times (seconds) for
+/// sfx_preview_progress.
 function sfx_preview_pitched(_s, _r, _sample, _note, _what)
 {
     if (array_length(_sample.data) < 2) { return; }
+    // a 2-pattern song: pattern 0 starts the note on channels 1 and 4 (index
+    // 0 and 3), pattern 1 is empty and its last row B01 jumps back to itself,
+    // so a looped sample keeps sounding until the preview is stopped.
+    // Note: channels 1 and 4 are both left in music_player_mix, so this plays
+    // on the left side only.
     var _ms = { title : _s.name, samples : [], order : [0, 1], restart : 1, patterns : [music_empty_pattern(), music_empty_pattern()] };
     for (var _i = 0; _i < 31; _i++) { array_push(_ms.samples, music_empty_sample()); }
     _ms.samples[0].data = _sample.data;
@@ -440,6 +461,8 @@ function sfx_preview_pitched(_s, _r, _sample, _note, _what)
     music_preview_start(_ms, false, 0, 0, _what, 100 / 64);
     preview_source = _s;
     preview_render = _r;
+    // _rate = bytes a second Paula plays at this note; _ratio = how much
+    // music_sample_from_render shortened the render to make the root note
     var _rate = PAULA_CLOCK / global.MUS_PERIODS[_note];
     var _ratio = global.MUS_PERIODS[_sample.root] / _r.period;
     preview_duration = array_length(_r.smp) / (_rate * _ratio);
@@ -451,6 +474,9 @@ function sfx_preview_pitched(_s, _r, _sample, _note, _what)
     }
 }
 
+/// Plays sound _s at note _note (1..36, 13 = C-2) for the Sound page keyboard.
+/// A sample or synth sound is made with C-2 as its own pitch; a patch keeps
+/// its own root (patch_root), so its notes match their names.
 function sfx_preview_note(_s, _note)
 {
     sfx_preview_stop();
@@ -462,6 +488,9 @@ function sfx_preview_note(_s, _note)
     sfx_preview_pitched(_s, _render, _sample, clamp(_note, 1, 36), "sound_note");
 }
 
+/// Play button on the Sound page: a looped sound goes through
+/// sfx_preview_pitched at its root note (so the loop repeats); anything else
+/// plays once as a buffer sound made by sfx_preview_pcm
 function sfx_preview_play(_s)
 {
     sfx_preview_stop();

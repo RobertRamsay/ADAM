@@ -81,6 +81,7 @@ function map_w_min(_s)
     return 320 div _s + 2;
 }
 
+/// Smallest map height in tiles for tile size _s: a screen and a bit
 function map_h_min(_s)
 {
     return 256 div _s + 2;
@@ -92,6 +93,7 @@ function map_w_max(_s)
     return min(lim_map_w(), WORLD_PX_MAX div _s);
 }
 
+/// Biggest map height in tiles for this edition (_s = tile size); never over WORLD_PX_MAX pixels
 function map_h_max(_s)
 {
     return min(lim_map_h(), WORLD_PX_MAX div _s);
@@ -103,6 +105,10 @@ function tile_px()
     return proj.tile_size;
 }
 
+/// A new tile type called _name (up to 4 letters), _s x _s pixels of colour 0
+/// (air). Its flags, sound, hard, points and becomes go to the disk as a TP_*
+/// record (engine.s; written in adam_data_block_raw = tile block in
+/// adf_reference.py), anim as a TR_* record (tile_anims_on_disk).
 function tile_new(_name, _s)
 {
     return {
@@ -694,6 +700,7 @@ function world_w()
     return BD_W;
 }
 
+/// Height of the play world in pixels: the tile map in a tile world, else the 256-line screen
 function world_h()
 {
     if (proj.tiles_on) { return proj.map_h * proj.tile_size; }
@@ -729,11 +736,16 @@ function tile_atlas_x(_t)
     return (_t mod TILE_ATLAS_COLS) * proj.tile_size;
 }
 
+/// Top of tile _t in the atlas (TILE_ATLAS_COLS tiles a row), in pixels
 function tile_atlas_y(_t)
 {
     return (_t div TILE_ATLAS_COLS) * proj.tile_size;
 }
 
+/// The tile atlas: an index surface (alpha 255, colour number in the low bits;
+/// shown through the backdrop palette shader), TILE_ATLAS_COLS tiles across.
+/// Remade when the tile size or count changes or tile_atlas_dirty is set, which
+/// also marks the map view for redrawing. Returns the surface.
 function tile_atlas_surface()
 {
     var _s = proj.tile_size;
@@ -918,6 +930,8 @@ function tile_draw(_t, _x, _y, _size)
     backdrop_shader_end();
 }
 
+/// Frees the tile atlas, the map view surface and the atlas buffer (they are
+/// made again when next drawn)
 function tiles_gfx_free()
 {
     if (surface_exists(tile_atlas_surf)) { surface_free(tile_atlas_surf); }
@@ -977,6 +991,10 @@ function tiles_grid(_x, _y, _w, _y2, _id)
     return _y + _boxh + 4;
 }
 
+/// Draws the Tiles page in the rect (_x1, _y1)-(_x2, _y2): left the tile grid
+/// and world settings (world kind, tile size, map size, level whose map is
+/// shown), centre the Tile set / Map / Tools editor, right the picked tile
+/// (or the Stamp / Spawn tool settings).
 function ws_tiles_draw(_x1, _y1, _x2, _y2)
 {
     var _lw = 260;

@@ -163,6 +163,12 @@ function backdrop_text_char(_ch)
     bd_text_x += 8;
 }
 
+/// Draws and runs the Backdrop page inside (_x1, _y1)-(_x2, _y2), in UI pixels: the 320 x 256 canvas
+/// on the left (zoom bd_zoom, 0 = fit; pan bd_pan_x / bd_pan_y in backdrop pixels) and the tools panel
+/// on the right with three tabs (bd_panel 0 Paint, 2 Palettes, 1 Copper sky). Painting writes
+/// proj.pixels through the backdrop_* helpers (bd_buf, then upload - see scr_gfx); the disk writer
+/// turns proj.pixels into bitplanes (data block header offset 36, planes).
+/// bd_tool: 0 brush, 1 line, 2 box, 3 fill, 4 text, 5 pick, 6 gradient.
 function ws_backdrop_draw(_x1, _y1, _x2, _y2)
 {
     var _rw = 330;
@@ -174,6 +180,8 @@ function ws_backdrop_draw(_x1, _y1, _x2, _y2)
     var _vy1 = _y1 + 16;
     var _vx2 = _cx2 - 16;
     var _vy2 = _y2 - 40;
+    // _fit = scale that shows the whole backdrop; whole numbers from 2x up so pixels stay square-edged.
+    // _vis_w / _vis_h = how many backdrop pixels are on screen (less than 320 x 256 when zoomed in)
     var _fit = min((_vx2 - _vx1) / BD_W, (_vy2 - _vy1) / BD_H);
     if (_fit >= 2) { _fit = floor(_fit); }
     var _scale = _fit;
@@ -192,6 +200,7 @@ function ws_backdrop_draw(_x1, _y1, _x2, _y2)
     var _ox = floor((_vx1 + _vx2 - _cw) / 2);
     var _oy = floor((_vy1 + _vy2 - _ch) / 2);
     ui_rrect(_ox - 6, _oy - 6, _ox + _cw + 6, _oy + _ch + 6, 8, c_black, c_black, 0.35);
+    // everything on the canvas is clipped to it: backdrop, level hills, actors at their start, score row
     ui_scissor(_ox, _oy, _cw, _ch);
     backdrop_draw(_ox - bd_pan_x * _scale, _oy - bd_pan_y * _scale, _scale);
     if (bd_show_hills && proj.levels_on && proj.hills_on) { terrain_draw(_ox - bd_pan_x * _scale, _oy - bd_pan_y * _scale, _scale); }
@@ -215,6 +224,7 @@ function ws_backdrop_draw(_x1, _y1, _x2, _y2)
     ui_scissor_reset();
 
     var _hot = ui_register("bd_canvas", _ox, _oy, _ox + _cw, _oy + _ch, "Backdrop|Left-click paints with the selected colour, right-click paints colour 0. Alt-click picks a colour up. Mouse wheel zooms, middle-drag (or Space + drag) moves around when zoomed in.");
+    // mouse position in backdrop pixels
     var _mpx = floor((ui_mx - _ox) / _scale + bd_pan_x);
     var _mpy = floor((ui_my - _oy) / _scale + bd_pan_y);
     var _inside = (_mpx >= 0 && _mpy >= 0 && _mpx < BD_W && _mpy < BD_H);
@@ -222,6 +232,8 @@ function ws_backdrop_draw(_x1, _y1, _x2, _y2)
     // zoom and pan
     if (_hot && ui_wheel != 0)
     {
+        // zoom steps (0 = fit); zooming in skips steps no bigger than fit, and the point under the
+        // mouse stays under the mouse. ui_wheel is used up so the tools panel does not scroll too.
         var _levels = [0, 2, 3, 4, 6, 8, 12];
         var _li = 0;
         for (var l = 0; l < array_length(_levels); l++)
@@ -279,6 +291,8 @@ function ws_backdrop_draw(_x1, _y1, _x2, _y2)
         }
         else
         {
+            // a press starts the tool: brush paints at once and keeps painting while held; line, box and
+            // gradient remember the start and finish on release (below); fill and text act on the click
             if (ui_pressed || ui_rpressed)
             {
                 var _v = bd_sel;
@@ -377,6 +391,8 @@ function ws_backdrop_draw(_x1, _y1, _x2, _y2)
         }
         else
         {
+            // keeps ui_focus on "bd_text" this frame (so other keys / shortcuts leave it alone);
+            // letters are 8 pixels apart, lines 9, Backspace only moves back (it does not rub out)
             ui_focus_claimed = true;
             var _typed = keyboard_string;
             keyboard_string = "";
@@ -432,6 +448,8 @@ function ws_backdrop_draw(_x1, _y1, _x2, _y2)
     var _pcols0 = 8;
     if (_pn0 > 32) { _pcols0 = 16; }
     var _pcell0 = floor((_fw - (_pcols0 - 1) * 4) / _pcols0);
+    // _tools_h = height of everything below, added up from the same steps as the _y += lines that
+    // follow; change one and change the other, or the scroll range is wrong
     var _tools_h = 6 + 120;
     if (bd_tool == 6) { _tools_h += 86; }
     else { _tools_h += 112; }
@@ -500,6 +518,7 @@ function ws_backdrop_draw(_x1, _y1, _x2, _y2)
         _y += 56;
     }
 
+    // number of colours (bitplanes 1..machine max), palette grid, then the colour mixer for bd_sel
     ui_heading(_fx, _y, "Colours");
     var _m = machine_cur();
     var _dn = [];
@@ -537,7 +556,7 @@ function ws_backdrop_draw(_x1, _y1, _x2, _y2)
         undo_mark("bdsolid" + string(current_time));
         if (_gr) { proj.solid[bd_sel] = 1; }
         else { proj.solid[bd_sel] = 0; }
-        ground_cache_time = -10000;
+        ground_cache_time = -10000;     // forces the ground line (Actors page) to be worked out again
     }
     _y += 34;
 

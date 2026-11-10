@@ -24,6 +24,7 @@ def blob(x, y, cx, cy, rx, ry):
         return 3                              # ... softened round its edge
     return 1
 
+# 24 rows of 16 '.123' letters from fn(x, y) -> 0..3
 def rows(fn):
     return ["".join(".123"[fn(x, y)] for x in range(16)) for y in range(24)]
 
@@ -39,6 +40,7 @@ def _leg(x, y, x0, top, foot):
 
 def hero(legs=((5, 22), (9, 22)), bob=0, blink=False, mouth='smile', top=17):
     """legs: ((x, foot row) left, (x, foot row) right); bob moves the head down"""
+    # the hero's pixel (x, y)
     def f(x, y):
         by = y - bob
         v = blob(x, by, 7.5, 9.0, 7.3, 7.3)
@@ -66,6 +68,7 @@ def hero(legs=((5, 22), (9, 22)), bob=0, blink=False, mouth='smile', top=17):
         return 0
     return rows(f)
 
+# the Gem Hunter hero's frames: stand, then 4 walk, 4 idle, 2 jump and 2 fall
 def hero_frames():
     stand = hero()
     walk = [hero(legs=((4, 22), (10, 21))),                 # left foot forward... (the picture faces right)
@@ -84,6 +87,7 @@ def hopper(squat=0, look=0, blink=False):
     ry = 6.6 - squat * 1.2
     rx = 6.8 + squat * 0.6
     cy = 9.5 + squat * 2.6
+    # the hopper's pixel (x, y)
     def f(x, y):
         v = blob(x, y, 7.5, cy, rx, ry)
         if v:
@@ -108,6 +112,7 @@ def hopper(squat=0, look=0, blink=False):
 
 def gem(phase=0):
     """a cut gem: a light crown, a darker pavilion; phase moves the glint"""
+    # the gem's pixel (x, y)
     def f(x, y):
         cy = 9
         if y < 5 or y > 15:

@@ -29,6 +29,7 @@ PAL = [0x0a0c08, 0xf6f0d6, 0x16261a, 0x2a4e26, 0x4c8434, 0x9cc84e, 0x3a3428, 0x6
 LEAF = [2, 3, 4, 5]
 
 
+# a hash of (x, y, seed) -> 0..1 (repeatable)
 def hsh(x, y, s=0):
     n = (x * 374761393 + y * 668265263 + s * 982451653 + 1013904223) & 0xffffffff
     n = ((n ^ (n >> 13)) * 1274126177) & 0xffffffff
@@ -42,18 +43,23 @@ def vnoise(x, y, px, py, cell, s):
     x0, y0 = int(math.floor(fx)), int(math.floor(fy))
     tx, ty = fx - x0, fy - y0
     tx = tx * tx * (3 - 2 * tx); ty = ty * ty * (3 - 2 * ty)
+    # the noise at grid point (i, j), wrapped so the noise repeats
     def v(i, j): return hsh(i % gx, j % gy, s)
     a = v(x0, y0) + (v(x0 + 1, y0) - v(x0, y0)) * tx
     b = v(x0, y0 + 1) + (v(x0 + 1, y0 + 1) - v(x0, y0 + 1)) * tx
     return a + (b - a) * ty
 
 
+# the level picture: MW x MH colour numbers
 class Map:
+    # all colour 0
     def __init__(self):
         self.p = bytearray(MW * MH)
+    # the colour at (x, y), 0 outside
     def get(self, x, y):
         if 0 <= x < MW and 0 <= y < MH: return self.p[y * MW + x]
         return 0
+    # sets (x, y), ignored outside
     def set(self, x, y, c):
         if 0 <= x < MW and 0 <= y < MH: self.p[y * MW + x] = c
 
@@ -146,6 +152,7 @@ def canopy_kind(x, y):
     return 1 if hsh(x // CW, y // CW, 501) < 0.5 else 0
 
 
+# the jungle canopy's colour at (x, y): block A or B, dark in the gaps, blossoms in crimson / gold
 def canopy(x, y):
     v = CAN[canopy_kind(x, y)][(y % CW) * CW + (x % CW)]
     if v == -1: return g.dmix(0, 2, 0.4, x, y)
@@ -182,6 +189,7 @@ def stone_block(x, y, bw=16, bh=16, base=0.5, moss=0.0, seed=3, vx=2, vy=2):
     return c
 
 
+# flagstones: 16 x 16 stone blocks with a little moss
 def flag(x, y, moss=0.16):
     return stone_block(x, y, 16, 16, 0.55, moss, 5)
 
@@ -235,6 +243,7 @@ def shade_below(M, x0, x1, y, depth=4, k=0.6):
             M.set(x, y + d, g.dmix(c, 0, k * (1 - d / depth), x, y + d) if c > 1 else c)
 
 
+# a soft shadow to the right of something standing up (shade_below along a column)
 def shade_right(M, x, y0, y1, depth=4, k=0.6):
     for d in range(depth):
         for y in range(y0 + d + 1, y1 + d + 1):
@@ -255,6 +264,7 @@ CEN_CX, CEN_CY, CEN_R = CX, 848, 64         # the cenote
 SUN_CX, SUN_CY, SUN_R = CX, 144, 48         # the sun stone under the boss
 
 
+# paints the whole level picture: canopy everywhere, then the river, ruins, pyramid, plaza, cenote and courtyard -> Map
 def paint_map():
     global CAN
     bl = canopy_blobs(11)
@@ -270,10 +280,13 @@ def paint_map():
     return M
 
 
+# the river's middle at line y (it winds)
 def river_cx(y): return CX + 26 * math.sin((y - Y_RIVER) / 140.0 + 0.6) + 6 * math.sin((y - Y_RIVER) / 57.0)
 
 
+# the river and its banks, from just above Y_RIVER to the bottom of the map (where the level starts)
 def paint_river(M):
+    # the river's half width at line y
     def half(y): return 20 + 3 * math.sin(y / 47.0)
     top = Y_RIVER + 48
     for y in range(top - 40, MH):
@@ -317,6 +330,7 @@ def paint_river(M):
                 if 0 < dy < 4: M.set(sx + 5, sy + dy, 10)
 
 
+# a stone road from line y0 to y1 between x0 and x1, with kerb stones
 def causeway(M, y0, y1, x0=CX - 32, x1=CX + 32):
     fill(M, x0, y0, x1, y1, lambda x, y: flag(x, y, 0.2))
     for y in range(y0, y1):                                    # kerb stones
@@ -352,6 +366,7 @@ def serpent_head(M, x0, y0, facing=1):
 PLATFORMS = [(0, 2208, 32, 48), (MW - 32, 2400, 32, 64)]
 
 
+# the overgrown ruins (Y_RUINS .. Y_RIVER): the causeway, serpent heads beside it
 def paint_ruins(M):
     causeway(M, Y_RUINS, Y_RIVER + 64)
     for y in range(Y_RUINS + 64, Y_RIVER - 32, 128):                               # serpent heads by the road
@@ -367,6 +382,7 @@ def paint_ruins(M):
             vine(M, vx, y0 + 1, 14 + int(hsh(vx, y0, 3) * 12), vx // 16)
 
 
+# the step pyramid and the plaza round it (Y_PYR .. Y_RUINS)
 def paint_pyramid(M):
     cx, cy, R = PYR_CX, PYR_CY, PYR_R
     top, bot = cy - R, cy + R
@@ -485,6 +501,7 @@ def frieze(x, y, left):
     return 15 if pattern[v % 8][u % 8] == '1' else g.ramp([7, 8], 0.5, x, y)
 
 
+# the plaza of carved glyph stones (Y_PLAZA .. Y_PYR)
 def paint_plaza(M):
     fill(M, 0, Y_PLAZA, MW, Y_PYR, lambda x, y: flag(x, y, 0.12))
     for y in range(Y_PLAZA, Y_PYR):
@@ -502,6 +519,7 @@ def paint_plaza(M):
         vine(M, vx + 5, Y_PLAZA, 20, vx // 48)
 
 
+# the cenote: a round pool in a cliff wall (Y_CEN .. Y_PLAZA)
 def paint_cenote(M):
     cx, cy, R = CEN_CX, CEN_CY, CEN_R
     W0 = 16                                                                            # the cliff wall
@@ -555,6 +573,7 @@ def column(M, x0, y0):
             M.set(X, Y, c)
 
 
+# the serpent temple's courtyard at the top of the map (0 .. Y_CEN), where the boss waits
 def paint_courtyard(M):
     fill(M, 0, 0, MW, Y_CEN, lambda x, y: flag(x, y, 0.12))
     for y in range(0, Y_CEN):
@@ -622,6 +641,7 @@ def cut(M, pal):
             cells.append(keys[t]); uses[keys[t]] += 1
     unique = len(tiles)
     cols = [((pal[i] >> 16) & 255, (pal[i] >> 8) & 255, pal[i] & 255) for i in range(len(pal))]
+    # a tile's look in brief: the average colour of each of its 4 x 4 blocks
     def sig(t):
         out = []
         for by in range(4):
@@ -637,7 +657,9 @@ def cut(M, pal):
     remap = list(range(len(tiles)))
     if len(tiles) > TILE_LIMIT:
         sigs = [sig(t) for t in tiles]
+        # how unlike tiles a and b look
         def dist(a, b): return sum((p - q) ** 2 for p, q in zip(sigs[a], sigs[b]))
+        # the remaining tile that looks most like tile a
         def nearest(a):
             best, bd = -1, 1e30
             for b in alive:
@@ -670,6 +692,7 @@ def stamps_of(cells, rects):
     return out
 
 
+# saves the map picture (scaled) for checking by eye
 def map_png(M, fn, pal, scale=1):
     im = Image.new('RGB', (MW, MH))
     px = im.load()
@@ -692,6 +715,7 @@ LETTER = {'P': ["1111.", "1...1", "1111.", "1....", "1...."],
 DIRS = "N NE E SE S SW W NW".split()
 
 
+# the points turned by ang radians round (cx, cy)
 def rot_poly(pts, ang, cx, cy):
     ca, sa = math.cos(ang), math.sin(ang)
     return [(cx + (px - cx) * ca - (py - cy) * sa, cy + (px - cx) * sa + (py - cy) * ca) for px, py in pts]
@@ -879,6 +903,7 @@ def gem_img(letter, shine):
     return im
 
 
+# the songs: 0 the level music, 1 the boss tune (Nebula Strike's)
 def jungle_songs():
     run = g.song("Serpent run", 132, [
         g.bars("Half time", 3, "Tom fill", 1, "Breakbeat", 3, "Tom fill", 1, "Breakbeat", 7, "Tom fill", 1),
@@ -888,7 +913,9 @@ def jungle_songs():
     return [run, sh.songs()[1]]
 
 
+# the Logic page groups: a key(rule) function for auto_groups (p['_gk'])
 def group_key(names):
+    # the group name of rule r
     def key(r):
         w = r['when']
         nb = names[r['b']]['name'] if 0 <= r['b'] < len(names) else ""
@@ -904,6 +931,7 @@ def group_key(names):
     return key
 
 
+# the Jade Serpent project (.adam dict), made by gen_examples.py
 def jade_serpent():
     sh.aga_cap()
     M = paint_map()
@@ -955,6 +983,7 @@ def jade_serpent():
     # ---------------- actors: one of each kind; copies make the pools (shots, waves, explosions)
     actors = []
     A = {}
+    # adds actor a with that many copies (pools of shots, effects, enemies); A[name] = its index
     def add(a, copies=1):
         a['copies'] = copies
         A[a['name']] = len(actors); actors.append(a)
@@ -974,6 +1003,7 @@ def jade_serpent():
     mis = add(act("Missile", B["Missile N"], 9, 3, 0, 0, vis=False, bob=True, aim=6, anims=ma), 2)
     mis['anim_dirs'] = True
     add(act("Fireball", B["Fireball"], 9, 2, 0, 0, vis=False, aim=5, anims={0: ([B["Fireball"], B["Fireball 2"]], 3, 0)}), 4)
+    # a flyer (role 10, BOB) that waits hidden for a spawner; fire = the shot it fires by itself (A_FIRE)
     def foe(name, frames, rate, speed, pattern, hits=1, fire=None, frate=90, fpat=1, copies=1, px=0, py=0, fast=1):
         a = act(name, B[frames[0]], 10, speed, px, py, vis=False, bob=True, pattern=pattern, enter=0, comeback=False, hits=hits,
                 anims={0: ([B[f] for f in frames], rate, 0)}, fast=fast)
@@ -995,6 +1025,7 @@ def jade_serpent():
     # ---------------- spawners: map y, the actor, how many, frames apart, flight pattern (-1 the actor's own),
     # edge (0 top, 1 right, 3 left), x (or the height for a side edge), spacing across
     S = []
+    # a spawner at map line my sending n of actor name (pattern -1 = the actor's own)
     def sp(my, name, n=1, gap=20, pat=-1, edge=0, sx=152, dx=0, at=40):
         k = MW / 320.0                                     # (laid out for 320: scaled to the play area)
         S.append(dict(y=my, act=A[name], n=n, gap=gap, pattern=pat, edge=edge, x=int(round(sx * k)), dx=int(round(dx * k)), at=at))

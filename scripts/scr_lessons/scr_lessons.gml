@@ -375,6 +375,10 @@ function lesson_start(_i)
     lesson_start_now(_i);
 }
 
+/// Starts lesson _i (index into les_defs) without asking: a new empty project
+/// on the same machine, page tutorials and offers off, its own disk path
+/// (Lesson_<short>.adf in the save folder), then step 0. Called by lesson_start
+/// directly or as the confirm callback when the old project had changes.
 function lesson_start_now(_i)
 {
     var _machine = proj.machine;
@@ -425,6 +429,8 @@ function lesson_show_step(_st)
     }
 }
 
+/// After the last step: marks the lesson done (les_done, saved with the
+/// settings so the Learn menu shows "- done"), ends it and says so in a toast
 function lesson_finish()
 {
     les_done[les_id] = true;
@@ -439,8 +445,9 @@ function lesson_stop()
     settings_save();
 }
 
-/// Names for the Learn menu, with the guided tour first
-/// The Learn ADAM menu (top bar): this page's tutorial, then lesson_menu_names()
+/// The Learn ADAM menu (top bar): this page's tutorial, then lesson_menu_names(),
+/// then "What's new". draw_topbar maps the picked index back: 0 page tutorial,
+/// 1 guided tour, 2.. lessons, last What's new - keep the two in step.
 function learn_menu_names()
 {
     var _n = ["Tutorial for this page: " + ws_name(ws) + "  (F1)"];
@@ -450,6 +457,9 @@ function learn_menu_names()
     return _n;
 }
 
+/// Names for the Learn menu, with the guided tour first: then one line per
+/// lesson in les_defs order ("3. Name  (10 min)"), marked "- Pro" in Lite and
+/// "- done" once finished. Returns an array of strings.
 function lesson_menu_names()
 {
     var _n = ["Guided tour - what every page does (5 min)"];

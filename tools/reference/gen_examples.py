@@ -1,15 +1,44 @@
 # Generates the example projects (datafiles/examples/*.adam; Firefly Night is the ADAM Pro / BOB one)
 # plus test ADFs and previews in tools/reference/out.
 # Usage: python gen_examples.py
+#
+# What it makes, for each example (gem_hunter, deep_dive, star_catcher, dodge_ball, firefly_night
+# here; dig_deep, nebula_strike, starfire, jade_serpent, torchlight in the ex_*.py files):
+#   datafiles/examples/<name>.adam and <name>_a1200.adam   the projects ADAM loads (json)
+#   datafiles/examples/shots/<name>.png                    first screen, 320 x 256 (Home page, shot())
+#   tools/reference/out/<name>.adf (+ <name>_disk2.adf)    test disks, built by adf_reference.py
+#   tools/reference/out/<name>.png (and dig_deep_map.png)  2x previews
+# python gen_examples.py <name> ...  makes only those.
+#
+# How an example function is put together (gem_hunter is the simplest to read):
+#   1. pal = the 16 base colours (colour 0 shows the copper sky).
+#   2. The picture: im = canvas(), drawn with PIL and P[x, y]; blends use dmix / ramp, fades
+#      into the sky use skymix (dithered on the A500/600).
+#   3. sprites = [(name, art name, 3 colours)] (art.py / gh_art.py pictures, or new ones put
+#      in art.A), actors = actor(...), rules = R(...) (one DO each; merge_rules makes cards).
+#   4. sounds (sfx_list with changes) and songs (song / bars from the loop library LIB).
+#   5. p = make_project(...), then levels, title, HUD (dress_ui) and so on are set on p.
+#   6. animate(p, prefix, specs) adds the Animate page animations and their frames.
+# Each example function runs twice: once plain, once between aga_begin() / aga_end() for
+# the A1200 version, where dmix / skymix hand out real in-between colours (16..127) instead
+# of dithering and make_project puts them in the palette (depth 7). Then the main loop below
+# shades the sprites (shade.py), makes the rule groups, writes the .adam, turns it into
+# the builder's dict (to_builder) and builds the ADF with adf_reference.build / adf.
+#
+# The script is deterministic: running it must not change datafiles/examples/*.adam (or the
+# shots) unless an example was meant to change - check with git status after a run.
 import json, math, random, struct, sys, os
 from PIL import Image, ImageDraw
 import art, gh_art, shade
 from adf_reference import build, adf, loadscr_block, ENGINE, ENGINE_DIR, HERE, REPO
 
 W,H=320,256
+# an 8-bit colour channel rounded to the Amiga's 12-bit steps (0, 17 .. 255)
 def gun(v): return round(v/17)*17
+# $RRGGBB as an A500/600 shows it (each channel rounded with gun)
 def q(c): return (gun((c>>16)&255)<<16)|(gun((c>>8)&255)<<8)|gun(c&255)
 
+# ADAM's default 128-colour palette: 16 base colours, then 112 hues and greys for the A1200
 def palette_default():
     p=[0x000000,0xffffff,0x0055aa,0xff8800,0x1a2a4a,0x33598c,0x5c9cd6,0xa8d8ff,0x1e4a1e,0x3f8a2e,0x7acc44,0x6a4426,0xb07a45,0xdd3322,0xffdd33,0x8a8a8a]
     import colorsys
@@ -22,6 +51,7 @@ def palette_default():
 
 PRESETS=[[2,60,6,8,0,6,0,4],[1,120,-8,12,0,8,0,6],[3,40,-1,25,0,10,0,9],[0,30,4,14,0,7,4,5],[3,14,0,6,0,5,0,3],[2,40,3,30,2,6,8,6],[0,50,-2,30,0,9,6,8],[2,90,0,3,0,3,0,2]]
 NAMES=["Coin","Laser","Explosion","Jump","Hit","Power up","Lose","Blip"]
+# the 8 default sounds (the Sound page presets) as project sound dicts; over = {index: changes}
 def sfx_list(over=None):
     out=[]
     for i,p in enumerate(PRESETS):
@@ -33,9 +63,11 @@ def sfx_list(over=None):
 
 # ---- songs for the Music page: loops copied from ADAM's built-in library (global.MUS_LIB, lib = its index)
 MUS_ROOT=18; MIN=0x37; MAJ=0x47
+# a drum loop of the library: pat = 16 steps, letters K S H O T C pick drums 0..5, '.' = rest
 def ldrums(name,lib,pat):
     notes=[MUS_ROOT if c in "KSHOTC" else 0 for c in pat]; insts=["KSHOTC".index(c) if c in "KSHOTC" else 0 for c in pat]
     return dict(name=name,cat=0,lib=lib,inst=0,notes=notes,insts=insts,arps=[0]*16)
+# a tone loop of the library: cat 1 bass / 2 chords / 3 lead, 16 note steps (0 = rest), arps = chord per step
 def ltone(name,lib,cat,inst,notes,arps=None):
     return dict(name=name,cat=cat,lib=lib,inst=inst,notes=list(notes),insts=[inst]*16,arps=list(arps or [0]*16))
 LIB={
@@ -61,6 +93,7 @@ LIB={
     "Long notes":ltone("Long notes",22,3,10,[20]+[0]*7+[18]+[0]*7),
     "Trill":ltone("Trill",23,3,12,[25,27,25,27,25,27,25,27,23,25,23,25,23,25,23,25]),
 }
+# a Music page song: bpm, 4 lanes of loop names per bar, loop_bar = the bar it loops back to
 def song(name,bpm,lanes,loop_bar=0):
     # lanes: 4 lists of loop names per bar ('' = empty bar)
     loops=[]; out=[]
@@ -81,6 +114,7 @@ def bars(*parts):
 FONT=[]
 import re
 FONT=[int(v,16) for v in re.findall(r'\$([0-9a-f]{2})',open(os.path.join(ENGINE_DIR,'font.inc')).read())]
+# draws text s into the pixel list px at (x, y) in colour c with the engine's 8 x 8 font (font.inc)
 def text(px,s,x,y,c):
     for i,ch in enumerate(s.upper()):
         o=ord(ch)
@@ -92,8 +126,10 @@ def text(px,s,x,y,c):
                     xx=x+i*8+k; yy=y+r
                     if 0<=xx<W and 0<=yy<H: px[yy*W+xx]=c
 
+# a new actor dict with the .adam field names; anim / rate / moving = the old two-frame animation
 def actor(name,sprite,role,speed,x,y,anim=-1,rate=8,moving=False,vis=True,left=False,up=False):
     return dict(name=name,sprite=sprite,role=role,speed=speed,x=x,y=y,visible=vis,start_left=left,start_up=up,anim_sprite=anim,anim_rate=rate,anim_moving=moving,from_level=1,faster_every=0)
+# a rule dict: WHEN when (a, b, n), DO act (target, value) - the numbers are listed in CLAUDE.md
 def R(when=0,a=0,b=1,n=1,act=0,target=0,value=10): return dict(when=when,a=a,b=b,n=n,act=act,target=target,value=value,group=-1)
 
 def merge_rules(p):
@@ -109,8 +145,11 @@ def merge_rules(p):
         else: out.append(r)
     p['rules']=out
 
+# sorts the rules into named Logic page groups (per example, else by WHEN); an example can
+# give its own key function in p['_gk']
 def auto_groups(p):
     names=p['actors']
+    # the group name of rule r
     def key(r):
         if p['name']=="Gem Hunter":
             if r['when']==0 and r['b'] in (1,2,3,4): return "Hoppers hit the hero"
@@ -140,6 +179,7 @@ def auto_groups(p):
 
 # ---- animations (Animate page): each animated actor gets 3 or 4 frames per animation.
 # Extra frames are made from the drawn ones with these small changes.
+# moves the picture dx pixels right and dy down (empty rows / columns come in)
 def tf_shift(rows,dx=0,dy=0):
     out=[]
     for y in range(24):
@@ -149,6 +189,7 @@ def tf_shift(rows,dx=0,dy=0):
         elif dx<0: r=r[-dx:]+"."*(-dx)
         out.append(r)
     return out
+# turns the rows round left to right
 def tf_hflip(rows): return [r[::-1] for r in rows]
 def tf_flip_from(rows,y0): return rows[:y0]+[r[::-1] for r in rows[y0:]]   # legs / flame the other way
 def tf_lean(rows,k):
@@ -158,13 +199,15 @@ def tf_lean(rows,k):
         d=round(k*(23-y)/23)
         out.append(("."*d+r)[:16] if d>0 else r)
     return out
+# the rows with row y replaced by new
 def tf_row(rows,y,new): return rows[:y]+[new]+rows[y+1:]
 
 def animate(p,prefix,specs):
-    """specs: {actor index: dict(anims={0..11: (frames, rate, mode)}, flip=bool, dirs=bool)}
+    """specs: {actor index: dict(anims={0..22: (frames, rate, mode)}, flip=bool, dirs=bool)}
     frames are art names or row lists; new pictures go in the next free sprite slots
     with the colours of the actor's own sprite"""
     slots={}
+    # the sprite slot of frame fr: an int already is one; an art name or row list gets a new slot once per key
     def slot_for(fr,cols,name):
         if isinstance(fr,int): return fr
         key=fr if isinstance(fr,str) else prefix+name
@@ -192,6 +235,9 @@ def animate(p,prefix,specs):
     for i,s in enumerate(p['sprites']):
         if not s['name']: s['name']="Frame %d"%(i+1)
 
+# the .adam project dict (the fields project_from_loaded in scr_project reads), with defaults.
+# sprites = [(name, art name, 3 colours)], sky = [top, middle, bottom, middle line].
+# In the A1200 pass the in-between colours dmix / skymix made go into the palette (depth 7).
 def make_project(name,pal16,img,sprites,actors,rules,sky,hud_col=1,msg_col=14,lives=3,over="GAME OVER - PRESS FIRE",win="YOU WIN! - PRESS FIRE",sfx=None,songs=None):
     pal=palette_default(); pal[:16]=pal16
     depth=4; machine="A500_600"
@@ -238,21 +284,26 @@ def dress_ui(p,style,font_style,rows,fields,bottom=False):
              **({'item':f[7]} if len(f)>7 else {})) for f in fields]
     p['ui']=dict(on=True,bottom=bottom,rows=rows,frame_on=True,style=style,frame=ui_ref.frame_preset(style,p['pal'],ncol),font_style=font_style,font=[],fields=fl)
 
+# a blank 320 x 256 picture of colour numbers
 def canvas(): return Image.new('P',(W,H),0)
 
 # ordered (Bayer 8 x 8) dithering - the same matrix as global.BAYER8 in ADAM
 BAYER8=[0,32,8,40,2,34,10,42, 48,16,56,24,50,18,58,26, 12,44,4,36,14,46,6,38, 60,28,52,20,62,30,54,22,
         3,35,11,43,1,33,9,41, 51,19,59,27,49,17,57,25, 15,47,7,39,13,45,5,37, 63,31,55,23,61,29,53,21]
+# the Bayer threshold 0..63 at (x, y)
 def bayer(x,y): return BAYER8[(y&7)*8+(x&7)]
 # A1200 versions: the same pictures, but each dithered blend between two backdrop colours
 # becomes a real in-between colour (16..127), so gradients are smooth and the 16 base
 # colours keep their numbers. Blends with colour 0 (the copper sky) stay dithered.
 AGA={'on':False,'steps':16,'keys':{},'order':[],'sky':[]}
 SKY_PH=128                                   # sky blend placeholders 128.. until make_project numbers them
+# starts the A1200 pass: dmix / skymix now hand out in-between colours
 def aga_begin():
     AGA.update(on=True,keys={},order=[],sky=[])
+# back to the A500/600 pass (plain dithering)
 def aga_end():
     AGA['on']=False
+# colour numbers still free for in-between colours (AGA['max'] 128; ex_shmup.aga_cap sets 64)
 def aga_free():
     return AGA.get('max',128)-16-len(AGA['order'])-len(AGA['sky'])
 def dmix(a,b,t,x,y):
@@ -284,6 +335,7 @@ def sky_rgb(sky,y):
     a,b,t=sky[0],sky[1],y/sky[3]
     if y>sky[3]: a,b,t=sky[1],sky[2],(y-sky[3])/(255-sky[3])
     return rgb_mix(a,b,t)
+# $RRGGBB a at t=0 to b at t=1
 def rgb_mix(a,b,t):
     return sum(int(round(((a>>s)&255)*(1-t)+((b>>s)&255)*t))<<s for s in (16,8,0))
 def ramp(cols,t,x,y):
@@ -291,8 +343,11 @@ def ramp(cols,t,x,y):
     t=max(0.0,min(1.0,t)); pos=t*(len(cols)-1); k=min(int(pos),len(cols)-2)
     return dmix(cols[k],cols[k+1],pos-k,x,y)
 
+# a level's 320 hill heights (100..240) from three sine waves; the random numbers (an LCG)
+# must stay the same as terrain_generate in scr_levels.gml
 def terrain(seed, hilly, base):
     st=[seed & 0x7fffffff]
+    # the next random number, 0..1
     def rnd():
         st[0]=(st[0]*1103515245+12345) % 2147483648
         return st[0]/2147483648
@@ -320,6 +375,7 @@ def gem_hunter():
             if r<=20: P[x,y]=7
             elif r<=27: P[x,y]=dmix(7,3,(r-20)/7,x,y)
             elif r<=44: P[x,y]=skymix(3,(r-27)/17,x,y)
+    # the mountain ridge's top at column x
     def ridge(x): return int(130-abs(((x+40)%110)-55)*1.1-10*math.sin(x/17))
     for x in range(320):                                                     # far mountains, lit from the sun
         y=ridge(x); lit=(x+40)%110<55                                        # faces sloping down to the right face the sun
@@ -329,6 +385,7 @@ def gem_hunter():
             else: c=4 if yy-y>2 else dmix(5,4,0.75,x,yy)                    # shadow side, a glint on the ridge
             if y<96 and yy-y<7: c=dmix(6,c,(yy-y)/7,x,yy)                    # snow caps, melting into the rock
             P[x,yy]=c
+    # the green hills' top at column x
     def hill(x): return int(150+math.sin(x/23)*8+math.sin(x/9)*3)
     for x in range(320):                                                     # distant green hills, darker further down
         y=hill(x)
@@ -350,6 +407,7 @@ def gem_hunter():
     sprites=[("Hero","gh_hero",hero_cols),("Hopper","gh_hop2",hop_cols),("Gem","gem",hero_cols),("Cloud","cloud",cloud_cols),
              ("Hero walk","gh_hero2",hero_cols),("Hopper squat","gh_hop",hop_cols),("Gem sparkle","gem2",hero_cols),("Cloud puff","cloud2",cloud_cols),
              ("Pop","pop",cloud_cols),("Pop big","pop2",cloud_cols)]
+    # a hopper (role 7) that comes in on level frm and gets faster every 3 levels
     def hop(name,x,frm,left=False):
         a=actor(name,1,7,1,x,120,5,10,left=left); a['from_level']=frm; a['faster_every']=3; return a
     actors=[actor("Hero",0,6,2,24,120,4,6,True),
@@ -542,6 +600,7 @@ def star_catcher():
     sprites=[("Rocket","ship",ship),("Asteroid","rock",rock),("UFO","ufo",ufo),("Star","star",star),
              ("Rocket flame","ship2",ship),("Asteroid spin","rock2",rock),("UFO lights","ufo2",ufo),("Star twinkle","star2",star),
              ("Laser","sc_laser",star),("Laser B","sc_laser2",ship),("Bomb","sc_bomb",ufo)]
+    # a Shot actor (role 9), hidden until a DO 22 rule fires it; aim = A_UP
     def shot(name,spr,speed,aim):
         a=actor(name,spr,9,speed,0,0,vis=False); a['aim']=aim; return a
     # 4 and 5 are the laser and its rapid-fire copy (Shot actors in a row); the star waits, hidden, until
@@ -632,6 +691,7 @@ def dodge_ball():
     p=make_project("Dodge Ball",pal,im,sprites,actors,rules,[0x300050,0xb02090,0xffa040,118],msg_col=14,
                         win="CHAMPION! - PRESS FIRE",over="KNOCKED OUT - PRESS FIRE",songs=[tune])
     B=art.A['blob']; BA=art.A['ball']; BA2=art.A['ball2']; G2=art.A['gem2']
+    # a ball's spin animation: its two frames, then both turned round
     def ball(si,s2,nm): return dict(anims={0:([si,s2,(nm+" 3",tf_hflip(BA)),(nm+" 4",tf_hflip(BA2))],8,0)})
     animate(p,"db",{0:dict(anims={0:([0,("Player breathe",tf_shift(B,dy=-1)),("Player breathe 2",tf_shift(B,dy=-2))],12,2),
                                    1:([0,4,("Player bounce",tf_shift(B,dy=-1)),4],8,0)}),
@@ -654,6 +714,7 @@ def firefly_night():
             if r<=15: P[x,y]=9 if math.hypot(x-mx+4,y-my+4)<=12 else dmix(9,10,0.6,x,y)
             elif r<=17: P[x,y]=10
             elif r<=34: P[x,y]=skymix(15,(r-17)/17,x,y)
+    # the far hills' top at column x
     def far(x): return int(150+math.sin(x/31)*10+math.sin(x/13+1)*4)
     for x in range(320):                                                     # far hills, moonlit edge, darker down
         y=far(x)
@@ -666,6 +727,7 @@ def firefly_night():
             if 0<=x+hw<W and hw>1: P[x+hw,yy]=dmix(8,15,0.4,x+hw,yy)
         d.rectangle([x-1,base,x+1,base+5],fill=11)
     for x,h in [(14,46),(40,34),(286,40),(306,52)]: tree(x,far(x)+6,h)
+    # the meadow's top at column x
     def near(x): return int(206+math.sin(x/37)*7+math.sin(x/11)*2)
     for x in range(320):                                                     # the meadow, lit from the moon side
         y=near(x)
@@ -675,7 +737,9 @@ def firefly_night():
         if y<255: d.line([(x,y),(x+rnd.choice((-1,1)),y-3)],fill=7)
     d.rectangle([0,0,319,11],fill=2)
     px=list(im.getdata()); text(px,"CATCH THE FIREFLIES - MIND THE BATS",20,246,1); im.putdata(px)
+    # 24 rows of 16 '.123' letters from fn(x, y) -> 0..3
     def grid(fn): return ["".join(".123"[fn(x,y)] for x in range(16)) for y in range(24)]
+    # the owl's pixel (x, y) 0..3; flap = wings out
     def owl(x,y,flap=False):
         inb=lambda xx,yy: ((xx-7.5)/6.5)**2+((yy-12.5)/8.5)**2<=1
         v=0
@@ -692,6 +756,7 @@ def firefly_night():
         if flap and 11<=y<=15 and x in (0,1,14,15): v=2 if y in (11,15) else 1   # wings out
         if not flap and 12<=y<=16 and x in (1,14): v=2                         # wings folded
         return v
+    # a firefly's pixel; big = the tail glows big
     def firefly(x,y,big=True):
         v=0
         r=math.hypot(x-7.5,y-15.5)
@@ -700,6 +765,7 @@ def firefly_night():
         if (x,y) in ((7,8),(8,8),(6,8),(9,8)): v=2                           # head
         if (x in (4,5) and y in (9,10)) or (x in (10,11) and y in (9,10)): v=3   # wings
         return v
+    # a bat's pixel; up = wings up
     def bat(x,y,up=False):
         v=0
         if ((x-7.5)/2.6)**2+((y-12)/3.6)**2<=1: v=1                          # body
@@ -780,6 +846,9 @@ def scroll_across(p):
     # the backdrop scrolls left or right (the fine scroll's early fetch takes sprite 7, as in a tile world)
     return not p.get('tiles_on') and p.get('scroll_dir',0) in (2,4)
 
+# as actors_alloc_channels in scr_ws_actors: each actor's hardware sprite (pair x 2 + 0 / 1,
+# -1 = a BOB); actors with the same 12-bit colours share a pair (a tile world or a scroll
+# across has only one sprite in pair 3) -> (channels, clashes, first actor on each pair)
 def alloc(p):
     acts=p['actors']; key=['']*4; used=[0]*4; owner=[-1]*4; chan=[]; conf=[]; bob=bob_flags(p)
     cap=[2,2,2,1] if (p.get('tiles_on') or scroll_across(p)) else [2,2,2,2]     # a tile world loses sprite 7 (DDFSTRT $30)
@@ -848,6 +917,7 @@ def sky_table(p,aga=False):
         q.append((c[0]<<16)|(c[1]<<8)|c[2])
     return copper_blend_lines(q)
 
+# as ground_table in scr_adf: per column the first line in a solid ('ground') colour, 256 = none; None when no colour is ground
 def ground_table(p):
     if not any(p.get('solid',[])): return None
     out=[]
@@ -858,6 +928,7 @@ def ground_table(p):
         out.append(g)
     return out
 
+# the builder's game block (G_*), or None when levels, goal and title are all off (one flat level when levels are off)
 def game_block(p):
     if not (p['levels_on'] or p['goal_on'] or p['title_on']): return None
     lv=[l['heights'] for l in p['levels']] if p['levels_on'] and p['levels'] else [[256]*320]
@@ -865,7 +936,7 @@ def game_block(p):
                 title=p['title_on'],label=p['goal_label'],title1=p['title1'],title2=p['title2'],levtxt=p['lev_text'])
 
 def disk_actors(p):
-    # as actors_disk_list in scr_ws_actors: each actor, then its copies (Actors page 'Copies'),
+    # as disk_expand in scr_adf: each actor, then its copies (Actors page 'Copies'),
     # up to 32 on the disk (a tile world: 7). A run of shots with the same aim and speed, or of
     # effects with the same picture, are copies of the first of the run too (rapid fire, several
     # explosions at once). -> [(actor index, disk index of its type)], and each actor's first
@@ -892,6 +963,7 @@ def disk_actors(p):
 def disk_project(p):
     # the project as the disk sees it: a record per actor and copy, rules naming disk actors
     out,first=disk_actors(p)
+    # project actor i -> its first disk actor (0 when it is not on the disk)
     def m(i):
         if 0<=i<len(first) and first[i]>=0: return first[i]
         return 0
@@ -905,6 +977,7 @@ def disk_project(p):
         f=a.get('fire',-1)
         a['_fire']=first[f] if 0<=f<len(first) and first[f]>=0 else -1
         acts.append(a)
+    # a DO line with its actor numbers turned into disk actors
     def rl(d):
         d=dict(d)
         if d['act']<27: d['target']=m(d['target'])        # DO 27 Switch palette: fade frames; 28 / 29 items: how many
@@ -920,7 +993,7 @@ def disk_project(p):
     return pd
 
 def spawner_records(pd,p):
-    # as adf_spawners in scr_adf: each spawner of the shoot 'em up map as the engine reads it
+    # as adf_spawner_records in scr_adf: each spawner of the shoot 'em up map as the engine reads it
     # (engine.s SP_*), in the order they go off (from the bottom of the map up)
     first=pd['_first']; rows=p['map_h']; out=[]
     pw=p['map_w']*16                            # the play area's width (the map's tiles across)
@@ -943,6 +1016,9 @@ def spawner_records(pd,p):
     out.sort(key=lambda e:(-e[0],e[1]))
     return [e[2] for e in out]
 
+# the .adam project -> the flat dict adf_reference.build() takes (what scr_adf reads from the
+# project: disk actors, 12-bit or 24-bit colours, sky table, ground, game block, items,
+# palettes, HUD, tiles, scroll) -> (builder dict, sprite pair clashes)
 def to_builder(p):
     p0=p
     p=disk_project(p0)
@@ -978,6 +1054,7 @@ def to_builder(p):
     if p.get('items'):
         # items (version 13): the actor each is found as becomes a disk actor (scr_adf the same)
         first=p['_first']
+        # project actor -> disk actor, or -1
         def da(i): return first[i] if 0<=i<len(first) and first[i]>=0 else -1
         bp['items']=[dict(name=it['name'],actor=da(it.get('actor',-1)),use=it.get('use',0),uses=it.get('uses',3),max=it.get('max',9),
                           start=min(it.get('start',0),it.get('max',9)),keep=it.get('keep_level',True),lose=it.get('lose_life',False)) for it in p['items'][:16]]
@@ -998,7 +1075,7 @@ def to_builder(p):
                          level_maps=p.get('level_maps') if p.get('levels_on') else None)
         if p.get('disk2_music'): bp['d2maps']=True             # the levels' own maps go on disk 2 too (version 17)
     elif p.get('shmup_map'):
-        # a shoot 'em up map (version 10): 20 x map_h tiles of 16 that scroll past once, flying up
+        # a shoot 'em up map (version 10): map_w (12..20) x map_h tiles of 16 that scroll past once, flying up
         bp['scroll']=dict(dir=1,speed=p.get('scroll_speed',4),
                           map=dict(rows=p['map_h'],cols=p['map_w'],tiles=[t['px'] for t in p['tiles']],cells=p['map'],spawners=spawner_records(p,p0)))
     elif p.get('scroll_dir',0):
@@ -1012,6 +1089,7 @@ def shot(p):
     aga=p.get("machine")=="A1200"
     pal=[q(c) for c in p["pal"]]; g=sky_table(p,aga)
     if aga: pal=list(p["pal"])
+    # $RRGGBB -> (r, g, b)
     def rgb(c): return ((c>>16)&255,(c>>8)&255,c&255)
     im=Image.new('RGB',(W,H))
     dx=dy=0
@@ -1049,6 +1127,7 @@ def shot(p):
                 if v and 0<=ax+xx<W and 0<=ay+yy<H: im.putpixel((ax+xx,ay+yy),rgb(q(oc[v-1])))
     return im
 
+# saves the first screen to datafiles/examples/shots/<name>.png (Home page) and a 2x copy as fn
 def preview(p,fn):
     im=shot(p)
     im.save(os.path.join(REPO,'datafiles','examples','shots',os.path.splitext(os.path.basename(fn))[0]+'.png'))

@@ -18,6 +18,12 @@
 #macro ITEM_CARRY_MAX 99        // the most of one item the player can carry
 #macro ITEM_NAME_LEN 8          // item names: upper case (the game's font), shown in the space bar menu
 
+/// Fills the global name lists the editor shows in dropdowns: roles, WHEN and DO
+/// names (their index is the number written to the disk - R_WHEN / R_ACT, A_ROLE),
+/// fade times, aim / flight pattern / edge / power-up / scroll names, synth waves,
+/// sound presets (SFX_PRESET_NAMES = the sounds of a new project), rule templates
+/// and colour depths. Called once from obj_app Create. Keep the order of each list:
+/// the numbers are saved in .adam files and read by engine.s.
 function project_defs_init()
 {
     global.ROLE_NAMES = ["Player (joystick)", "Bouncer (diagonal)", "Patrol left-right", "Patrol up-down", "Chaser (follows player)", "Still (does not move)", "Platform player (walks + jumps)", "Hopper (jumps left and right)", "Faller (drops onto the ground)", "Shot (fired by a Shoot rule)", "Flyer (shoot 'em up enemy)", "Option (flies behind the player)", "Effect (explosion, sparkle)"];
@@ -81,6 +87,8 @@ function spr_bank_size()
     return lim_bank();
 }
 
+/// A blank sprite bank slot called _name: 16 x 24 (a hardware sprite), pixels
+/// 0 (clear) .. 3, and the three colours (as $RRGGBB) pixels 1-3 are drawn in
 function sprite_new(_name)
 {
     return {
@@ -115,6 +123,11 @@ function spr_is_big(_s)
     return _s.w > SPR_W || _s.h > SPR_H;
 }
 
+/// A new actor called _name with the defaults the Actors page starts from:
+/// sprite slot 0, role 5 (Still), in the middle of the screen. Each field goes
+/// into its A_* record on the disk (adam_data_block_raw); the loader
+/// (project_from_loaded) overlays saved fields onto this, so a field added here
+/// is how older files get a value for it.
 function actor_new(_name)
 {
     return {
@@ -139,7 +152,7 @@ function actor_new(_name)
         carry : false,          // the player picks it up (fire on it) and throws it (fire again)
         stand_on : false,       // a moving platform: actors with gravity stand on it and ride along
         patrol : 0,             // a patrol (roles 1-3): how far it goes from its start, in 8-pixel steps (0 = edge to edge)
-        aim : 0,                // a shot (role 9): 0 the way the shooter moves, 1 up, 2 down, 3 left, 4 right, 5 at the player
+        aim : 0,                // a shot (role 9): 0 the way the shooter moves, 1 up, 2 down, 3 left, 4 right, 5 at the player, 6 homing missile
         pattern : 0,            // a flyer (role 10): 0 straight, 1 wave, 2 zigzag, 3 homing, 4 with the scenery, 5 comes in and stays (boss)
         enter : 1,              // a flyer's edge: 0 top, 1 right, 2 bottom, 3 left
         comeback : true,        // a flyer that leaves the far edge comes in again (else it hides)
@@ -232,9 +245,9 @@ function do_value_is_item(_act)
 }
 
 // ---------------------------------------------------------------------------
-// Animations (Animate page, Lite and Pro). Each actor has 4: Idle (standing
+// Animations (Animate page, Lite and Pro). Each actor has 4 basic ones: Idle (standing
 // still), Walk (moving), Jump and Fall (in the air - platform players,
-// hoppers and fallers). Each is up to ANIM_FRAMES sprite-bank slots, a speed
+// hoppers and fallers), then the 8 directions, Fire and Hit / Die (ANIM_COUNT). Each is up to ANIM_FRAMES sprite-bank slots, a speed
 // in 50ths of a second per frame and a mode. Empty ones borrow from the
 // others when the disk is built (anim_plan, same as adf_reference.py).
 // ---------------------------------------------------------------------------
@@ -248,11 +261,14 @@ function do_value_is_item(_act)
 #macro ANIM_FIRE0 12            // Fire with no direction; 13..20 = Fire + the 8 directions
 #macro ANIM_FRAMES 16
 
+/// An empty animation: no frames (sprite bank slots), rate in 50ths of a second per
+/// frame (2..30), mode 0 loop / 1 once / 2 ping-pong. Disk: one AN_* entry (anim_plan).
 function anim_new()
 {
     return { frames : [], rate : 8, mode : 0 };      // mode 0 loop, 1 once, 2 ping-pong
 }
 
+/// An actor's ANIM_COUNT (23) empty animations, indexed by the ANIM_* slots above
 function anims_new()
 {
     var _a = [];
@@ -457,6 +473,14 @@ function anim_plan_k(_plan, _k)
     return -1;
 }
 
+/// The animation table of actor _ac before Hit / Die are added (anim_plan adds them):
+/// an array of { frames, rate, mode, flip } - 4 entries (Idle, Walk, Jump, Fall), 12 with
+/// 8 directions, 21 with Fire animations. Empty entries are filled from the others
+/// (Idle <-> Walk, Jump from Walk, Fall from Jump, directions via anim_resolve_dirs;
+/// an empty Idle with directions is mode 3 'stand facing'). Lite keeps the first
+/// lim_frames() frames. Older actors with only the two-frame animation get a 4-entry
+/// table; no animation at all = undefined (A_ANIM 0). Must give the same table as
+/// anim_plan_main in tools/reference/adf_reference.py.
 function anim_plan_main(_ac)
 {
     if (anims_used(_ac))
@@ -575,6 +599,8 @@ function actor_preview_sprite(_ac)
 #macro RULE_DOS_MAX 5           // DO lines on one rule card: the DO and up to 4 AND DO lines
 #macro RULE_IFS_MAX 3           // IF lines on one rule card (items the player must have)
 
+/// A new rule card: WHEN when (with actors a, b and number n), DO act (target, value),
+/// group -1 = not in a group. Disk: an R_* record (16 bytes) + AND DO / IF lines.
 function rule_new()
 {
     // n: seconds / score / tenths held / seconds in view / item (WHEN 17, 18); value: points / sound /
@@ -607,6 +633,10 @@ function rule_has_act(_r, _act)
     return false;
 }
 
+/// A new sound called _name: kind 0 synth (wave, pitch, sweep, envelope in
+/// len / atk / dec / sus / rel, optional filter), 1 sample (smp = the WAV data,
+/// then rate / bits crunch, gain, trim and loop points 0..1000), 2 patch (scr_patch).
+/// Rendered for the disk by sfx_render_ex (= adf_reference.py render_sfx).
 function sfx_new(_name)
 {
     return {
@@ -735,6 +765,9 @@ function sfx_pick_index(_list, _k)
     return 0;
 }
 
+/// Sets synth sound _s to preset _p (0..7, as global.SFX_PRESET_NAMES: Coin, Laser,
+/// Explosion, Jump, Hit, Power up, Lose, Blip). Each row of the table is
+/// wave, pitch, sweep, len, atk, dec, sus, rel.
 function sfx_apply_preset(_s, _p)
 {
     var _t = [
@@ -758,6 +791,10 @@ function sfx_apply_preset(_s, _p)
     _s.rel = _v[7];
 }
 
+/// A new, empty project on the machine picked last: the default palette, a blank
+/// 320 x 256 backdrop, SPR_COUNT blank sprites, SFX_START preset sounds. Every
+/// project field must be set here - the loader starts from this struct, so a field
+/// missing here is missing in every loaded file too.
 function project_new()
 {
     var _p = {
@@ -854,11 +891,23 @@ function groups_fold_all()
     for (var g = 0; g < array_length(proj.groups); g++) { proj.groups[g].collapsed = true; }
 }
 
+/// The loader and validator: turns _raw (a parsed .adam file, an example, or an undo
+/// snapshot merged onto proj) into a safe project. Load path:
+///   json_parse -> project_unpack (packed "_z" keys back to arrays) ->
+///   struct_overlay onto project_new() (fields the file lacks keep their defaults) ->
+///   each part rebuilt and clamped below: sprites, sounds (patch_from_loaded),
+///   actors (anims_from_loaded), rules (AND DO / IF lines), groups (loops cut),
+///   levels, songs (song_from_loaded), palettes, then items_fix (scr_ws_logic),
+///   tiles_fix / shmup_fix (scr_tiles), ui_from_loaded (scr_ws_ui), loadscr_from_loaded.
+/// Never throws on bad data (only json_parse can); a _raw that is not a struct gives a
+/// new project. Returns the new project; the caller puts it in proj.
 function project_from_loaded(_raw)
 {
     var _p = project_new();
     if (!is_struct(_raw)) { return _p; }
     project_unpack(_raw);
+    // keep the defaults: struct_overlay below replaces these arrays with the file's (or
+    // leaves them missing), and they are rebuilt from the defaults + the file's entries
     var _sprites = _p.sprites;
     var _sfx = _p.sfx;
     var _pal = _p.pal;
@@ -986,6 +1035,7 @@ function project_from_loaded(_raw)
     var _lr = _raw[$ "rules"];
     if (is_array(_lr))
     {
+        // 100 = the Logic page's limit (scr_ws_logic); the disk takes up to RULES_DISK_MAX (128)
         for (var m = 0; m < min(100, array_length(_lr)); m++)
         {
             var _ru = struct_overlay(rule_new(), _lr[m]);
@@ -1138,6 +1188,7 @@ function project_from_loaded(_raw)
     return _p;
 }
 
+/// Writes _text to _path as UTF-8 without a trailing 0. Returns true.
 function file_write_text(_path, _text)
 {
     var _b = buffer_create(string_byte_length(_text) + 1, buffer_grow, 1);
@@ -1147,6 +1198,7 @@ function file_write_text(_path, _text)
     return true;
 }
 
+/// The whole text file at _path, or "" when it is missing, unreadable or empty
 function file_read_text(_path)
 {
     if (!file_exists(_path)) { return ""; }
@@ -1534,6 +1586,9 @@ function project_pack_selftest()
     return _ok;
 }
 
+/// Saves proj to _path. Save path: project_to_json -> project_pack (backdrop, sprite
+/// and tile pixels, maps, hills, song data packed as zlib + base64) -> json_stringify
+/// -> file_write_text. Remembers the path (proj_path, settings ini), clears proj_dirty.
 function project_save_to(_path)
 {
     var _t0 = get_timer();
@@ -1545,6 +1600,9 @@ function project_save_to(_path)
     toast("Saved " + filename_name(_path), 0);
 }
 
+/// Opens the .adam file at _path: json_parse -> project_from_loaded, folds the rule
+/// groups, sets out_path to <name>.adf beside it, clears undo. The machine comes from
+/// the file. Returns false (with a toast) when the file cannot be read or parsed.
 function project_load_from(_path)
 {
     var _txt = file_read_text(_path);
@@ -1581,6 +1639,9 @@ function project_load_from(_path)
     return true;
 }
 
+/// Call after proj has been replaced or changed in many places (load, undo, example):
+/// marks every cache stale (memory bar, tile atlas, sprites, backdrop, drum rows,
+/// listing) and clamps the editor's selections and the depth to the new project
 function project_after_change()
 {
     mem_mark_stale();
@@ -1600,6 +1661,8 @@ function project_after_change()
 // of the project it changes, so undoing on the Logic page never touches the
 // backdrop you painted afterwards, and so on.
 // ---------------------------------------------------------------------------
+
+// Named palettes (Backdrop page Palettes tab, DO 27, Levels page); undo continues at undo_keys
 
 /// A named palette: changes none of the main palette's colours yet
 function palette_new(_name)
@@ -1682,7 +1745,16 @@ function palette_look(_k, _look)
     }
 }
 
-/// Project fields each editor owns
+// How undo works: each page has its own undo and redo stack (undo_stacks[ws]).
+// undo_mark(tag) is called BEFORE a change and pushes a snapshot: a partial one
+// holds only the page's undo_keys fields, a full one (undo_mark_full, or a page
+// with no keys) the whole project. Snapshots are project_to_json text (packed),
+// so later edits cannot change them. undo_restore parses one, project_unpack's it,
+// lays its fields over a shallow copy of proj and runs the result through
+// project_from_loaded, so restored data gets the same checks as a loaded file.
+// A field a page changes must be in its list here, or undo will not bring it back.
+
+/// Project fields each editor owns (the page's partial undo snapshot); _ws = a WS_* page
 function undo_keys(_ws)
 {
     switch (_ws)
@@ -1735,6 +1807,7 @@ function undo_restore(_snap)
     if (ADAM_DEV_TOOLS) { show_debug_message("ADAM undo restore: " + string((get_timer() - _t0) / 1000) + " ms, snapshot " + string(string_byte_length(_snap.data)) + " bytes"); }
 }
 
+/// Empties the undo and redo history of every page (a new project, a load, an example)
 function undo_clear_all()
 {
     undo_stacks = array_create(WS_COUNT, 0);
@@ -1760,6 +1833,10 @@ function undo_mark_full(_tag)
     undo_mark_ex(_tag, true);
 }
 
+/// Pushes a snapshot of proj onto the current page's undo stack before a change
+/// (undo_mark / undo_mark_full call this). Marks of the same _tag less than 1.2 s
+/// apart are one step (dragging a slider). _full, or a page with no undo_keys,
+/// saves the whole project. Up to 40 steps per page; a new mark clears that page's redo.
 function undo_mark_ex(_tag, _full)
 {
     proj_dirty = true;
@@ -1781,6 +1858,8 @@ function undo_mark_ex(_tag, _full)
     redo_stacks[_w] = [];
 }
 
+/// Undo: puts back the current page's last snapshot, first saving the present state
+/// (the same part: full or the page's keys) on its redo stack
 function undo_do()
 {
     var _w = ws;
@@ -1795,6 +1874,7 @@ function undo_do()
     undo_last_tag = "";
 }
 
+/// Redo: the reverse of undo_do on the current page
 function redo_do()
 {
     var _w = ws;
@@ -1809,11 +1889,13 @@ function redo_do()
     undo_last_tag = "";
 }
 
+/// Undo steps on the current page (ws)
 function undo_count()
 {
     return array_length(undo_stacks[ws]);
 }
 
+/// Redo steps on the current page (ws)
 function redo_count()
 {
     return array_length(redo_stacks[ws]);
@@ -1947,6 +2029,11 @@ function backdrop_set_depth(_depth)
     bd_sel = clamp(bd_sel, 0, _count - 1);
 }
 
+/// Reads adam_settings.ini (in the save area): paths (FS-UAE, Kickstart per machine -
+/// an old single "kickstart" key goes to the machine used last, last disk and
+/// project), emulator and God mode options, last machine, UI options, window place,
+/// pages seen and lessons done. Missing keys get their defaults; the first run is
+/// when [machine] last is missing.
 function settings_load()
 {
     ini_open("adam_settings.ini");
@@ -1991,6 +2078,8 @@ function settings_load()
     last_machine = machine_get(last_machine).id;
 }
 
+/// Writes everything settings_load reads back to adam_settings.ini (and removes the
+/// old single "kickstart" key)
 function settings_save()
 {
     ini_open("adam_settings.ini");
@@ -2049,6 +2138,8 @@ function settings_save()
     ini_close();
 }
 
+/// Where the session's project is saved automatically (Step event, and on closing):
+/// autosave.adam in the save area, written with project_to_json
 function autosave_path()
 {
     return game_save_id + "autosave.adam";

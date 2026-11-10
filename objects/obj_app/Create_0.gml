@@ -1,4 +1,9 @@
 /// ADAM - Amiga no-code game maker - app controller
+/// Runs once at start. Sets up the display, then gives every obj_app instance
+/// variable its first value (Bob's rule: all of them here, never checked with
+/// variable_instance_exists), loads settings and the last session's project,
+/// runs dev command-line modes (-adam_build, -adam_shots) and opens the
+/// machine picker. Each frame after this: Step_0, then Draw_64.
 
 // ---------- display ----------
 // 2x anti-aliasing at most: it smooths the rounded corners just as well as

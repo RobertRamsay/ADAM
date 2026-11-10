@@ -1,5 +1,7 @@
 /// ADAM - Logic workspace (WHEN / DO rules)
 
+/// The first actor whose role is in _roles (role numbers, e.g. [0, 6] = either
+/// kind of player), or _fallback when none has one. Used to fill in new rules.
 function logic_find_role(_roles, _fallback)
 {
     for (var i = 0; i < array_length(proj.actors); i++)
@@ -12,6 +14,10 @@ function logic_find_role(_roles, _fallback)
     return _fallback;
 }
 
+/// Adds Quick recipe _t (global.TEMPLATE_NAMES index 0..5) as new rule cards in a
+/// new group named after it, with the actors picked by logic_find_role: 0 enemy hit,
+/// 1 pickup, 2 win at 100 points, 3 game over when lives run out, 4 enemy speeds up
+/// every 10 s, 5 fire plays sound 2 (value 1). One undo step.
 function logic_add_template(_t)
 {
     if (array_length(proj.rules) > 96)
@@ -90,6 +96,9 @@ function logic_song_names()
     return _n;
 }
 
+/// Rule _r as one plain English sentence: the WHEN, its IF lines, the DO and each
+/// AND DO line ("When Hero touches Gem, add 10 to the score, then ..."). Actor
+/// numbers past the last actor show as "?". The WHEN numbers match engine.s run_rules.
 function logic_sentence(_r)
 {
     var _names = actor_names();
@@ -256,6 +265,8 @@ function group_new(_name)
     return { name : _name, collapsed : true, enabled : true, parent : -1 };
 }
 
+/// The colour of group _g's stripe and outline: a hue stepped by 47 per group so
+/// groups next to each other differ.
 function group_colour(_g)
 {
     return make_colour_hsv((_g * 47 + 140) mod 255, 150, 230);
@@ -379,6 +390,8 @@ function group_path(_g)
     return _s;
 }
 
+/// The Group drop-down list on a rule card: "(no group)" first, then each group's
+/// path ("Enemies > Bats"). Entry k is group k - 1, so a rule's group + 1 is its entry.
 function group_names()
 {
     var _n = ["(no group)"];
@@ -815,6 +828,13 @@ function logic_rule_card(_r, i, _cx, _cy, _cw, _anames, _snames, _gnames)
     return _res;
 }
 
+/// Draws the Logic page in the work area (_x1, _y1) - (_x2, _y2), UI pixels. Tab 1
+/// (Items) hands over to logic_items_draw / logic_item_ideas_draw. Tab 0: the top bar
+/// (+ Add rule, + Add group, Collapse all), the scrolling list of group headers and
+/// rule cards (logic_rule_card) in run order, then Quick recipes on the right.
+/// Clicks inside the list are only noted (_del, _movei, _gact) and acted on after
+/// the list is drawn, so proj.rules / proj.groups never change while being walked.
+/// The rules go to disk as R_* records via adam_data_block (scr_adf).
 function ws_logic_draw(_x1, _y1, _x2, _y2)
 {
     var _rw = 320;
@@ -827,6 +847,7 @@ function ws_logic_draw(_x1, _y1, _x2, _y2)
         logic_item_ideas_draw(_x2 - _rw, _y1, _x2, _y2);
         return;
     }
+    // ---------------- top bar: count, + Add rule, + Add group, Collapse all ----------------
     logic_drag_item = -1;
     var _nr = array_length(proj.rules);
     var _ngr = array_length(proj.groups);
@@ -835,6 +856,7 @@ function ws_logic_draw(_x1, _y1, _x2, _y2)
     ui_text(_x1 + 200, _y1 + 15, ui_text_fit(string(_nr) + " rule(s) in " + string(_ngr) + " group(s). Checked every frame, top to bottom.", global.f_small, _subr - _x1 - 200), global.TH.text_faint, fa_left, fa_top, global.f_small, 1);
     if (ui_button("logic_add", _lx2 - 150, _y1 + 8, 136, 30, "+ Add rule", "Add rule|Adds a new WHEN / DO rule (outside any group). Use the + Rule button on a group to add straight into it.", BTN_ACCENT))
     {
+        // (the editor stops at 100 rules; the disk and engine take up to RULES_DISK_MAX 128)
         if (_nr < 100)
         {
             undo_mark("ruleadd" + string(current_time));
@@ -924,6 +946,9 @@ function ws_logic_draw(_x1, _y1, _x2, _y2)
         }
         logic_reveal = -1;
     }
+    // ---------------- the list: group headers and rule cards ----------------
+    // only rows inside the view (with 10 px spare) are drawn and registered; the others
+    // just move _y on, so a long list stays quick
     var _off = ui_scroll_begin("logic_list", _lx, _ly1, _lx2 - 10, _ly2, _content);
     if (_nr == 0 && _ngr == 0)
     {
@@ -1032,6 +1057,7 @@ function ws_logic_draw(_x1, _y1, _x2, _y2)
         logic_sort_rules();
     }
 
+    // ---------------- act on what was clicked in the list (after drawing it) ----------------
     if (_del >= 0)
     {
         undo_mark("ruledel" + string(current_time));
@@ -1158,6 +1184,7 @@ function recipe_new()
     return { a : -1, b : -1, out : -1, keep_a : false, keep_b : false, n : 1 };
 }
 
+/// The names of proj.items in order (item drop-downs; entry k = item k).
 function item_names()
 {
     var _n = [];
@@ -1334,6 +1361,8 @@ function recipe_names()
     return _n;
 }
 
+/// Recipe _r as "A + B > OUT" from its item names; "?" for an item not picked yet
+/// (or for _r out of range).
 function recipe_name(_r)
 {
     if (_r < 0 || _r >= array_length(proj.recipes)) { return "?"; }

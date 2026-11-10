@@ -1,4 +1,15 @@
 /// The whole studio is drawn here in GUI space
+/// Runs every frame after Step_0 (which has already set the UI scale and
+/// GUI size, autosaved and handled shortcuts). Order matters:
+///  1. ui_frame_begin - read the mouse, clear hover / rects, decide ui_input_ok.
+///  2. the current page's ws_*_draw inside the area between top bar and status bar
+///     (16 px side margins, top at 76, bottom 46 above the window edge).
+///  3. top bar and status bar, then the popup list, cards and modals, each on
+///     top of the last; the modals block page input through ui_input_ok, which
+///     was already worked out in step 1.
+///  4. hover help last so it is never hidden, then ui_frame_end.
+/// A control drawn later wins ui_hot when rects overlap, and the first control
+/// that takes the click (ui_take_click) stops later ones reacting.
 
 ui_frame_begin();
 var _shot = dev_shots_begin();

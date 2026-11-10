@@ -1,5 +1,44 @@
 /// ADAM - immediate-mode widgets (run in obj_app scope)
 /// Help strings use "Title|Longer explanation" format.
+///
+/// How the immediate-mode UI works (read this before debugging a control):
+/// - Nothing is kept between frames except a few obj_app variables. Every
+///   frame Draw GUI (Draw_64) calls ui_frame_begin, then the page's ws_*_draw
+///   draws every control afresh, then ui_frame_end. A widget such as
+///   ui_button(id, ...) both draws itself and returns true on the frame it
+///   is clicked, so the calling page acts on it straight away.
+/// - Coordinates are UI pixels (GUI layer), not window pixels. Step_0 sets
+///   global.ui_scale from the window size (ui_scale_for / ui_scale_fixed in
+///   scr_ui_draw), sets the GUI size to window / scale, and keeps
+///   global.ui_sx / ui_sy = window pixels per UI pixel. Mouse positions come
+///   from device_mouse_x_to_gui, so they are already in UI pixels. Only the
+///   scissor (ui_scissor) works in window pixels, so it multiplies by ui_sx / sy.
+/// - ui_register(id, rect, help) is the heart of it: it stores the rect in
+///   ui_rects[id] (cleared each frame), and if the mouse is over it (ui_hit)
+///   makes it ui_hot and loads its help text. The status bar and hover help
+///   card (scr_ui_help) show ui_help_title / ui_help_body; tutorials and
+///   lessons (scr_tutorial, scr_lessons) find a control by looking its id
+///   string up in ui_rects, so ids must be unique and stable from frame to frame.
+///   The last control registered under the mouse wins ui_hot.
+/// - ui_pressed is true on the frame the left button goes down. The first
+///   widget that uses the click calls ui_take_click() (sets it false) so the
+///   controls drawn after it - or underneath it - do not also react.
+///   ui_pressed_raw keeps the untouched value for ui_frame_end.
+/// - ui_input_ok is false while a modal is up (popup list, machine picker,
+///   About, confirm box, What's new, a tutorial step); ui_hit then says no
+///   to every control. A tutorial step lets clicks through its own target
+///   rect only. ui_force_input lets the popup itself still take input.
+/// - ui_focus = id of the text field being typed into ("" = none). A field
+///   claims it on click (ui_focus_claimed); a click anywhere else clears it in
+///   ui_frame_end. Keyboard shortcuts check ui_focus so typing does not trigger them.
+/// - ui_drag_id = id of the slider / scroll bar / thing being dragged while
+///   the button is held; cleared when the button is up.
+/// - Scrolling panels: off = ui_scroll_begin(id, rect, content_h) clips the
+///   drawing (scissor) and the mouse (ui_clip, checked by ui_hit) to the rect;
+///   draw the content at y - off, then ui_scroll_end(id, same rect, content_h)
+///   handles the wheel and draws / drags the scroll bar. Offsets live in the
+///   ui_scroll map under the id. Panels do not nest.
+/// - ui_anim map: per-id hover / select fade values (0..1), eased by ui_anim_to.
 
 #macro BTN_NORMAL 0
 #macro BTN_ACCENT 1
@@ -7,6 +46,11 @@
 #macro BTN_GHOST  3
 #macro BTN_ON     4
 
+/// Starts a UI frame (Draw_64 calls it before the page is drawn). Reads the
+/// mouse in UI pixels and its buttons / wheel, clears ui_hot, the help text,
+/// the clip and ui_rects, and works out ui_input_ok: false while any modal
+/// card is up, except over the current tutorial target rect, and false over
+/// the tour offer, new version and lesson cards so clicks do not fall through.
 function ui_frame_begin()
 {
     ui_mx = device_mouse_x_to_gui(0);
@@ -89,6 +133,10 @@ function ui_frame_begin()
     }
 }
 
+/// Ends a UI frame (after everything is drawn). Stops a held "+" / "-"
+/// repeat whose button was not drawn this frame, drops text focus after a
+/// click that no text field claimed, and times how long the mouse has rested
+/// on the same control (ui_hot_time, seconds; the hover help card waits for 0.35).
 function ui_frame_end()
 {
     if (!ui_repeat_seen) { ui_repeat_id = ""; }
@@ -106,12 +154,17 @@ function ui_frame_end()
     }
 }
 
+/// True if controls may react to the mouse this frame: ui_input_ok (no modal
+/// in the way) or ui_force_input (set while the popup list draws itself).
 function ui_can_input()
 {
     if (ui_force_input) { return true; }
     return ui_input_ok;
 }
 
+/// True if the mouse is inside the rect (UI pixels, edges included), input
+/// is allowed, and - inside a scrolling panel - the mouse is also inside the
+/// panel's clip (ui_clip), so rows scrolled out of view cannot be clicked.
 function ui_hit(_x1, _y1, _x2, _y2)
 {
     if (!ui_can_input()) { return false; }
@@ -124,6 +177,9 @@ function ui_hit(_x1, _y1, _x2, _y2)
 }
 
 /// Registers a control's rect (for tutorials) and its hover help. Returns hovered.
+/// _id: unique, stable string (tutorial / lesson steps name it); _help:
+/// "Title|Body" or just "Title". A hovered control becomes ui_hot, sets
+/// ui_hot_rect and the help text; a later hovered control overrides it.
 function ui_register(_id, _x1, _y1, _x2, _y2, _help)
 {
     ds_map_replace(ui_rects, _id, [_x1, _y1, _x2, _y2]);
@@ -147,6 +203,10 @@ function ui_register(_id, _x1, _y1, _x2, _y2, _help)
     return _hot;
 }
 
+/// Eases the fade value stored under _id in ui_anim 22% of the way to
+/// _target each call (snaps when within 0.01) and returns it. Used for hover
+/// and selection highlights (0 = off, 1 = full). Ids are often the control id
+/// plus a suffix ("_sel", "_h", "_f") so one control can fade several things.
 function ui_anim_to(_id, _target)
 {
     var _v = ds_map_find_value(ui_anim, _id);
@@ -157,11 +217,18 @@ function ui_anim_to(_id, _target)
     return _v;
 }
 
+/// Uses up this frame's click (ui_pressed = false) so no control drawn after
+/// this one reacts to it. Call it whenever a control acts on ui_pressed.
 function ui_take_click()
 {
     ui_pressed = false;
 }
 
+/// Push button at (_x, _y), _w x _h UI pixels; _style is a BTN_* macro
+/// (normal, accent, danger, ghost = only shows on hover, on = lit toggle).
+/// The label is cut with "..." to fit. Returns true on the frame it is
+/// clicked (and takes the click). A button labelled "+", "-" or "−" repeats
+/// while held: first after 600 ms, then every 40 ms (ui_repeat_id).
 function ui_button(_id, _x, _y, _w, _h, _label, _help, _style)
 {
     var _hot = ui_register(_id, _x, _y, _x + _w, _y + _h, _help);
@@ -244,6 +311,8 @@ function ui_button(_id, _x, _y, _w, _h, _label, _help, _style)
     return false;
 }
 
+/// Pill-shaped tab; _selected draws it lit (the caller keeps which tab is
+/// chosen). Returns true on the frame it is clicked (and takes the click).
 function ui_tab(_id, _x, _y, _w, _h, _label, _selected, _help)
 {
     var _hot = ui_register(_id, _x, _y, _x + _w, _y + _h, _help);
@@ -275,11 +344,15 @@ function ui_tab(_id, _x, _y, _w, _h, _label, _selected, _help)
     return false;
 }
 
+/// Small dim caption text, top-left at (_x, _y). Not registered: no hover help.
 function ui_label(_x, _y, _str)
 {
     ui_text(_x, _y, _str, global.TH.text_dim, fa_left, fa_top, global.f_small, 1);
 }
 
+/// On / off switch with its label to the right; 24 high, width = 54 + label.
+/// The whole switch and label are clickable. Returns the new value
+/// (_value flipped on the frame it is clicked, else _value).
 function ui_toggle(_id, _x, _y, _label, _value, _help)
 {
     draw_set_font(global.f_body);
@@ -310,6 +383,9 @@ function ui_toggle(_id, _x, _y, _label, _value, _help)
     return _value;
 }
 
+/// Number box with "-" / "+" buttons (ids _id + "_m" / "_p", which repeat
+/// while held); 30 high. Wheel over it also steps. Shift steps by 10.
+/// Returns the new value, kept within _min.._max.
 function ui_stepper(_id, _x, _y, _w, _value, _min, _max, _help)
 {
     var _h = 30;
@@ -339,6 +415,9 @@ function ui_stepper(_id, _x, _y, _w, _value, _min, _max, _help)
     return _v;
 }
 
+/// Horizontal slider, 26 high. Click sets ui_drag_id and the knob follows the
+/// mouse while held (8 px margin each end); the wheel steps by 1. Returns the
+/// new whole-number value within _min.._max.
 function ui_slider(_id, _x, _y, _w, _value, _min, _max, _help)
 {
     var _h = 26;
@@ -377,6 +456,10 @@ function ui_slider(_id, _x, _y, _w, _value, _min, _max, _help)
     return _v;
 }
 
+/// One-line text box. Click gives it ui_focus and copies _value into
+/// keyboard_string; while focused, typing edits keyboard_string (cut to
+/// _maxlen characters), Ctrl+V pastes, Enter / Esc end editing. Returns the
+/// current text, so the caller stores it back every frame.
 function ui_textfield(_id, _x, _y, _w, _h, _value, _maxlen, _help)
 {
     var _hot = ui_register(_id, _x, _y, _x + _w, _y + _h, _help);
@@ -450,6 +533,9 @@ function ui_textfield(_id, _x, _y, _w, _h, _value, _maxlen, _help)
 }
 
 /// Pill that opens a popup list. Returns selected index.
+/// A click only opens the popup (ui_popup_*); ui_popup_draw, drawn last,
+/// puts the choice in ui_popup_result / ui_popup_result_id, and this
+/// dropdown picks it up the next frame it is drawn. Wheel steps the choice.
 function ui_dropdown(_id, _x, _y, _w, _h, _options, _index, _help)
 {
     var _i = _index;
@@ -603,6 +689,13 @@ function ui_rgb_sliders(_id, _x, _y, _w, _value, _help)
     return rgb_make(_gun[0], _gun[1], _gun[2]);
 }
 
+/// Draws the open popup (if any) on top of the page; Draw_64 calls it after
+/// the page so it sits over everything. _gw / _gh = GUI size in UI pixels.
+/// ui_popup_kind 0 = option list from ui_dropdown (28 px rows, scrolls when
+/// longer than the room), 1 = palette grid from ui_colour_drop (8 swatches a
+/// row). Opens below the control, else above, else on the roomier side.
+/// A choice sets ui_popup_result_id / ui_popup_result and closes it; a click
+/// outside or Esc closes it with no choice.
 function ui_popup_draw(_gw, _gh)
 {
     if (!ui_popup_open) { return; }
@@ -755,6 +848,9 @@ function ui_popup_draw(_gw, _gh)
 }
 
 /// Scroll region. Returns the scroll offset to subtract from content y.
+/// _content_h = full height of what is drawn inside (usually last frame's
+/// measured height). Sets the scissor and ui_clip to the rect (less the 14 px
+/// scroll bar strip when it scrolls). Must be paired with ui_scroll_end.
 function ui_scroll_begin(_id, _x1, _y1, _x2, _y2, _content_h)
 {
     var _off = ds_map_find_value(ui_scroll, _id);
@@ -769,6 +865,11 @@ function ui_scroll_begin(_id, _x1, _y1, _x2, _y2, _content_h)
     return _off;
 }
 
+/// Closes a ui_scroll_begin region (same id, rect and content height):
+/// resets the scissor and clip, scrolls 48 px per wheel notch over the rect,
+/// and draws the scroll bar at the right edge (click or drag it; the grab
+/// point is kept in ui_scroll[_id + "_grab"]). The new offset is used from
+/// the next frame.
 function ui_scroll_end(_id, _x1, _y1, _x2, _y2, _content_h)
 {
     ui_scissor_reset();

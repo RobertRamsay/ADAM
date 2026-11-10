@@ -1,4 +1,12 @@
 /// Window sizing, autosave, shortcuts, emulator launch
+/// Runs every frame before Draw GUI (Draw_64), in this order: full screen /
+/// window placement on frame 2, dev page shots, remember the window, slow
+/// down to 10 fps while another window (FS-UAE) has the focus, interface
+/// scale (global.ui_scale, gui_w / gui_h, global.ui_sx / ui_sy), autosave
+/// every 30 s, delayed FS-UAE launch, memory bar re-measure, Music preview
+/// streaming, keyboard shortcuts (shortcuts_step), window caption.
+/// Mouse clicks on controls are not handled here: the widgets read them
+/// while they draw in Draw_64.
 
 // full-screen window on launch (done a frame late so the runner has a window)
 startup_frames += 1;
@@ -104,6 +112,7 @@ if (_ww > 0 && _wh > 0)
     }
 }
 
+// autosave every 30 s while there are unsaved changes (Other_3 saves at game end too)
 autosave_timer += delta_time / 1000000;
 if (autosave_timer > 30)
 {
@@ -140,6 +149,7 @@ music_preview_step();
 
 shortcuts_step();
 
+// window caption: edition, version, project name, machine, * = unsaved
 var _edition = "Lite";
 if (pro_edition()) { _edition = "Pro"; }
 var _cap = "ADAM " + _edition + " " + ADAM_VERSION + " - " + proj.name + "  (" + machine_cur().name + ")";

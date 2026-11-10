@@ -1,5 +1,15 @@
 /// ADAM - hover helper lines, help bubbles, status bar, toasts
+/// The help text comes from ui_register (scr_ui_widgets): the hovered
+/// control's "Title|Body" string is split into ui_help_title / ui_help_body
+/// each frame. The status bar always shows it; the bubble only appears after
+/// the mouse has rested on one control for 0.35 s (ui_hot_time).
 
+/// Hover help bubble with guide lines round the hovered control and a curved
+/// leader line to it. Drawn last in Draw_64 so nothing covers it. Shown only
+/// when helpers are on (Home page setting), no tutorial or popup is up, nothing
+/// is being dragged and the control has a body text. The bubble goes right of
+/// the control, else left, else below / above; it fades out using the last
+/// shown rect and text (help_last_*). _gw / _gh = GUI size in UI pixels.
 function ui_help_draw(_gw, _gh)
 {
     var _show = false;
@@ -89,6 +99,9 @@ function ui_help_draw(_gw, _gh)
     ui_text_wrap(_bx + 16, _by + 36, help_last_body, global.TH.text_dim, _bw - 28, global.f_body, _a);
 }
 
+/// Status bar along the bottom 34 UI pixels: the hovered control's help on
+/// the left ("Title  -  Body", cut to fit), the memory bar (mem_bar_draw), then
+/// project name | machine | Saved / Unsaved changes on the right.
 function ui_status_bar(_gw, _gh)
 {
     var _y = _gh - 34;
@@ -118,11 +131,17 @@ function ui_status_bar(_gw, _gh)
     ui_text(_gw - 16, _y + 17, _right, global.TH.text_faint, fa_right, fa_middle, global.f_small, 1);
 }
 
+/// Shows a short message in the bottom-right corner for 3.5 s.
+/// _kind: 0 = done / info (TH.accent2 orange dot), 1 = warning (TH.warn
+/// yellow), 2 = error (TH.danger red).
 function toast(_text, _kind)
 {
     array_push(toasts, { text : _text, life : 3.5, kind : _kind, a : 0 });
 }
 
+/// Draws the toasts made by toast(), newest at the bottom, stacked upwards
+/// from just above the status bar; counts their life down (seconds) and
+/// removes the expired ones. Fades each in, and out over its last half second.
 function toasts_draw(_gw, _gh)
 {
     var _y = _gh - 50;

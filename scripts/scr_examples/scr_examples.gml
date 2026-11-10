@@ -24,6 +24,8 @@ function example_file(_e)
     return _e.file;
 }
 
+/// One menu line per entry of global.EXAMPLES ("Name  -  description"), with
+/// "(ADAM Pro)" after Pro extras in Lite. Same order as global.EXAMPLES.
 function example_names()
 {
     var _n = [];
@@ -53,6 +55,10 @@ function example_load(_i)
     example_load_now(_i);
 }
 
+/// Loads example _i without asking (example_load asks first when there are
+/// unsaved changes): reads example_file() from datafiles/examples, runs it
+/// through project_from_loaded, keeps the machine picked now, clears undo and
+/// out_path (so the first Build asks where to save). Toasts on a missing or bad file.
 function example_load_now(_i)
 {
     var _e = global.EXAMPLES[clamp(_i, 0, array_length(global.EXAMPLES) - 1)];

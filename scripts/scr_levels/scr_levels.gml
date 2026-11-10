@@ -33,11 +33,15 @@ function terrain_generate(_seed, _hilly, _base)
     return _out;
 }
 
+/// A new level struct: hills from _seed with hilly 60 (%) and base 200 (ground
+/// line, pixels from the top), heights = terrain_generate's 320 heights.
+/// Written per level into the game block (G_*) by adam_data_block_raw.
 function level_new(_seed)
 {
     return { seed : _seed, hilly : 60, base : 200, heights : terrain_generate(_seed, 60, 200) };
 }
 
+/// Dropdown labels "Level 1".."Level N" for proj.levels, or "(no levels)"
 function level_names()
 {
     var _n = [];
@@ -111,6 +115,9 @@ function terrain_changed()
     proj_dirty = true;
 }
 
+/// Draws the Levels page in the rect (_x1, _y1)-(_x2, _y2): level list (add,
+/// remove, Levels on / off), the canvas (hills to shape by hand, or the level's
+/// tile map in a tile world) and levels_side_panel on the right.
 function ws_levels_draw(_x1, _y1, _x2, _y2)
 {
     var _lw = 210;
@@ -346,6 +353,11 @@ function sprite_bottom(_si)
     return _s.h - 1;
 }
 
+/// Right-hand "Level settings" panel, from x _px to _x2: hill seed / hilliness /
+/// base and hill colours (not in a tile world), the level's music and palette,
+/// scrolling backdrop, goal, title and level card settings.
+/// _content is worked out by hand so the panel only scrolls when it has to -
+/// keep it in step when adding rows.
 function levels_side_panel(_px, _y1, _x2, _y2)
 {
     ui_panel(_px, _y1, _x2, _y2, "Level settings");

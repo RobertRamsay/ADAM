@@ -197,6 +197,12 @@ function actor_shown_cols(_i)
     return actor_cols_from(actors_alloc_channels(), _i);
 }
 
+/// Draws and runs the Actors page inside (_x1, _y1)-(_x2, _y2), in UI pixels: the cast list with
+/// Add / Duplicate / Remove on the left, the stage (backdrop or a screen of the tile world, actors at
+/// their start, ground line, platform tops, patrol range) in the middle, and the selected actor's
+/// settings on the right. Settings are proj.actors[sel_actor] fields; the disk writer (adam_data_block,
+/// scr_adf) turns each into the 68-byte A_* actor record. Sprite channels and BOBs come from
+/// actors_alloc_channels, worked out again every frame.
 function ws_actors_draw(_x1, _y1, _x2, _y2)
 {
     var _lw = 240;
@@ -210,7 +216,7 @@ function ws_actors_draw(_x1, _y1, _x2, _y2)
     ui_panel(_x1, _y1, _x1 + _lw, _y2, "Cast  (" + string(_na) + " / " + string(_amax) + ")");
     var _ly = _y1 + 54;
     var _rowh = 58;
-    var _by = _y2 - 130;
+    var _by = _y2 - 130;        // top of the three buttons under the list (42 apart)
     var _lcontent = _na * _rowh + 8;
     var _loff = ui_scroll_begin("act_list", _x1 + 6, _y1 + 50, _x1 + _lw - 6, _by - 8, _lcontent);
     var _role_short = ["Player", "Bouncer", "Patrol L-R", "Patrol U-D", "Chaser", "Still", "Platform player", "Hopper", "Faller", "Shot", "Flyer", "Option", "Effect"];
@@ -306,6 +312,8 @@ function ws_actors_draw(_x1, _y1, _x2, _y2)
     var _cx1 = _x1 + _lw + 12;
     var _cx2 = _x2 - _rw - 12;
     ui_panel(_cx1, _y1, _cx2, _y2, "");
+    // one 320 x 256 screen, as big as fits (whole numbers from 2x up); _ox / _oy below = the world
+    // pixel at the stage's top-left, so screen = _fx + (world x - _ox) * _scale
     var _scale = min((_cx2 - _cx1 - 32) / BD_W, (_y2 - _y1 - 70) / BD_H);
     if (_scale >= 2) { _scale = floor(_scale); }
     var _fw = BD_W * _scale;
@@ -318,6 +326,8 @@ function ws_actors_draw(_x1, _y1, _x2, _y2)
     var _oy = 0;
     if (proj.tiles_on)
     {
+        // the camera follows the selected actor, but stays still while one is dragged
+        // (else the stage would slide away under the mouse)
         if (!act_drag && _na > 0)
         {
             act_camx = clamp(proj.actors[sel_actor].x + 8 - BD_W div 2, 0, world_w() - BD_W);
@@ -333,7 +343,8 @@ function ws_actors_draw(_x1, _y1, _x2, _y2)
         terrain_draw(_fx, _fy, _scale);
         _ox = -shmup_xoff();                // a shoot 'em up map: x is across its play area
     }
-    // the ground line that walkers, hoppers and fallers stand on
+    // the ground line that walkers, hoppers and fallers stand on; worked out at most every 400 ms
+    // (the Backdrop page and Levels page set ground_cache_time to -10000 to force it)
     if (!proj.tiles_on && current_time - ground_cache_time > 400)
     {
         ground_cache = ground_table_cached(proj);
@@ -363,6 +374,9 @@ function ws_actors_draw(_x1, _y1, _x2, _y2)
     var _sthelp = "Stage|Drag actors to set where they start. Hidden actors are drawn faded.";
     if (proj.tiles_on) { _sthelp = "Stage|A screen of the tile world round the selected actor: drag actors to set where they start. To place them anywhere on the map, use the Map on the Tiles page."; }
     ui_register("act_stage", _fx, _fy, _fx + _fw, _fy + _fh, _sthelp);
+    // which actor is under the mouse: searched from the highest number down, first hit wins.
+    // Note: actors are drawn highest number first (actor 0 in front), so where two overlap this
+    // picks the one drawn behind.
     var _hover = -1;
     if (ui_hit(_fx, _fy, _fx + _fw, _fy + _fh))
     {
@@ -388,6 +402,7 @@ function ws_actors_draw(_x1, _y1, _x2, _y2)
         ui_take_click();
     }
     if (!ui_held) { act_drag = false; }
+    // dragging: keep the grab offset, clamp so the whole actor stays in the world
     if (act_drag && _na > 0)
     {
         var _ad = proj.actors[sel_actor];
@@ -451,6 +466,7 @@ function ws_actors_draw(_x1, _y1, _x2, _y2)
         }
     }
     ui_scissor_reset();
+    // selection box and name over the selected actor, a thin box (and hover help) on the hovered one
     for (var d2 = 0; d2 < _na; d2++)
     {
         var _ac3 = proj.actors[d2];
@@ -623,6 +639,7 @@ function ws_actors_draw(_x1, _y1, _x2, _y2)
         }
     }
     _y += 6;
+    // start position in world pixels (written into the actor record); the top limit keeps the whole picture in the world
     var _sd = actor_dims(_s);
     ui_heading(_fx2, _y, "Start X");
     set_val(_s, "x", ui_stepper("act_x", _fx2, _y + 18, _half, _s.x, 0, world_w() - _sd[0], "Start X|Horizontal start position in pixels (0 = left edge, " + string(world_w() - _sd[0]) + " = right edge). Hold Shift for steps of 10."), "actx");
@@ -689,9 +706,9 @@ function ws_actors_draw(_x1, _y1, _x2, _y2)
         set_val(_s, "stand_on", ui_toggle("act_standon", _fx2, _y, "Can be stood on (a platform)", _s.stand_on, "Can be stood on|A moving platform: a platform player (and hoppers, fallers and thrown things) landing on its top stands on it and rides along - jump up through it from below. Make it Patrol left-right or Patrol up-down and set how far it patrols for a lift or a ferry. Its top is the top of its drawn pixels, so draw a flat sprite."), "actstandon");
         _y += 34;
     }
-    var _yend = _y;
+    var _yend = _y;     // bottom of the settings, for the scroll height below
 
-    // hardware sprite channel
+    // hardware sprite channel (read-only: what actors_alloc_channels gave it)
     var _hw = false;
     var _isbob = false;
     if (sel_actor < array_length(_alloc.chan))
@@ -737,6 +754,7 @@ function ws_actors_draw(_x1, _y1, _x2, _y2)
         ui_text_wrap(_fx2 + 10, _y + 24, _msg, _mc, _fw2 - 20, global.f_small, 1);
         _yend = _y + 18 + _mh;
     }
+    // the content height measured this frame, used by ui_scroll_begin next frame
     ds_map_replace(ui_scroll, "act_props_h", _yend + _soff - _sy1 + 12);
     ui_scroll_end("act_props", _px + 4, _sy1, _x2 - 4, _sy2, _sh);
 }

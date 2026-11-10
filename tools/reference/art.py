@@ -299,6 +299,7 @@ A['gem2'][4]="...3.......3...."
 for k,v in A.items():
     assert len(v)==24,(k,len(v))
     for r in v: assert len(r)==16,(k,r,len(r))
+# art.A[name] (24 rows of '.123') -> 384 colour numbers 0..3
 def px(name):
     return [int(c) if c in '123' else 0 for r in A[name] for c in r]
 A['hop']=["................"]*10+[

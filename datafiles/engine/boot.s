@@ -27,6 +27,18 @@ NULL_SPR    equ 500                 ; offset of an empty sprite in the copper bl
             dc.b    "DOS",0
             dc.l    0                       ; checksum (patched)
             dc.l    880                     ; root block
+; Bootblock code (Kickstart jumps here after checking the checksum), in user
+; mode with the OS running. In: a1 = trackdisk IOStdReq, a6 = ExecBase.
+; Registers through the whole loader: a2 = the IO request, a3 = the game buffer
+; (engine + data + cleared BSS; the engine starts at its first byte), a5 =
+; $dff000, a4 = the plain bar's copper block (0 = none), d7 = the loading-screen
+; block (0 = none), d6 = bytes loaded so far, d5 = this read's size.
+; Steps: AllocMem the game buffer (or .fail: red screen); with a loading screen,
+; AllocMem + read + init it; else build the plain bar copper list; read the game
+; a cylinder (CHUNK) at a time from disk byte 1024 + screenload, moving the bar
+; (or calling the block's progress entry) after each read; motor off; the
+; block's done entry and FreeMem; flush caches; jmp (a3) - never returns.
+; (DoIO errors while reading the game itself are not checked.)
 boot:
             move.l  a1,a2                   ; keep the IO request
             move.l  loadsize(pc),d0

@@ -5,6 +5,11 @@ function tut_step(_tab, _target, _title, _body)
     return { tab : _tab, target : _target, title : _title, body : _body };
 }
 
+/// Builds tut_steps, every step of every page in top-bar order (Create event).
+/// Each step's target is the id string a control passes to ui_register /
+/// ui_button etc. (for example "top_machine", "bd_canvas"); "" = no control,
+/// the card sits in the middle. Renaming a control's id breaks its step
+/// silently - the step then shows with no highlight, so search for the id here.
 function tut_init()
 {
     tut_steps = [
@@ -190,10 +195,23 @@ function tut_start(_tab)
     }
 }
 
+/// Draws the running tutorial over the page (Draw GUI, after the page so that
+/// ui_rects already holds this frame's controls): dims everything except the
+/// step's target, draws a pulsing outline, a leader line and the step card,
+/// and handles Next / Back / Close (also right / left arrow, Enter, Esc).
+/// Finding the target: every widget stores its rect in the ds_map ui_rects
+/// under its id (ui_register, cleared each frame in ui_frame_begin), so the
+/// step's target string is looked up there. Not found = the control is not
+/// on screen this frame (other tab, scrolled away): the whole page is dimmed.
+/// tut_target_rect / tut_card_rect are read by the next ui_frame_begin: the
+/// page takes input only over the target (when tut_allow_target), never under
+/// the card; the card's own buttons use ui_force_input. _gw, _gh = GUI size.
 function tut_draw(_gw, _gh)
 {
     if (!tut_active) { return; }
     var _step = tut_steps[tut_list[tut_index]];
+    // step on another page: switch to it (plain ws =, so no tutorial offer)
+    // and draw nothing this frame - its controls register next frame
     if (_step.tab != ws)
     {
         ws = _step.tab;
@@ -238,7 +256,10 @@ function tut_draw(_gw, _gh)
         ui_glow(_x1, _y1, _x2, _y2, 10, global.TH.warn, _a);
     }
 
-    // card
+    // card: centred with no target; otherwise below the target, else above it,
+    // else beside it (right first). The leader runs from the target's nearest
+    // edge to the card's nearest edge. The 44 / 66-70 margins keep it off the
+    // status bar and the top bar.
     var _cw = 420;
     draw_set_font(global.f_body);
     var _bh = ui_sh_ext(_step.body, _cw - 48);

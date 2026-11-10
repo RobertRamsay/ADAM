@@ -13,11 +13,13 @@ PAL = [0x000000, 0xffffff, 0x4a2a14, 0x7a4a24, 0xa86c3c, 0x34343e, 0x5e5e6a, 0x8
 AIR, GRASS, DIRT, STONE, SLATE, SAND, CLAY, COAL, IRON, GOLD, GEM, WOOD, LEAVES, BRICK, BEDROCK, MOSS, WATER, DWALL, SWALL, TORCH, LADDER = range(21)
 WATER2, WATER3, WATER4, TORCH2, TORCH3 = range(21, 26)    # animated tiles' frames (ADAM Pro, data version 15)
 
+# a hash of (x, y, seed) -> 0..65535 (repeatable noise for the textures)
 def noise(x, y, s):
     v = (x * 374761393 + y * 668265263 + s * 2147483647) & 0xffffffff
     v = (v ^ (v >> 13)) * 1274126177 & 0xffffffff
     return (v ^ (v >> 16)) & 0xffff
 
+# a 16 x 16 tile texture: base colour with dark and light specks (dens = how many); A1200: soft in-between shades round them
 def tex(base, dark, light, seed, dens=5):
     import gen_examples as g
     aga = g.AGA['on']
@@ -36,6 +38,7 @@ def tex(base, dark, light, seed, dens=5):
             px.append(v)
     return px
 
+# n ore lumps of colour col with a hi glint dropped into the texture px (A1200: soft rims)
 def blobs(px, col, hi, seed, n=3, r=2.2):
     import gen_examples as g
     aga = g.AGA['on']
@@ -52,9 +55,11 @@ def blobs(px, col, hi, seed, n=3, r=2.2):
                 if d < 1.2: px[y * 16 + x] = hi
     return px
 
+# the tile set (Tiles page): a tile's number is its place in the list (AIR .. LADDER, then WATER2 .. TORCH3)
 def tiles():
     import gen_examples as ge
     t = []
+    # appends a tile type (TP_*: solid, dig, goal, ladder flags; hard = how long it takes to dig; becomes = what is left)
     def add(name, px, solid=True, dig=True, hard=12, points=0, goal=False, sound=-1, becomes=0, ladder=False):
         t.append(dict(name=name, px=px, solid=solid, dig=dig, hard=hard, points=points, goal=goal, sound=sound, becomes=becomes, ladder=ladder))
     add("AIR", [0] * 256, False, False)
@@ -161,10 +166,13 @@ def tiles():
     t[TORCH].update(anim=[TORCH, TORCH2, TORCH, TORCH3], anim_rate=6, anim_mode=0)
     return t
 
+# the 128 x 64 map (random but repeatable from seed): surface, rock layers, caves, ores, water, trees -> (map, surface heights)
 def world(seed=1985):
     rnd = random.Random(seed)
     m = [AIR] * (W * H)
+    # the tile at (x, y)
     def at(x, y): return m[y * W + x]
+    # sets the tile at (x, y), ignored outside the map
     def put(x, y, v):
         if 0 <= x < W and 0 <= y < H: m[y * W + x] = v
     # surface: a smoothed random walk
@@ -294,6 +302,7 @@ def miner_rows(legs=0, arm=None, bob=0):
     ]
     rows = body + legsets[legs] + ["................"] * 4
     rows = [list(r) for r in rows]
+    # sets pixel (x, y) to letter c, ignored outside 16 x 24
     def dot(x, y, c):
         if 0 <= x < 16 and 0 <= y < 24: rows[y][x] = c
     if arm == "up":          # pick raised over the head
@@ -370,6 +379,7 @@ ROCK = ["................"] * 14 + [
 def bell_rows(sw=0):
     # a little bell hung from a wooden post; sw = -1 / 0 / 1 swings it
     rows = [['.'] * 16 for _ in range(24)]
+    # sets pixel (x, y) to letter c, ignored outside 16 x 24
     def dot(x, y, c):
         if 0 <= x < 16 and 0 <= y < 24: rows[y][x] = c
     for y in range(2, 24): dot(2, y, '1'); dot(3, y, '1')          # the post
@@ -444,6 +454,7 @@ MOLE = ["................"] * 12 + [
     "................",
     "................"]
 
+# the Dig Deep project (.adam dict); gen_examples.py calls it twice (A500/600, then the A1200 pass)
 def dig_deep():
     import gen_examples as g
     random.seed(7)
@@ -581,6 +592,7 @@ def dig_deep():
                                 dict(spr=1, x=216, y=100, pct=70), dict(spr=3, x=272, y=96, pct=90)])
     return p
 
+# saves the whole map as a picture (tools/reference/out/dig_deep_map.png), colour 0 as sky blue
 def map_png(p, fn):
     pal = p['pal']
     im = Image.new('RGB', (W * 16, H * 16))

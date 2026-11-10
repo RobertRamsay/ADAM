@@ -19,6 +19,58 @@
 ;  the EXTER interrupt enabled. Sound effects go through _mt_playfx, which
 ;  mixes them into the music on the same 4 Paula channels.
 ; ============================================================================
+;
+;  MAP OF THIS FILE (search for the label to jump there)
+;     equates         H_* header, BI_*, IT_*/RC_*, D2_*, PS_*, SC_*/MP_*/SP_*,
+;                     UI_*/F_*, T_*/TL_*/TP_*/TA_*/TR_*, M_*, A_*, AN_*, R_*, G_*,
+;                     constants, then the engine variables (v_*, rsset)
+;     start-up        start, in_super (take over the machine), game_restart
+;                     (new game, title), level_next / level_card / level_start,
+;                     mainloop (wait_vbl + frame, for ever)
+;     display         init_display, bob_plain, set_bpl, wait_vbl
+;     game state      restore_backdrop, work_fresh, level_heights, draw_terrain,
+;                     init_palette, init_actors, power_apply, clear_latches,
+;                     clear_state, setcol
+;     one frame       frame (the order everything runs in each frame), read_key,
+;                     tool_menu / menu_* (space bar menu), read_joy
+;     actors          move_actors (every role), jumped, ground_y, physics /
+;                     phys_core, place_sprites (hardware sprites, animations)
+;     scrolling       scroll_on / scroll_off / scroll_tick, map_tick / map_line
+;                     (shoot 'em up map), spawn_tick, scroll_show
+;     flyers          fly_start .. fly_move, sine64; options trail_reset ..
+;                     act_power; effects act_effect; hit_masks
+;     tile world      tiles_start, tile_anim, tiles_on / tiles_off, cam_follow,
+;                     cam_window, draw_cell, cop_scroll, box_solid, tile_phys,
+;                     tile_dig, dig_px / place_px / ptile_core, ladders
+;     sprites off     hide_sprites
+;     BOBs            bwait / bgo, bob_flip, bob_draw
+;     collisions      touch_pair, touch_any
+;     rules           run_rules (every WHEN), run_when_rules, rule_next,
+;                     fire_action, do_action + acttab (every DO -> act_*)
+;     items           act_igive .. items_clear, act_anim, anim_ended
+;     copies / types  ctx_actor, ctx_val, type_of .. touch_types, act_spawn
+;     shooting        foe_fire, aim_player, missile_steer, carry_tick /
+;                     carry_follow / throw_hits (pick up and throw), shot_hits,
+;                     act_shoot, vol_tab, shot_aim, shoot_one, overlap_pair
+;     simple DOs      act_music .. act_win, platforms pat_lim / plat_*,
+;                     stop_fall, level_skip
+;     end / text      end_screen, wait_fire, level_text, centre_text, big_text
+;     helpers         actor_rec, rand
+;     palettes        pal_ncol, level_pal, pal_switch, pal_tick
+;     copper sky      build_grad, rgb12
+;     music / disk 2  init_music, music_play, disk2_init .. decode_track (own
+;                     floppy loader), music_stop, level_music, play_sfx
+;     HUD / text      draw_text, draw_char, two_digits, draw_hud, ui_panel_blit,
+;                     ui_hud (custom HUD), hud_digging, on_screen, tools and
+;                     weapons (tool_kind, weapon_tick, strike_mask, strike_test)
+;     data            strings, font, ptplayer (included), chip data: null_spr,
+;                     copper list, V (variables), stack, data_start
+;
+;  Conventions: d7 = actor index, d5 = actor index << ACTV_SHIFT (offset of its
+;  v_* record from a5), a2 = its actor record (A_*) on the disk, a3 = a rule
+;  (R_*). Most routines say which registers they keep in their movem lines;
+;  where there is no movem, assume the registers they use are changed.
+; ============================================================================
 
 ; ptplayer options (see ptplayer/ptplayer.readme): the default single-section
 ; CIA-B version, with the word at address 0 used for idling channels (the
@@ -641,6 +693,12 @@ in_super:   move.w  #$2700,sr               ; mask all CPU interrupts while taki
             bsr     init_display
             bsr     hit_masks
 
+; A new game (and where end_screen comes back to after game over / win).
+; Resets the stack (anything on it is dropped), score, lives, power-ups,
+; items and the palette, clears the screen of sprites, shows the title
+; screen (G_TITLE) and waits for fire, runs WHEN 5 'game starts' rules, then
+; falls into level_card for level 1 (or the H_FLAGS high byte level of a test
+; copy). Never returns.
 game_restart:
             lea     -128(a5),a7             ; a5 = V+128 (stack_top is too far for a PC-relative lea)
             add.l   #stack_top-V,a7
@@ -705,6 +763,11 @@ level_card: lea     -128(a5),a7             ; a5 = V+128 (stack_top is too far f
             bsr     centre_text
             bsr     wait_fire
             bsr     restore_backdrop
+; Level v_level starts (also straight from level_card when there are no level
+; cards): its palette, every actor back to its place (init_actors), rule latches
+; cleared, goal counter and level clock at 0, tile world / scrolling backdrop
+; set up, HUD drawn, sprites placed, its song, then WHEN 7 'level starts'
+; rules. Falls into mainloop.
 level_start:
             bsr     level_pal               ; this level's palette, at once
             bsr     init_actors
@@ -720,6 +783,9 @@ level_start:
             bsr     level_music             ; this level's song, before its rules
             moveq   #7,d0                   ; 'a level starts' rules
             bsr     run_when_rules
+; The game loop: one frame each time round, 50 a second (PAL). It is left only
+; by a jump out of a rule: level_next / level_skip (via act_goal), act_over /
+; act_win (end_screen -> game_restart), each of which resets the stack.
 mainloop:
             bsr     wait_vbl
             bsr     frame
@@ -728,6 +794,13 @@ mainloop:
 ; ============================================================================
 ;  display set-up
 ; ============================================================================
+; Once, at start-up: turns the data block's offsets into addresses in the
+; engine variables (v_work, v_game, font / custom HUD, tile world v_t*, BOB
+; displays, scrolling buffers / map), points every sprite channel at its
+; actor's first image (null_spr for unused channels), sets the display
+; registers for a 320 x 256 PAL screen (OCS / ECS, or AGA with FMODE 3), starts
+; the copper list and turns on bitplane, copper, blitter and sprite DMA.
+; In: a4, a5, a6. Changes d0-d7, a0-a2. Called by in_super.
 init_display:
             move.l  H_WORK(a4),d0
             add.l   a4,d0
@@ -744,7 +817,8 @@ init_display:
             move.l  #0,v_ui(a5)
             move.w  H_HUDROW(a4),v_hudrow0(a5)
             move.w  #HUD_LINES,v_hudlines(a5)
-            move.l  H_UI(a4),d1                 ; custom HUD (ADAM Pro)
+            move.l  H_UI(a4),d1                 ; custom HUD (ADAM Pro): its font, its height
+            ; (v_hudlines = rows x 8) and its row: 0 at the top, 32 - rows at the bottom
             beq.s   .noui
             lea     0(a4,d1.l),a0
             btst    #0,UI_FLAGS+1(a0)
@@ -798,7 +872,7 @@ init_display:
             moveq   #1,d1
 .tc1        move.w  d1,v_tcell(a5)
             move.w  H_DEPTH(a4),d1          ; depth x S x S / 8 bytes a tile
-            add.w   d2,d2
+            add.w   d2,d2                   ; = depth << (2 x shift - 3)
             subq.w  #3,d2
             lsl.w   d2,d1
             move.w  d1,v_tbytes(a5)
@@ -829,8 +903,8 @@ init_display:
             sub.l   d0,d1
             move.l  d4,d2
             sub.l   d0,d2
-.nobob      move.l  d1,v_dd2(a5)
-            move.l  d2,v_ddk(a5)
+.nobob      move.l  d1,v_dd2(a5)            ; draw_char writes text at v_disp and also at
+            move.l  d2,v_ddk(a5)            ; these offsets from it (0 = the same byte again)
             bsr     set_bpl                 ; bitplane pointers
             bsr     bob_plain               ; BOBs (if any) in the normal display
             move.w  #0,v_split(a5)
@@ -847,6 +921,7 @@ init_display:
             move.l  SC_BUF(a0),d1
             add.l   a4,d1
             move.l  d1,v_sbuf(a5)
+            ; a scroll buffer = depth planes of d2 bytes + 16 spare bytes (v_sstride)
             move.w  #SCR_PLV,d2             ; a buffer: depth planes + 16 spare bytes
             move.w  #40,v_sbpr(a5)
             btst    #0,SC_DIR+1(a0)
@@ -880,7 +955,7 @@ init_display:
             and.w   MP_FLAGS(a1),d1
             move.w  d1,v_mword(a5)
             move.w  H_DEPTH(a4),d1
-            lsl.w   #5,d1
+            lsl.w   #5,d1                   ; a 16 x 16 tile: depth x 16 lines x 2 bytes
             move.w  d1,v_tbm(a5)
 .nosc
 
@@ -889,9 +964,9 @@ init_display:
             move.l  a1,d0
             swap    d0
             moveq   #7,d7
-.null       move.w  d0,2(a0)
+.null       move.w  d0,2(a0)                ; SPRxPTH value (high word)
             swap    d0
-            move.w  d0,6(a0)
+            move.w  d0,6(a0)                ; SPRxPTL value (low word)
             swap    d0
             addq.l  #8,a0
             dbf     d7,.null
@@ -916,6 +991,8 @@ init_display:
 .sprnx      lea     ACT_SIZE(a2),a2
             dbf     d6,.spr
 .sprdone
+            ; display window: lines $2c..$12c, pixels $81..$1c1 = 320 x 256; data
+            ; fetch $38..$d0 = 20 words a line (low res)
             move.w  #$2c81,$8e(a6)          ; DIWSTRT
             move.w  #$2cc1,$90(a6)          ; DIWSTOP  (320 x 256 PAL)
             move.w  #$0038,$92(a6)          ; DDFSTRT
@@ -930,7 +1007,7 @@ init_display:
             bne.s   .not8
             move.w  #$0010,d1               ; 8 planes = BPU3 (AGA)
             bra.s   .bpu
-.not8       move.w  d0,d1
+.not8       move.w  d0,d1                   ; BPU2..0 = depth, in bits 14-12
             lsl.w   #8,d1
             lsl.w   #4,d1
 .bpu        or.w    #$0200,d1               ; COLOR on
@@ -1126,9 +1203,15 @@ draw_terrain:
 .out        movem.l (sp)+,d0-d7/a0-a3
             rts
 
+; Sets every colour register from the main palette (H_PAL, 1 << depth longs
+; $00RRGGBB) and the 4 sprite pairs' 3 colours each (H_SPRCOL) - colours 17..31
+; on OCS / ECS, 241..255 on AGA (BPLCON4 moves the sprites up there). Also
+; copies the main palette into v_curpal (where a palette fade starts) and
+; colour 0 into v_bg, and stops any fade (v_pfade 0).
+; In: a4, a5. Changes d0-d6, a0, a2. Called by game_restart.
 init_palette:
             move.w  #0,v_pfade(a5)          ; the colours shown now: the main palette
-            bsr     pal_ncol
+            bsr     pal_ncol                ; d5 = colours a palette can change (at most PAL_FADE)
             move.l  H_PAL(a4),d0
             lea     0(a4,d0.l),a2
             lea     v_curpal(a5),a0
@@ -1150,8 +1233,8 @@ init_palette:
 
             move.l  H_SPRCOL(a4),d0         ; sprite pair colours
             lea     0(a4,d0.l),a2
-            moveq   #16,d4
-            btst    #0,H_FLAGS+1(a4)
+            moveq   #16,d4                  ; d4 = colour 0 of pair 0 (never shown: transparent)
+            btst    #0,H_FLAGS+1(a4)        ; AGA machine?
             beq.s   .base
             move.w  #240,d4
 .base       moveq   #3,d6                   ; 4 pairs
@@ -1166,6 +1249,15 @@ init_palette:
             dbf     d6,.pair
             rts
 
+; Every actor back to its start for the level: fills v_arec (the address of
+; each actor's A_* record, all MAX_ACT of them), then for each actor on the
+; disk sets its v_* state from its record - place, speed (A_SPD + 1 every
+; A_FAST levels, at most 8), shown or not (A_VIS; hidden before level A_FROM),
+; direction, animation, toughness (A_HP), flyer pattern and edge. Shots,
+; options and effects start hidden; flyers go off screen (fly_start). Builds
+; v_platall (actors that can be stood on). Ends with power_apply.
+; In: a4, a5. Changes d0-d2, d5-d7, a0, a2 (and whatever fly_start / opt_add
+; change). Called by level_start.
 init_actors:
             movem.l d0-d1/a0-a1,-(sp)       ; the record of each actor, once
             move.l  H_ACTORS(a4),d0
@@ -1230,7 +1322,7 @@ init_actors:
             move.w  #0,v_thr(a5,d5.w)
             move.w  #0,v_tvx(a5,d5.w)
             move.w  #0,v_tvy(a5,d5.w)
-            move.w  #-1,v_carry(a5)
+            move.w  #-1,v_carry(a5)         ; (a scalar, not per actor: nothing is carried)
             move.w  #1,v_mdx(a5,d5.w)       ; last moved: right, or left when it starts moving left
             move.w  #0,v_mdy(a5,d5.w)
             move.w  #2,v_dir(a5,d5.w)       ; facing east, or west when it starts moving left
@@ -1295,6 +1387,9 @@ power_apply:
             movem.l (sp)+,d0-d2/d5
             rts
 
+; Clears the latch word of every rule (v_latch, one per rule card), so rules
+; that fire once per touch / score / time can fire again. Changes d7, a0.
+; Called by level_start and clear_state.
 clear_latches:
             lea     v_latch(a5),a0
             move.w  #RULES_MAX-1,d7
@@ -1302,11 +1397,15 @@ clear_latches:
             dbf     d7,.l
             rts
 
+; A new game: the frame / second counters at 0, the copper sky back to its
+; full gradient (v_gradfix -1 undoes a DO 8 background colour), latches
+; cleared, and the random seed stirred with the beam position (VHPOSR) so each
+; game differs. Changes d0, d1, d7, a0. Called by game_restart.
 clear_state:
             move.w  #0,v_fcount(a5)
             move.w  #0,v_sectick(a5)
             move.w  #-1,v_gradfix(a5)
-            move.w  #-1,d1
+            move.w  #-1,d1                  ; -1 = the sky as designed, not one colour
             bsr     build_grad
             bsr     clear_latches
             move.w  $06(a6),d0              ; VHPOSR into the random seed
@@ -1763,6 +1862,10 @@ tool_rec:   move.w  T_NT(a0),d4
             add.l   d4,a1
             rts
 
+; The joystick in port 2 -> v_joy: bit 0 up, 1 down, 2 left, 3 right, 4 fire.
+; JOY1DAT: bit 1 = right, bit 9 = left; down = bit 1 xor bit 0, up = bit 9 xor
+; bit 8 (the counter bits). Fire = CIA-A PRA ($bfe001) bit 7, 0 when pressed.
+; Changes d0-d2. Called by frame.
 read_joy:
             move.w  $0c(a6),d0              ; JOY1DAT (port 2)
             moveq   #0,d2
@@ -1790,6 +1893,17 @@ read_joy:
 ; ============================================================================
 ;  actor movement
 ; ============================================================================
+; Once a frame: moves every actor by its role (A_ROLE) - 0 player (joystick),
+; 1 bouncer (= 2 + 3), 2 / 3 patrol across / up-down between pat_lim's limits,
+; 4 chaser (one pixel a step towards the player, v_spd steps), 6 platform
+; player (walk, jump, physics), 7 hopper, 8 faller, 9 shot, 10 flyer (fly_move),
+; 11 option (opt_follow moves it), 12 effect (drifts with the scenery). A
+; thrown actor (v_thr) or a shot in flight (v_thr = SHOT_FLY) flies instead.
+; Counts down v_safe / v_hitf / v_life, keeps v_ox / v_oy (where it was), and in
+; a tile world stops non-gravity roles at walls. Actors with A_FIRE fire by
+; themselves (foe_fire). Also builds v_vismask first (bit per shown actor).
+; Loop registers: d7 = actor, d5 = its offset, a2 = its record, d6 = H_NACT.
+; Changes d0-d7, a0, a2 (and the routines it calls). Called by frame.
 move_actors:
             move.w  H_NACT(a4),d6
             beq     .done
@@ -1870,8 +1984,10 @@ move_actors:
             beq     .horiz
             cmp.w   #1,d0
             beq     .horiz
-            bra     .next
+            bra     .next                   ; role 5 (still), a shot not in flight: no move
 
+            ; ---- role 0: moves v_spd pixels a frame the way the stick points
+            ; (v_joy bits 0 up, 1 down, 2 left, 3 right), kept on the screen
 .player     tst.w   v_tmode(a5)             ; tile world: fire digs / places instead of moving
             beq.s   .pmv
             bsr     weapon_tick
@@ -1911,6 +2027,7 @@ move_actors:
 .pr1        move.w  d0,v_ax(a5,d5.w)
 .pr         bra     .next
 
+            ; ---- roles 1 / 2: across (v_dx 0 = going right, 1 = left)
 .horiz      move.w  A_X(a2),d0              ; d2..d3: where it patrols
             move.w  A_LEFT(a2),d2
             move.w  A_XMAX(a2),d3
@@ -1940,6 +2057,7 @@ move_actors:
             cmp.w   #1,A_ROLE(a2)           ; bouncer also moves vertically
             bne     .next
 
+            ; ---- roles 1 / 3: up and down (v_dy 0 = going down, 1 = up)
 .vert       move.w  A_Y(a2),d0
             move.w  A_UP(a2),d2
             move.w  A_YMAX(a2),d3
@@ -1968,6 +2086,8 @@ move_actors:
 .vs         move.w  d0,v_ay(a5,d5.w)
             bra     .next
 
+            ; ---- role 4: v_spd steps of one pixel towards the player (actor 0 if
+            ; there is no player), x and y each step
 .chaser     move.w  H_PLAYER(a4),d4
             bge.s   .ct
             moveq   #0,d4
@@ -2018,7 +2138,7 @@ move_actors:
 .wr1        move.w  d0,v_ax(a5,d5.w)
 .wr         tst.w   v_gnd(a5,d5.w)          ; jump: fire or up, just pressed
             beq.s   .pphys
-            move.w  v_joyprev(a5),d0
+            move.w  v_joyprev(a5),d0        ; d0 = bits pressed this frame, not last
             not.w   d0
             and.w   d2,d0
             moveq   #17,d3                  ; up or fire jumps (only up when fire digs)
@@ -2035,6 +2155,9 @@ move_actors:
 .pphys      bsr     physics
             bra     .next
 
+            ; ---- role 7: on the ground it waits a random while (v_tmr), crouches
+            ; HOP_SQUAT frames (v_squat: the A_SPR2 frame), then jumps; in the air
+            ; it drifts across (v_dx) every other frame
 .hopper     tst.w   v_gnd(a5,d5.w)
             beq.s   .hair
             tst.w   v_squat(a5,d5.w)        ; crouching, about to spring
@@ -2097,6 +2220,8 @@ move_actors:
             add.w   d0,v_ay(a5,d5.w)
             bra     .adv
 
+            ; ---- thrown (v_thr 1 flying at things, 2 spent): v_tvx pixels a frame
+            ; across, gravity down, until it lands
 .fly        cmp.w   #SHOT_FLY,v_thr(a5,d5.w)
             beq     .shot
             move.w  v_ax(a5,d5.w),d0        ; across, stopped by the edges
@@ -2223,6 +2348,12 @@ ground_y:   move.l  v_game(a5),d2           ; level hills win over painted groun
 physics:    bsr     phys_core
             bra     plat_stand
 
+; Gravity without the platforms: v_vy (1/16 pixels a frame) grows by GRAVITY
+; (HOP_GRAVITY for a hopper) up to MAX_FALL; v_ysub keeps the fraction, so the
+; actor moves v_vy / 16 whole pixels. Then it stands on the ground under its
+; middle (ground_y: hills or painted ground) or the screen bottom (A_YMAX),
+; setting v_gnd 1, and stops at the top. A tile world uses tile_phys instead.
+; In: d5 = actor offset, a2 = its record. Changes d0-d4, a0. Called by physics.
 phys_core:  tst.w   v_tmode(a5)
             bne     tile_phys
             move.w  v_vy(a5,d5.w),d0
@@ -2236,10 +2367,10 @@ phys_core:  tst.w   v_tmode(a5)
             ble.s   .v
             move.w  #MAX_FALL,d0
 .v          move.w  d0,v_vy(a5,d5.w)
-            add.w   v_ysub(a5,d5.w),d0
+            add.w   v_ysub(a5,d5.w),d0      ; speed + the fraction left from last frame
             move.w  d0,d1
-            asr.w   #4,d1
-            and.w   #15,d0
+            asr.w   #4,d1                   ; d1 = whole pixels to move
+            and.w   #15,d0                  ; the new fraction (sixteenths)
             move.w  d0,v_ysub(a5,d5.w)
             add.w   d1,v_ay(a5,d5.w)
             move.w  v_gnd(a5,d5.w),d4       ; was standing last frame?
@@ -3413,6 +3544,8 @@ fly_move:   movem.l d0-d4/a0,-(sp)
 .ay         move.w  v_ay(a5,d5.w),d0
             rts
 
+; 64 steps of a sine wave, amplitude 40 pixels (signed bytes, -40..40): a wave
+; flyer (pattern 1) adds sine64[v_tmr & 63] to the line it came in on (v_base).
 sine64:     dc.b    0,4,8,12,15,19,22,25,28,31,33,35,37,38,39,40,40,40,39,38,37,35,33,31,28,25,22,19,15,12,8,4
             dc.b    0,-4,-8,-12,-15,-19,-22,-25,-28,-31,-33,-35,-37,-38,-39,-40,-40,-40,-39,-38,-37,-35,-33,-31,-28,-25,-22,-19,-15,-12,-8,-4
             even
@@ -3958,10 +4091,10 @@ cam_follow: tst.w   v_tmode(a5)
             move.w  H_PLAYER(a4),d2
             bmi.s   .cl
             lsl.w   #ACTV_SHIFT,d2
-            move.w  v_ax(a5,d2.w),d0
-            sub.w   #160-8,d0
+            move.w  v_ax(a5,d2.w),d0        ; camera = the player's middle (a 16 x 24 sprite)
+            sub.w   #160-8,d0               ; at the middle of the screen across
             move.w  v_ay(a5,d2.w),d1
-            sub.w   #136-12,d1
+            sub.w   #136-12,d1              ; and line 136 down (128 + the HUD strip)
 .cl         tst.w   d0
             bge.s   .x1
             moveq   #0,d0
@@ -4804,6 +4937,13 @@ on_ladder:  movem.l d0-d3/a0,-(sp)
 dir_tab:    dc.b    7,0,1,6,0,2,5,4,3
             even
 
+; Hides every hardware-sprite actor by writing 0 to the control long (the
+; first long: SPRxPOS / SPRxCTL) of every image it can show - its A_SPR, a
+; hopper's A_SPR2, and all 16 right + 16 left frame slots of each animation in
+; its table (4, 12 or 21 entries, + 2 with Hit / Die). A zero control word
+; means the sprite DMA draws nothing. BOBs are skipped: they go when the
+; backdrop is restored. Changes d0-d2, d6, a0-a3.
+; Called by game_restart, level_card and end_screen.
 hide_sprites:
             move.w  H_NACT(a4),d6
             beq     .done
@@ -4879,6 +5019,12 @@ bgo:        move.w  #$0040,$9c(a6)          ; INTREQ: clear BLIT
             move.w  d0,$58(a6)              ; BLTSIZE - go
             rts
 
+; Start of a frame, BOBs only: if bob_draw finished drawing v_draw last frame
+; (v_drawn), show it - new bitplane pointers in the copper list (set_bpl), or in a
+; scrolling game at the split, at the place it was drawn for (scroll_show) - and
+; make the other buffer (v_bufa / v_bufb) the one to draw into next; v_bobbuf
+; says which (0 = a, 1 = b), so bob_draw uses that buffer's list of old places.
+; Changes d0, d1. Called by frame (first thing, while the beam is at the bottom).
 bob_flip:
             tst.w   v_bob(a5)
             beq.s   .r
@@ -4902,6 +5048,14 @@ bob_flip:
             move.w  d1,v_bobbuf(a5)
 .r          rts
 
+; Draws all BOBs into v_draw (the display not on screen): first wipes the BOBs
+; this buffer had two frames ago (copies v_back over the rectangles kept in
+; v_bobold, v_bobn of them), then for each shown BOB actor cuts its frame
+; (v_fofs, BI_* header) into each plane by blitter and records its rectangle
+; (byte offset + BLTSIZE) for the next wipe. A scrolling game draws at the
+; display's place v_spos (v_bx0 / v_by0 = the screen's top left in the buffer).
+; Sets v_drawn so bob_flip shows it next frame. Keeps all registers.
+; Called by frame, after place_sprites.
 bob_draw:
             tst.w   v_bob(a5)
             beq     .r
@@ -5125,7 +5279,7 @@ bob_draw:
 
 ; ============================================================================
 ;  collisions - bounding boxes trimmed to each sprite's drawn pixels
-;  touch:      d0.w = actor a, d1.w = actor b  -> d0 = 1 and NE when touching
+;  touch_pair: d0.w = actor a, d1.w = actor b  -> d0 = 1 and NE when touching
 ;  touch_any:  d0.w = actor a                  -> any other visible actor
 ; ============================================================================
 touch_pair:
@@ -5187,6 +5341,8 @@ touch_pair:
             tst.w   d0
             rts
 
+; d0.w = actor a -> d0 = 1 and Z clear when it touches any other actor (shown,
+; not safe: touch_pair's rules), else d0 = 0, Z set. Keeps the other registers.
 touch_any:
             movem.l d1/d6-d7,-(sp)
             move.w  d0,d6                   ; actor a
@@ -5498,7 +5654,12 @@ fire_action:
             moveq   #1,d0
             rts
 
-; a3 = rule
+; One DO: a3 = the rule (or AND_SIZE before an AND DO line). Sets d4 = target
+; actor (R_TGT, turned into the copy that made the rule fire by ctx_actor) and
+; d5 = d4 << ACTV_SHIFT, then jumps to act_<R_ACT> through acttab. Each act_*
+; gets a3 / d4 / d5 and returns with rts (to fire_action). An act word over 31
+; (an IF line, IF_LINE $8000) does nothing. Changes d0, d4, d5 and whatever
+; the act_* changes (fire_action keeps d5-d7 / a2-a3 for its caller).
 do_action:
             move.w  R_TGT(a3),d4            ; target actor (the copy that made the rule fire)
             bsr     ctx_actor
@@ -5510,6 +5671,8 @@ do_action:
             add.w   d0,d0
             move.w  acttab(pc,d0.w),d0
             jmp     acttab(pc,d0.w)
+; jump table, one word per DO number 0..31: offset of act_* from acttab (the
+; order must match the DO numbers in CLAUDE.md / scr_ws_logic)
 acttab:     dc.w    act_score-acttab
             dc.w    act_loselife-acttab
             dc.w    act_sound-acttab
@@ -5543,6 +5706,7 @@ acttab:     dc.w    act_score-acttab
             dc.w    act_make-acttab
             dc.w    act_idrop-acttab
 
+; DO that does nothing (also the 'no such actor' way out of the other act_*)
 act_none:   rts
 
 ; DO 27: switch to palette value (0 = the main one), fading over target frames (0 = at once)
@@ -5559,6 +5723,7 @@ act_pal:    move.w  R_VAL(a3),d0
 act_igive:  move.w  R_VAL(a3),d0
             move.w  R_TGT(a3),d1
             bra     item_give
+; (DO 29) d0 = item, d1 = how many to take
 act_itake:  move.w  R_VAL(a3),d0
             move.w  R_TGT(a3),d1
             bra     item_take
@@ -5895,6 +6060,8 @@ items_level:
 items_life:
             movem.l d0/d2/a0-a1,-(sp)
             moveq   #1,d0
+; shared tail of items_level / items_life: d0 = 0 next level (clear the items
+; without IT_FLAGS bit 0), 1 life lost (clear those with bit 1); pops what they pushed
 items_clear:
             move.l  v_items(a5),d2
             beq.s   .o
@@ -6179,7 +6346,7 @@ foe_fire:   movem.l d0-d7/a0-a3,-(sp)
 .go         move.w  d7,d0
             bsr     on_screen
             beq     .out
-            bsr     rand
+            bsr     rand                    ; next volley in A_FRATE + 0..15 frames
             and.w   #15,d0
             add.w   A_FRATE(a2),d0
             move.w  d0,v_ftmr(a5,d5.w)
@@ -6191,8 +6358,8 @@ foe_fire:   movem.l d0-d7/a0-a3,-(sp)
             move.l  a2,a1
             move.w  d3,d4
             bsr     actor_rec               ; a0 = the shot's record
-            move.w  A_FPAT(a1),d0
-            beq.s   .own
+            move.w  A_FPAT(a1),d0           ; the volley (A_FPAT): shoot_one gets d2 = 0
+            beq.s   .own                    ; (no side offset), d4 = -1 / 0 / 1 (veer)
             cmp.w   #3,d0
             beq.s   .ring
             cmp.w   #4,d0
@@ -6202,7 +6369,7 @@ foe_fire:   movem.l d0-d7/a0-a3,-(sp)
             moveq   #0,d2
             moveq   #0,d4
             bsr     shoot_one
-            cmp.w   #2,A_FPAT(a1)
+            cmp.w   #2,A_FPAT(a1)           ; 2: two more, veering either side
             bne     .out
             moveq   #-1,d4
             bsr     shoot_one
@@ -6221,7 +6388,7 @@ foe_fire:   movem.l d0-d7/a0-a3,-(sp)
             moveq   #0,d4
             bsr     shoot_one
             bra.s   .out
-.ring       move.w  #0,v_aprec(a5)
+.ring       move.w  #0,v_aprec(a5)          ; 3: eight shots, one each way (ring8)
             lea     ring8(pc),a3
             moveq   #7,d5
 .rl         move.b  (a3)+,d0
@@ -6237,6 +6404,8 @@ foe_fire:   movem.l d0-d7/a0-a3,-(sp)
 .out        movem.l (sp)+,d0-d7/a0-a3
             rts
 
+; a ring of 8 shots (volley 3): (x, y) direction pairs, -1 / 0 / 1, starting up and
+; going round clockwise
 ring8:      dc.b    0,-1,1,-1,1,0,1,1,0,1,-1,1,-1,0,-1,-1
 
 ; a shot d3 aimed straight at the player from the shooter (a1 / d7): v_avx / v_avy at
@@ -6781,12 +6950,12 @@ act_shoot:
 
 ; the player's volleys (v_power 0..3): pairs of (pixels to the side, spread), $7f ends
 vol_tab:    dc.w    vol_1-vol_tab,vol_2-vol_tab,vol_3-vol_tab,vol_4-vol_tab,vol_m1-vol_tab,vol_m2-vol_tab
-vol_1:      dc.b    0,0,$7f
-vol_2:      dc.b    -6,0,6,0,$7f
-vol_3:      dc.b    0,0,0,-1,0,1,$7f
-vol_4:      dc.b    -6,0,6,0,0,-1,0,1,$7f
-vol_m1:     dc.b    0,0,$7f                 ; homing missiles
-vol_m2:     dc.b    -10,0,10,0,$7f
+vol_1:      dc.b    0,0,$7f                 ; firepower 0: one shot straight on
+vol_2:      dc.b    -6,0,6,0,$7f            ; 1: two side by side, 6 pixels either side
+vol_3:      dc.b    0,0,0,-1,0,1,$7f        ; 2: three from the middle, spread -1 / 0 / +1
+vol_4:      dc.b    -6,0,6,0,0,-1,0,1,$7f   ; 3: the two side by side + two spread
+vol_m1:     dc.b    0,0,$7f                 ; homing missiles: one
+vol_m2:     dc.b    -10,0,10,0,$7f          ; two, 10 pixels either side
             even
 
 ; the way a volley flies (a0 = the named shot, a1 / d6 / d7 = the shooter) -> v_aimx /
@@ -7074,15 +7243,18 @@ overlap_pair:
 ; play song R_VAL from the top / stop the music
 act_music:  move.w  R_VAL(a3),d0
             bra     music_play
+; DO 19: stop the music
 act_nomusic:
             bra     music_stop
 
+; DO 15: show target d4 for MOMENT frames (move_actors counts v_life down and hides it)
 act_moment: cmp.w   H_NACT(a4),d4
             bhs     act_none
             move.w  #1,v_vis(a5,d5.w)
             move.w  #MOMENT,v_life(a5,d5.w)
             rts
 
+; DO 16: target d4 is safe (nothing touches it, it blinks) for SAFE_TIME frames
 act_safe:   cmp.w   H_NACT(a4),d4
             bhs     act_none
             move.w  #SAFE_TIME,v_safe(a5,d5.w)
@@ -7265,6 +7437,10 @@ level_skip: move.l  v_game(a5),d0
             bge     act_win
             bra     level_next
 
+; actor d4 / d5 was moved by a rule (home, random spot, move to, dropped): it stops
+; falling, is off any platform and the ground, ends a throw or a shot's flight and is
+; no longer carried. Changes nothing else. Called by act_home, act_random,
+; act_moveto, item_drop.
 stop_fall:  move.w  #0,v_vy(a5,d5.w)
             move.w  #0,v_onp(a5,d5.w)       ; off any platform
             move.w  #0,v_ysub(a5,d5.w)
@@ -7285,7 +7461,7 @@ act_moveto: cmp.w   H_NACT(a4),d4
             lsl.w   #ACTV_SHIFT,d0
             move.w  v_ax(a5,d0.w),v_ax(a5,d5.w)
             move.w  v_ay(a5,d0.w),d1
-            addq.w  #8,d1
+            addq.w  #8,d1                   ; 8 pixels below the other's top
             move.w  d1,v_ay(a5,d5.w)
             bsr     stop_fall
             bsr     actor_rec
@@ -7294,6 +7470,7 @@ act_moveto: cmp.w   H_NACT(a4),d4
             move.l  a0,a2
             bra     fly_rebase
 
+; DO 0: score + R_VAL, at most SCORE_MAX, and the HUD redrawn
 act_score:  moveq   #0,d0
             move.w  R_VAL(a3),d0
             add.l   v_score(a5),d0
@@ -7303,6 +7480,8 @@ act_score:  moveq   #0,d0
 .ok         move.l  d0,v_score(a5)
             bra     draw_hud
 
+; DO 1: one life less (never below 0; WHEN 4 'lives run out' rules end the game),
+; items lost with a life go, HUD redrawn
 act_loselife:
             btst    #1,H_FLAGS+1(a4)        ; God mode: the lives never run out
             bne.s   .z
@@ -7312,12 +7491,14 @@ act_loselife:
 .z          bsr     items_life              ; items lost with a life
             bra     draw_hud
 
+; DO 13: one more life, at most 9 (the HUD shows one digit)
 act_addlife:
             cmp.w   #9,v_lives(a5)
             bhs.s   .z
             addq.w  #1,v_lives(a5)
 .z          bra     draw_hud
 
+; DO 2: play sound R_VAL (0..63)
 act_sound:  move.w  R_VAL(a3),d0
             and.w   #63,d0
             bra     play_sfx
@@ -7332,6 +7513,8 @@ act_flash:  move.w  H_PLAYER(a4),d0
             move.w  #16,v_hitf(a5,d0.w)
 .r          rts
 
+; DO 4: target d4 back to where it was placed (A_X / A_Y); a flyer goes back off
+; the screen to fly in again
 act_home:   cmp.w   H_NACT(a4),d4
             bhs     act_none
             bsr     stop_fall
@@ -7344,6 +7527,8 @@ act_home:   cmp.w   H_NACT(a4),d4
             move.w  A_Y(a0),v_ay(a5,d5.w)
             bra     trail_check
 
+; DO 5: target d4 to a random place: x 0..A_XMAX, y 16..A_YMAX (the numbers of a
+; 320 x 256 screen); a flyer comes in again from its edge instead
 act_random: cmp.w   H_NACT(a4),d4
             bhs     act_none
             bsr     stop_fall
@@ -7369,6 +7554,8 @@ act_random: cmp.w   H_NACT(a4),d4
             move.w  d0,v_ay(a5,d5.w)
             bra     trail_check
 
+; DO 6: hide target d4. When no copy made the rule fire (v_cta = v_ctb = -1), all
+; its copies (the actors right after it with A_TYPE = d4) hide too.
 act_hide:   cmp.w   H_NACT(a4),d4
             bhs     act_none
             move.w  #0,v_vis(a5,d5.w)
@@ -7392,11 +7579,15 @@ act_hide:   cmp.w   H_NACT(a4),d4
             movem.l (sp)+,d0-d2/a0
 .r          rts
 
+; DO 7: show target d4
 act_show:   cmp.w   H_NACT(a4),d4
             bhs     act_none
             move.w  #1,v_vis(a5,d5.w)
             rts
 
+; DO 8: colour 0 becomes palette colour R_VAL (ignored past 1 << depth). With a
+; copper sky the whole sky becomes that one colour (build_grad with d1 = $0RGB,
+; remembered in v_gradfix), else COLOR00 is set.
 act_bgcol:  move.w  R_VAL(a3),d0
             move.w  H_DEPTH(a4),d6
             moveq   #1,d1
@@ -7419,6 +7610,7 @@ act_bgcol:  move.w  R_VAL(a3),d0
             moveq   #0,d0
             bra     setcol
 
+; DO 11 / DO 12: target d4's speed one up (at most 8) / one down (at least 1)
 act_faster: cmp.w   H_NACT(a4),d4
             bhs     act_none
             cmp.w   #8,v_spd(a5,d5.w)
@@ -7426,17 +7618,18 @@ act_faster: cmp.w   H_NACT(a4),d4
             addq.w  #1,v_spd(a5,d5.w)
 .z          rts
 
-act_slower: cmp.w   H_NACT(a4),d4
+act_slower: cmp.w   H_NACT(a4),d4           ; (DO 12)
             bhs     act_none
             cmp.w   #1,v_spd(a5,d5.w)
             bls.s   .z
             subq.w  #1,v_spd(a5,d5.w)
 .z          rts
 
+; DO 9 game over / DO 10 win: end_screen with the game over / win text
 act_over:   move.l  H_TOVER(a4),d0
             lea     0(a4,d0.l),a0
             bra.s   end_screen
-act_win:    move.l  H_TWIN(a4),d0
+act_win:    move.l  H_TWIN(a4),d0           ; (DO 10)
             lea     0(a4,d0.l),a0
 
 ; a0 = message.  Shows it, waits for fire, then restarts the game.
@@ -8207,6 +8400,12 @@ track_read:
 .out        movem.l (sp)+,d0-d7/a0-a3
             rts
 
+; The floppy lines (all active low):
+;   CIA-B PRB $bfd100: bit 7 /MTR (motor, latched by a drive when its /SEL goes
+;   low), bits 6..3 /SEL3../SEL0, bit 2 /SIDE (1 = lower head), bit 1 DIR
+;   (1 = outwards, towards cylinder 0), bit 0 /STEP (a low-high pulse steps once)
+;   CIA-A PRA $bfe001: bit 5 /RDY, bit 4 /TK0 (head at cylinder 0), bit 3 /WPRO,
+;   bit 2 /CHNG; bit 7 is port 2 fire, bit 6 port 1 fire
 ; d0.w = drive 0..3: selected with its motor on; waits (at most ~0.6 s) for it to be ready
 drive_on:   movem.l d0-d2,-(sp)
             moveq   #3,d1
@@ -8317,11 +8516,11 @@ raw_read:   movem.l d0-d1,-(sp)
 decode_track:
             movem.l d0-d7/a0-a3,-(sp)
             moveq   #0,d6                   ; a bit per sector decoded
-            move.l  #$55555555,d5
+            move.l  #$55555555,d5           ; MFM: the data bits are the odd / even bits
             lea     RAW_WORDS*2-1088(a0),a3 ; the last place a whole sector can start
 .find       cmp.l   a3,a0
             bhs     .end
-            cmp.w   #$4489,(a0)+
+            cmp.w   #$4489,(a0)+            ; $4489 = the MFM sync word before each sector
             bne.s   .find
 .sync       cmp.w   #$4489,(a0)
             bne.s   .hdr
@@ -8374,7 +8573,7 @@ decode_track:
             bset    d0,d6
             lea     1080(a0),a0
             bra     .find
-.end        cmp.w   #$07ff,d6
+.end        cmp.w   #$07ff,d6               ; all 11 bits set = every sector (Z set)
             movem.l (sp)+,d0-d7/a0-a3
             rts
 
@@ -8462,6 +8661,14 @@ draw_text:
 .done       movem.l (sp)+,d0-d1/a0
             rts
 
+; One 8 x 8 character (registers in the header above) into v_disp, and the same
+; bytes into the second BOB display and the BOB background (v_dd2 / v_ddk: offsets
+; from v_disp, both 0 without BOBs), so the text stays when BOBs are wiped. Each
+; plane byte = the backdrop under it (v_work; colour 0 when v_opaque) with the
+; letter's bits set / cleared by the bits of colour d3, and the shadow (v_shadow
+; >= 0) one pixel down-right where there is no letter. Characters 96.. fold to
+; upper case; outside 32..95 is a space. Keeps all registers.
+; Called by draw_text, two_digits, the HUDs, menus, end_screen.
 draw_char:
             cmp.w   #40,d1                  ; off the right edge: nothing
             bhs     .off
@@ -8550,6 +8757,11 @@ two_digits: movem.l d0/d4,-(sp)
             movem.l (sp)+,d0/d4
             rts
 
+; Redraws the HUD row (v_hudrow): the custom HUD (ui_hud) when there is one, else
+; the standard one - SCORE nnnnn at column 1, the goal label and nn/nn from column
+; 15 (13 when digging), the tile carried and how many at 24 (tile world with
+; digging), LIVES n at 31 (32 when digging). Colour H_HUDCOL. Keeps all registers.
+; Called whenever the score, lives, goal, tile or items change, and at level start.
 draw_hud:
             tst.l   v_ui(a5)
             bne     ui_hud
@@ -9097,16 +9309,19 @@ hud_tools:  tst.w   v_tmode(a5)
             move.l  (sp)+,a0
 .r          rts
 
-str_score:  dc.b    "SCORE ",0
-str_lives:  dc.b    "LIVES ",0
-str_fire:   dc.b    "PRESS FIRE",0
-str_disk2:  dc.b    "PLEASE INSERT DISK 2",0
-str_loading: dc.b   "LOADING",0
-str_d2err:  dc.b    "DISK 2 ERROR - PRESS FIRE",0
-str_use:    dc.b    "USE ",0
-str_make:   dc.b    "MAKE ",0
+; texts the engine shows itself (upper case: the font has characters 32..95 only)
+str_score:  dc.b    "SCORE ",0              ; draw_hud
+str_lives:  dc.b    "LIVES ",0              ; draw_hud
+str_fire:   dc.b    "PRESS FIRE",0          ; level_card
+str_disk2:  dc.b    "PLEASE INSERT DISK 2",0 ; disk2_find
+str_loading: dc.b   "LOADING",0             ; song_fetch, map_fetch
+str_d2err:  dc.b    "DISK 2 ERROR - PRESS FIRE",0 ; song_fetch, map_fetch
+str_use:    dc.b    "USE ",0                ; menu_entry: '< USE KEY 2 >'
+str_make:   dc.b    "MAKE ",0               ; menu_entry: '< MAKE TORCH >'
             even
 
+; the built-in 8 x 8 font (64 characters, 32..95, 8 bytes each, top line first);
+; a custom HUD may bring its own (UI_FONT) - v_font points at the one in use
 font:
             include "font.inc"
 
@@ -9122,11 +9337,17 @@ font:
 
 ; ============================================================================
 ;  chip data
+;  The engine is loaded into chip RAM, so the copper list and the sprite data
+;  can live in it. init_display / set_bpl / place_sprites / build_grad write
+;  the 0 words below at run time (reach them as label-V-128(a5)).
 ; ============================================================================
             cnop    0,8
+; an empty sprite (control words 0): every sprite pointer starts here
 null_spr:   dc.l    0,0
 
+; the copper list (COP1LC): pairs of (register, value) words, ended by $ffff,$fffe
 copper:
+; BPL1PTH / BPL1PTL .. BPL8PTH / BPL8PTL ($0e0..$0fe): the 8 bitplane pointers
 cop_bpl:    dc.w    $00e0,0,$00e2,0
             dc.w    $00e4,0,$00e6,0
             dc.w    $00e8,0,$00ea,0
@@ -9135,6 +9356,7 @@ cop_bpl:    dc.w    $00e0,0,$00e2,0
             dc.w    $00f4,0,$00f6,0
             dc.w    $00f8,0,$00fa,0
             dc.w    $00fc,0,$00fe,0
+; SPR0PTH / SPR0PTL .. SPR7PTH / SPR7PTL ($120..$13e): the 8 sprite pointers
 cop_spr:    dc.w    $0120,0,$0122,0
             dc.w    $0124,0,$0126,0
             dc.w    $0128,0,$012a,0
@@ -9148,10 +9370,14 @@ cop_mods:   dc.w    $0108,0,$010a,0,$0102,0 ; modulos and fine scroll from the t
 cop_grad:   dc.w    $ffff,$fffe             ; sky lines are built here at run time
             ds.b    256*20+32+128           ; AGA: wait + 4 moves per line; + the tile world split
 
+; the engine variables (v_*: per-actor records, then the scalars). a5 = V+128,
+; so the per-actor fields at -128..-1 fit a signed byte displacement.
             cnop    0,4
-V:          ds.b    V_SIZE+128
+V:          ds.b    V_SIZE+128              ; a5 = V+128 all the time
+; the supervisor stack (a7 = stack_top at the start of each game and level)
             cnop    0,4
-stack:      ds.b    2048
-stack_top:
+stack:      ds.b    2048                    ; 2 KB
+stack_top:                                  ; a7 starts here (the stack grows down)
+; ADAM appends the game data block (H_* header) here; a4 = data_start
             cnop    0,8
-data_start:
+data_start:                                 ; a4 = here: the 'ADAM' header

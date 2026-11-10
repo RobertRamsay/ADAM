@@ -5,6 +5,7 @@
 #   'edge':  any shape - a lit rim at the top left, a shadow band along the bottom right
 import math
 
+# the brightness of $RRGGBB
 def _lum(c):
     return ((c >> 16) & 255) * 0.3 + ((c >> 8) & 255) * 0.59 + (c & 255) * 0.11
 
@@ -24,6 +25,8 @@ def roles(s):
         dark = None
     return body, dark, light
 
+# sprite s lit from the upper left: mode 'round' shades the body colour as a ball (a shine
+# and a dithered shadow), 'edge' gives a lit rim and a shadow edge -> a new sprite dict
 def shade_sprite(s, mode='edge', body=None, dark=None, light=None, shine=True):
     w = s.get('w', 16)
     h = s.get('h', 24)
@@ -33,6 +36,7 @@ def shade_sprite(s, mode='edge', body=None, dark=None, light=None, shine=True):
     if dark is None: dark = d0
     if light is None: light = l0
     if not shine: light = None
+    # the pixel at (x, y), 0 outside
     def at(x, y):
         if 0 <= x < w and 0 <= y < h:
             return px[y * w + x]

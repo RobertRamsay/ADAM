@@ -1,5 +1,7 @@
 /// ADAM - Home workspace
 
+/// Saves the project to proj_path. _save_as true (or no path yet) asks for a file
+/// name first (".adam" added when it has no extension); cancelling saves nothing.
 function home_save(_save_as)
 {
     var _path = proj_path;
@@ -12,6 +14,8 @@ function home_save(_save_as)
     project_save_to(_path);
 }
 
+/// Home 'Open' button: asks first when there are unsaved changes (confirm box,
+/// which calls home_open_now on 'Open...'), else opens straight away.
 function home_open()
 {
     if (proj_dirty)
@@ -22,12 +26,16 @@ function home_open()
     home_open_now(0);
 }
 
+/// Shows the file picker and loads the .adam file chosen (project_load_from).
+/// _unused: the confirm box's callback argument.
 function home_open_now(_unused)
 {
     var _path = get_open_filename("ADAM project|*.adam", "");
     if (_path != "") { project_load_from(_path); }
 }
 
+/// Home 'New' button: asks first when there are unsaved changes (confirm box,
+/// which calls home_new_now), else starts a new project straight away.
 function home_new()
 {
     if (proj_dirty)
@@ -38,6 +46,8 @@ function home_new()
     home_new_now(0);
 }
 
+/// Replaces the project with a blank one for the same machine, forgets the save
+/// and disk paths, clears every page's undo. _unused: the confirm box's callback argument.
 function home_new_now(_unused)
 {
     var _machine = proj.machine;
@@ -147,6 +157,10 @@ function home_row(_id, _x1, _y1, _x2, _h, _badge, _c1, _c2, _title, _tag, _desc,
     return false;
 }
 
+/// Draws the Home page in the work area (_x1, _y1) - (_x2, _y2), UI pixels.
+/// Left 60 %: the hero panel (New / Open / Save), then 'How it works' and
+/// 'Example games' lists side by side; right 40 %: Game settings (saved in the
+/// project) above Studio settings (settings ini, every project).
 function ws_home_draw(_x1, _y1, _x2, _y2)
 {
     var _split = _x1 + floor((_x2 - _x1) * 0.6);

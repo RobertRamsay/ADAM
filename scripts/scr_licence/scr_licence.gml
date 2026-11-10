@@ -73,12 +73,14 @@ function pro_gate(_what)
 #macro LITE_MAP_H 256
 #macro LITE_SOUNDS 8            // sounds (Sound page slots; Pro: SFX_MAX = 64)
 
+/// Sounds the game can use: Pro SFX_MAX (64), Lite LITE_SOUNDS (8)
 function lim_sounds()
 {
     if (pro_edition()) { return SFX_MAX; }
     return LITE_SOUNDS;
 }
 
+/// Most frames in one animation: Pro ANIM_FRAMES (16), Lite LITE_FRAMES (6)
 function lim_frames()
 {
     if (pro_edition()) { return ANIM_FRAMES; }
@@ -91,42 +93,49 @@ function lim_fire()
     return true;
 }
 
+/// Most actors written to the disk: Pro ACT_MAX_ALL (32), Lite LITE_ACTORS (12: 8 sprites, the rest BOBs)
 function lim_actors()
 {
     if (pro_edition()) { return ACT_MAX_ALL; }
     return LITE_ACTORS;
 }
 
+/// Sprite bank slots: Pro SPR_COUNT (128), Lite LITE_BANK (64); see spr_bank_size()
 function lim_bank()
 {
     if (pro_edition()) { return SPR_COUNT; }
     return LITE_BANK;
 }
 
+/// Widest sprite / BOB in pixels: Pro 64, Lite LITE_SPR_W (32)
 function lim_spr_w()
 {
     if (pro_edition()) { return 64; }
     return LITE_SPR_W;
 }
 
+/// Tallest sprite / BOB in pixels: Pro 64, Lite LITE_SPR_H (32)
 function lim_spr_h()
 {
     if (pro_edition()) { return 64; }
     return LITE_SPR_H;
 }
 
+/// Most tile types in the tile set: Pro TILE_MAX (512), Lite LITE_TILES (96)
 function lim_tiles()
 {
     if (pro_edition()) { return TILE_MAX; }
     return LITE_TILES;
 }
 
+/// Widest tile map in tiles: Pro MAP_MAX (1024), Lite LITE_MAP_W (256)
 function lim_map_w()
 {
     if (pro_edition()) { return MAP_MAX; }
     return LITE_MAP_W;
 }
 
+/// Tallest tile map in tiles: Pro MAP_MAX (1024), Lite LITE_MAP_H (256)
 function lim_map_h()
 {
     if (pro_edition()) { return MAP_MAX; }
