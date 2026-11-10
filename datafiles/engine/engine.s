@@ -7528,7 +7528,9 @@ act_home:   cmp.w   H_NACT(a4),d4
             bra     trail_check
 
 ; DO 5: target d4 to a random place: x 0..A_XMAX, y 16..A_YMAX (the numbers of a
-; 320 x 256 screen); a flyer comes in again from its edge instead
+; 320 x 256 screen); a flyer comes in again from its edge instead. In a tile world
+; (A_XMAX / A_YMAX are the world's) it goes to a random spot in the camera's view
+; where its box is clear of solid tiles - 16 tries, and if all are solid it stays.
 act_random: cmp.w   H_NACT(a4),d4
             bhs     act_none
             bsr     stop_fall
@@ -7537,7 +7539,9 @@ act_random: cmp.w   H_NACT(a4),d4
             bne.s   .any
             move.l  a0,a2
             bra     fly_again
-.any        move.w  A_XMAX(a0),d2
+.any        tst.w   v_tmode(a5)
+            bne     .tw
+            move.w  A_XMAX(a0),d2
             addq.w  #1,d2
             move.w  A_YMAX(a0),d3
             sub.w   #15,d3
@@ -7552,6 +7556,56 @@ act_random: cmp.w   H_NACT(a4),d4
             swap    d0
             add.w   #16,d0                  ; keep clear of the top row
             move.w  d0,v_ay(a5,d5.w)
+            bra     trail_check
+; tile world: a2 = the record (for box_solid), d6 = tries left, d3 = the x tried
+; (d1 and d6 are kept, as the one-screen way keeps d1)
+.tw         move.l  a0,a2
+            movem.l d1/d6,-(sp)
+            moveq   #15,d6
+.try        move.w  #320,d2                 ; x places that keep its box in the view
+            sub.w   A_BX1(a2),d2
+            add.w   A_BX0(a2),d2
+            bgt.s   .xn
+            moveq   #1,d2
+.xn         bsr     rand
+            and.l   #$ffff,d0
+            divu    d2,d0
+            swap    d0
+            add.w   v_camx(a5),d0
+            sub.w   A_BX0(a2),d0
+            bpl.s   .xa
+            moveq   #0,d0
+.xa         cmp.w   A_XMAX(a2),d0
+            ble.s   .xb
+            move.w  A_XMAX(a2),d0
+.xb         move.w  d0,d3
+            move.w  #256,d2                 ; y places: the view is 256 - HUD lines high
+            sub.w   v_hudlines(a5),d2
+            sub.w   A_BY1(a2),d2
+            add.w   A_BY0(a2),d2
+            bgt.s   .yn
+            moveq   #1,d2
+.yn         bsr     rand
+            and.l   #$ffff,d0
+            divu    d2,d0
+            swap    d0
+            add.w   v_camy(a5),d0
+            sub.w   A_BY0(a2),d0
+            bpl.s   .ya
+            moveq   #0,d0
+.ya         cmp.w   A_YMAX(a2),d0
+            ble.s   .yb
+            move.w  A_YMAX(a2),d0
+.yb         move.w  d0,d1
+            move.w  d3,d0
+            bsr     box_solid
+            beq.s   .free
+            dbf     d6,.try
+            movem.l (sp)+,d1/d6             ; no clear spot: it stays where it is
+            rts
+.free       move.w  d0,v_ax(a5,d5.w)
+            move.w  d1,v_ay(a5,d5.w)
+            movem.l (sp)+,d1/d6
             bra     trail_check
 
 ; DO 6: hide target d4. When no copy made the rule fire (v_cta = v_ctb = -1), all

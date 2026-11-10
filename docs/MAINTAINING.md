@@ -85,6 +85,7 @@ single byte the game crashes or behaves strangely, usually with no message.
 |---|---|
 | Igor reports an error | The line it names. GML traps: `[$ff...]` at the start of an array literal (use `0xff`), a local called `x` or `y`, a ternary (Bob's rule: always `if / else`). |
 | The game shows a red screen at boot | The bootblock could not get the chip RAM (`boot.s`). The Build page's memory bar and its 512KB-A500 warning say how much the game needs. |
+| The game shows a yellow screen at boot | The bootblock could not read part of the disk after three tries (`boot.s` `.rderr`): a damaged floppy, or a bad write to it. |
 | Black screen, garbage or a crash after loading | The editor and the engine disagree about the data layout: compare the version word and the structure you changed in all three places (section 1). |
 | An actor shows the wrong picture or animation | `anim_plan` exists twice (scr_project and adf_reference) and must agree; the engine picks the entry in `place_sprites`. |
 | An actor has the wrong colours | Hardware sprites share colours in pairs: `actors_alloc_channels` (scr_ws_actors) pairs actors with matching colours; the Build checklist lists actors that borrow colours. BOBs use the nearest backdrop colours (`pal_nearest`). |

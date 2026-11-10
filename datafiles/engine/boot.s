@@ -1,7 +1,8 @@
 ; ============================================================================
 ;  ADAM bootblock - loads the game (engine + data) into chip RAM and runs it,
 ;  showing a loading bar while the disk is read. If there is not enough chip
-;  RAM for the game it shows a solid red screen and stops.
+;  RAM for the game it shows a solid red screen and stops; if a part of the
+;  disk cannot be read (three tries) it shows a solid yellow screen and stops.
 ;  Entered by the Kickstart strap: a1 = trackdisk IOStdReq, a6 = ExecBase.
 ;  ADAM patches 'screenload', 'screenmem', 'loadsize', 'bsssize' and the
 ;  checksum when it writes the ADF.
@@ -32,13 +33,15 @@ NULL_SPR    equ 500                 ; offset of an empty sprite in the copper bl
 ; Registers through the whole loader: a2 = the IO request, a3 = the game buffer
 ; (engine + data + cleared BSS; the engine starts at its first byte), a5 =
 ; $dff000, a4 = the plain bar's copper block (0 = none), d7 = the loading-screen
-; block (0 = none), d6 = bytes loaded so far, d5 = this read's size.
+; block (0 = none), d6 = bytes loaded so far, d5 = this read's size, d4 = tries
+; left for this read.
 ; Steps: AllocMem the game buffer (or .fail: red screen); with a loading screen,
 ; AllocMem + read + init it; else build the plain bar copper list; read the game
 ; a cylinder (CHUNK) at a time from disk byte 1024 + screenload, moving the bar
 ; (or calling the block's progress entry) after each read; motor off; the
 ; block's done entry and FreeMem; flush caches; jmp (a3) - never returns.
-; (DoIO errors while reading the game itself are not checked.)
+; A read of the game that fails (io_Error) is tried again, three tries in all,
+; then .rderr: motor off, yellow screen.
 boot:
             move.l  a1,a2                   ; keep the IO request
             move.l  loadsize(pc),d0
@@ -91,7 +94,8 @@ boot:
             move.w  d0,$88(a5)              ; COPJMP1
 
 .load       moveq   #0,d6                   ; bytes loaded
-.chunk      move.l  loadsize(pc),d5
+.chunk      moveq   #3,d4                   ; tries for this read
+            move.l  loadsize(pc),d5
             sub.l   d6,d5
             ble     .loaded
             cmp.l   #CHUNK,d5
@@ -107,6 +111,8 @@ boot:
             add.l   screenload(pc),d0
             move.l  d0,44(a1)               ; io_Offset - after the bootblock (and loading screen)
             jsr     -456(a6)                ; DoIO
+            tst.b   31(a1)                  ; io_Error
+            bne     .rderr
             add.l   d5,d6
             move.l  d6,d0
             lsr.l   #8,d0
@@ -157,15 +163,26 @@ boot:
             blo.s   .nocc
             jsr     -636(a6)                ; CacheClearU
 .nocc       jmp     (a3)                    ; the engine never returns
+; A read failed: try it again (d4 tries in all; d5 and d6 are kept by DoIO),
+; then switch the motor off and stop on a solid yellow screen (a bad disk).
+.rderr      subq.w  #1,d4
+            bne     .size
+            move.l  a2,a1
+            move.w  #9,28(a1)               ; TD_MOTOR off
+            move.l  #0,36(a1)
+            jsr     -456(a6)                ; DoIO
+            move.w  #$0ff0,d2               ; yellow
+            bra.s   .halt
 ; Not enough chip RAM for the game (e.g. a big game on a 512KB A500): take
 ; over the display and show a solid red screen. Returning to the Kickstart
 ; would only bring back the insert-disk screen with no clue why.
-.fail       lea     $dff000,a5
+.fail       move.w  #$0f00,d2               ; red
+.halt       lea     $dff000,a5
             move.w  #$7fff,$9a(a5)          ; INTENA - all interrupts off
             move.w  #$7fff,$96(a5)          ; DMACON - all DMA off (copper, planes, sprites)
             move.w  #$0200,$100(a5)         ; BPLCON0 - no bitplanes
             move.w  #0,$106(a5)             ; BPLCON3 (ECS/AGA) - bank 0, border not blanked
-.red        move.w  #$0f00,$180(a5)         ; COLOR00 red, for ever
+.red        move.w  d2,$180(a5)             ; COLOR00 red / yellow, for ever
             bra.s   .red
 
 ; a4 = 512 byte chip block -> copper list: no bitplanes, dark screen,
