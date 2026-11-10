@@ -433,11 +433,17 @@ function levels_side_panel(_px, _y1, _x2, _y2)
     ui_scroll_end("lvl_side", _px + 4, _y1 + 46, _x2 - 4, _y2 - 6, _content);
 }
 
-/// Removes level _i (0-based): the later levels' music and palette move up with
-/// them, and actors that join on a later level join one level sooner
+/// Removes level _i (0-based): the later levels' music, palette and tile map move up
+/// with them, and actors that join on a later level join one level sooner
 function level_remove(_i)
 {
     array_delete(proj.levels, _i, 1);
+    // tile maps: level 1's is the main map, so removing level 1 makes level 2's map the main one
+    if (_i == 0 && array_length(proj.level_maps[1]) > 0) { proj.map = proj.level_maps[1]; }
+    for (var m = max(_i, 1); m < LEVEL_MAX - 1; m++) { proj.level_maps[m] = proj.level_maps[m + 1]; }
+    proj.level_maps[LEVEL_MAX - 1] = [];
+    proj.level_maps[0] = [];
+    tile_map_dirty = true;
     for (var l = _i; l < LEVEL_MAX - 1; l++)
     {
         proj.level_song[l] = proj.level_song[l + 1];

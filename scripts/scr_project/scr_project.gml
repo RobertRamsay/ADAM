@@ -809,7 +809,8 @@ function project_new()
         tiles : tiles_default(16),               // up to TILE_MAX tiles; 0 = air
         map_w : 64,
         map_h : 32,
-        map : map_starter(64, 32),               // map_w x map_h tile numbers
+        map : map_starter(64, 32),               // map_w x map_h tile numbers (level 1's, and every level without its own)
+        level_maps : level_maps_new(),           // [l] = level l + 1's own map (map_w x map_h), [] = level 1's; [0] is always []
         tile_dig : true,                         // the player digs (fire + direction) and places (fire)
         tools : [],                              // space bar menu tools (Tools tab), [] = none
         scroll_dir : 0,                          // the backdrop scrolls: 0 no, the ship flies 1 up, 2 right, 3 down, 4 left (Levels page)
@@ -1279,6 +1280,25 @@ function project_pack(_src)
         if (is_array(_lt0)) { _big = (array_length(_lt0) > 256); }
         if (_big) { _out.map_z16 = pack_u16(_src.map); }      // more than 256 tile types: 16-bit cells
         else { _out.map_z = pack_u8(_src.map); }
+        // the levels' own maps the same way ("" = level 1's)
+        var _lms = _src[$ "level_maps"];
+        if (is_array(_lms))
+        {
+            variable_struct_remove(_out, "level_maps");
+            var _lz = [];
+            for (var lm = 0; lm < array_length(_lms); lm++)
+            {
+                var _z = "";
+                if (is_array(_lms[lm]) && array_length(_lms[lm]) > 0)
+                {
+                    if (_big) { _z = pack_u16(_lms[lm]); }
+                    else { _z = pack_u8(_lms[lm]); }
+                }
+                array_push(_lz, _z);
+            }
+            if (_big) { _out.level_maps_z16 = _lz; }
+            else { _out.level_maps_z = _lz; }
+        }
     }
     var _lt = _src[$ "tiles"];
     if (is_array(_lt))
@@ -1398,6 +1418,28 @@ function project_unpack(_raw)
         var _mh16 = _raw[$ "map_h"];
         if (is_numeric(_mw16) && is_numeric(_mh16)) { _raw.map = unpack_u16(_mz16, floor(_mw16) * floor(_mh16)); }
         variable_struct_remove(_raw, "map_z16");
+    }
+    for (var lz = 0; lz < 2; lz++)
+    {
+        var _lkey = "level_maps_z";
+        if (lz == 1) { _lkey = "level_maps_z16"; }
+        var _lzs = _raw[$ _lkey];
+        if (!is_array(_lzs)) { continue; }
+        var _lmw = _raw[$ "map_w"];
+        var _lmh = _raw[$ "map_h"];
+        var _lout = [];
+        for (var lq = 0; lq < array_length(_lzs); lq++)
+        {
+            var _lmap = [];
+            if (is_string(_lzs[lq]) && _lzs[lq] != "" && is_numeric(_lmw) && is_numeric(_lmh))
+            {
+                if (lz == 1) { _lmap = unpack_u16(_lzs[lq], floor(_lmw) * floor(_lmh)); }
+                else { _lmap = unpack_u8(_lzs[lq], floor(_lmw) * floor(_lmh)); }
+            }
+            array_push(_lout, _lmap);
+        }
+        _raw.level_maps = _lout;
+        variable_struct_remove(_raw, _lkey);
     }
     var _tsz = 16;
     if (is_numeric(_raw[$ "tile_size"])) { _tsz = tile_size_ok(_raw.tile_size); }
@@ -1647,14 +1689,14 @@ function undo_keys(_ws)
     {
         case WS_HOME:     return ["name", "lives", "show_score", "show_lives", "hud_row", "hud_colour", "msg_colour", "over_text", "win_text"];
         case WS_BACKDROP: return ["pixels", "pal", "depth", "solid", "sky_on", "sky_top", "sky_mid", "sky_bot", "sky_mid_y", "hud_colour", "msg_colour", "terrain_cols", "palettes", "level_pal", "ui"];
-        case WS_LEVELS:   return ["levels_on", "levels", "terrain_cols", "goal_on", "goal", "goal_label", "title_on", "title1", "title2", "lev_text", "level_song", "scroll_dir", "scroll_speed", "hills_on", "level_pal"];
+        case WS_LEVELS:   return ["levels_on", "levels", "level_maps", "terrain_cols", "goal_on", "goal", "goal_label", "title_on", "title1", "title2", "lev_text", "level_song", "scroll_dir", "scroll_speed", "hills_on", "level_pal"];
         case WS_SPRITES:  return ["sprites"];
         case WS_ACTORS:   return ["actors", "rules", "spawners", "items"];
         case WS_LOGIC:    return ["rules", "groups", "items", "recipes", "ui"];
         case WS_SOUND:    return ["sfx", "sound_groups"];
         case WS_MUSIC:    return ["songs", "level_song"];
         case WS_ANIMATE:  return ["actors"];
-        case WS_TILES:    return ["tiles_on", "tile_size", "tiles", "map_w", "map_h", "map", "tile_dig", "tools", "actors", "shmup_map", "spawners", "stamps", "scroll_dir"];
+        case WS_TILES:    return ["tiles_on", "tile_size", "tiles", "map_w", "map_h", "map", "level_maps", "tile_dig", "tools", "actors", "shmup_map", "spawners", "stamps", "scroll_dir"];
         case WS_UI:       return ["ui", "loadscr"];
     }
     return [];

@@ -382,6 +382,40 @@ function adam_data_block(_p, _measure = false, _two = false)
 }
 
 /// Actor _i of the project -> its first actor on the disk (0 when it is not on the disk)
+/// A tile map's _n cells (bytes, or words with more than 256 tile types); only its size
+/// when measuring
+function adf_map_cells(_b, _m, _n, _nt, _wcell, _measure)
+{
+    if (_measure)
+    {
+        var _cb = 1;
+        if (_wcell) { _cb = 2; }
+        buf_zeros(_b, _n * _cb);
+    }
+    else if (_wcell)
+    {
+        for (var mc = 0; mc < _n; mc++) { be16(_b, clamp(_m[mc], 0, _nt - 1)); }
+    }
+    else
+    {
+        for (var mc2 = 0; mc2 < _n; mc2++) { buffer_write(_b, buffer_u8, clamp(_m[mc2], 0, _nt - 1)); }
+    }
+}
+
+/// The levels (1..) whose own tile maps go on the disk: a tile world with levels, and
+/// only levels the game has
+function adf_level_maps_used(_p)
+{
+    var _out = [];
+    if (!_p.tiles_on || _p.shmup_map || !_p.levels_on) { return _out; }
+    var _nl = clamp(array_length(_p.levels), 1, LEVEL_MAX);
+    for (var l = 1; l < _nl; l++)
+    {
+        if (array_length(_p.level_maps[l]) == _p.map_w * _p.map_h) { array_push(_out, l); }
+    }
+    return _out;
+}
+
 function disk_actor(_first, _i)
 {
     if (_i >= 0 && _i < array_length(_first) && _first[_i] >= 0) { return _first[_i]; }
@@ -1073,21 +1107,26 @@ function adam_data_block_raw(_p, _measure = false)
         }
         buf_align(_b, 8);
         var _off_tmap = buffer_tell(_b);
-        if (_measure)
-        {
-            var _cb = 1;
-            if (_wcell) { _cb = 2; }
-            buf_zeros(_b, _p.map_w * _p.map_h * _cb);
-        }
-        else if (_wcell)
-        {
-            for (var mc = 0; mc < _p.map_w * _p.map_h; mc++) { be16(_b, clamp(_p.map[mc], 0, _nt - 1)); }
-        }
-        else
-        {
-            for (var mc2 = 0; mc2 < _p.map_w * _p.map_h; mc2++) { buffer_write(_b, buffer_u8, clamp(_p.map[mc2], 0, _nt - 1)); }
-        }
+        adf_map_cells(_b, _p.map, _p.map_w * _p.map_h, _nt, _wcell, _measure);
         buf_align(_b, 8);
+        // levels with maps of their own (T_FLAGS bit 2): T_MAP -> LEVEL_MAX longs, each
+        // level's map (0 = level 1's)
+        var _lmo = adf_level_maps_used(_p);
+        if (array_length(_lmo) > 0)
+        {
+            var _loffs = array_create(LEVEL_MAX, 0);
+            _loffs[0] = _off_tmap;
+            for (var lq = 0; lq < array_length(_lmo); lq++)
+            {
+                _loffs[_lmo[lq]] = buffer_tell(_b);
+                adf_map_cells(_b, _p.level_maps[_lmo[lq]], _p.map_w * _p.map_h, _nt, _wcell, _measure);
+                buf_align(_b, 8);
+            }
+            _off_tmap = buffer_tell(_b);
+            for (var lq2 = 0; lq2 < LEVEL_MAX; lq2++) { be32(_b, _loffs[lq2]); }
+            buf_align(_b, 8);
+            poke16(_b, _tile_fix - 2, _tf | 4);
+        }
         poke32(_b, _tile_fix, _off_timg);
         poke32(_b, _tile_fix + 4, _off_tmap);
         // animated tiles (engine.s TA_* / TR_*): the picture each tile shows now
@@ -1472,7 +1511,7 @@ function adam_data_block_raw(_p, _measure = false)
     if (_p.show_score) { _sc = 1; }
     var _lv = 0;
     if (_p.show_lives) { _lv = 1; }
-    poke16(_b, 4, 15);                   // data block version 15: animated tiles (T_ANIM); 14: BOB frame headers (BI_*); 13: items (H_ITEMS), IF lines, WHEN 17 / 18, DO 28..31; 12: disk 2 (H_DISK2); 11: named palettes (H_PALS); 10: shoot 'em up map (SC_MAP), A_TYPE..A_FPAT; 9: shoot 'em up (H_SCROLL, A_PAT..A_RANK); 8: 16-frame animation tables; 7: custom HUD (H_UI); 6: tile world (H_TILES); 5: animation tables (A_ANIM); 4: BOBs
+    poke16(_b, 4, 16);                   // data block version 16: a tile map per level (T_FLAGS bit 2); 15: animated tiles (T_ANIM); 14: BOB frame headers (BI_*); 13: items (H_ITEMS), IF lines, WHEN 17 / 18, DO 28..31; 12: disk 2 (H_DISK2); 11: named palettes (H_PALS); 10: shoot 'em up map (SC_MAP), A_TYPE..A_FPAT; 9: shoot 'em up (H_SCROLL, A_PAT..A_RANK); 8: 16-frame animation tables; 7: custom HUD (H_UI); 6: tile world (H_TILES); 5: animation tables (A_ANIM); 4: BOBs
     poke16(_b, 6, _flags);
     poke16(_b, 8, _depth);
     poke16(_b, 10, _na);

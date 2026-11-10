@@ -189,6 +189,7 @@ T_W         equ 0          ; map width in tiles (at least T_NCOL)
 T_H         equ 2          ; map height in tiles (at least T_NROW)
 T_NT        equ 4          ; tile types 1..512 (tile 0 is empty air: colour 0, the sky shows)
 T_FLAGS     equ 6          ; bit 0 = the player digs (fire + direction) and places tiles (fire);
+                           ; bit 2 = a map per level: T_MAP -> 10 longs, level n's map (0 = level 1's) (v16);
                            ; bit 1 = map cells are words (more than 256 tile types), else bytes
 T_IMG       equ 8          ; long offset: tile pictures, NT x depth planes x S lines x S/8 bytes
 T_MAP       equ 12         ; long offset: the map as designed, W x H cells
@@ -3689,7 +3690,21 @@ tiles_start:
             beq     .r
             move.l  v_tiles(a5),a0
             move.l  T_MAP(a0),d0
-            lea     0(a4,d0.l),a0           ; designed map -> map as played
+            btst    #2,T_FLAGS+1(a0)        ; a map per level: T_MAP is a table of them
+            beq.s   .one
+            lea     0(a4,d0.l),a1
+            move.w  v_level(a5),d1
+            subq.w  #1,d1
+            cmp.w   #9,d1
+            bls.s   .lv
+            moveq   #9,d1
+.lv         lsl.w   #2,d1
+            move.l  0(a1,d1.w),d1
+            beq.s   .l1                     ; 0: level 1's map
+            move.l  d1,d0
+            bra.s   .one
+.l1         move.l  (a1),d0
+.one        lea     0(a4,d0.l),a0           ; designed map -> map as played
             move.l  v_wmap(a5),a1
             move.w  v_tw(a5),d0
             mulu    v_th(a5),d0

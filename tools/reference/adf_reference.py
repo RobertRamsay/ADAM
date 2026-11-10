@@ -279,6 +279,22 @@ def build(proj, aga):
         off_map=len(blob)
         if wcell: blob.extend(b''.join(struct.pack('>H',v) for v in t['map']))
         else: blob.extend(bytes(t['map']))
+        # levels with maps of their own (t['level_maps'][l] = level l+1's map, None = level 1's):
+        # T_FLAGS bit 2, T_MAP -> 10 longs (0 = level 1's)
+        lms=t.get('level_maps') or []
+        nlev=len(proj['game']['levels']) if proj.get('game') else 1
+        own=[l for l in range(1,min(10,nlev)) if l<len(lms) and lms[l]]
+        if own:
+            while len(blob)%8: blob.append(0)
+            offs=[0]*10; offs[0]=off_map
+            for l in own:
+                offs[l]=len(blob)
+                if wcell: blob.extend(b''.join(struct.pack('>H',v) for v in lms[l]))
+                else: blob.extend(bytes(lms[l]))
+                while len(blob)%8: blob.append(0)
+            off_map=len(blob)
+            blob.extend(struct.pack('>10L',*offs))
+            struct.pack_into('>H',blob,tile_fix-2,struct.unpack_from('>H',blob,tile_fix-2)[0]|4)
         align(8)
         struct.pack_into('>LL',blob,tile_fix,off_img,off_map)
         # animated tiles (version 15, engine.s TA_* / TR_*): a tile's 'anim' = [2..8 tile numbers
@@ -473,7 +489,7 @@ def build(proj, aga):
     # H_FLAGS: bit 0 AGA; a test copy (God mode, Test a level - ADAM only, proj['_test']) ORs in
     # bit 1 lives never run out, bit 2 F8 ends the level, and the level to start on << 8
     flags=(1 if aga else 0)|proj.get('_test',0)
-    hdr=struct.pack('>4sHHHHHHHHHHHH',b'ADAM',15,flags,depth,len(actors),len(rules),proj['lives'],
+    hdr=struct.pack('>4sHHHHHHHHHHHH',b'ADAM',16,flags,depth,len(actors),len(rules),proj['lives'],
                     int(proj['show_score']),int(proj['show_lives']),proj['hud_row'],proj['hud_col'],proj['msg_col'],player & 0xffff)+struct.pack('>L',off_game)
     hdr+=struct.pack('>LLLLLLLLLLLLLLL',off_pal,off_planes,off_act,off_rules,off_sfx,off_over,off_win,off_sprcol,off_disp,off_grad,off_ground,off_work,off_music,off_disp2,off_back)
     hdr+=struct.pack('>LLLLLL',off_tiles,off_ui,off_scroll,off_pals,off_d2,off_items)

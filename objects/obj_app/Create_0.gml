@@ -230,6 +230,7 @@ tile_atlas_buf = -1;
 tile_atlas_dirty = true;
 tile_map_surf = -1;         // the part of the map in view, drawn from the atlas (a cache)
 tile_map_dirty = true;
+tmap_lvl = 0;               // Tiles page: the level whose map is shown (0 = level 1, the main map; tmap())
 tile_view_mx = 0;           // map pixel at the top left of that cache
 tile_view_my = 0;
 

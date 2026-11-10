@@ -284,6 +284,23 @@ function lite_trim(_p, _warn)
                 }
             }
             _q.tiles = _tl;
+            var _qlm = level_maps_new();     // the levels' own maps, cut the same way
+            for (var lq = 1; lq < LEVEL_MAX; lq++)
+            {
+                var _om = _p.level_maps[lq];
+                if (array_length(_om) != _p.map_w * _p.map_h) { continue; }
+                var _nm2 = array_create(_mw * _mh, 0);
+                for (var mr2 = 0; mr2 < _mh; mr2++)
+                {
+                    for (var mc2 = 0; mc2 < _mw; mc2++)
+                    {
+                        var _v2 = _om[mr2 * _p.map_w + mc2];
+                        if (_v2 < _nt) { _nm2[mr2 * _mw + mc2] = _v2; }
+                    }
+                }
+                _qlm[lq] = _nm2;
+            }
+            _q.level_maps = _qlm;
             _q.map = _map;
             _q.map_w = _mw;
             _q.map_h = _mh;
