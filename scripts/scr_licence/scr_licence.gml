@@ -114,10 +114,10 @@ function lim_spr_w()
     return LITE_SPR_W;
 }
 
-/// Tallest sprite / BOB in pixels: Pro 64, Lite LITE_SPR_H (32)
+/// Tallest sprite / BOB in pixels: Pro 256 (over 64 for columns' pictures), Lite LITE_SPR_H (32)
 function lim_spr_h()
 {
-    if (pro_edition()) { return 64; }
+    if (pro_edition()) { return 256; }
     return LITE_SPR_H;
 }
 
@@ -252,7 +252,7 @@ function lite_trim(_p, _warn)
         array_push(_sprs, _ns);
     }
     _q.sprites = _sprs;
-    if (_cut_spr) { array_push(_warn, "Sprites and BOBs are up to " + string(LITE_SPR_W) + " x " + string(LITE_SPR_H) + " in ADAM Lite, so bigger ones are cut to that size - ADAM Pro draws them up to 64 x 64."); }
+    if (_cut_spr) { array_push(_warn, "Sprites and BOBs are up to " + string(LITE_SPR_W) + " x " + string(LITE_SPR_H) + " in ADAM Lite, so bigger ones are cut to that size - ADAM Pro draws them up to 64 x 64 (columns up to 64 x 256)."); }
 
     // Keep the HUD in Lite; custom fonts use ADAM on the disk.
     // Copy only the UI struct so the original project keeps its custom font.

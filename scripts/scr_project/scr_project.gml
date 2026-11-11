@@ -27,7 +27,7 @@
 function project_defs_init()
 {
     global.ROLE_NAMES = ["Player (joystick)", "Bouncer (diagonal)", "Patrol left-right", "Patrol up-down", "Chaser (follows player)", "Still (does not move)", "Platform player (walks + jumps)", "Hopper (jumps left and right)", "Faller (drops onto the ground)", "Shot (fired by a Shoot rule)", "Flyer (shoot 'em up enemy)", "Option (flies behind the player)", "Effect (explosion, sparkle)"];
-    global.WHEN_NAMES = ["Actor touches actor", "Fire button is pressed", "Every few seconds", "Score reaches", "Lives run out", "The game starts", "Actor jumps", "A level starts", "Fire is held (stick still)", "Actor is in view", "Player strikes actor", "Thrown or shot actor hits", "Player picks up actor", "Seconds into the level", "Fire is held (auto-fire)", "The map reaches its end", "An animation ends", "Player gets an item", "Player uses an item on", "Actor reaches an edge", "Actor hits the scenery", "The counter reaches", "The time runs out"];
+    global.WHEN_NAMES = ["Actor touches actor", "Fire button is pressed", "Every few seconds", "Score reaches", "Lives run out", "The game starts", "Actor jumps", "A level starts", "Fire is held (stick still)", "Actor is in view", "Player strikes actor", "Thrown or shot actor hits", "Player picks up actor", "Seconds into the level", "Fire is held (auto-fire)", "The map reaches its end", "An animation ends", "Player gets an item", "Player uses an item on", "Actor reaches an edge", "Actor hits the scenery", "The counter reaches", "The time runs out", "Fire pressed, stick held"];
     global.DO_NAMES   = ["Add to score", "Lose a life", "Play a sound", "Flash the player", "Send actor back to start",
                          "Move actor to a random spot", "Hide actor", "Show actor", "Change background colour",
                          "Game over", "You win!", "Speed up actor", "Slow down actor", "Add a life", "Move actor to another actor",
@@ -36,15 +36,18 @@ function project_defs_init()
                          "Power up the player", "Set off an effect", "Spawn actor (split into)", "Play an animation", "Switch palette",
                          "Give the player an item", "Take an item away", "Make a recipe", "Drop an item",
                          "Add one to the counter", "Lose health", "Add health", "Bounce actor back",
-                         "Stick actor to another", "Let go of actor", "Stop all sounds", "Pause music", "Resume music"];
+                         "Stick actor to another", "Let go of actor", "Stop all sounds", "Pause music", "Resume music",
+                         "Stop actor where it is", "Start actor moving again", "Start the level again"];
     global.PAL_FADES = [0, 12, 25, 50, 100, 200];   // DO 27 target: frames the fade takes
     global.PAL_FADE_NAMES = ["at once", "fading 1/4 s", "fading 1/2 s", "fading 1 s", "fading 2 s", "fading 4 s"];
     global.HD_NAMES = ["Hit", "Die", "Hit or Die"];       // DO 26 value (0 / 1), WHEN 16 n (0 / 1 / 2 either)
     global.ITEM_USE_NAMES = ["Used up", "Kept", "A few uses"];   // item.use: what using an item does to it
     global.IF_NAMES = ["has", "uses", "has no", "has at least"];  // IF line cond: check / needs it and uses it / has none / has n or more
     global.IF_POS_NAMES = ["is above", "is below", "is level with", "is left of", "is right of"];   // IF position line cond (kind 1)
-    global.IF_KIND_NAMES = ["The player", "Actor"];                 // IF line kind: 0 about an item, 1 where an actor is
+    global.IF_KIND_NAMES = ["The player", "Actor", "The counter"];  // IF line kind: 0 about an item, 1 where an actor is, 2 the counter
+    global.IF_CNT_NAMES = ["is", "is at least", "is below"];       // IF counter line cond (kind 2)
     global.SIDE_NAMES = ["Left", "Right", "Top", "Bottom"];         // WHEN 19 n: the edge
+    global.STICK_NAMES = ["up", "down", "left", "right"];           // WHEN 23 n: the way the stick is held (v_joy bit)
     global.BOUNCE_NAMES = ["Left-right", "Up-down", "Both ways"];   // DO 35 value
     global.AIM_NAMES = ["The way the shooter moves", "Up", "Down", "Left", "Right", "At the player", "Homing missile"];
     global.FIRE_PAT_NAMES = ["The shot's own aim", "At the player", "Three at the player", "Ring of 8", "Fan of three"];
@@ -107,12 +110,13 @@ function sprite_new(_name)
 }
 
 /// Sprite sizes: 16 x 24 (a hardware sprite), and in ADAM Pro 16-64 wide in
-/// steps of 16 and 16, 24, 32, 48 or 64 high (bigger than 16 x 24 = a BOB)
+/// steps of 16 and 16, 24, 32, 48, 64, 128 or 256 high (bigger than 16 x 24 = a BOB;
+/// 128 and 256 are for columns - a pillar's whole picture)
 function spr_size_ok(_w, _h)
 {
     if (!is_real(_w) || !is_real(_h)) { return false; }
     if (_w != 16 && _w != 32 && _w != 48 && _w != 64) { return false; }
-    if (_h != 16 && _h != 24 && _h != 32 && _h != 48 && _h != 64) { return false; }
+    if (_h != 16 && _h != 24 && _h != 32 && _h != 48 && _h != 64 && _h != 128 && _h != 256) { return false; }
     return true;
 }
 
@@ -159,6 +163,8 @@ function actor_new(_name)
         stand_on : false,       // a moving platform: actors with gravity stand on it and ride along
         patrol : 0,             // a patrol (roles 1-3): how far it goes from its start, in 8-pixel steps (0 = edge to edge)
         diagonal : false,       // a patrol (roles 2 / 3): moves at 45 degrees along one line, start_left / start_up pick which way
+        column : false,         // reaches the floor: a BOB whose last row goes on down to the bottom; its sides are walls
+        ease : false,           // a patrol (roles 1-3, not diagonal): slows down at its ends, fastest in the middle
         aim : 0,                // a shot (role 9): 0 the way the shooter moves, 1 up, 2 down, 3 left, 4 right, 5 at the player, 6 homing missile
         pattern : 0,            // a flyer (role 10): 0 straight, 1 wave, 2 zigzag, 3 homing, 4 with the scenery, 5 comes in and stays (boss)
         enter : 1,              // a flyer's edge: 0 top, 1 right, 2 bottom, 3 left
@@ -240,10 +246,11 @@ function do_value_is_actor(_act)
 
 /// False for the DO actions whose target is not an actor (27 Switch palette: fade frames;
 /// 28 Give / 29 Take an item: how many; 30 Make a recipe, 31 Drop an item, 32 counter,
-/// 33 / 34 health, 38..40 sound and music: unused). 35 Bounce, 36 Stick, 37 Let go: an actor.
+/// 33 / 34 health, 38..40 sound and music, 43 start the level again: unused). 35 Bounce,
+/// 36 Stick, 37 Let go, 41 Stop, 42 Start moving again: an actor.
 function do_target_is_actor(_act)
 {
-    return _act < 27 || (_act >= 35 && _act <= 37);
+    return _act < 27 || (_act >= 35 && _act <= 37) || _act == 41 || _act == 42;
 }
 
 /// Does DO action _act use its value as an amount of health (33 Lose / 34 Add health)?
@@ -614,6 +621,7 @@ function actor_preview_sprite(_ac)
 #macro HEALTH_MAX 99            // health a life can start with (proj.health)
 #macro TIME_LIMIT_MAX 999       // seconds a level's time limit can be (proj.level_time)
 #macro IF_POS_MARGIN_MAX 64     // an IF position line's margin, in pixels
+#macro IF_COUNT_MAX 9999        // an IF counter line's number (the counter stops at 9999)
 #macro RULE_IFS_MAX 3           // IF lines on one rule card (items the player must have)
 
 /// A new rule card: WHEN when (with actors a, b and number n), DO act (target, value),
@@ -630,7 +638,8 @@ function rule_new()
 /// and using it does what the item's 'When used' says) / 2 has no item / 3 has at least n of
 /// item. kind 1 (version 18): actor a cond 0 is above / 1 below / 2 level with / 3 left of /
 /// 4 right of actor b - their boxes' middles more than n pixels apart that way (level with:
-/// no more than n apart up or down).
+/// no more than n apart up or down). kind 2 (version 19): the counter (DO 32) cond 0 is n /
+/// 1 is at least n / 2 is below n, as it was when the frame started.
 function if_new()
 {
     return { kind : 0, cond : 0, item : 0, n : 1, a : 0, b : 1 };
@@ -1054,6 +1063,18 @@ function project_from_loaded(_raw)
                 if (is_numeric(_lact.diagonal)) { _dg = (_lact.diagonal != 0); }
                 _lact.diagonal = _dg;
             }
+            if (!is_bool(_lact.column))
+            {
+                var _cl = false;
+                if (is_numeric(_lact.column)) { _cl = (_lact.column != 0); }
+                _lact.column = _cl;
+            }
+            if (!is_bool(_lact.ease))
+            {
+                var _ez = false;
+                if (is_numeric(_lact.ease)) { _ez = (_lact.ease != 0); }
+                _lact.ease = _ez;
+            }
             array_push(_acts, _lact);
         }
     }
@@ -1089,7 +1110,7 @@ function project_from_loaded(_raw)
                     if (!is_numeric(_if.n)) { _if.n = 1; }
                     if (!is_numeric(_if.a)) { _if.a = 0; }
                     if (!is_numeric(_if.b)) { _if.b = 1; }
-                    _if.kind = clamp(floor(_if.kind), 0, 1);
+                    _if.kind = clamp(floor(_if.kind), 0, 2);
                     _if.item = clamp(floor(_if.item), 0, ITEM_MAX - 1);
                     _if.a = clamp(floor(_if.a), 0, ACT_MAX_ALL - 1);
                     _if.b = clamp(floor(_if.b), 0, ACT_MAX_ALL - 1);
@@ -1097,6 +1118,11 @@ function project_from_loaded(_raw)
                     {
                         _if.cond = clamp(floor(_if.cond), 0, 4);
                         _if.n = clamp(floor(_if.n), 0, IF_POS_MARGIN_MAX);
+                    }
+                    else if (_if.kind == 2)         // the counter
+                    {
+                        _if.cond = clamp(floor(_if.cond), 0, 2);
+                        _if.n = clamp(floor(_if.n), 0, IF_COUNT_MAX);
                     }
                     else                            // an item the player has
                     {

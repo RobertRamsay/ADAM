@@ -245,8 +245,11 @@ function ws_sprites_draw(_x1, _y1, _x2, _y2)
     }
     // faint pixel grid, then stronger accent lines every 8 pixels
     draw_set_alpha(0.14);
-    for (var gx = 0; gx <= _s.w; gx++) { draw_line_colour(_gx + gx * _ps, _gy, _gx + gx * _ps, _gy + _gh, c_white, c_white); }
-    for (var gy = 0; gy <= _s.h; gy++) { draw_line_colour(_gx, _gy + gy * _ps, _gx + _gw, _gy + gy * _ps, c_white, c_white); }
+    if (_ps >= 4)       // (a tall column picture is drawn small: no pixel grid)
+    {
+        for (var gx = 0; gx <= _s.w; gx++) { draw_line_colour(_gx + gx * _ps, _gy, _gx + gx * _ps, _gy + _gh, c_white, c_white); }
+        for (var gy = 0; gy <= _s.h; gy++) { draw_line_colour(_gx, _gy + gy * _ps, _gx + _gw, _gy + gy * _ps, c_white, c_white); }
+    }
     draw_set_alpha(0.35);
     for (var hx = 8; hx < _s.w; hx += 8) { draw_line_colour(_gx + hx * _ps, _gy, _gx + hx * _ps, _gy + _gh, global.TH.accent, global.TH.accent); }
     for (var hy = 8; hy < _s.h; hy += 8) { draw_line_colour(_gx, _gy + hy * _ps, _gx + _gw, _gy + hy * _ps, global.TH.accent, global.TH.accent); }
@@ -326,25 +329,25 @@ function ws_sprites_draw(_x1, _y1, _x2, _y2)
     ui_heading(_fx, _y, _szh);
     var _szw = floor((_fw - 12) / 2);
     var _wvals = [16, 32, 48, 64];
-    var _hvals = [16, 24, 32, 48, 64];
+    var _hvals = [16, 24, 32, 48, 64, 128, 256];
     var _wcur = 0;
     for (var wi = 0; wi < 4; wi++)
     {
         if (_wvals[wi] == _s.w) { _wcur = wi; }
     }
     var _hcur = 1;
-    for (var hi = 0; hi < 5; hi++)
+    for (var hi = 0; hi < 7; hi++)
     {
         if (_hvals[hi] == _s.h) { _hcur = hi; }
     }
     var _wnew = ui_dropdown("spr_w", _fx, _y + 18, _szw, 32, ["16 wide", "32 wide", "48 wide", "64 wide"], _wcur, "Sprite width|A hardware sprite is 16 x 24 pixels. A sprite can be 16 or 32 pixels wide in ADAM Lite, up to 64 in ADAM Pro; one bigger than 16 x 24 is drawn as a BOB with the nearest backdrop colours. Making it smaller cuts off the right-hand side.");
-    var _hnew = ui_dropdown("spr_h", _fx + _szw + 12, _y + 18, _szw, 32, ["16 high", "24 high", "32 high", "48 high", "64 high"], _hcur, "Sprite height|A hardware sprite is 16 x 24 pixels. A sprite can be 16, 24 or 32 pixels high in ADAM Lite, up to 64 in ADAM Pro; one bigger than 16 x 24 is drawn as a BOB. Making it smaller cuts off the bottom.");
+    var _hnew = ui_dropdown("spr_h", _fx + _szw + 12, _y + 18, _szw, 32, ["16 high", "24 high", "32 high", "48 high", "64 high", "128 high", "256 high"], _hcur, "Sprite height|A hardware sprite is 16 x 24 pixels. A sprite can be 16, 24 or 32 pixels high in ADAM Lite, up to 64 in ADAM Pro; one bigger than 16 x 24 is drawn as a BOB. 128 and 256 (ADAM Pro) are for a column's whole picture (Actors page, 'Reaches the floor'): a pillar, a piston, a tree trunk that rises out of the ground - the screen bottom cuts it off. Making it smaller cuts off the bottom.");
     if (_wnew != _wcur || _hnew != _hcur)
     {
         // only growing past the limit is refused, so a Pro sprite opened in Lite can still be made smaller
         if ((_wvals[_wnew] > lim_spr_w() && _wvals[_wnew] > _s.w) || (_hvals[_hnew] > lim_spr_h() && _hvals[_hnew] > _s.h))
         {
-            lim_toast("Sprites and BOBs are up to " + string(lim_spr_w()) + " x " + string(lim_spr_h()), "up to 64 x 64");
+            lim_toast("Sprites and BOBs are up to " + string(lim_spr_w()) + " x " + string(lim_spr_h()), "up to 64 x 64, columns 64 x 256");
         }
         else if (feature_gate("Bigger sprites"))
         {

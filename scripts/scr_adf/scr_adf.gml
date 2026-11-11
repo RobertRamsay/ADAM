@@ -7,8 +7,8 @@
 
 #macro ADF_SIZE 901120
 #macro ADF_HDR 120
-#macro WHEN_DISK_MAX 22         // the last WHEN the engine knows (run_rules' jump table)
-#macro DO_DISK_MAX 40           // the last DO the engine knows (acttab)
+#macro WHEN_DISK_MAX 23         // the last WHEN the engine knows (run_rules' jump table)
+#macro DO_DISK_MAX 43           // the last DO the engine knows (acttab)
 #macro COUNTER_MAX 9999         // the counter (DO 32 / WHEN 21) stops here
 #macro D2_TRACK 5632            // disk 2: songs start on a track (11 sectors of 512)
 #macro D2_RAW_BYTES 12800       // engine.s RAW_WORDS x 2: the raw track buffer
@@ -105,7 +105,8 @@ function adf_do_line(_b, _d, _ncol, _nsnd)
 /// The IF lines of rule _r as the engine reads them (after its AND DO lines, 8 bytes each).
 /// An item line: act = IF_LINE + cond, target = n, value = item, 0. A position line
 /// (kind 1, version 18): act = IF_LINE + IF_POS ($40) + cond, target = margin in pixels,
-/// value = actor a | actor b << 8 (disk actors: disk_expand maps them), 0.
+/// value = actor a | actor b << 8 (disk actors: disk_expand maps them), 0. A counter line
+/// (kind 2, version 19): act = IF_LINE + IF_CNT ($20) + cond, target = n, 0, 0.
 function adf_if_lines(_b, _r)
 {
     var _ni = max(1, array_length(proj.items));
@@ -117,6 +118,14 @@ function adf_if_lines(_b, _r)
             be16(_b, 0x8000 | 0x40 | clamp(_fl.cond, 0, 4));
             be16(_b, clamp(_fl.n, 0, IF_POS_MARGIN_MAX));
             be16(_b, clamp(_fl.a, 0, ACT_MAX_ALL - 1) | (clamp(_fl.b, 0, ACT_MAX_ALL - 1) << 8));
+            be16(_b, 0);
+            continue;
+        }
+        if (_fl.kind == 2)
+        {
+            be16(_b, 0x8000 | 0x20 | clamp(_fl.cond, 0, 2));
+            be16(_b, clamp(_fl.n, 0, IF_COUNT_MAX));
+            be16(_b, 0);
             be16(_b, 0);
             continue;
         }
@@ -888,7 +897,9 @@ function adam_data_block_raw(_p, _measure = false)
         if (_ac.role == 9) { _up = clamp(_ac.aim, 0, 6); }    // A_UP of a shot = its aim (6 = homing missile)
         // A_X, A_Y, A_ROLE, A_SPD, A_VIS, A_LEFT, A_UP, A_BX0..A_BY1, A_SPR (long), A_CHAN, A_SPR2 (long)
         be16(_b, clamp(_ac.x, 0, _ww - _aw));     // tile world: anywhere on the map
-        be16(_b, clamp(_ac.y, 0, _wh - _ah));
+        var _ahy = _ah;                 // a column's picture may be taller than the screen: it
+        if (_ac.column && !_p.tiles_on) { _ahy = min(_ah, 32); }    // goes down to its top 32 lines from the bottom
+        be16(_b, clamp(_ac.y, 0, _wh - _ahy));
         be16(_b, clamp(_ac.role, 0, 12));
         be16(_b, clamp(_ac.speed, 1, 8));
         be16(_b, _vis);
@@ -905,6 +916,8 @@ function adam_data_block_raw(_p, _measure = false)
         if (_ac.carry) { _carry = 1; }   // bit 1 it can be stood on, bit 2 a diagonal patrol (CARRY_DIAG),
         if (_ac.stand_on) { _carry |= 2; }   // byte 0 a patrol's distance / 8
         if (_ac.diagonal && (_ac.role == 2 || _ac.role == 3)) { _carry |= 4; }
+        if (_ac.column && !_p.tiles_on) { _carry |= 8; }    // bit 3 a column (CARRY_COL): reaches the floor
+        if (_ac.ease && _ac.role >= 1 && _ac.role <= 3 && !_ac.diagonal) { _carry |= 16; }   // bit 4 eases at its ends (CARRY_EASE)
         _carry |= clamp(_ac.patrol, 0, PATROL_MAX) << 8;
         be16(_b, _carry);
         var _am = 0;                     // A_AMODE: bit 0 = 8 directions, bit 1 = Fire animations, bit 2 = Hit / Die
@@ -922,7 +935,7 @@ function adam_data_block_raw(_p, _measure = false)
         if (_bob[a2]) { _isbob = 1; }
         be16(_b, _isbob);                // A_BOB
         be16(_b, _ww - _aw);             // A_XMAX
-        be16(_b, _wh - _ah);             // A_YMAX
+        be16(_b, _wh - _ahy);            // A_YMAX
         be16(_b, _bsize);                // A_BSIZE
         be32(_b, _anim_off[a2]);         // A_ANIM
         // shoot 'em up (version 9): A_PAT, A_ENTER (high byte bit 0 = comes back, low byte =
@@ -1674,7 +1687,7 @@ function adam_data_block_raw(_p, _measure = false)
     if (_p.show_score) { _sc = 1; }
     var _lv = 0;
     if (_p.show_lives) { _lv = 1; }
-    poke16(_b, 4, 18);                   // data block version 18: logic block (H_LOGIC 116: health, time limits), WHEN 19..22, DO 32..40, IF position lines; 17: level maps on disk 2 (D2_MAP); 16: a tile map per level (T_FLAGS bit 2); 15: animated tiles (T_ANIM); 14: BOB frame headers (BI_*); 13: items (H_ITEMS), IF lines, WHEN 17 / 18, DO 28..31; 12: disk 2 (H_DISK2); 11: named palettes (H_PALS); 10: shoot 'em up map (SC_MAP), A_TYPE..A_FPAT; 9: shoot 'em up (H_SCROLL, A_PAT..A_RANK); 8: 16-frame animation tables; 7: custom HUD (H_UI); 6: tile world (H_TILES); 5: animation tables (A_ANIM); 4: BOBs
+    poke16(_b, 4, 19);                   // data block version 19: DO 41..43 (stop, move again, start the level again), IF counter lines, WHEN 1 once a press; 18: logic block (H_LOGIC 116: health, time limits), WHEN 19..22, DO 32..40, IF position lines; 17: level maps on disk 2 (D2_MAP); 16: a tile map per level (T_FLAGS bit 2); 15: animated tiles (T_ANIM); 14: BOB frame headers (BI_*); 13: items (H_ITEMS), IF lines, WHEN 17 / 18, DO 28..31; 12: disk 2 (H_DISK2); 11: named palettes (H_PALS); 10: shoot 'em up map (SC_MAP), A_TYPE..A_FPAT; 9: shoot 'em up (H_SCROLL, A_PAT..A_RANK); 8: 16-frame animation tables; 7: custom HUD (H_UI); 6: tile world (H_TILES); 5: animation tables (A_ANIM); 4: BOBs
     poke16(_b, 6, _flags);
     poke16(_b, 8, _depth);
     poke16(_b, 10, _na);

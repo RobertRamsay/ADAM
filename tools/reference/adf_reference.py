@@ -169,14 +169,15 @@ def build(proj, aga):
         smap=(proj.get('scroll') or {}).get('map')
         if smap and not proj.get('tiles'): ww=smap.get('cols',20)*16      # a shoot 'em up map: its play area
         up=a.get('aim',0) if a['role']==9 else int(a['up'])   # A_UP of a shot (role 9) = its aim
-        blob+=struct.pack('>HHHHHHHHHHHL',min(a['x'],ww-bw),min(a['y'],wh-bh),a['role'],a['speed'],int(a['visible']),int(a['left']),up,bx0,by0,bx1,by1,spr_offs[i])
+        bhy=min(bh,32) if a.get('column') and not proj.get('tiles') else bh   # a column's picture may be taller than the screen
+        blob+=struct.pack('>HHHHHHHHHHHL',min(a['x'],ww-bw),min(a['y'],wh-bhy),a['role'],a['speed'],int(a['visible']),int(a['left']),up,bx0,by0,bx1,by1,spr_offs[i])
         aflags=0                                       # A_AMODE bit 0: 8 directions, bit 1: Fire, bit 2: Hit / Die
         nmain=len(plans[i])-(2 if hd_used(a) else 0) if plans[i] else 0
         if plans[i] and dirs_on(a) and nmain>=12: aflags|=1
         if plans[i] and nmain>12: aflags|=2
         if plans[i] and hd_used(a): aflags|=4
-        blob+=struct.pack('>HLHHHHHHHH',a.get('chan',i),spr2_offs[i],(1 if a.get('carry') else 0)|(2 if a.get('stand_on') else 0)|(4 if a.get('diagonal') and a.get('role') in (2,3) else 0)|(min(255,a.get('patrol',0))<<8),aflags,a.get('from',1),a.get('fast',0),
-                          1 if a.get('bob') else 0,ww-bw,wh-bh,bsize)
+        blob+=struct.pack('>HLHHHHHHHH',a.get('chan',i),spr2_offs[i],(1 if a.get('carry') else 0)|(2 if a.get('stand_on') else 0)|(4 if a.get('diagonal') and a.get('role') in (2,3) else 0)|(8 if a.get('column') and not proj.get('tiles') else 0)|(16 if a.get('ease') and a.get('role') in (1,2,3) and not a.get('diagonal') else 0)|(min(255,a.get('patrol',0))<<8),aflags,a.get('from',1),a.get('fast',0),
+                          1 if a.get('bob') else 0,ww-bw,wh-bhy,bsize)
         blob+=struct.pack('>L',anim_offs[i])
         # shoot 'em up (version 9): A_PAT, A_ENTER (byte: comes back, byte: edge 0 top 1 right
         # 2 bottom 3 left), A_HP (hits to destroy), A_RANK (an option's place behind the player)
@@ -201,6 +202,8 @@ def build(proj, aga):
         for f in ifs:
             if f.get('kind',0)==1:         # version 18: a position line - IF_LINE + IF_POS + cond, margin, a | b << 8
                 blob+=struct.pack('>HHHH',0x8040|f['cond'],f.get('n',0),f['a']|(f['b']<<8),0)
+            elif f.get('kind',0)==2:       # version 19: a counter line - IF_LINE + IF_CNT + cond (0 is / 1 at least / 2 below), n
+                blob+=struct.pack('>HHHH',0x8020|f['cond'],f.get('n',0),0,0)
             else:
                 blob+=struct.pack('>HHHH',0x8000|f['cond'],f.get('n',1),f['item'],0)
     align(8)
@@ -557,7 +560,7 @@ def build(proj, aga):
         if d2mapbuf: struct.pack_into('>L',blob,off_d2+12,base+12800+songbuf)
         bss=base+12800+songbuf+d2mapbuf-size_now
     proj['_need']=((len(blob)+7)//8*8)+bss if (t or sc or off_d2) else 0     # bytes needed from the data start
-    # the header (engine.s H_*, 120 bytes; scr_adf '// header'): 'ADAM', version 18, flags, depth,
+    # the header (engine.s H_*, 120 bytes; scr_adf '// header'): 'ADAM', version 19, flags, depth,
     # counts, HUD settings, the player actor, then the offset of every block above (0 = absent)
     player=-1
     for i,a in enumerate(actors):
@@ -565,7 +568,7 @@ def build(proj, aga):
     # H_FLAGS: bit 0 AGA; a test copy (God mode, Test a level - ADAM only, proj['_test']) ORs in
     # bit 1 lives never run out, bit 2 F8 ends the level, and the level to start on << 8
     flags=(1 if aga else 0)|proj.get('_test',0)
-    hdr=struct.pack('>4sHHHHHHHHHHHH',b'ADAM',18,flags,depth,len(actors),len(rules),proj['lives'],
+    hdr=struct.pack('>4sHHHHHHHHHHHH',b'ADAM',19,flags,depth,len(actors),len(rules),proj['lives'],
                     int(proj['show_score']),int(proj['show_lives']),proj['hud_row'],proj['hud_col'],proj['msg_col'],player & 0xffff)+struct.pack('>L',off_game)
     hdr+=struct.pack('>LLLLLLLLLLLLLLL',off_pal,off_planes,off_act,off_rules,off_sfx,off_over,off_win,off_sprcol,off_disp,off_grad,off_ground,off_work,off_music,off_disp2,off_back)
     hdr+=struct.pack('>LLLLLLL',off_tiles,off_ui,off_scroll,off_pals,off_d2,off_items,off_logic)

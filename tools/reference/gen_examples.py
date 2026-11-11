@@ -3,7 +3,7 @@
 # Usage: python gen_examples.py
 #
 # What it makes, for each example (gem_hunter, deep_dive, star_catcher, dodge_ball, firefly_night
-# here; dig_deep, nebula_strike, starfire, jade_serpent, torchlight in the ex_*.py files):
+# here; dig_deep, nebula_strike, starfire, jade_serpent, torchlight, piston_pass, pillar_run in the ex_*.py files):
 #   datafiles/examples/<name>.adam and <name>_a1200.adam   the projects ADAM loads (json)
 #   datafiles/examples/shots/<name>.png                    first screen, 320 x 256 (Home page, shot())
 #   tools/reference/out/<name>.adf (+ <name>_disk2.adf)    test disks, built by adf_reference.py
@@ -828,7 +828,7 @@ def bob_flags(p):
     out=[]; spr=0; nspr=7 if scroll_across(p) else 8
     for a in p['actors'][:32]:
         s=p['sprites'][a['sprite']]
-        b=bool(a.get('bob')) or spr>=nspr or s.get('w',16)>16 or s.get('h',24)>24
+        b=bool(a.get('bob')) or bool(a.get('column')) or spr>=nspr or s.get('w',16)>16 or s.get('h',24)>24
         if not b: spr+=1
         out.append(b)
     return out
@@ -981,8 +981,9 @@ def disk_project(p):
     def rl(d):
         d=dict(d)
         # (scr_project do_target_is_actor / do_value_is_actor) DO 27 Switch palette: fade frames;
-        # 28 / 29 items: how many; 30..34, 38..40: no actor; 35 bounce, 36 stick, 37 let go: an actor
-        if d['act']<27 or 35<=d['act']<=37: d['target']=m(d['target'])
+        # 28 / 29 items: how many; 30..34, 38..40, 43: no actor; 35 bounce, 36 stick, 37 let go,
+        # 41 stop, 42 move again: an actor
+        if d['act']<27 or 35<=d['act']<=37 or d['act'] in (41,42): d['target']=m(d['target'])
         if d['act'] in (14,22,24,25,36): d['value']=m(d['value'])
         return d
     # an IF line with its actors turned into disk actors (position lines, version 18)
@@ -1043,7 +1044,7 @@ def to_builder(p):
         d=dict(x=a['x'],y=a['y'],role=a['role'],speed=a['speed'],visible=int(a['visible']),left=int(a['start_left']),up=int(a['start_up']),
                sprite=a['sprite'],chan=max(0,chan[i]),anim=a['anim_sprite'],rate=a['anim_rate'],amode=int(a['anim_moving']),anims=a.get('anims',[]),carry=a.get('carry',False),aim=a.get('aim',0),flip=a.get('anim_flip',False),dirs=a.get('anim_dirs',False),
                pattern=a.get('pattern',0),enter=a.get('enter',1),comeback=a.get('comeback',True),hits=a.get('hits',1),
-               type=a['_type'],fire=a['_fire'],frate=a.get('fire_rate',60),fpat=a.get('fire_pat',0),stand_on=a.get('stand_on',False),patrol=a.get('patrol',0),diagonal=a.get('diagonal',False),**{'from':a['from_level'],'fast':a['faster_every']})
+               type=a['_type'],fire=a['_fire'],frate=a.get('fire_rate',60),fpat=a.get('fire_pat',0),stand_on=a.get('stand_on',False),patrol=a.get('patrol',0),diagonal=a.get('diagonal',False),column=a.get('column',False),ease=a.get('ease',False),**{'from':a['from_level'],'fast':a['faster_every']})
         if chan[i]<0:
             d['bob']=1; d['bobmap']=[pal_nearest(p,c) for c in p['sprites'][a['sprite']]['cols']]
         acts.append(d)
@@ -1133,10 +1134,18 @@ def shot(p):
         else: oc=p['sprites'][p['actors'][owner[chan[i]//2]]['sprite']]['cols']
         if not a.get('visible',True): continue
         sw=s.get('w',16); sh=s.get('h',24); ax=a['x']+dx; ay=a['y']+dy
-        for yy in range(sh):
+        rows=list(range(sh))
+        if a.get('column') and not p.get('tiles_on'):
+            # a column: its last drawn row again down to the bottom (engine bob_blit)
+            last=max([yy for yy in range(sh) if any(s['px'][yy*sw:(yy+1)*sw])] or [sh-1])
+            u=p.get('ui',{}); floor=H              # it stands on the top of a HUD in the bottom half
+            if u.get('on') and u.get('bottom'): floor=H-8*u.get('rows',1)
+            elif not u.get('on') and p.get('hud_row',0)>=16: floor=8*p['hud_row']
+            rows=list(range(min(last+1,max(0,floor-ay))))+[last]*max(0,floor-(ay+last+1))
+        for k,yy in enumerate(rows):
             for xx in range(sw):
                 v=s['px'][yy*sw+xx]
-                if v and 0<=ax+xx<W and 0<=ay+yy<H: im.putpixel((ax+xx,ay+yy),rgb(q(oc[v-1])))
+                if v and 0<=ax+xx<W and 0<=ay+k<H: im.putpixel((ax+xx,ay+k),rgb(q(oc[v-1])))
     return im
 
 # saves the first screen to datafiles/examples/shots/<name>.png (Home page) and a 2x copy as fn
@@ -1158,12 +1167,12 @@ if __name__=='__main__':
     OUT=os.path.join(HERE,'out'); os.makedirs(OUT,exist_ok=True)
     os.makedirs(os.path.join(REPO,'datafiles','examples','shots'),exist_ok=True)    # shot(): the Home page's pictures
     sys.modules['gen_examples']=sys.modules['__main__']   # one AGA state for ex_dig_deep too
-    import ex_dig_deep, ex_shmup, ex_aztec, ex_torch
+    import ex_dig_deep, ex_shmup, ex_aztec, ex_torch, ex_piston, ex_pillar
     only=sys.argv[1:]                           # e.g. python gen_examples.py nebula_strike: just that one
     for fn,make in [('gem_hunter',gem_hunter),('deep_dive',deep_dive),('star_catcher',star_catcher),('dodge_ball',dodge_ball),
                     ('firefly_night',firefly_night),('dig_deep',ex_dig_deep.dig_deep),
                     ('nebula_strike',ex_shmup.nebula_strike),('starfire',ex_shmup.starfire),('jade_serpent',ex_aztec.jade_serpent),
-                    ('torchlight',ex_torch.torchlight)]:
+                    ('torchlight',ex_torch.torchlight),('piston_pass',ex_piston.piston_pass),('pillar_run',ex_pillar.pillar_run)]:
       if only and fn not in only: continue
       for aga in (False,True):
         # every example also comes as an A1200 version with smooth in-between colours (<name>_a1200.adam)

@@ -324,6 +324,21 @@ function draw_sprite_amiga_cols(_i, _x, _y, _scale, _cols, _alpha)
     gpu_set_texfilter(true);
 }
 
+/// A column's foot (actor setting 'Reaches the floor'): row _row of sprite design _i drawn
+/// again on _rows lines from _x, _y down, in colours _cols (as draw_sprite_amiga_cols)
+function draw_sprite_column_cols(_i, _row, _x, _y, _scale, _rows, _cols, _alpha)
+{
+    if (_i < 0 || _i >= SPR_COUNT || _rows <= 0) { return; }
+    spr_cache_update(_i);
+    gpu_set_texfilter(false);
+    var _w = surface_get_width(spr_surf[_i][0]);
+    for (var c = 0; c < 3; c++)
+    {
+        draw_surface_part_ext(spr_surf[_i][c], 0, _row, _w, 1, _x, _y, _scale, _scale * _rows, amiga_col(_cols[c]), _alpha);
+    }
+    gpu_set_texfilter(true);
+}
+
 /// Draws sprite design _i in its own colours
 function draw_sprite_amiga(_i, _x, _y, _scale, _alpha)
 {
