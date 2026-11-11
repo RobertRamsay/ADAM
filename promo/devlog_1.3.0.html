@@ -1,0 +1,53 @@
+<p>ADAM 1.3.0 is out. The biggest change is on the Logic page: rules can now do a lot more, much of it borrowed from my C64 no-code tool. There are moving platforms, a map for every level, better ways to test, and nicer example games too. As always, everything is in ADAM Lite as well as Pro.</p>
+
+<h2>Smarter rules</h2>
+<p>New things a rule can wait for (WHEN):</p>
+<ul>
+<li><strong>Actor reaches an edge</strong> - left, right, top or bottom. A ball that gets past the bat, an enemy walking off the side.</li>
+<li><strong>Actor hits the scenery</strong> - a solid tile in a tile world, or the hills and painted ground.</li>
+<li><strong>The counter reaches</strong> a number - five switches pulled opens the door, every tenth coin gives a life.</li>
+<li><strong>The time runs out</strong> - see time limits below.</li>
+</ul>
+<p>New things a rule can do (DO):</p>
+<ul>
+<li><strong>Add one to the counter.</strong></li>
+<li><strong>Lose health</strong> and <strong>Add health</strong>.</li>
+<li><strong>Bounce actor back</strong> - left-right, up-down or both. Patrols and bouncers turn round, shots fly back, anything else steps back to where it was.</li>
+<li><strong>Stick actor to another</strong> and <strong>Let go of actor</strong> - a frog on a log, a ball held on a bat until fire is pressed.</li>
+<li><strong>Stop all sounds</strong>, <strong>Pause music</strong> and <strong>Resume music</strong>.</li>
+</ul>
+<p>And <strong>IF lines</strong> can now ask where an actor is: <em>above</em>, <em>below</em>, <em>level with</em>, <em>left of</em> or <em>right of</em> another one, with a margin in pixels. So "WHEN the hero touches a slime, IF the hero is above it, DO squash it" - and a second rule for when it isn't.</p>
+
+<h2>Health and time limits</h2>
+<p>On the Home page you can give each life some health: <em>Lose health</em> takes a bit at a time, and only at 0 does a life go. On the Levels page each level can have a time limit that counts down. Both show on the score row, or as Health, Time left and Counter fields on a custom HUD (UI page).</p>
+
+<h2>Moving platforms and patrols</h2>
+<p>Any actor can now be <em>stood on</em>, so a patrol becomes a lift or a ferry the player rides. Patrols can also be given a distance, and the Actors page shows the tops of platforms and how far each patrol goes.</p>
+
+<h2>A map for every level</h2>
+<p>In a tile world each level can now have a map of its own (Tiles page, <em>Map for</em>). If a game gets too big for one disk, the level maps can go on a second disk, as level music already could.</p>
+
+<h2>Testing</h2>
+<ul>
+<li><strong>God mode</strong> (Build page): your lives never run out while testing, and F8 skips to the next level.</li>
+<li>Each level has a <strong>Test</strong> button that starts the game straight on that level.</li>
+</ul>
+<p>Neither changes the disk you make for other people.</p>
+
+<h2>Example games</h2>
+<p>The sprites in the examples are rounder and shaded now, with better animations. Gem Hunter has a whole new cast, and the miner in Dig Deep bends into each dig.</p>
+
+<h2>Fixed and improved</h2>
+<ul>
+<li>The Logic page now allows 128 rules - the same as the Amiga engine - instead of stopping at 100.</li>
+<li>Clicking where two actors overlap on the Actors page picks the one in front.</li>
+<li>Sound previews play in both speakers instead of only the left.</li>
+<li>If a floppy can't be read, the game tries again before giving up, and shows a plain yellow screen instead of starting broken.</li>
+<li><em>Move actor to a random spot</em> in a tile world now picks a clear spot on screen, not somewhere inside the rock.</li>
+</ul>
+
+<h2>Getting it</h2>
+<p>Download the installer (<code>_Setup.exe</code>) or the zip from this page; the macOS version is on its way. If you already have ADAM 1.0.1 or later, it will tell you the update is out when you start it. FS-UAE still comes with ADAM, and your projects open as they are.</p>
+
+<p>Thanks for the feedback so far. If something in the new rules doesn't do what you expect, please tell me in the comments.</p>
+<p>- Robert</p>
