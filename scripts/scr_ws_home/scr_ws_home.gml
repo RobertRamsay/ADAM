@@ -157,6 +157,102 @@ function home_row(_id, _x1, _y1, _x2, _h, _badge, _c1, _c2, _title, _tag, _desc,
     return false;
 }
 
+/// The Example games panel (_px1, _cy) - (_px2, _y2); the list scrolls in _ly1 .. _ly2.
+/// Click loads an example, a second click within 0.4 s builds and plays it.
+function home_examples_draw(_px1, _cy, _px2, _y2, _ly1, _ly2)
+{
+    ui_panel(_px1, _cy, _px2, _y2, "Example games");
+    // the longest hint that fits beside the title
+    var _hint = "Click to load, double-click to build and play";
+    var _room = _px2 - _px1 - 210;
+    draw_set_font(global.f_small);
+    if (ui_sw(_hint) > _room) { _hint = "Click: load, double-click: play"; }
+    if (ui_sw(_hint) > _room) { _hint = "Double-click to play"; }
+    ui_text(_px2 - 16, _cy + 19, _hint, global.TH.text_faint, fa_right, fa_top, global.f_small, 1);
+    ui_register("home_example", _px1, _cy, _px2, _cy + 44, "Example games|Finished games to play and pull apart. Click one to load it, then look around every page to see how it was made. Double-click one to build its disk and play it in FS-UAE straight away. The ADAM Pro ones show off BOBs, tile worlds, shoot 'em ups and items.");
+    var _ex1 = _px1 + 4;
+    var _ex2 = _px2 - 4;
+    var _nex = array_length(global.EXAMPLES);
+    // about eight text rows each, with a screenshot on the right (narrower panels: smaller)
+    var _shw = clamp(floor((_ex2 - _ex1) * 0.36), 120, 180);
+    var _exmin = max(64, round(_shw * 0.8) + 16);
+    var _ex_h = 0;
+    for (var eq = 0; eq < _nex; eq++) { _ex_h += home_row_h(global.EXAMPLES[eq].desc, _ex2 - _ex1, _exmin, _shw + 8) + 6; }
+    var _eoff = ui_scroll_begin("home_examples", _ex1, _ly1, _ex2, _ly2, _ex_h + 6);
+    var _ry = _ly1 + 4 - _eoff;
+    for (var e = 0; e < _nex; e++)
+    {
+        var _ed = global.EXAMPLES[e];
+        var _tag = "";
+        var _e1 = global.TH.accent;
+        var _e2 = global.TH.accent_dark;
+        if (_ed.pro)
+        {
+            _e1 = global.TH.accent2;
+            _e2 = merge_colour(global.TH.accent2, c_black, 0.35);
+            if (!pro_edition()) { _tag = "ADAM Pro"; }
+        }
+        var _erh = home_row_h(_ed.desc, _ex2 - _ex1, _exmin, _shw + 8);
+        if (home_row("home_ex_" + string(e), _ex1 + 8, _ry, _ex2 - 8, _erh, home_initials(_ed.name), _e1, _e2, _ed.name, _tag, _ed.desc, _ed.name + "|" + _ed.desc + " Click to load it; double-click to build it and play it in FS-UAE.", home_shot(e), _shw))
+        {
+            // the first click loads it; a second one within 0.4 s builds a test disk
+            // and plays it (as Build & play) - only once that example really is loaded
+            if (home_ex_click == e && current_time - home_ex_click_t < 400)
+            {
+                home_ex_click = -1;
+                if (example_last == e && !proj_dirty) { build_ws_build(true, 0, false); }     // never in God mode
+            }
+            else
+            {
+                home_ex_click = e;
+                home_ex_click_t = current_time;
+                example_load(e);
+            }
+        }
+        _ry += _erh + 6;
+    }
+    ui_scroll_end("home_examples", _ex1, _ly1, _ex2, _ly2, _ex_h + 6);
+}
+
+/// The Community games panel (Community button; global.COMMUNITY, see community_init):
+/// the same rows as the examples, with "by ..." as the tag. A click plays the game's own
+/// disk in FS-UAE (the list holds finished disks, not projects).
+function home_community_draw(_px1, _cy, _px2, _y2, _ly1, _ly2)
+{
+    ui_panel(_px1, _cy, _px2, _y2, "Community games");
+    var _hint = "Click to play it in FS-UAE";
+    draw_set_font(global.f_small);
+    if (ui_sw(_hint) > _px2 - _px1 - 230) { _hint = "Click to play"; }
+    ui_text(_px2 - 16, _cy + 19, _hint, global.TH.text_faint, fa_right, fa_top, global.f_small, 1);
+    ui_register("home_community", _px1, _cy, _px2, _cy + 44, "Community games|Games made by the ADAM community. Click one to play its disk in FS-UAE. Click Community again to go back to the example games.");
+    var _ex1 = _px1 + 4;
+    var _ex2 = _px2 - 4;
+    var _n = array_length(global.COMMUNITY);
+    var _shw = clamp(floor((_ex2 - _ex1) * 0.36), 120, 180);
+    var _exmin = max(64, round(_shw * 0.8) + 16);
+    var _h = 0;
+    for (var q = 0; q < _n; q++) { _h += home_row_h(global.COMMUNITY[q].desc, _ex2 - _ex1, _exmin, _shw + 8) + 6; }
+    var _off = ui_scroll_begin("home_community", _ex1, _ly1, _ex2, _ly2, _h + 6);
+    var _ry = _ly1 + 4 - _off;
+    for (var i = 0; i < _n; i++)
+    {
+        var _c = global.COMMUNITY[i];
+        var _tag = "";
+        if (_c.by != "") { _tag = "by " + _c.by; }
+        var _rh = home_row_h(_c.desc, _ex2 - _ex1, _exmin, _shw + 8);
+        if (home_row("home_cm_" + string(i), _ex1 + 8, _ry, _ex2 - 8, _rh, home_initials(_c.name), global.TH.accent2, merge_colour(global.TH.accent2, c_black, 0.35), _c.name, _tag, _c.desc, _c.name + "|" + _c.desc + " Click to play it in FS-UAE.", _c.spr, _shw))
+        {
+            community_play(i);
+        }
+        _ry += _rh + 6;
+    }
+    ui_scroll_end("home_community", _ex1, _ly1, _ex2, _ly2, _h + 6);
+    if (_n == 0)
+    {
+        ui_text_wrap(_ex1 + 16, _ly1 + 16, "No community games yet. When people make games with ADAM, they will be listed here.", global.TH.text_dim, _ex2 - _ex1 - 32, global.f_body, 1);
+    }
+}
+
 /// Draws the Home page in the work area (_x1, _y1) - (_x2, _y2), UI pixels.
 /// Left 60 %: the hero panel (New / Open / Save), then 'How it works' and
 /// 'Example games' lists side by side; right 40 %: Game settings (saved in the
@@ -178,6 +274,13 @@ function ws_home_draw(_x1, _y1, _x2, _y2)
     if (ui_button("home_open", _bx + 88, _by, 80, 40, "Open", "Open project|Opens a .adam project file you saved earlier.", BTN_NORMAL)) { home_open(); }
     if (ui_button("home_save", _bx + 176, _by, 80, 40, "Save", "Save project|Saves your project (Ctrl+S). The first time it asks where to put it.", BTN_NORMAL)) { home_save(false); }
     if (ui_button("home_saveas", _bx + 264, _by, 96, 40, "Save as", "Save as|Saves a copy of your project under a new name.", BTN_GHOST)) { home_save(true); }
+    // Community: games by other people (an empty list until some are added - see community_init)
+    var _cst = BTN_NORMAL;
+    if (home_comm) { _cst = BTN_ON; }
+    if (ui_button("home_comm", _bx + 372, _by, 120, 40, "Community", "Community|Games made by other people. Click to list them where the example games are; click again to go back to the examples.", _cst))
+    {
+        home_comm = !home_comm;
+    }
 
     // ---------- two lists side by side, each scrolling when it outgrows its panel ----------
     var _cy = _y1 + 248;
@@ -242,58 +345,9 @@ function ws_home_draw(_x1, _y1, _x2, _y2)
     }
     ui_scroll_end("home_flow", _lx1, _ly1, _lx2, _ly2, _rows_h + 6);
 
-    // Example games: finished games to load, play and pull apart
-    ui_panel(_mid + 10, _cy, _split - 10, _y2, "Example games");
-    // the longest hint that fits beside the title
-    var _hint = "Click to load, double-click to build and play";
-    var _room = _split - _mid - 20 - 210;
-    draw_set_font(global.f_small);
-    if (ui_sw(_hint) > _room) { _hint = "Click: load, double-click: play"; }
-    if (ui_sw(_hint) > _room) { _hint = "Double-click to play"; }
-    ui_text(_split - 26, _cy + 19, _hint, global.TH.text_faint, fa_right, fa_top, global.f_small, 1);
-    ui_register("home_example", _mid + 10, _cy, _split - 10, _cy + 44, "Example games|Finished games to play and pull apart. Click one to load it, then look around every page to see how it was made. Double-click one to build its disk and play it in FS-UAE straight away. The ADAM Pro ones show off BOBs, tile worlds, shoot 'em ups and items.");
-    var _ex1 = _mid + 14;
-    var _ex2 = _split - 14;
-    var _nex = array_length(global.EXAMPLES);
-    // about eight text rows each, with a screenshot on the right (narrower panels: smaller)
-    var _shw = clamp(floor((_ex2 - _ex1) * 0.36), 120, 180);
-    var _exmin = max(64, round(_shw * 0.8) + 16);
-    var _ex_h = 0;
-    for (var eq = 0; eq < _nex; eq++) { _ex_h += home_row_h(global.EXAMPLES[eq].desc, _ex2 - _ex1, _exmin, _shw + 8) + 6; }
-    var _eoff = ui_scroll_begin("home_examples", _ex1, _ly1, _ex2, _ly2, _ex_h + 6);
-    _ry = _ly1 + 4 - _eoff;
-    for (var e = 0; e < _nex; e++)
-    {
-        var _ed = global.EXAMPLES[e];
-        var _tag = "";
-        var _e1 = global.TH.accent;
-        var _e2 = global.TH.accent_dark;
-        if (_ed.pro)
-        {
-            _e1 = global.TH.accent2;
-            _e2 = merge_colour(global.TH.accent2, c_black, 0.35);
-            if (!pro_edition()) { _tag = "ADAM Pro"; }
-        }
-        var _erh = home_row_h(_ed.desc, _ex2 - _ex1, _exmin, _shw + 8);
-        if (home_row("home_ex_" + string(e), _ex1 + 8, _ry, _ex2 - 8, _erh, home_initials(_ed.name), _e1, _e2, _ed.name, _tag, _ed.desc, _ed.name + "|" + _ed.desc + " Click to load it; double-click to build it and play it in FS-UAE.", home_shot(e), _shw))
-        {
-            // the first click loads it; a second one within 0.4 s builds a test disk
-            // and plays it (as Build & play) - only once that example really is loaded
-            if (home_ex_click == e && current_time - home_ex_click_t < 400)
-            {
-                home_ex_click = -1;
-                if (example_last == e && !proj_dirty) { build_ws_build(true, 0, false); }     // never in God mode
-            }
-            else
-            {
-                home_ex_click = e;
-                home_ex_click_t = current_time;
-                example_load(e);
-            }
-        }
-        _ry += _erh + 6;
-    }
-    ui_scroll_end("home_examples", _ex1, _ly1, _ex2, _ly2, _ex_h + 6);
+    // Example games, or the community games after the Community button
+    if (home_comm) { home_community_draw(_mid + 10, _cy, _split - 10, _y2, _ly1, _ly2); }
+    else { home_examples_draw(_mid + 10, _cy, _split - 10, _y2, _ly1, _ly2); }
 
     // ---------- settings ----------
     // two panels with a clear split: the game's own settings (saved in the project) above,

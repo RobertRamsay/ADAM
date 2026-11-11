@@ -8,3 +8,5 @@ ADAM.zip
 
 # FS-UAE is copied in by tools/release_build.ps1 for release builds only
 datafiles/FS-UAE/
+# community games are copied in by tools/release_build.ps1 -Community for internal builds only
+datafiles/community/
