@@ -12,7 +12,9 @@ function examples_init()
         { file : "nebula_strike.adam", file_aga : "nebula_strike_a1200.adam", name : "Nebula Strike", pro : true, desc : "A side-scrolling shoot 'em up: grab Power, Speed and Multiple capsules, then take on the battleship guarding the warp gate." },
         { file : "starfire.adam", file_aga : "starfire_a1200.adam",    name : "Starfire",    pro : true,  desc : "A vertical shoot 'em up down a space station's trench: power up your fighter, pick up options and break the mothership." },
         { file : "jade_serpent.adam", file_aga : "jade_serpent_a1200.adam", name : "Jade Serpent", pro : true, desc : "Fly a jade glider up a jungle river, over moss-grown ruins and a step pyramid to the serpent temple: waves from spawners, totems that split, homing missiles and a feathered serpent boss." },
-        { file : "torchlight.adam", file_aga : "torchlight_a1200.adam", name : "Torchlight", pro : true, desc : "Items: find the key for the cave door, make a torch from a stick and a cloth (space bar), and light the dark cave to find the crown." }
+        { file : "torchlight.adam", file_aga : "torchlight_a1200.adam", name : "Torchlight", pro : true, desc : "Items: find the key for the cave door, make a torch from a stick and a cloth (space bar), and light the dark cave to find the crown." },
+        { file : "piston_pass.adam", file_aga : "piston_pass_a1200.adam", name : "Piston Pass", pro : false, desc : "A template for 'set it up, then cross' games: fire stops each rising piston in turn, then walk across to the exit. A fall starts the floor again." },
+        { file : "pillar_run.adam", file_aga : "pillar_run_a1200.adam", name : "Pillar Run", pro : true, desc : "A template with placeholder art: ten full-height 32 x 256 columns rise and sink in turn - fire stops each one, then cross to the door. Import your own backdrop, column, hero, door and pick-up at the sizes shown." }
     ];
 }
 
