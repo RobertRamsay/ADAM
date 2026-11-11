@@ -369,7 +369,7 @@ function levels_side_panel(_px, _y1, _x2, _y2)
     // the real height of what is drawn below, so the panel only scrolls when it has to
     var _endnote = "After the last level the Win message (Home page) is shown - make it a big congratulations!";
     draw_set_font(global.f_small);
-    var _content = 10 + 174 + 106 + 116 + 226 + ceil(ui_sh_ext(_endnote, _fw)) + 12;
+    var _content = 10 + 174 + 106 + 116 + 226 + 62 + ceil(ui_sh_ext(_endnote, _fw)) + 12;   // (62: the time limit)
     if (proj.levels_on && _nl > 0) { _content += 256; }
     if (proj.levels_on && _nl > 0 && array_length(proj.palettes) > 0) { _content += 62; }
     var _hills = !proj.tiles_on;            // a tile world: the map is the ground (no hill settings)
@@ -456,6 +456,24 @@ function levels_side_panel(_px, _y1, _x2, _y2)
         }
         _y += 156;
     }
+
+    // the time limit (version 18): seconds the level has, 0 = none. WHEN 'The time runs out'
+    // fires at 0; a lost life starts it again. With levels off it is the game's (level 1's).
+    var _tli = 0;
+    var _tlh = "Time limit";
+    if (proj.levels_on && _nl > 0)
+    {
+        _tli = clamp(lvl_sel, 0, LEVEL_MAX - 1);
+        _tlh = "Level " + string(_tli + 1) + " time limit";
+    }
+    ui_heading(_fx, _y, _tlh + " (seconds, 0 = none)");
+    var _tln = ui_stepper("lvl_time", _fx, _y + 18, _half, proj.level_time[_tli], 0, TIME_LIMIT_MAX, "Time limit|Seconds the player has. It counts down from the start of the level (and again after a lost life); at 0 WHEN 'The time runs out' rules fire - lose a life, or game over. Show it with the standard HUD's TIME, or a Time left field on a custom HUD (UI page). Hold Shift for steps of 10.");
+    if (_tln != proj.level_time[_tli])
+    {
+        undo_mark("lvltime");
+        proj.level_time[_tli] = _tln;
+    }
+    _y += 62;
 
     // a scrolling backdrop (shoot 'em ups): the picture wraps round as the player flies on
     ui_heading(_fx, _y, "Scrolling backdrop");

@@ -331,6 +331,9 @@ function ws_home_draw(_x1, _y1, _x2, _y2)
     ui_heading(_fx + _half + 12, _y, "Score / lives row");
     set_val(proj, "hud_row", ui_stepper("home_hudrow", _fx + _half + 12, _y + 18, _half, proj.hud_row, 0, 31, "Score row|Which 8-pixel text row (0 = top, 31 = bottom) shows the score and lives. They are drawn on top of the backdrop."), "hudrow");
     _y += 64;
+    ui_heading(_fx, _y, "Health a life starts with (0 = none)");
+    set_val(proj, "health", ui_stepper("home_health", _fx, _y + 18, _half, proj.health, 0, HEALTH_MAX, "Health|Gives the player health as well as lives: 'Lose health' rules take some away, and at 0 a life goes and the next one starts with full health. 'Add health' gives some back. 0 = no health - each hit is a life. Shown as HEALTH on the score row, or a Health field on a custom HUD (UI page)."), "health");
+    _y += 64;
     set_val(proj, "show_score", ui_toggle("home_showscore", _fx, _y, "Show score", proj.show_score, "Show score|Shows SCORE 00000 on the left of the score row."), "showscore");
     set_val(proj, "show_lives", ui_toggle("home_showlives", _fx + _half + 12, _y, "Show lives", proj.show_lives, "Show lives|Shows LIVES 3 on the right of the score row."), "showlives");
     _y += 40;

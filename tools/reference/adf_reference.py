@@ -16,12 +16,13 @@ BOOT=open(os.path.join(ENGINE_DIR,'boot.bin'),'rb').read()
 # Also sets proj['_need'] (bytes used from the data start, cleared memory included) and
 # proj['_disk2'] (the disk 2 image, or None).
 # Blocks in the order they are written (offsets go in the header, H_* in engine.s):
-#   header 116 bytes (written last), palette, backdrop planes, sprite / BOB images and the
+#   header 120 bytes (written last), palette, backdrop planes, sprite / BOB images and the
 #   animation tables (AN_*), actors (A_*), rules (R_*), sprite pair colours, messages, sounds
 #   + sfx table, copper sky, painted ground, game block (G_*), tile world (T_*, TP_*, TL_*,
 #   TA_*), custom HUD (UI_*), music (M_*) and disk 2 songs / maps, work and display planes,
 #   BOB second display + background, scroll block (SC_*, MP_*, SP_*), named palettes (PS_*),
-#   items (IT_* / RC_*), disk 2 block (D2_*). Cleared memory (BSS) follows the data.
+#   items (IT_* / RC_*), logic (LG_*: health, time limits), disk 2 block (D2_*). Cleared
+#   memory (BSS) follows the data.
 def build(proj, aga):
     depth=proj['depth']; ncol=1<<depth
     actors=proj['actors']; rules=proj['rules'][:128]
@@ -29,7 +30,7 @@ def build(proj, aga):
     # pads the block with zeros to a multiple of n bytes (scr_adf buf_align)
     def align(n):
         while len(blob)%n: blob.append(0)
-    blob+= b'\0'*116                         # header (HDR_SIZE)
+    blob+= b'\0'*120                         # header (HDR_SIZE)
     sc=proj.get('scroll')                     # scrolling backdrop: dict(dir 1 up / 2 right / 3 down / 4 left, speed 1..16)
     if sc and (proj.get('tiles') or not sc.get('dir')): sc=None
     # palette (H_PAL 32): one long $00RRGGBB per colour (scr_adf '// palette')
@@ -197,7 +198,11 @@ def build(proj, aga):
         sv=lambda d: max(0,min(len(proj['sfx'])-1,d['value'])) if d['act']==2 else d['value']   # sound: below the count
         blob+=struct.pack('>HHHHHHHH',r['when'],r['a'],r['b'],r['n'],r['act'],r['target'],sv(r),len(more)+len(ifs))
         for m in more: blob+=struct.pack('>HHHH',m['act'],m['target'],sv(m),0)
-        for f in ifs: blob+=struct.pack('>HHHH',0x8000|f['cond'],f.get('n',1),f['item'],0)
+        for f in ifs:
+            if f.get('kind',0)==1:         # version 18: a position line - IF_LINE + IF_POS + cond, margin, a | b << 8
+                blob+=struct.pack('>HHHH',0x8040|f['cond'],f.get('n',0),f['a']|(f['b']<<8),0)
+            else:
+                blob+=struct.pack('>HHHH',0x8000|f['cond'],f.get('n',1),f['item'],0)
     align(8)
     # sprite pair colours (H_SPRCOL 60): 4 pairs x 3 longs $00RRGGBB, from the first actor on each pair
     off_sprcol=len(blob)
@@ -510,6 +515,15 @@ def build(proj, aga):
             fl=(1 if rc.get('keep_a') else 0)|(2 if rc.get('keep_b') else 0)
             blob.extend(struct.pack('>HHHBB',rc['a'],rc['b'],rc['out'],fl,rc.get('n',1)))
         align(8)
+    # logic block (H_LOGIC 116, version 18, engine.s LG_*; scr_adf '// logic'): proj['health'] (0 = none),
+    # proj['level_time'] = 10 seconds (0 = no limit) - only when the game has one or the other
+    off_logic=0
+    lt=(list(proj.get('level_time',[]))+[0]*10)[:10]
+    if proj.get('health',0)>0 or any(lt):
+        align(8)
+        off_logic=len(blob)
+        blob.extend(struct.pack('>H',max(0,min(99,proj.get('health',0))))+struct.pack('>10H',*[max(0,min(999,v)) for v in lt]))
+        align(8)
     # disk 2 block (H_DISK2 108, engine.s D2_*; scr_adf '// disk 2'): the buffers' offsets are filled in below
     off_d2=0
     if disk2 is not None:                       # D2_ID, raw track buffer, song buffer (fixed below)
@@ -543,7 +557,7 @@ def build(proj, aga):
         if d2mapbuf: struct.pack_into('>L',blob,off_d2+12,base+12800+songbuf)
         bss=base+12800+songbuf+d2mapbuf-size_now
     proj['_need']=((len(blob)+7)//8*8)+bss if (t or sc or off_d2) else 0     # bytes needed from the data start
-    # the header (engine.s H_*, 116 bytes; scr_adf '// header'): 'ADAM', version 17, flags, depth,
+    # the header (engine.s H_*, 120 bytes; scr_adf '// header'): 'ADAM', version 18, flags, depth,
     # counts, HUD settings, the player actor, then the offset of every block above (0 = absent)
     player=-1
     for i,a in enumerate(actors):
@@ -551,11 +565,11 @@ def build(proj, aga):
     # H_FLAGS: bit 0 AGA; a test copy (God mode, Test a level - ADAM only, proj['_test']) ORs in
     # bit 1 lives never run out, bit 2 F8 ends the level, and the level to start on << 8
     flags=(1 if aga else 0)|proj.get('_test',0)
-    hdr=struct.pack('>4sHHHHHHHHHHHH',b'ADAM',17,flags,depth,len(actors),len(rules),proj['lives'],
+    hdr=struct.pack('>4sHHHHHHHHHHHH',b'ADAM',18,flags,depth,len(actors),len(rules),proj['lives'],
                     int(proj['show_score']),int(proj['show_lives']),proj['hud_row'],proj['hud_col'],proj['msg_col'],player & 0xffff)+struct.pack('>L',off_game)
     hdr+=struct.pack('>LLLLLLLLLLLLLLL',off_pal,off_planes,off_act,off_rules,off_sfx,off_over,off_win,off_sprcol,off_disp,off_grad,off_ground,off_work,off_music,off_disp2,off_back)
-    hdr+=struct.pack('>LLLLLL',off_tiles,off_ui,off_scroll,off_pals,off_d2,off_items)
-    blob[0:116]=hdr
+    hdr+=struct.pack('>LLLLLLL',off_tiles,off_ui,off_scroll,off_pals,off_d2,off_items,off_logic)
+    blob[0:120]=hdr
     return bytes(blob)
 
 # ---- animations (data block version 8, 16 frames); scr_project.gml anim_plan() does the same

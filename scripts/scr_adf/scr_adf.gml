@@ -6,7 +6,10 @@
 /// The data block layout is documented at the top of engine.s.
 
 #macro ADF_SIZE 901120
-#macro ADF_HDR 116
+#macro ADF_HDR 120
+#macro WHEN_DISK_MAX 22         // the last WHEN the engine knows (run_rules' jump table)
+#macro DO_DISK_MAX 40           // the last DO the engine knows (acttab)
+#macro COUNTER_MAX 9999         // the counter (DO 32 / WHEN 21) stops here
 #macro D2_TRACK 5632            // disk 2: songs start on a track (11 sectors of 512)
 #macro D2_RAW_BYTES 12800       // engine.s RAW_WORDS x 2: the raw track buffer
 #macro ADF_SONGS_MAX 4
@@ -88,22 +91,35 @@ function adf_do_line(_b, _d, _ncol, _nsnd)
     if (_d.act == 18) { _val = clamp(_val, 0, ADF_SONGS_MAX - 1); }
     if (do_value_is_item(_d.act)) { _val = clamp(_val, 0, max(0, array_length(proj.items) - 1)); }
     if (_d.act == 30) { _val = clamp(_val, 0, max(0, array_length(proj.recipes) - 1)); }
-    be16(_b, clamp(_d.act, 0, 31));
+    if (do_value_is_health(_d.act)) { _val = clamp(_val, 1, HEALTH_MAX); }      // Lose / Add health: how much
+    if (_d.act == 35) { _val = clamp(_val, 0, 2); }                             // Bounce: 0 left-right, 1 up-down, 2 both
+    if (_d.act == 36) { _val = clamp(_val, 0, ACT_MAX_ALL - 1); }               // Stick to: an actor
+    be16(_b, clamp(_d.act, 0, DO_DISK_MAX));
     if (_d.act == 27) { be16(_b, clamp(_d.target, 0, 250)); }       // Switch palette: fade frames
     else if (_d.act == 28 || _d.act == 29) { be16(_b, clamp(_d.target, 1, ITEM_CARRY_MAX)); }   // Give / Take an item: how many
-    else if (_d.act > 29) { be16(_b, 0); }
+    else if (!do_target_is_actor(_d.act)) { be16(_b, 0); }
     else { be16(_b, clamp(_d.target, 0, ACT_MAX_ALL - 1)); }
     be16(_b, clamp(_val, 0, 65535));
 }
 
-/// The IF lines of rule _r as the engine reads them (after its AND DO lines, 8 bytes each:
-/// act = IF_LINE + cond, target = n, value = item, 0)
+/// The IF lines of rule _r as the engine reads them (after its AND DO lines, 8 bytes each).
+/// An item line: act = IF_LINE + cond, target = n, value = item, 0. A position line
+/// (kind 1, version 18): act = IF_LINE + IF_POS ($40) + cond, target = margin in pixels,
+/// value = actor a | actor b << 8 (disk actors: disk_expand maps them), 0.
 function adf_if_lines(_b, _r)
 {
     var _ni = max(1, array_length(proj.items));
     for (var f = 0; f < min(array_length(_r.ifs), RULE_IFS_MAX); f++)
     {
         var _fl = _r.ifs[f];
+        if (_fl.kind == 1)
+        {
+            be16(_b, 0x8000 | 0x40 | clamp(_fl.cond, 0, 4));
+            be16(_b, clamp(_fl.n, 0, IF_POS_MARGIN_MAX));
+            be16(_b, clamp(_fl.a, 0, ACT_MAX_ALL - 1) | (clamp(_fl.b, 0, ACT_MAX_ALL - 1) << 8));
+            be16(_b, 0);
+            continue;
+        }
         be16(_b, 0x8000 | clamp(_fl.cond, 0, 3));
         be16(_b, clamp(_fl.n, 1, ITEM_CARRY_MAX));
         be16(_b, clamp(_fl.item, 0, _ni - 1));
@@ -516,6 +532,18 @@ function disk_expand(_p)
         var _mo = [];
         for (var m = 0; m < array_length(_ru.more); m++) { array_push(_mo, disk_do_line(_ru.more[m], _first)); }
         _r2.more = _mo;
+        var _fs = [];                   // IF position lines name two actors
+        for (var f = 0; f < array_length(_ru.ifs); f++)
+        {
+            var _f2 = struct_overlay({}, _ru.ifs[f]);
+            if (_f2.kind == 1)
+            {
+                _f2.a = disk_actor(_first, _f2.a);
+                _f2.b = disk_actor(_first, _f2.b);
+            }
+            array_push(_fs, _f2);
+        }
+        _r2.ifs = _fs;
         array_push(_rules, _r2);
     }
     _q.actors = _dacts;
@@ -940,10 +968,12 @@ function adam_data_block_raw(_p, _measure = false)
         var _ru = _rules[r];
         var _nand = min(array_length(_ru.more), RULE_DOS_MAX - 1);
         var _nif = min(array_length(_ru.ifs), RULE_IFS_MAX);
-        be16(_b, clamp(_ru.when, 0, 18));
+        be16(_b, clamp(_ru.when, 0, WHEN_DISK_MAX));
         be16(_b, clamp(_ru.a, 0, ACT_MAX_ALL - 1));
         be16(_b, clamp(_ru.b, 0, ACT_MAX_ALL - 1));
         if (_ru.when == 17 || _ru.when == 18) { be16(_b, clamp(_ru.n, 0, max(0, array_length(_p.items) - 1))); }   // the item
+        else if (_ru.when == 19) { be16(_b, clamp(_ru.n, 0, 3)); }                  // the edge: 0 left, 1 right, 2 top, 3 bottom
+        else if (_ru.when == 21) { be16(_b, clamp(_ru.n, 1, COUNTER_MAX)); }        // the counter
         else { be16(_b, clamp(_ru.n, 1, 65535)); }
         adf_do_line(_b, _ru, _ncol, _nsnd);
         be16(_b, _nand + _nif);          // R_NAND: the AND DO lines, then the IF lines
@@ -1546,6 +1576,28 @@ function adam_data_block_raw(_p, _measure = false)
         }
         buf_align(_b, 8);
     }
+    // logic (version 18, engine.s LG_*): health a life starts with, then each level's time
+    // limit in seconds (10 words) - only when the game has one or the other
+    // (H_LOGIC)
+    var _off_logic = 0;
+    var _tl_any = false;
+    for (var lq = 0; lq < LEVEL_MAX; lq++)
+    {
+        if (_p.level_time[lq] > 0 && (lq == 0 || _p.levels_on)) { _tl_any = true; }    // no levels: only level 1's counts
+    }
+    if (_p.health > 0 || _tl_any)
+    {
+        buf_align(_b, 8);
+        _off_logic = buffer_tell(_b);
+        be16(_b, clamp(_p.health, 0, HEALTH_MAX));
+        for (var lq2 = 0; lq2 < LEVEL_MAX; lq2++)
+        {
+            var _lt = 0;
+            if (lq2 == 0 || _p.levels_on) { _lt = clamp(_p.level_time[lq2], 0, TIME_LIMIT_MAX); }   // no levels: level 1's
+            be16(_b, _lt);
+        }
+        buf_align(_b, 8);
+    }
     // disk 2 (version 12): D2_ID, then where the raw track buffer, the song buffer and
     // (version 17) the map buffer are
     // (H_DISK2, engine.s D2_*): D2_ID; D2_RAW, D2_BUF, D2_MAP are set with the BSS below
@@ -1621,7 +1673,7 @@ function adam_data_block_raw(_p, _measure = false)
     if (_p.show_score) { _sc = 1; }
     var _lv = 0;
     if (_p.show_lives) { _lv = 1; }
-    poke16(_b, 4, 17);                   // data block version 17: level maps on disk 2 (D2_MAP); 16: a tile map per level (T_FLAGS bit 2); 15: animated tiles (T_ANIM); 14: BOB frame headers (BI_*); 13: items (H_ITEMS), IF lines, WHEN 17 / 18, DO 28..31; 12: disk 2 (H_DISK2); 11: named palettes (H_PALS); 10: shoot 'em up map (SC_MAP), A_TYPE..A_FPAT; 9: shoot 'em up (H_SCROLL, A_PAT..A_RANK); 8: 16-frame animation tables; 7: custom HUD (H_UI); 6: tile world (H_TILES); 5: animation tables (A_ANIM); 4: BOBs
+    poke16(_b, 4, 18);                   // data block version 18: logic block (H_LOGIC 116: health, time limits), WHEN 19..22, DO 32..40, IF position lines; 17: level maps on disk 2 (D2_MAP); 16: a tile map per level (T_FLAGS bit 2); 15: animated tiles (T_ANIM); 14: BOB frame headers (BI_*); 13: items (H_ITEMS), IF lines, WHEN 17 / 18, DO 28..31; 12: disk 2 (H_DISK2); 11: named palettes (H_PALS); 10: shoot 'em up map (SC_MAP), A_TYPE..A_FPAT; 9: shoot 'em up (H_SCROLL, A_PAT..A_RANK); 8: 16-frame animation tables; 7: custom HUD (H_UI); 6: tile world (H_TILES); 5: animation tables (A_ANIM); 4: BOBs
     poke16(_b, 6, _flags);
     poke16(_b, 8, _depth);
     poke16(_b, 10, _na);
@@ -1655,6 +1707,7 @@ function adam_data_block_raw(_p, _measure = false)
     poke32(_b, 104, _off_pals);
     poke32(_b, 108, _off_d2);
     poke32(_b, 112, _off_items);
+    poke32(_b, 116, _off_logic);        // H_LOGIC (version 18)
 
     // warnings for the Build page (build_warnings)
     for (var rm = 0; rm < _nr; rm++)
@@ -1671,6 +1724,36 @@ function adam_data_block_raw(_p, _measure = false)
         }
     }
     if (_ritems > 0) { array_push(_warn, string(_ritems) + " rule(s) use items, but the game has none - make them on the Logic page (Items tab). Those rules are left out."); }
+    // health and the time limit (version 18): rules that need them, and where they show
+    var _uses_hp = false;
+    var _uses_tout = false;
+    for (var rh = 0; rh < _nr; rh++)
+    {
+        if (rule_has_act(_rules[rh], 33) || rule_has_act(_rules[rh], 34)) { _uses_hp = true; }
+        if (_rules[rh].when == 22) { _uses_tout = true; }
+    }
+    if (_uses_hp && _p.health <= 0) { array_push(_warn, "Lose health / Add health rules do nothing until the game has health - set 'Health a life starts with' on the Home page."); }
+    if (_uses_tout && !_tl_any) { array_push(_warn, "A 'The time runs out' rule never fires - give a level a time limit on the Levels page."); }
+    if (_p.health > 0 || _tl_any)
+    {
+        var _ui_on = (_p.ui.on && pro_on());
+        var _hud_hp = false;
+        var _hud_tm = false;
+        if (_ui_on)
+        {
+            for (var uf = 0; uf < array_length(_p.ui.fields); uf++)
+            {
+                if (_p.ui.fields[uf].type == 8) { _hud_hp = true; }
+                if (_p.ui.fields[uf].type == 9) { _hud_tm = true; }
+            }
+            if (_p.health > 0 && !_hud_hp) { array_push(_warn, "The game has health, but the custom HUD has no Health field to show it (UI page)."); }
+            if (_tl_any && !_hud_tm) { array_push(_warn, "A level has a time limit, but the custom HUD has no Time field to show it (UI page)."); }
+        }
+        else if (_p.goal_on || (_p.tiles_on && _p.tile_dig))
+        {
+            array_push(_warn, "The standard HUD has no room for health and time next to the goal counter or the tile carried - add Health / Time fields on a custom HUD (UI page).");
+        }
+    }
     if (_rcut) { array_push(_warn, "The game has more than " + string(RULES_DISK_MAX) + " rules - the ones after that are left out. Merge some into AND DO lines."); }
     if (_na == 0) { array_push(_warn, "There are no actors yet - the game will just show your backdrop."); }
     if (_player < 0 && _na > 0) { array_push(_warn, "No actor is set as Player, so the joystick will not move anything."); }

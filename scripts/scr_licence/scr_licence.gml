@@ -196,9 +196,15 @@ function lite_trim(_p, _warn)
         {
             var _ru = _p.rules[r];
             var _far = (_ru.a >= _keepn || _ru.b >= _keepn || (_ru.target >= _keepn && do_target_is_actor(_ru.act)));
+            if (_ru.value >= _keepn && do_value_is_actor(_ru.act)) { _far = true; }
             for (var mq = 0; mq < array_length(_ru.more); mq++)
             {
                 if (_ru.more[mq].target >= _keepn && do_target_is_actor(_ru.more[mq].act)) { _far = true; }
+                if (_ru.more[mq].value >= _keepn && do_value_is_actor(_ru.more[mq].act)) { _far = true; }
+            }
+            for (var fq = 0; fq < array_length(_ru.ifs); fq++)       // IF position lines name two actors
+            {
+                if (_ru.ifs[fq].kind == 1 && (_ru.ifs[fq].a >= _keepn || _ru.ifs[fq].b >= _keepn)) { _far = true; }
             }
             if (_far) { _dropped += 1; }
             else { array_push(_rl, _ru); }

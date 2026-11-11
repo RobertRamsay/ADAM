@@ -980,13 +980,21 @@ def disk_project(p):
     # a DO line with its actor numbers turned into disk actors
     def rl(d):
         d=dict(d)
-        if d['act']<27: d['target']=m(d['target'])        # DO 27 Switch palette: fade frames; 28 / 29 items: how many
-        if d['act'] in (14,22,24,25): d['value']=m(d['value'])
+        # (scr_project do_target_is_actor / do_value_is_actor) DO 27 Switch palette: fade frames;
+        # 28 / 29 items: how many; 30..34, 38..40: no actor; 35 bounce, 36 stick, 37 let go: an actor
+        if d['act']<27 or 35<=d['act']<=37: d['target']=m(d['target'])
+        if d['act'] in (14,22,24,25,36): d['value']=m(d['value'])
         return d
+    # an IF line with its actors turned into disk actors (position lines, version 18)
+    def fl(f):
+        f=dict(f)
+        if f.get('kind',0)==1: f['a']=m(f['a']); f['b']=m(f['b'])
+        return f
     rules=[]
     for r in p['rules']:
         r2=rl(r); r2['a']=m(r['a']); r2['b']=m(r['b'])
         r2['more']=[rl(x) for x in r.get('more',[])]
+        r2['ifs']=[fl(x) for x in r.get('ifs',[])]
         rules.append(r2)
     pd=dict(p,actors=acts,rules=rules)
     pd['_first']=first
@@ -1042,6 +1050,10 @@ def to_builder(p):
     bp=dict(depth=p['depth'],pal=[qm(c) for c in p['pal']],pixels=p['pixels'],sprites=spr,actors=acts,rules=p['rules'],
                 sfx=[s for s in p['sfx']],lives=p['lives'],show_score=1,show_lives=1,hud_row=0,hud_col=p['hud_colour'],msg_col=p['msg_colour'],
                 over=p['over_text'],win=p['win_text'],grad=sky_table(p,aga),ground=ground_table(p),game=game_block(p))
+    # health and time limits (version 18; scr_adf writes level 1's limit only when levels are off)
+    lt=list(p.get('level_time',[0]*10))[:10]
+    if not p.get('levels_on'): lt=[lt[0] if lt else 0]+[0]*9
+    bp['health']=p.get('health',0); bp['level_time']=lt
     if p.get('disk2_music'):
         # disk 2 (version 12): the songs levels start with that no 'play music' rule plays
         ns=min(4,len(p.get('songs',[])))

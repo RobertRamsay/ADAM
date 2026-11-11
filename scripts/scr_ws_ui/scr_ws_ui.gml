@@ -28,7 +28,7 @@ function ui_frame_styles()
 /// the F_* type word the engine's HUD drawer switches on (engine.s, H_UI).
 function ui_field_types()
 {
-    return ["Text", "Score", "Lives", "Goal", "Tile carried", "Level", "Tool", "Item count"];
+    return ["Text", "Score", "Lives", "Goal", "Tile carried", "Level", "Tool", "Item count", "Health", "Time left", "Counter"];
 }
 
 /// The custom HUD of a new project: off (the standard HUD is used)
@@ -85,7 +85,7 @@ function ui_from_loaded(_raw)
             if (!is_struct(_src)) { continue; }
             var _fd = struct_overlay(ui_field_new(0), _src);
             if (!is_numeric(_fd.type)) { _fd.type = 0; }
-            _fd.type = clamp(floor(_fd.type), 0, 7);
+            _fd.type = clamp(floor(_fd.type), 0, 10);
             if (!is_numeric(_fd.item)) { _fd.item = 0; }
             _fd.item = clamp(floor(_fd.item), 0, ITEM_MAX - 1);
             if (!is_string(_fd.label)) { _fd.label = ""; }
@@ -306,6 +306,13 @@ function ui_field_text(_f)
             if (_f.item >= array_length(proj.items)) { return ""; }     // (the Amiga leaves it out too)
             if (_lab == "") { _lab = proj.items[_f.item].name + " "; }
             return _lab + string_replace_all(string_format(min(proj.items[_f.item].max, 2) mod power(10, _f.digits), _f.digits, 0), " ", "0");
+        case 8:
+            if (proj.health <= 0) { return ""; }    // (the Amiga leaves it out too)
+            return _lab + string_replace_all(string_format(proj.health mod power(10, _f.digits), _f.digits, 0), " ", "0");
+        case 9:
+            if (proj.level_time[0] <= 0) { return ""; }     // only on a level with a time limit
+            return _lab + string_replace_all(string_format(proj.level_time[0] mod power(10, _f.digits), _f.digits, 0), " ", "0");
+        case 10: return _lab + string_replace_all(string_format(0, _f.digits, 0), " ", "0");
     }
     return _lab;
 }
@@ -657,7 +664,7 @@ function ws_ui_draw(_x1, _y1, _x2, _y2)
     // the picked field's settings; set_val calls undo_mark(tag) only when the value really changes
     var _sf = _u.fields[ui_sel_field];
     ui_heading(_gx, _gy, "Shows");
-    set_val(_sf, "type", ui_dropdown("ui_ftype", _gx, _gy + 18, _gw, 30, ui_field_types(), _sf.type, "Shows|Text: just the label. Score, Lives, Level: the label then the number. Goal: the label (or the goal's name) and 'got / needed'. Tile carried: the tile's name and how many (tile worlds where the player digs). Tool: the label then the tool in use (8 letters; tile worlds with tools - Tiles page, Tools tab). Item count: the label (or the item's name) and how many the player carries (Logic page, Items tab)."), "uiftype");
+    set_val(_sf, "type", ui_dropdown("ui_ftype", _gx, _gy + 18, _gw, 30, ui_field_types(), _sf.type, "Shows|Text: just the label. Score, Lives, Level: the label then the number. Goal: the label (or the goal's name) and 'got / needed'. Tile carried: the tile's name and how many (tile worlds where the player digs). Tool: the label then the tool in use (8 letters; tile worlds with tools - Tiles page, Tools tab). Item count: the label (or the item's name) and how many the player carries (Logic page, Items tab). Health: the player's health (Home page). Time left: the level's time limit counting down (Levels page). Counter: the number 'Add one to the counter' rules count up."), "uiftype");
     _gy += 58;
     if (_sf.type == 7)
     {
@@ -694,7 +701,7 @@ function ws_ui_draw(_x1, _y1, _x2, _y2)
         set_val(_sf, "shadow", ui_colour_drop("ui_fshcol", _gx, _gy, _gw, 30, clamp(_sf.shadow, 0, pal_count() - 1), "Shadow colour|The shadow's colour."), "uifshcol");
         _gy += 40;
     }
-    if (_sf.type == 1 || _sf.type == 2 || _sf.type == 5 || _sf.type == 7)
+    if (_sf.type == 1 || _sf.type == 2 || _sf.type == 5 || _sf.type >= 7)
     {
         ui_heading(_gx, _gy, "Digits");
         set_val(_sf, "digits", ui_stepper("ui_fdig", _gx, _gy + 18, _gh, _sf.digits, 1, 6, "Digits|How many digits the number has, with leading zeros (score up to 99999)."), "uifdig");

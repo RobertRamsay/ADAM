@@ -114,7 +114,13 @@ H_SCROLL    equ 100        ; offset: scrolling backdrop (shoot 'em ups), 0 = it 
 H_PALS      equ 104        ; offset: named palettes, 0 = none (version 11)
 H_DISK2     equ 108        ; offset: disk 2 block, 0 = a one-disk game (version 12)
 H_ITEMS     equ 112        ; offset: items and recipes, 0 = none (version 13)
-HDR_SIZE    equ 116
+H_LOGIC     equ 116        ; offset: health and time limits (LG_*), 0 = neither (version 18)
+HDR_SIZE    equ 120
+
+; logic block (version 18): what a life starts with and each level's time limit
+LG_HEALTH   equ 0          ; health a life starts with, 0 = no health (DO 33 / 34)
+LG_TIME     equ 2          ; 10 words: seconds each level has, 0 = no time limit (WHEN 22)
+LG_SIZE     equ 22
 
 ; a BOB frame (version 14): this header, then the mask and the planes (A_BSIZE's size);
 ; bob_draw only blits the part where something is drawn
@@ -150,6 +156,9 @@ DROP_GAP    equ 24         ; DO 31: a dropped item comes out this far beside the
 MENU_MAX    equ 40        ; space bar menu entries: tools, items carried, recipes that can be made
 IF_LINE     equ $8000      ; a rule line with this bit in its act word is an IF line:
                            ; act = IF_LINE + 0 has / 1 uses / 2 has none / 3 has at least, target = n, value = item
+IF_POS      equ $0040      ; with IF_LINE: a position line (version 18) - act = IF_LINE + IF_POS +
+                           ; 0 above / 1 below / 2 level with / 3 left of / 4 right of, target = margin
+                           ; in pixels, value = actor a (low byte) | actor b (high byte)
 
 ; disk 2 (version 12): level songs that did not go on the game disk. A song's
 ; music table offset with bit 31 set is a byte offset on disk 2 (a track start).
@@ -480,6 +489,12 @@ v_afr       rs.w 1         ;   steps into its cycle (loop: n, ping-pong: 2n - 2)
 v_onp       rs.w 1         ; standing on actor n - 1 that can be stood on (plat_stand), 0 = not
 v_plx       rs.w 1         ; an actor that can be stood on: where it was before move_actors
 v_ply       rs.w 1
+v_hold      rs.w 1         ; DO 36: stuck to actor n - 1 (it rides with it), 0 = free
+v_hox       rs.w 1         ; and where it sits from that actor's corner
+v_hoy       rs.w 1
+            ifgt    __RS-(-128+ACTV_SIZE)
+            fail    "per-actor variables do not fit in ACTV_SIZE"
+            endc
             rsset   -128+MAX_ACT*ACTV_SIZE
 v_anim      rs.w 1
 v_joyprev   rs.w 1
@@ -508,6 +523,11 @@ v_curpal    rs.l PAL_FADE  ; the backdrop colours shown now
 v_frompal   rs.l PAL_FADE  ; a fade goes from these ...
 v_tgtpal    rs.l PAL_FADE  ; ... to these
 v_rand      rs.l 1
+v_logic     rs.l 1         ; logic block address (LG_*), 0 = none
+v_counter   rs.w 1         ; DO 32 adds one, WHEN 21 fires at n and starts it again
+v_health    rs.w 1         ; health left (LG_HEALTH a life), 0 = no health
+v_tleft     rs.w 1         ; seconds of the level's time limit left, 0 = none / ran out
+v_tout      rs.w 1         ; 1 for the frame the time ran out (WHEN 22)
 v_music     rs.l 1         ; music table address, 0 = no music
 v_song      rs.w 1         ; song playing, -1 = none
 v_sfx       rs.b 12        ; ptplayer sfx structure: ptr.l len.w per.w vol.w cha.b pri.b
@@ -713,6 +733,7 @@ game_restart:
             move.w  #0,v_pspd(a5)
             move.w  #0,v_nopt(a5)
             move.w  #0,v_miss(a5)
+            bsr     health_fill             ; a new game: full health
             bsr     scroll_off
             bsr     tiles_off
             bsr     hide_sprites
@@ -774,6 +795,8 @@ level_start:
             bsr     clear_latches
             move.w  #0,v_goal(a5)
             move.w  #0,v_ltime(a5)
+            move.w  #0,v_counter(a5)        ; the counter starts again each level
+            bsr     time_reset              ; the level's time limit
             move.w  #-1,v_useit(a5)
             bsr     trail_reset
             bsr     tiles_start
@@ -811,6 +834,12 @@ init_display:
             move.l  d1,d0
             add.l   a4,d0
 .nog        move.l  d0,v_game(a5)
+            moveq   #0,d0                       ; logic block (health, time limits)
+            move.l  H_LOGIC(a4),d1
+            beq.s   .nolg
+            move.l  d1,d0
+            add.l   a4,d0
+.nolg       move.l  d0,v_logic(a5)
             lea     font(pc),a0                 ; text: the built-in font, no shadow
             move.l  a0,v_font(a5)
             move.w  #-1,v_shadow(a5)
@@ -1283,6 +1312,7 @@ init_actors:
             bset    d7,d0
             move.l  d0,v_platall(a5)
 .npl        move.w  #0,v_onp(a5,d5.w)
+            move.w  #0,v_hold(a5,d5.w)      ; not stuck to anything (DO 36)
             move.w  A_X(a2),v_ax(a5,d5.w)
             move.w  A_Y(a2),v_ay(a5,d5.w)
             move.w  A_SPD(a2),d0            ; faster on later levels
@@ -1498,17 +1528,20 @@ frame:
             move.w  v_igot(a5),v_igotp(a5)  ; items got last frame: WHEN 17 sees them now
             move.w  #0,v_igot(a5)
             move.w  #0,v_sectick(a5)
+            move.w  #0,v_tout(a5)
             addq.w  #1,v_fcount(a5)
             cmp.w   #50,v_fcount(a5)
             blt.s   .f1
             move.w  #0,v_fcount(a5)
             move.w  #1,v_sectick(a5)
             addq.w  #1,v_ltime(a5)
+            bsr     time_tick               ; the time limit: a second less
 .f1         bsr     scroll_tick             ; scrolling backdrop: the scenery moves on
             bsr     spawn_tick              ; a scrolling map's spawners
             bsr     carry_tick              ; fire picks up / throws
             bsr     move_actors
             bsr     plat_carry              ; riders move with the platforms they stand on
+            bsr     stick_follow            ; actors stuck to another (DO 36) ride with it
             bsr     carry_follow            ; what the player carries rides on its head
             bsr     opt_follow              ; options follow the player's trail
             move.w  v_joy(a5),v_joyprev(a5)
@@ -5364,6 +5397,118 @@ touch_any:
             tst.w   d0
             rts
 
+; d0 = an actor a rule names, a1 = a test (d1 = actor -> Z clear when true; it may change
+; d0, d2-d4, a0) -> d1 = the first of it and its copies (the actors right after it with
+; A_TYPE = d0) that is shown, on this level, and passes the test: Z clear. Z set: none.
+; Keeps the other registers. (WHEN 19 / 20)
+copy_find:  movem.l d0/d2-d5/a0/a2,-(sp)
+            move.w  d0,d5                   ; the type
+            move.w  d0,d1
+.c          cmp.w   H_NACT(a4),d1
+            bhs.s   .no
+            cmp.w   d5,d1                   ; the actor named, then its copies
+            beq.s   .t
+            move.w  d1,d4
+            bsr     actor_rec
+            cmp.w   A_TYPE(a0),d5
+            bne.s   .no
+.t          move.w  d1,d2
+            lsl.w   #ACTV_SHIFT,d2
+            tst.w   v_vis(a5,d2.w)
+            beq.s   .n
+            move.w  d1,d4
+            bsr     actor_rec
+            move.w  A_FROM(a0),d0
+            cmp.w   v_level(a5),d0
+            bgt.s   .n
+            move.w  d1,-(sp)
+            jsr     (a1)
+            movem.w (sp)+,d1                ; (movem keeps the flags)
+            bne.s   .yes
+.n          addq.w  #1,d1
+            bra.s   .c
+.no         movem.l (sp)+,d0/d2-d5/a0/a2
+            move.w  #0,-(sp)                ; Z set
+            tst.w   (sp)+
+            rts
+.yes        movem.l (sp)+,d0/d2-d5/a0/a2
+            move.w  #1,-(sp)                ; Z clear
+            tst.w   (sp)+
+            rts
+
+; WHEN 19 test: d1 = actor -> Z clear when it is at edge R_N(a3) of where it can go:
+; 0 left (x 0), 1 right (A_XMAX), 2 top (y 0), 3 bottom (A_YMAX) - the screen, or the
+; world in a tile world. Changes d0, d2, d4, a0.
+edge_test:  move.w  d1,d4
+            bsr     actor_rec
+            move.w  d1,d2
+            lsl.w   #ACTV_SHIFT,d2
+            move.w  R_N(a3),d0
+            beq.s   .l
+            cmp.w   #1,d0
+            beq.s   .r
+            cmp.w   #2,d0
+            beq.s   .t
+            move.w  v_ay(a5,d2.w),d0        ; bottom
+            cmp.w   A_YMAX(a0),d0
+            bge.s   .yes
+            bra.s   .no
+.t          tst.w   v_ay(a5,d2.w)
+            ble.s   .yes
+            bra.s   .no
+.r          move.w  v_ax(a5,d2.w),d0
+            cmp.w   A_XMAX(a0),d0
+            bge.s   .yes
+            bra.s   .no
+.l          tst.w   v_ax(a5,d2.w)
+            ble.s   .yes
+.no         moveq   #0,d0
+            rts
+.yes        moveq   #1,d0
+            rts
+
+; WHEN 20 test: d1 = actor -> Z clear when its box touches the scenery: a solid tile next
+; to it (a tile world), else the hills or painted ground under its middle. Changes d0,
+; d2-d4, a0.
+scen_test:  movem.l d1/d5/a2,-(sp)
+            move.w  d1,d4
+            bsr     actor_rec
+            move.l  a0,a2                   ; a2 = its record, d5 = its variables
+            move.w  d1,d5
+            lsl.w   #ACTV_SHIFT,d5
+            tst.w   v_tmode(a5)
+            beq.s   .gnd
+            move.w  v_ax(a5,d5.w),d0        ; one pixel left, right, up or down
+            move.w  v_ay(a5,d5.w),d1
+            subq.w  #1,d0
+            bsr     box_solid
+            bne.s   .yes
+            addq.w  #2,d0
+            bsr     box_solid
+            bne.s   .yes
+            subq.w  #1,d0
+            subq.w  #1,d1
+            bsr     box_solid
+            bne.s   .yes
+            addq.w  #2,d1
+            bsr     box_solid
+            bne.s   .yes
+            bra.s   .no
+.gnd        bsr     ground_y                ; d2 = the ground's top under its middle
+            cmp.w   #256,d2
+            bge.s   .no
+            move.w  v_ay(a5,d5.w),d0
+            add.w   A_BY1(a2),d0
+            addq.w  #1,d0                   ; its feet on (or in) the ground
+            cmp.w   d2,d0
+            bge.s   .yes
+.no         movem.l (sp)+,d1/d5/a2
+            moveq   #0,d0
+            rts
+.yes        movem.l (sp)+,d1/d5/a2
+            moveq   #1,d0
+            rts
+
 ; ============================================================================
 ;  WHEN / DO rules
 ; ============================================================================
@@ -5379,14 +5524,36 @@ run_rules:
             add.w   d5,a2                   ; a2 = this rule's latch
             move.l  #-1,v_cta(a5)           ; no copies matched yet (v_cta and v_ctb)
             move.w  R_WHEN(a3),d0
-            cmp.w   #18,d0
+            cmp.w   #22,d0
             bhi     .next
             add.w   d0,d0
             move.w  .jt(pc,d0.w),d0
             jmp     .jt(pc,d0.w)
 .jt         dc.w    .touch-.jt,.fire-.jt,.timer-.jt,.score-.jt,.lives-.jt,.next-.jt,.jump-.jt,.next-.jt
             dc.w    .hold-.jt,.inview-.jt,.strike-.jt,.thrown-.jt,.pickup-.jt,.ltime-.jt,.auto-.jt,.mapend-.jt
-            dc.w    .aend-.jt,.iget-.jt,.iuse-.jt
+            dc.w    .aend-.jt,.iget-.jt,.iuse-.jt,.atedge-.jt,.scen-.jt,.count-.jt,.tout-.jt
+
+.atedge     lea     edge_test(pc),a1        ; (a copy of) actor a is at edge n (0 left, 1 right,
+            bra.s   .findc                  ; 2 top, 3 bottom): once each time it gets there
+.scen       lea     scen_test(pc),a1        ; (a copy of) actor a touches the scenery (solid tiles,
+.findc      move.w  R_A(a3),d0              ; the hills or painted ground): once a touch
+            bsr     copy_find
+            beq     .clear
+            move.w  d1,v_cta(a5)
+            bra     .edge
+
+.count      move.w  v_counter(a5),d0        ; the counter (DO 32) got to n: it starts again
+            cmp.w   R_N(a3),d0
+            blo     .next
+            move.w  #0,v_counter(a5)
+            bsr     draw_hud
+            bsr     fire_action
+            bra     .next
+
+.tout       tst.w   v_tout(a5)              ; the level's time limit ran out this frame
+            beq     .next
+            bsr     fire_action
+            bra     .next
 
 .iget       move.w  v_igotp(a5),d0          ; the player got item n (last frame)
             move.w  R_N(a3),d1
@@ -5631,12 +5798,12 @@ rule_next:  move.l  d0,-(sp)
 ; Only when its IF lines all say yes (if_check): d0 = 1, Z clear = it fired, else d0 = 0, Z set.
 ; (IF lines go to act_none in do_action.)
 fire_action:
+            move.w  R_A(a3),v_rta(a5)       ; (do_action and IF position lines turn them into
+            move.w  R_B(a3),v_rtb(a5)       ; the copies that matched)
             bsr     if_check
             bne.s   .go
             rts
 .go         movem.l d5-d7/a2-a3,-(sp)
-            move.w  R_A(a3),v_rta(a5)       ; (do_action turns them into the copies that matched)
-            move.w  R_B(a3),v_rtb(a5)
             move.w  R_NAND(a3),d7
             move.l  a3,a2
             movem.l d7/a2,-(sp)
@@ -5666,7 +5833,7 @@ do_action:
             move.w  d4,d5                   ; -> d5 = offset
             lsl.w   #ACTV_SHIFT,d5
             move.w  R_ACT(a3),d0
-            cmp.w   #31,d0
+            cmp.w   #40,d0
             bhi     act_none
             add.w   d0,d0
             move.w  acttab(pc,d0.w),d0
@@ -5705,6 +5872,15 @@ acttab:     dc.w    act_score-acttab
             dc.w    act_itake-acttab
             dc.w    act_make-acttab
             dc.w    act_idrop-acttab
+            dc.w    act_count-acttab        ; 32 (version 18)
+            dc.w    act_hurt-acttab
+            dc.w    act_heal-acttab
+            dc.w    act_bounce-acttab
+            dc.w    act_stick-acttab
+            dc.w    act_letgo-acttab
+            dc.w    act_nosfx-acttab
+            dc.w    act_pause-acttab
+            dc.w    act_resume-acttab       ; 40
 
 ; DO that does nothing (also the 'no such actor' way out of the other act_*)
 act_none:   rts
@@ -5733,6 +5909,224 @@ act_make:   move.w  R_VAL(a3),d0
 ; DO 31: the player drops an item value - its actor comes out where the player is
 act_idrop:  move.w  R_VAL(a3),d0
             bra     item_drop
+
+; ============================================================================
+;  counter, health, time limit, bounce, stick, sound (version 18: DO 32..40,
+;  WHEN 19..22, from the C64 tool's logic)
+; ============================================================================
+
+; DO 32: one more on the counter (WHEN 21 'the counter reaches n' fires and empties it)
+act_count:  cmp.w   #9999,v_counter(a5)
+            bhs.s   .r
+            addq.w  #1,v_counter(a5)
+.r          bra     draw_hud
+
+; DO 33: lose value health; at 0 a life goes (act_loselife fills health up again)
+act_hurt:   move.w  v_health(a5),d0
+            beq     act_none                ; no health in this game
+            move.w  R_VAL(a3),d1
+            bne.s   .h
+            moveq   #1,d1
+.h          sub.w   d1,d0
+            ble     act_loselife
+            move.w  d0,v_health(a5)
+            bra     draw_hud
+
+; DO 34: add value health, never more than a life starts with
+act_heal:   move.l  v_logic(a5),d0
+            beq     act_none
+            move.l  d0,a0
+            move.w  LG_HEALTH(a0),d1
+            beq     act_none
+            move.w  v_health(a5),d0
+            add.w   R_VAL(a3),d0
+            cmp.w   d1,d0
+            ble.s   .s
+            move.w  d1,d0
+.s          move.w  d0,v_health(a5)
+            bra     draw_hud
+
+; health a life starts with (LG_HEALTH; 0 = no health) -> v_health
+health_fill:
+            move.w  #0,v_health(a5)
+            move.l  v_logic(a5),d0
+            beq.s   .r
+            move.l  d0,a0
+            move.w  LG_HEALTH(a0),v_health(a5)
+.r          rts
+
+; the level's time limit (LG_TIME, 0 = none) -> v_tleft; at a level start and a lost life
+time_reset: movem.l d0-d1/a0,-(sp)
+            move.w  #0,v_tleft(a5)
+            move.w  #0,v_tout(a5)
+            move.l  v_logic(a5),d0
+            beq.s   .r
+            move.l  d0,a0
+            move.w  v_level(a5),d1
+            subq.w  #1,d1
+            cmp.w   #9,d1
+            bls.s   .l
+            moveq   #0,d1
+.l          add.w   d1,d1
+            move.w  LG_TIME(a0,d1.w),v_tleft(a5)
+.r          movem.l (sp)+,d0-d1/a0
+            rts
+
+; Z clear when this level has a time limit (LG_TIME). Keeps the registers.
+level_tlimit:
+            movem.l d0-d1/a0,-(sp)
+            moveq   #0,d0
+            move.l  v_logic(a5),d1
+            beq.s   .r
+            move.l  d1,a0
+            move.w  v_level(a5),d1
+            subq.w  #1,d1
+            cmp.w   #9,d1
+            bls.s   .l
+            moveq   #0,d1
+.l          add.w   d1,d1
+            move.w  LG_TIME(a0,d1.w),d0
+.r          tst.w   d0
+            movem.l (sp)+,d0-d1/a0
+            rts
+
+; once a second: the time limit counts down; at 0 v_tout is 1 for this frame (WHEN 22)
+time_tick:  tst.w   v_tleft(a5)
+            beq.s   .r
+            subq.w  #1,v_tleft(a5)
+            bne.s   .h
+            move.w  #1,v_tout(a5)
+.h          bra     draw_hud
+.r          rts
+
+; DO 35: target d4 turns round - value 0 left-right, 1 up-down, 2 both. Patrols, bouncers
+; and hoppers change the way they go; a shot or thrown actor flies back; others step
+; back to where they were at the start of the frame.
+act_bounce: cmp.w   H_NACT(a4),d4
+            bhs     act_none
+            bsr     actor_rec
+            move.w  R_VAL(a3),d1            ; d1 bit 0 = across, bit 1 = up-down
+            addq.w  #1,d1
+            tst.w   v_thr(a5,d5.w)
+            beq.s   .role
+            btst    #0,d1                   ; flying: its speed turns round
+            beq.s   .fy
+            neg.w   v_tvx(a5,d5.w)
+.fy         btst    #1,d1
+            beq.s   .r
+            neg.w   v_tvy(a5,d5.w)
+.r          rts
+.role       move.w  A_ROLE(a0),d0
+            beq.s   .back
+            cmp.w   #3,d0
+            bls.s   .turn                   ; 1 bouncer, 2 / 3 patrols
+            cmp.w   #7,d0
+            bne.s   .back                   ; (7 hopper)
+.turn       btst    #0,d1
+            beq.s   .ty
+            eor.w   #1,v_dx(a5,d5.w)
+.ty         btst    #1,d1
+            beq.s   .r
+            eor.w   #1,v_dy(a5,d5.w)
+            rts
+.back       btst    #0,d1
+            beq.s   .by
+            move.w  v_ox(a5,d5.w),v_ax(a5,d5.w)
+.by         btst    #1,d1
+            beq.s   .r
+            move.w  v_oy(a5,d5.w),v_ay(a5,d5.w)
+            rts
+
+; DO 36: target d4 sticks to actor value: it rides with it, where it is now, until DO 37
+act_stick:  cmp.w   H_NACT(a4),d4
+            bhs     act_none
+            bsr     ctx_val                 ; d0 = the actor it sticks to
+            cmp.w   H_NACT(a4),d0
+            bhs     act_none
+            cmp.w   d4,d0
+            beq     act_none
+            move.w  d0,d1
+            addq.w  #1,d1
+            move.w  d1,v_hold(a5,d5.w)
+            lsl.w   #ACTV_SHIFT,d0
+            move.w  v_ax(a5,d5.w),d1
+            sub.w   v_ax(a5,d0.w),d1
+            move.w  d1,v_hox(a5,d5.w)
+            move.w  v_ay(a5,d5.w),d1
+            sub.w   v_ay(a5,d0.w),d1
+            move.w  d1,v_hoy(a5,d5.w)
+            rts
+
+; DO 37: target d4 lets go (moves by itself again)
+act_letgo:  cmp.w   H_NACT(a4),d4
+            bhs     act_none
+            move.w  #0,v_hold(a5,d5.w)
+            rts
+
+; after move_actors: each actor stuck to another (v_hold) sits where it stuck to it,
+; kept inside where it can go (0..A_XMAX, 0..A_YMAX)
+stick_follow:
+            movem.l d0-d2/d4/d7/a0,-(sp)
+            move.w  H_NACT(a4),d7
+            beq.s   .r
+            subq.w  #1,d7
+.l          move.w  d7,d2
+            lsl.w   #ACTV_SHIFT,d2
+            move.w  v_hold(a5,d2.w),d0
+            beq.s   .n
+            move.w  d7,d4
+            bsr     actor_rec               ; a0 = its record (d0 is changed)
+            move.w  v_hold(a5,d2.w),d0
+            subq.w  #1,d0
+            lsl.w   #ACTV_SHIFT,d0
+            move.w  v_ax(a5,d0.w),d1
+            add.w   v_hox(a5,d2.w),d1
+            bpl.s   .x0
+            moveq   #0,d1
+.x0         cmp.w   A_XMAX(a0),d1
+            ble.s   .x1
+            move.w  A_XMAX(a0),d1
+.x1         move.w  d1,v_ax(a5,d2.w)
+            move.w  v_ay(a5,d0.w),d1
+            add.w   v_hoy(a5,d2.w),d1
+            bpl.s   .y0
+            moveq   #0,d1
+.y0         cmp.w   A_YMAX(a0),d1
+            ble.s   .y1
+            move.w  A_YMAX(a0),d1
+.y1         move.w  d1,v_ay(a5,d2.w)
+.n          dbf     d7,.l
+.r          movem.l (sp)+,d0-d2/d4/d7/a0
+            rts
+
+; DO 38: every sound effect stops at once (the music plays on)
+act_nosfx:  movem.l d0-d1/a0-a1,-(sp)
+            moveq   #3,d1
+.c          move.w  d1,d0
+            bsr     _mt_stopfx
+            dbf     d1,.c
+            movem.l (sp)+,d0-d1/a0-a1
+            rts
+
+; DO 39: the music waits (silent) where it is / DO 40: it plays on from there
+act_pause:  tst.w   v_song(a5)
+            bmi     act_none
+            movem.l d0-d1/a0-a1,-(sp)
+            lea     _mt_Enable(pc),a0
+            sf      (a0)
+            moveq   #0,d0
+            bsr     _mt_mastervol
+            movem.l (sp)+,d0-d1/a0-a1
+            rts
+act_resume: tst.w   v_song(a5)
+            bmi     act_none
+            movem.l d0-d1/a0-a1,-(sp)
+            moveq   #64,d0
+            bsr     _mt_mastervol
+            lea     _mt_Enable(pc),a0
+            st      (a0)
+            movem.l (sp)+,d0-d1/a0-a1
+            rts
 
 ; d0 = item -> a0 = its record, Z clear; Z set = no such item
 item_rec:   movem.l d0-d1,-(sp)
@@ -5777,7 +6171,14 @@ if_check:   movem.l d1-d3/a0-a1,-(sp)
             bra.s   .lc
 .l          move.w  (a0),d0
             bpl.s   .nx                     ; a DO line
-            move.w  4(a0),d1                ; its item
+            btst    #6,d0                   ; IF_POS: where two actors are (checked in pass 0)
+            beq.s   .item
+            tst.w   d3
+            bne.s   .nx
+            bsr     if_pos
+            beq.s   .fail
+            bra.s   .nx
+.item       move.w  4(a0),d1                ; its item
             cmp.w   #ITEM_MAX,d1
             bhs.s   .fail
             add.w   d1,d1
@@ -5814,6 +6215,89 @@ if_check:   movem.l d1-d3/a0-a1,-(sp)
 .fail       moveq   #0,d0
 .o          movem.l (sp)+,d1-d3/a0-a1
             tst.w   d0
+            rts
+
+; An IF position line (version 18): a0 = the line, d0 = its act word (IF_LINE + IF_POS +
+; 0 above / 1 below / 2 level with / 3 left of / 4 right of), 2(a0) = the margin n in
+; pixels, 4(a0) = actor a (low byte) | actor b (high byte), each turned into the copy that
+; made the rule fire (ctx_actor). Compares the middles of their boxes (A_BX0..A_BY1):
+; above = a's middle more than n higher than b's, level with = no more than n apart up or
+; down; left of / right of the same across. -> Z clear (d0 = 1) when it is so. Keeps the
+; other registers.
+if_pos:     movem.l d1-d6/a0-a1,-(sp)
+            move.w  d0,d6
+            and.w   #7,d6                   ; the condition
+            move.w  2(a0),d5                ; the margin
+            move.w  4(a0),d1
+            moveq   #0,d4
+            move.b  d1,d4                   ; actor a
+            bsr     ctx_actor
+            cmp.w   H_NACT(a4),d4
+            bhs.s   .no
+            move.w  d4,d2
+            lsr.w   #8,d1
+            move.w  d1,d4                   ; actor b
+            bsr     ctx_actor
+            cmp.w   H_NACT(a4),d4
+            bhs.s   .no
+            move.w  d4,d3
+            cmp.w   #3,d6                   ; left of / right of: across
+            bhs.s   .x
+            move.w  d2,d4                   ; d1 = a's middle - b's middle, down the screen
+            bsr     pos_midy
+            move.w  d0,d1
+            move.w  d3,d4
+            bsr     pos_midy
+            sub.w   d0,d1
+            bra.s   .cmp
+.x          move.w  d2,d4                   ; d1 = a's middle - b's middle, across
+            bsr     pos_midx
+            move.w  d0,d1
+            move.w  d3,d4
+            bsr     pos_midx
+            sub.w   d0,d1
+            subq.w  #3,d6                   ; left of = above, right of = below
+.cmp        tst.w   d6
+            bne.s   .c1
+            neg.w   d1                      ; above / left of: b's middle - a's > n
+            cmp.w   d5,d1
+            bgt.s   .yes
+            bra.s   .no
+.c1         cmp.w   #1,d6
+            bne.s   .c2
+            cmp.w   d5,d1                   ; below / right of: a's middle - b's > n
+            bgt.s   .yes
+            bra.s   .no
+.c2         tst.w   d1                      ; level with: no more than n apart
+            bpl.s   .ab
+            neg.w   d1
+.ab         cmp.w   d5,d1
+            ble.s   .yes
+.no         moveq   #0,d0
+            bra.s   .o
+.yes        moveq   #1,d0
+.o          movem.l (sp)+,d1-d6/a0-a1
+            tst.w   d0
+            rts
+
+; d4 = actor -> d0 = the middle of its box down the screen / across (pos_midx). Changes a0.
+pos_midy:   move.w  d4,d0
+            lsl.w   #ACTV_SHIFT,d0
+            move.w  v_ay(a5,d0.w),-(sp)
+            bsr     actor_rec
+            move.w  A_BY0(a0),d0
+            add.w   A_BY1(a0),d0
+            asr.w   #1,d0
+            add.w   (sp)+,d0
+            rts
+pos_midx:   move.w  d4,d0
+            lsl.w   #ACTV_SHIFT,d0
+            move.w  v_ax(a5,d0.w),-(sp)
+            bsr     actor_rec
+            move.w  A_BX0(a0),d0
+            add.w   A_BX1(a0),d0
+            asr.w   #1,d0
+            add.w   (sp)+,d0
             rts
 
 ; d0 = item: the player uses one - used up, kept, or one of its uses goes
@@ -7489,6 +7973,8 @@ act_loselife:
             beq.s   .z
             subq.w  #1,v_lives(a5)
 .z          bsr     items_life              ; items lost with a life
+            bsr     health_fill             ; a new life: full health and the whole time limit
+            bsr     time_reset
             bra     draw_hud
 
 ; DO 13: one more life, at most 9 (the HUD shows one digit)
@@ -8219,6 +8705,8 @@ music_play:
             sub.l   a1,a1                   ; samples follow the patterns
             moveq   #0,d0                   ; from the first song position
             bsr     _mt_init
+            moveq   #64,d0                  ; full volume (DO 39 'Pause music' turns it down)
+            bsr     _mt_mastervol
             lea     _mt_Enable(pc),a0
             st      (a0)                    ; go
 .out        movem.l (sp)+,d0-d1/a0-a1
@@ -8814,12 +9302,14 @@ two_digits: movem.l d0/d4,-(sp)
 ; Redraws the HUD row (v_hudrow): the custom HUD (ui_hud) when there is one, else
 ; the standard one - SCORE nnnnn at column 1, the goal label and nn/nn from column
 ; 15 (13 when digging), the tile carried and how many at 24 (tile world with
-; digging), LIVES n at 31 (32 when digging). Colour H_HUDCOL. Keeps all registers.
+; digging), LIVES n at 31 (32 when digging or with health). Without a goal counter or
+; digging: TIME nnn at 13 (a level time limit) and HEALTH nn at 22 (health) - version 18.
+; Colour H_HUDCOL. Keeps all registers.
 ; Called whenever the score, lives, goal, tile or items change, and at level start.
 draw_hud:
             tst.l   v_ui(a5)
             bne     ui_hud
-            movem.l d0-d3/a0-a1,-(sp)
+            movem.l d0-d4/a0-a1,-(sp)
             move.w  v_hudrow(a5),d2
             move.w  H_HUDCOL(a4),d3
             tst.w   H_SHOWSC(a4)
@@ -8891,19 +9381,48 @@ draw_hud:
             lea     v_inv(a5),a0
             move.w  0(a0,d0.w),d0
             bsr     two_digits
-.notile     tst.w   H_SHOWLV(a4)
+.notile     bsr     hud_digging             ; time and health (version 18) go between the
+            bne.s   .nolg                   ; score and the lives - not when the goal counter
+            move.l  v_game(a5),d0           ; or the tile carried is there (a custom HUD can
+            beq.s   .tg                     ; show them anywhere)
+            move.l  d0,a1
+            tst.w   G_GOAL(a1)
+            bne.s   .nolg
+.tg         bsr     level_tlimit            ; TIME nnn at column 13
+            beq.s   .th
+            lea     str_time(pc),a0
+            moveq   #13,d1
+            bsr     draw_text
+            moveq   #18,d1
+            moveq   #0,d0
+            move.w  v_tleft(a5),d0
+            moveq   #3,d4
+            bsr     ui_number
+.th         tst.w   v_health(a5)            ; HEALTH nn at column 22
+            beq.s   .nolg
+            lea     str_health(pc),a0
+            moveq   #22,d1
+            bsr     draw_text
+            moveq   #29,d1
+            moveq   #0,d0
+            move.w  v_health(a5),d0
+            moveq   #2,d4
+            bsr     ui_number
+.nolg       tst.w   H_SHOWLV(a4)
             beq.s   .nolv
             lea     str_lives(pc),a0
             moveq   #31,d1
+            tst.w   v_health(a5)            ; HEALTH nn is shown: one column further right
+            bne.s   .lv1
             bsr     hud_digging
             beq.s   .lv
-            moveq   #32,d1
+.lv1        moveq   #32,d1
 .lv         bsr     draw_text
             moveq   #'0',d0
             add.w   v_lives(a5),d0
             addq.w  #6,d1
             bsr     draw_char
-.nolv       movem.l (sp)+,d0-d3/a0-a1
+.nolv       movem.l (sp)+,d0-d4/a0-a1
             rts
 
 ;  the custom HUD panel picture -> the work copy (top or bottom strip)
@@ -8969,7 +9488,7 @@ ui_hud:     movem.l d0-d7/a0-a3,-(sp)
             bsr     hud_tools
             beq     .nx
 .iq         cmp.w   #7,d6                   ; item count (F_DIGITS high byte = the item): only
-            bne.s   .dl                     ; with items; no label of its own -> the item's name
+            bne.s   .hq                     ; with items; no label of its own -> the item's name
             move.l  v_items(a5),d0
             beq     .nx
             tst.b   (a0)
@@ -8979,6 +9498,17 @@ ui_hud:     movem.l d0-d7/a0-a3,-(sp)
             bsr     item_rec
             beq     .nx
             lea     IT_NAME(a0),a0
+.hq         cmp.w   #8,d6                   ; health: only in a game with health
+            bne.s   .tmq
+            tst.l   v_logic(a5)
+            beq     .nx
+            move.l  v_logic(a5),a1
+            tst.w   LG_HEALTH(a1)
+            beq     .nx
+.tmq        cmp.w   #9,d6                   ; time: only on a level with a time limit
+            bne.s   .dl
+            bsr     level_tlimit
+            beq     .nx
 .dl         bsr     draw_text               ; the label
 .adv        tst.b   (a0)+                   ; column after it
             beq.s   .va
@@ -9039,7 +9569,7 @@ ui_hud:     movem.l d0-d7/a0-a3,-(sp)
             dbf     d4,.tl
             bra     .nx
 .nto        cmp.w   #7,d6
-            bne.s   .nt4
+            bne.s   .n8
             tst.b   F_LABEL(a2)             ; after the item's own name: a space
             bne.s   .is
             addq.w  #1,d1
@@ -9053,6 +9583,22 @@ ui_hud:     movem.l d0-d7/a0-a3,-(sp)
             moveq   #0,d5
             move.w  0(a1,d0.w),d5
             move.l  d5,d0
+            bsr     ui_number
+            bra     .nx
+.n8         moveq   #0,d0                   ; 8 health, 9 time left, 10 the counter: F_DIGITS digits
+            cmp.w   #8,d6
+            bne.s   .n9
+            move.w  v_health(a5),d0
+            bra.s   .nnum
+.n9         cmp.w   #9,d6
+            bne.s   .n10
+            move.w  v_tleft(a5),d0
+            bra.s   .nnum
+.n10        cmp.w   #10,d6
+            bne.s   .nt4
+            move.w  v_counter(a5),d0
+.nnum       move.w  F_DIGITS(a2),d4
+            and.w   #$ff,d4
             bsr     ui_number
             bra     .nx
 .nt4        cmp.w   #4,d6
@@ -9366,6 +9912,8 @@ hud_tools:  tst.w   v_tmode(a5)
 ; texts the engine shows itself (upper case: the font has characters 32..95 only)
 str_score:  dc.b    "SCORE ",0              ; draw_hud
 str_lives:  dc.b    "LIVES ",0              ; draw_hud
+str_time:   dc.b    "TIME ",0               ; draw_hud (a time limit)
+str_health: dc.b    "HEALTH ",0             ; draw_hud (health)
 str_fire:   dc.b    "PRESS FIRE",0          ; level_card
 str_disk2:  dc.b    "PLEASE INSERT DISK 2",0 ; disk2_find
 str_loading: dc.b   "LOADING",0             ; song_fetch, map_fetch

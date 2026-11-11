@@ -27,19 +27,25 @@
 function project_defs_init()
 {
     global.ROLE_NAMES = ["Player (joystick)", "Bouncer (diagonal)", "Patrol left-right", "Patrol up-down", "Chaser (follows player)", "Still (does not move)", "Platform player (walks + jumps)", "Hopper (jumps left and right)", "Faller (drops onto the ground)", "Shot (fired by a Shoot rule)", "Flyer (shoot 'em up enemy)", "Option (flies behind the player)", "Effect (explosion, sparkle)"];
-    global.WHEN_NAMES = ["Actor touches actor", "Fire button is pressed", "Every few seconds", "Score reaches", "Lives run out", "The game starts", "Actor jumps", "A level starts", "Fire is held (stick still)", "Actor is in view", "Player strikes actor", "Thrown or shot actor hits", "Player picks up actor", "Seconds into the level", "Fire is held (auto-fire)", "The map reaches its end", "An animation ends", "Player gets an item", "Player uses an item on"];
+    global.WHEN_NAMES = ["Actor touches actor", "Fire button is pressed", "Every few seconds", "Score reaches", "Lives run out", "The game starts", "Actor jumps", "A level starts", "Fire is held (stick still)", "Actor is in view", "Player strikes actor", "Thrown or shot actor hits", "Player picks up actor", "Seconds into the level", "Fire is held (auto-fire)", "The map reaches its end", "An animation ends", "Player gets an item", "Player uses an item on", "Actor reaches an edge", "Actor hits the scenery", "The counter reaches", "The time runs out"];
     global.DO_NAMES   = ["Add to score", "Lose a life", "Play a sound", "Flash the player", "Send actor back to start",
                          "Move actor to a random spot", "Hide actor", "Show actor", "Change background colour",
                          "Game over", "You win!", "Speed up actor", "Slow down actor", "Add a life", "Move actor to another actor",
                          "Show actor for a moment", "Make actor safe for a while", "Count towards the level goal",
                          "Play music", "Stop music", "Place a tile (tile world)", "Drop what is carried", "Shoot (fire a shot actor)",
                          "Power up the player", "Set off an effect", "Spawn actor (split into)", "Play an animation", "Switch palette",
-                         "Give the player an item", "Take an item away", "Make a recipe", "Drop an item"];
+                         "Give the player an item", "Take an item away", "Make a recipe", "Drop an item",
+                         "Add one to the counter", "Lose health", "Add health", "Bounce actor back",
+                         "Stick actor to another", "Let go of actor", "Stop all sounds", "Pause music", "Resume music"];
     global.PAL_FADES = [0, 12, 25, 50, 100, 200];   // DO 27 target: frames the fade takes
     global.PAL_FADE_NAMES = ["at once", "fading 1/4 s", "fading 1/2 s", "fading 1 s", "fading 2 s", "fading 4 s"];
     global.HD_NAMES = ["Hit", "Die", "Hit or Die"];       // DO 26 value (0 / 1), WHEN 16 n (0 / 1 / 2 either)
     global.ITEM_USE_NAMES = ["Used up", "Kept", "A few uses"];   // item.use: what using an item does to it
     global.IF_NAMES = ["has", "uses", "has no", "has at least"];  // IF line cond: check / needs it and uses it / has none / has n or more
+    global.IF_POS_NAMES = ["is above", "is below", "is level with", "is left of", "is right of"];   // IF position line cond (kind 1)
+    global.IF_KIND_NAMES = ["The player", "Actor"];                 // IF line kind: 0 about an item, 1 where an actor is
+    global.SIDE_NAMES = ["Left", "Right", "Top", "Bottom"];         // WHEN 19 n: the edge
+    global.BOUNCE_NAMES = ["Left-right", "Up-down", "Both ways"];   // DO 35 value
     global.AIM_NAMES = ["The way the shooter moves", "Up", "Down", "Left", "Right", "At the player", "Homing missile"];
     global.FIRE_PAT_NAMES = ["The shot's own aim", "At the player", "Three at the player", "Ring of 8", "Fan of three"];
     global.PATTERN_NAMES = ["Straight", "Wave", "Zigzag", "Homing (drifts at the player)", "Moves with the scenery", "Comes in and stays (boss)"];
@@ -228,14 +234,21 @@ function stamp_from_loaded(_raw)
 /// Does DO action _act use its value as an actor (move to, shoot, set off, spawn)?
 function do_value_is_actor(_act)
 {
-    return _act == 14 || _act == 22 || _act == 24 || _act == 25;
+    return _act == 14 || _act == 22 || _act == 24 || _act == 25 || _act == 36;
 }
 
 /// False for the DO actions whose target is not an actor (27 Switch palette: fade frames;
-/// 28 Give / 29 Take an item: how many; 30 Make a recipe, 31 Drop an item: unused)
+/// 28 Give / 29 Take an item: how many; 30 Make a recipe, 31 Drop an item, 32 counter,
+/// 33 / 34 health, 38..40 sound and music: unused). 35 Bounce, 36 Stick, 37 Let go: an actor.
 function do_target_is_actor(_act)
 {
-    return _act < 27;
+    return _act < 27 || (_act >= 35 && _act <= 37);
+}
+
+/// Does DO action _act use its value as an amount of health (33 Lose / 34 Add health)?
+function do_value_is_health(_act)
+{
+    return _act == 33 || _act == 34;
 }
 
 /// Does DO action _act use its value as an item (give, take, drop)?
@@ -597,6 +610,9 @@ function actor_preview_sprite(_ac)
 }
 
 #macro RULE_DOS_MAX 5           // DO lines on one rule card: the DO and up to 4 AND DO lines
+#macro HEALTH_MAX 99            // health a life can start with (proj.health)
+#macro TIME_LIMIT_MAX 999       // seconds a level's time limit can be (proj.level_time)
+#macro IF_POS_MARGIN_MAX 64     // an IF position line's margin, in pixels
 #macro RULE_IFS_MAX 3           // IF lines on one rule card (items the player must have)
 
 /// A new rule card: WHEN when (with actors a, b and number n), DO act (target, value),
@@ -609,11 +625,14 @@ function rule_new()
     return { when : 0, a : 0, b : 1, n : 1, act : 0, target : 0, value : 10, group : -1, more : [], ifs : [] };
 }
 
-/// An IF line of a rule: the player cond 0 has item / 1 uses item (it must have one, and using it
-/// does what the item's 'When used' says) / 2 has no item / 3 has at least n of item
+/// An IF line of a rule. kind 0: the player cond 0 has item / 1 uses item (it must have one,
+/// and using it does what the item's 'When used' says) / 2 has no item / 3 has at least n of
+/// item. kind 1 (version 18): actor a cond 0 is above / 1 below / 2 level with / 3 left of /
+/// 4 right of actor b - their boxes' middles more than n pixels apart that way (level with:
+/// no more than n apart up or down).
 function if_new()
 {
-    return { cond : 0, item : 0, n : 1 };
+    return { kind : 0, cond : 0, item : 0, n : 1, a : 0, b : 1 };
 }
 
 /// An AND DO line of a rule: what it does, the actor it changes and its value
@@ -811,6 +830,8 @@ function project_new()
         sfx : [],                                // 1..SFX_MAX sounds (Sound page)
         sound_groups : [],                       // Sound page folders: { name, open }
         lives : 3,
+        health : 0,                              // health a life starts with, 0 = no health (Home page; DO 33 / 34)
+        level_time : array_create(LEVEL_MAX, 0), // seconds each level has, 0 = no time limit (Levels page; WHEN 22)
         show_score : true,
         show_lives : true,
         hud_row : 0,
@@ -1055,12 +1076,26 @@ function project_from_loaded(_raw)
                 {
                     if (!is_struct(_ru.ifs[fi])) { continue; }
                     var _if = struct_overlay(if_new(), _ru.ifs[fi]);
+                    if (!is_numeric(_if.kind)) { _if.kind = 0; }
                     if (!is_numeric(_if.cond)) { _if.cond = 0; }
                     if (!is_numeric(_if.item)) { _if.item = 0; }
                     if (!is_numeric(_if.n)) { _if.n = 1; }
-                    _if.cond = clamp(floor(_if.cond), 0, 3);
+                    if (!is_numeric(_if.a)) { _if.a = 0; }
+                    if (!is_numeric(_if.b)) { _if.b = 1; }
+                    _if.kind = clamp(floor(_if.kind), 0, 1);
                     _if.item = clamp(floor(_if.item), 0, ITEM_MAX - 1);
-                    _if.n = clamp(floor(_if.n), 1, ITEM_CARRY_MAX);
+                    _if.a = clamp(floor(_if.a), 0, ACT_MAX_ALL - 1);
+                    _if.b = clamp(floor(_if.b), 0, ACT_MAX_ALL - 1);
+                    if (_if.kind == 1)              // where actor a is from actor b
+                    {
+                        _if.cond = clamp(floor(_if.cond), 0, 4);
+                        _if.n = clamp(floor(_if.n), 0, IF_POS_MARGIN_MAX);
+                    }
+                    else                            // an item the player has
+                    {
+                        _if.cond = clamp(floor(_if.cond), 0, 3);
+                        _if.n = clamp(floor(_if.n), 1, ITEM_CARRY_MAX);
+                    }
                     array_push(_ifs, _if);
                 }
             }
@@ -1170,6 +1205,20 @@ function project_from_loaded(_raw)
     }
     _p.level_pal = _lpv;
     _p.disk2_music = (_raw[$ "disk2_music"] == true);
+    // health and time limits (version 18; older files have neither)
+    var _hr = _raw[$ "health"];
+    _p.health = 0;
+    if (is_numeric(_hr)) { _p.health = clamp(floor(_hr), 0, HEALTH_MAX); }
+    var _ltv = array_create(LEVEL_MAX, 0);
+    var _ltr = _raw[$ "level_time"];
+    if (is_array(_ltr))
+    {
+        for (var lt = 0; lt < min(LEVEL_MAX, array_length(_ltr)); lt++)
+        {
+            if (is_numeric(_ltr[lt])) { _ltv[lt] = clamp(floor(_ltr[lt]), 0, TIME_LIMIT_MAX); }
+        }
+    }
+    _p.level_time = _ltv;
     items_fix(_p, _raw);                 // inventory items and recipes (older files have none)
     if (!is_numeric(_p.scroll_dir)) { _p.scroll_dir = 0; }
     _p.scroll_dir = clamp(floor(_p.scroll_dir), 0, 4);
@@ -1938,6 +1987,11 @@ function actor_remove(_idx)
             var _d = _r.more[m];
             if (do_target_is_actor(_d.act)) { _d.target = actor_ref_after_remove(_d.target, _idx, 0); }
             if (do_value_is_actor(_d.act)) { _d.value = actor_ref_after_remove(_d.value, _idx, 0); }
+        }
+        for (var f = 0; f < array_length(_r.ifs); f++)     // IF position lines name two actors
+        {
+            _r.ifs[f].a = actor_ref_after_remove(_r.ifs[f].a, _idx, 0);
+            _r.ifs[f].b = actor_ref_after_remove(_r.ifs[f].b, _idx, 0);
         }
     }
     for (var a = 0; a < array_length(proj.actors); a++)
