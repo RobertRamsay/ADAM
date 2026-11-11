@@ -1043,7 +1043,7 @@ def to_builder(p):
         d=dict(x=a['x'],y=a['y'],role=a['role'],speed=a['speed'],visible=int(a['visible']),left=int(a['start_left']),up=int(a['start_up']),
                sprite=a['sprite'],chan=max(0,chan[i]),anim=a['anim_sprite'],rate=a['anim_rate'],amode=int(a['anim_moving']),anims=a.get('anims',[]),carry=a.get('carry',False),aim=a.get('aim',0),flip=a.get('anim_flip',False),dirs=a.get('anim_dirs',False),
                pattern=a.get('pattern',0),enter=a.get('enter',1),comeback=a.get('comeback',True),hits=a.get('hits',1),
-               type=a['_type'],fire=a['_fire'],frate=a.get('fire_rate',60),fpat=a.get('fire_pat',0),stand_on=a.get('stand_on',False),patrol=a.get('patrol',0),**{'from':a['from_level'],'fast':a['faster_every']})
+               type=a['_type'],fire=a['_fire'],frate=a.get('fire_rate',60),fpat=a.get('fire_pat',0),stand_on=a.get('stand_on',False),patrol=a.get('patrol',0),diagonal=a.get('diagonal',False),**{'from':a['from_level'],'fast':a['faster_every']})
         if chan[i]<0:
             d['bob']=1; d['bobmap']=[pal_nearest(p,c) for c in p['sprites'][a['sprite']]['cols']]
         acts.append(d)

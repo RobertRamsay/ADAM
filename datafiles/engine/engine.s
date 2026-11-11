@@ -332,6 +332,7 @@ A_CHAN      equ 26         ; hardware sprite channel 0..7 (colour pair = channel
 A_SPR2      equ 28         ; long offset of a hopper's crouch frame, 0 = none
 A_CARRY     equ 32         ; bit 0 = the player can pick it up (fire) and throw it (fire again);
                            ; bit 1 = it can be stood on (a moving platform, plat_stand);
+                           ; bit 2 = a patrol (role 2 / 3) goes diagonally (CARRY_DIAG, move_actors .diag);
                            ; byte 0 = a patrol's distance / 8 from where it starts (pat_lim), 0 = edge to edge
 A_AMODE     equ 34         ; animation flags: bit 0 = 8 directions (table has 12 entries),
                            ; bit 1 = Fire animations for the player (table has 21 entries),
@@ -356,6 +357,7 @@ A_FRATE     equ 64         ; frames between its volleys
 A_FPAT      equ 66         ; its volley: 0 the shot's own aim, 1 at the player, 2 three at the
                            ; player, 3 a ring of 8, 4 three fanned the shot's own way
 ACT_SIZE    equ 68
+CARRY_DIAG  equ 2          ; bit in A_CARRY + 1 (the low byte): a diagonal patrol
 
 ; animation table (data block version 8; version 5 introduced animations): 4 entries - 0 Idle (standing still),
 ; 1 Walk (moving), 2 Jump (in the air going up), 3 Fall (in the air coming
@@ -1927,7 +1929,8 @@ read_joy:
 ;  actor movement
 ; ============================================================================
 ; Once a frame: moves every actor by its role (A_ROLE) - 0 player (joystick),
-; 1 bouncer (= 2 + 3), 2 / 3 patrol across / up-down between pat_lim's limits,
+; 1 bouncer (= 2 + 3), 2 / 3 patrol across / up-down between pat_lim's limits
+; (or diagonally with CARRY_DIAG, .diag),
 ; 4 chaser (one pixel a step towards the player, v_spd steps), 6 platform
 ; player (walk, jump, physics), 7 hopper, 8 faller, 9 shot, 10 flyer (fly_move),
 ; 11 option (opt_follow moves it), 12 effect (drifts with the scenery). A
@@ -2012,10 +2015,15 @@ move_actors:
             cmp.w   #4,d0
             beq     .chaser
             cmp.w   #3,d0
-            beq     .vert
+            beq.s   .pat
             cmp.w   #2,d0
-            beq     .horiz
-            cmp.w   #1,d0
+            bne.s   .npat
+.pat        btst    #CARRY_DIAG,A_CARRY+1(a2)
+            bne     .diag
+            cmp.w   #3,d0
+            beq     .vert
+            bra     .horiz
+.npat       cmp.w   #1,d0
             beq     .horiz
             bra     .next                   ; role 5 (still), a shot not in flight: no move
 
@@ -2117,6 +2125,60 @@ move_actors:
             ble.s   .vs
             move.w  d2,d0
 .vs         move.w  d0,v_ay(a5,d5.w)
+            bra     .next
+
+            ; ---- roles 2 / 3 with CARRY_DIAG: at 45 degrees, back and forth along one
+            ; line. Across leads (pat_lim on x, v_dx 0 = right, 1 = left, turning as
+            ; .horiz); y moves as far as x did - down while going right when A_LEFT =
+            ; A_UP (it starts right-down or left-up), else up. A step that would take y
+            ; off the top or bottom is not taken: it turns the way y comes back in.
+.diag       move.w  A_X(a2),d0
+            move.w  A_LEFT(a2),d2
+            move.w  A_XMAX(a2),d3
+            bsr     pat_lim
+            move.w  v_spd(a5,d5.w),d1
+            move.w  v_ax(a5,d5.w),d0
+            tst.w   v_dx(a5,d5.w)
+            bne.s   .dl
+            add.w   d1,d0
+            cmp.w   d3,d0
+            ble.s   .dx
+            move.w  #1,v_dx(a5,d5.w)        ; (as across)
+            move.w  v_ax(a5,d5.w),d0
+            cmp.w   d3,d0
+            bge.s   .dx
+            move.w  d3,d0
+            bra.s   .dx
+.dl         sub.w   d1,d0
+            cmp.w   d2,d0
+            bge.s   .dx
+            move.w  #0,v_dx(a5,d5.w)
+            move.w  v_ax(a5,d5.w),d0
+            cmp.w   d2,d0
+            ble.s   .dx
+            move.w  d2,d0
+.dx         move.w  d0,d1                   ; d1 = how far x moves
+            sub.w   v_ax(a5,d5.w),d1
+            move.w  A_LEFT(a2),d2
+            cmp.w   A_UP(a2),d2
+            beq.s   .dy
+            neg.w   d1                      ; up while going right
+.dy         add.w   v_ay(a5,d5.w),d1        ; d1 = the new y
+            bmi.s   .dt
+            cmp.w   A_YMAX(a2),d1
+            bgt.s   .dt
+            move.w  d0,v_ax(a5,d5.w)
+            move.w  d1,v_ay(a5,d5.w)
+            bra     .next
+.dt         moveq   #0,d0                   ; off the top: the way y grows,
+            tst.w   d1                      ; off the bottom: the way it shrinks
+            bmi.s   .dt1
+            moveq   #1,d0
+.dt1        move.w  A_LEFT(a2),d2           ; (y grows going right when A_LEFT = A_UP)
+            cmp.w   A_UP(a2),d2
+            beq.s   .dt2
+            eor.w   #1,d0
+.dt2        move.w  d0,v_dx(a5,d5.w)
             bra     .next
 
             ; ---- role 4: v_spd steps of one pixel towards the player (actor 0 if
@@ -2331,8 +2393,12 @@ move_actors:
             beq.s   .adv
             cmp.w   #6,A_ROLE(a2)
             bge.s   .adv
+            btst    #CARRY_DIAG,A_CARRY+1(a2)
+            bne.s   .tdg
             bsr     tile_hres
             bsr     tile_vres
+            bra.s   .adv
+.tdg        bsr     tile_dres               ; a diagonal patrol: back and turn round
 .adv        tst.w   A_FIRE(a2)              ; it fires by itself
             bmi.s   .adv2
             bsr     foe_fire
@@ -4520,6 +4586,23 @@ tile_vres:  movem.l d0-d1,-(sp)
             bne.s   .r
             move.w  v_oy(a5,d5.w),v_ay(a5,d5.w)
             eor.w   #1,v_dy(a5,d5.w)
+.r          movem.l (sp)+,d0-d1
+            rts
+
+; a diagonal patrol (CARRY_DIAG) moved into a wall: back where it was in x and y,
+; turning round (v_dx) - unless it was in a wall already
+tile_dres:  movem.l d0-d1,-(sp)
+            move.w  v_ax(a5,d5.w),d0
+            move.w  v_ay(a5,d5.w),d1
+            bsr     box_solid
+            beq.s   .r
+            move.w  v_ox(a5,d5.w),d0        ; stuck in a wall already: let it move
+            move.w  v_oy(a5,d5.w),d1
+            bsr     box_solid
+            bne.s   .r
+            move.w  v_ox(a5,d5.w),v_ax(a5,d5.w)
+            move.w  v_oy(a5,d5.w),v_ay(a5,d5.w)
+            eor.w   #1,v_dx(a5,d5.w)
 .r          movem.l (sp)+,d0-d1
             rts
 

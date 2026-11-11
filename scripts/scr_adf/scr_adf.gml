@@ -902,8 +902,9 @@ function adam_data_block_raw(_p, _measure = false)
         be16(_b, max(0, _alloc.chan[a2]));
         be32(_b, _spr2_off[a2]);
         var _carry = 0;                  // A_CARRY: bit 0 the player can pick it up and throw it,
-        if (_ac.carry) { _carry = 1; }   // bit 1 it can be stood on, byte 0 a patrol's distance / 8
-        if (_ac.stand_on) { _carry |= 2; }
+        if (_ac.carry) { _carry = 1; }   // bit 1 it can be stood on, bit 2 a diagonal patrol (CARRY_DIAG),
+        if (_ac.stand_on) { _carry |= 2; }   // byte 0 a patrol's distance / 8
+        if (_ac.diagonal && (_ac.role == 2 || _ac.role == 3)) { _carry |= 4; }
         _carry |= clamp(_ac.patrol, 0, PATROL_MAX) << 8;
         be16(_b, _carry);
         var _am = 0;                     // A_AMODE: bit 0 = 8 directions, bit 1 = Fire animations, bit 2 = Hit / Die

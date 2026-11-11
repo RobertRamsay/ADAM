@@ -445,9 +445,24 @@ function ws_actors_draw(_x1, _y1, _x2, _y2)
         if (_sa.role >= 1 && _sa.role <= 3)
         {
             var _sd = actor_dims(_sa);
+            var _sdiag = (_sa.diagonal && (_sa.role == 2 || _sa.role == 3));
             for (var ax = 0; ax < 2; ax++)
             {
                 var _across = (ax == 0);
+                if (_sdiag)
+                {
+                    // one sloping line: the ends of its diagonal (act_diag_ends)
+                    if (!_across) { continue; }
+                    var _de = act_diag_ends(_sa);
+                    var _da = _fx + (_de[0] - _ox) * _scale;
+                    var _db = _fy + (_de[1] - _oy) * _scale;
+                    var _dc = _fx + (_de[2] - _ox) * _scale;
+                    var _dd = _fy + (_de[3] - _oy) * _scale;
+                    ui_dotted_line(_da + _sd[0] * _scale / 2, _db + _sd[1] * _scale / 2, _dc + _sd[0] * _scale / 2, _dd + _sd[1] * _scale / 2, global.TH.accent, 0.8, 6);
+                    ui_rrect_line(_da, _db, _da + _sd[0] * _scale, _db + _sd[1] * _scale, 4, global.TH.accent, 0.45, 1);
+                    ui_rrect_line(_dc, _dd, _dc + _sd[0] * _scale, _dd + _sd[1] * _scale, 4, global.TH.accent, 0.45, 1);
+                    continue;
+                }
                 if (_across && _sa.role == 3) { continue; }
                 if (!_across && _sa.role == 2) { continue; }
                 var _rg = act_patrol_range(_sa, _across);
@@ -561,12 +576,19 @@ function ws_actors_draw(_x1, _y1, _x2, _y2)
     ui_heading(_fx2 + _half + 12, _y, "Visible at start");
     set_val(_s, "visible", ui_toggle("act_vis", _fx2 + _half + 12, _y + 22, "Shown", _s.visible, "Visible at start|Hidden actors can be shown later with the 'Show actor' action in Logic."), "actvis");
     _y += 62;
-    if (_s.role == 1 || _s.role == 2)
+    // a diagonal patrol uses both start directions: they pick which diagonal it moves along
+    var _diag = (_s.diagonal && (_s.role == 2 || _s.role == 3));
+    if (_s.role == 2 || _s.role == 3)
+    {
+        set_val(_s, "diagonal", ui_toggle("act_diag", _fx2, _y, "Diagonal", _s.diagonal, "Diagonal|Moves at 45 degrees - across and up or down at the same time - back and forth along one line. 'Starts moving left' and 'Starts moving up' pick which diagonal. It turns round after its patrol distance (measured across), at the top or bottom of the screen, and at walls in a tile world. Can be stood on: a sloping lift."), "actdiag");
+        _y += 32;
+    }
+    if (_s.role == 1 || _s.role == 2 || _diag)
     {
         set_val(_s, "start_left", ui_toggle("act_left", _fx2, _y, "Starts moving left", _s.start_left, "Start direction|Whether this actor starts heading left instead of right."), "actleft");
         _y += 32;
     }
-    if (_s.role == 1 || _s.role == 3)
+    if (_s.role == 1 || _s.role == 3 || _diag)
     {
         set_val(_s, "start_up", ui_toggle("act_up", _fx2, _y, "Starts moving up", _s.start_up, "Start direction|Whether this actor starts heading up instead of down."), "actup");
         _y += 32;
@@ -792,6 +814,38 @@ function act_patrol_range(_a, _across)
         }
     }
     return [_lo, _hi];
+}
+
+/// Where a diagonal patrol goes (engine.s move_actors .diag): [x0, y0, x1, y1], the two
+/// ends of its line. Its x range is act_patrol_range across; y follows at 45 degrees
+/// (down while going right when start_left = start_up), and the line stops at the top
+/// and bottom, where the engine turns it round.
+function act_diag_ends(_a)
+{
+    var _d = actor_dims(_a);
+    var _rg = act_patrol_range(_a, true);
+    var _ymax = world_h() - _d[1];
+    var _k = -1;
+    if (_a.start_left == _a.start_up) { _k = 1; }
+    var _out = [];
+    for (var e = 0; e < 2; e++)
+    {
+        var _ex = _rg[e];
+        var _ey = _a.y + _k * (_ex - _a.x);
+        if (_ey < 0)
+        {
+            _ex += _k * (0 - _ey);
+            _ey = 0;
+        }
+        if (_ey > _ymax)
+        {
+            _ex -= _k * (_ey - _ymax);
+            _ey = _ymax;
+        }
+        array_push(_out, _ex);
+        array_push(_out, _ey);
+    }
+    return _out;
 }
 
 /// Colours for actor _i from an allocation result

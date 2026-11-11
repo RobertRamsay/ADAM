@@ -158,6 +158,7 @@ function actor_new(_name)
         carry : false,          // the player picks it up (fire on it) and throws it (fire again)
         stand_on : false,       // a moving platform: actors with gravity stand on it and ride along
         patrol : 0,             // a patrol (roles 1-3): how far it goes from its start, in 8-pixel steps (0 = edge to edge)
+        diagonal : false,       // a patrol (roles 2 / 3): moves at 45 degrees along one line, start_left / start_up pick which way
         aim : 0,                // a shot (role 9): 0 the way the shooter moves, 1 up, 2 down, 3 left, 4 right, 5 at the player, 6 homing missile
         pattern : 0,            // a flyer (role 10): 0 straight, 1 wave, 2 zigzag, 3 homing, 4 with the scenery, 5 comes in and stays (boss)
         enter : 1,              // a flyer's edge: 0 top, 1 right, 2 bottom, 3 left
@@ -1047,6 +1048,12 @@ function project_from_loaded(_raw)
             }
             if (!is_numeric(_lact.patrol)) { _lact.patrol = 0; }
             _lact.patrol = clamp(floor(_lact.patrol), 0, PATROL_MAX);
+            if (!is_bool(_lact.diagonal))
+            {
+                var _dg = false;
+                if (is_numeric(_lact.diagonal)) { _dg = (_lact.diagonal != 0); }
+                _lact.diagonal = _dg;
+            }
             array_push(_acts, _lact);
         }
     }
