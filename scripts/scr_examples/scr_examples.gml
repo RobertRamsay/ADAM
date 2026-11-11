@@ -16,6 +16,73 @@ function examples_init()
     ];
 }
 
+/// Community games (internal builds only): finished Amiga games by other people,
+/// listed in datafiles/community/community.json:
+///   { "games" : [ { "name", "by", "desc", "adf", "shot", "machine" } ] }
+/// adf / shot = file names in the same folder (shot = a 320 x 256 PNG, may be ""),
+/// machine = "A500_600" (default) or "A1200" - the FS-UAE model it boots on.
+/// The folder is not in git: tools/release_build.ps1 -Community <folder> adds it to a
+/// build. Without it global.COMMUNITY is empty and the Community panel says "No community games yet".
+function community_init()
+{
+    global.COMMUNITY = [];
+    var _txt = file_read_text(working_directory + "community/community.json");
+    if (_txt == "") { return; }
+    var _d = undefined;
+    try
+    {
+        _d = json_parse(_txt);
+    }
+    catch (_err)
+    {
+        return;
+    }
+    if (!is_struct(_d)) { return; }
+    var _g = _d[$ "games"];
+    if (!is_array(_g)) { return; }
+    for (var i = 0; i < array_length(_g); i++)
+    {
+        var _e = _g[i];
+        if (!is_struct(_e)) { continue; }
+        if (!is_string(_e[$ "name"]) || !is_string(_e[$ "adf"])) { continue; }
+        var _c = { name : _e.name, by : "", desc : "", adf : _e.adf, machine : "A500_600", spr : -1 };
+        if (is_string(_e[$ "by"])) { _c.by = _e.by; }
+        if (is_string(_e[$ "desc"])) { _c.desc = _e.desc; }
+        if (is_string(_e[$ "machine"])) { _c.machine = machine_get(_e.machine).id; }
+        if (is_string(_e[$ "shot"]) && _e.shot != "")
+        {
+            var _sp = working_directory + "community/" + _e.shot;
+            if (file_exists(_sp)) { _c.spr = sprite_add(_sp, 1, false, false, 0, 0); }
+        }
+        array_push(global.COMMUNITY, _c);
+    }
+}
+
+/// Plays community game _i in FS-UAE on its own machine (not the project's). The disk
+/// is copied to the save area first, so FS-UAE never touches the copy in ADAM's folder.
+function community_play(_i)
+{
+    if (_i < 0 || _i >= array_length(global.COMMUNITY)) { return; }
+    var _c = global.COMMUNITY[_i];
+    var _src = working_directory + "community/" + _c.adf;
+    if (!file_exists(_src))
+    {
+        toast("That game's disk is missing (datafiles/community)", 2);
+        return;
+    }
+    var _dir = game_save_id + "community/";
+    if (!directory_exists(_dir)) { directory_create(_dir); }
+    var _dst = _dir + _c.adf;
+    if (file_exists(_dst)) { file_delete(_dst); }
+    file_copy(_src, _dst);
+    if (!file_exists(_dst))
+    {
+        toast("Could not copy that game's disk", 2);
+        return;
+    }
+    launch_fsuae(_dst, _c.machine);
+}
+
 /// The example's file for the machine picked: the A1200 has its own versions,
 /// with up to 128 colours so gradients are smooth instead of dithered
 function example_file(_e)

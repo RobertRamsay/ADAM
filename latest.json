@@ -1,6 +1,6 @@
 {
-    "version" : "1.2.1",
+    "version" : "1.3.0",
     "lite_url" : "https://polytricity.itch.io/adam-amiga-developmental-machine",
     "pro_url" : "https://polytricity.itch.io/adam-amiga-developmental-machine",
-    "notes" : "A new Home page with every example game ready to play, animated tiles, faster BOBs, a better fit on laptop screens, and tutorials for every feature."
+    "notes" : "Smarter rules (edges, scenery, a counter, bounce, stick, IF above / below / left / right), health and time limits, moving platforms, a map for every level, God mode and Test a level."
 }

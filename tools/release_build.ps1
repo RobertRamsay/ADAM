@@ -4,10 +4,14 @@
 #   -FsUae   folder holding the unpacked official FS-UAE Windows release (the folder that
 #            contains FS-UAE\Windows\x86-64\fs-uae.exe). It is copied next to ADAM.exe, so
 #            Build and play works with nothing else installed. Leave it out for no FS-UAE.
+#   -Community  INTERNAL builds only: folder with community.json and the games' disks and
+#            pictures (see community_init in scr_examples). It goes in as datafiles\community
+#            and the files are named ..._COMMUNITY, so they are never mistaken for the public
+#            build. The games belong to their makers: share a build only with their permission.
 # For the build only: ADAM_PRO = Ed, ADAM_DEV_TOOLS false, display / exe name from
 # ADAM_VERSION, FS-UAE added to the included files. Every source file it touches is
 # restored byte for byte afterwards (see docs/RELEASE.md).
-param([int]$Ed, [string]$Out, [string]$FsUae = "")
+param([int]$Ed, [string]$Out, [string]$FsUae = "", [string]$Community = "")
 $repo = Split-Path -Parent $PSScriptRoot
 $about = [IO.File]::ReadAllText("$repo\scripts\scr_about\scr_about.gml")
 if ($about -notmatch '#macro ADAM_VERSION "([0-9.]+)"') { throw "ADAM_VERSION not found in scr_about" }
@@ -15,7 +19,14 @@ $ver = $Matches[1]
 $ver4 = $ver; while (($ver4.Split(".")).Count -lt 4) { $ver4 += ".0" }
 $tag = "LITE"; if ($Ed -eq 1) { $tag = "PRO" }
 $name = "ADAM_V$ver4`_$tag"
+if ($Community -ne "") { $name += "_COMMUNITY" }
 $fsdir = "$repo\datafiles\FS-UAE"
+$cmdir = "$repo\datafiles\community"
+if ($Community -ne "")
+{
+    if (-not (Test-Path "$Community\community.json")) { throw "No community.json in $Community" }
+    if (Test-Path $cmdir) { throw "$cmdir is already there - remove it first" }
+}
 if ($FsUae -ne "")
 {
     if (-not (Test-Path "$FsUae\FS-UAE\Windows\x86-64\fs-uae.exe")) { throw "No FS-UAE\Windows\x86-64\fs-uae.exe in $FsUae" }
@@ -54,6 +65,23 @@ try {
         [IO.File]::WriteAllText($files[3], $t)
         "--- FS-UAE added: " + (Get-ChildItem -Recurse -File $fsdir).Count + " files"
     }
+    if ($Community -ne "")
+    {
+        # community games go in as included files in datafiles\community (every platform)
+        Copy-Item -Recurse $Community $cmdir
+        $t = [IO.File]::ReadAllText($files[3])
+        $nl = "`n"; if ($t.Contains("`r`n")) { $nl = "`r`n" }
+        $sb = New-Object System.Text.StringBuilder
+        Get-ChildItem -Recurse -File $cmdir | ForEach-Object {
+            $rel = $_.DirectoryName.Substring($repo.Length + 1).Replace("\", "/")
+            [void]$sb.Append('    {"$GMIncludedFile":"","%Name":"' + $_.Name + '","CopyToMask":-1,"filePath":"' + $rel + '","name":"' + $_.Name + '","resourceType":"GMIncludedFile","resourceVersion":"2.0",},' + $nl)
+        }
+        $key = '"IncludedFiles":[' + $nl
+        if (-not $t.Contains($key)) { throw "IncludedFiles not found in ADAM.yyp" }
+        $t = $t.Replace($key, $key + $sb.ToString())
+        [IO.File]::WriteAllText($files[3], $t)
+        "--- community games added: " + (Get-ChildItem -Recurse -File $cmdir).Count + " files (share only with the makers' permission)"
+    }
     "--- release check ($tag, version $ver)"
     & powershell -File "$repo\tools\release_check.ps1"
     # Igor zips the parent of --of, so keep its temp, cache and the log out of there
@@ -90,5 +118,6 @@ try {
 finally {
     foreach ($f in $files) { [IO.File]::WriteAllBytes($f, $orig[$f]) }
     if ($FsUae -ne "" -and (Test-Path $fsdir)) { Remove-Item -Recurse -Force $fsdir }
+    if ($Community -ne "" -and (Test-Path $cmdir)) { Remove-Item -Recurse -Force $cmdir }
     $c = "$repo\cache"; if (Test-Path $c) { Remove-Item -Recurse -Force $c }
 }

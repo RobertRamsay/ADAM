@@ -2654,9 +2654,11 @@ function fsuae_download_async()
     fsuae_dl_then_run = "";
 }
 
-/// Starts FS-UAE on the built disk (after closing an old copy - see Step)
-function launch_fsuae(_adf)
+/// Starts FS-UAE on the built disk (after closing an old copy - see Step).
+/// _machine = machine id to play it on ("" = the project's; community games pass their own).
+function launch_fsuae(_adf, _machine = "")
 {
+    launch_machine = _machine;
     if (os_type != os_windows && os_type != os_macosx)
     {
         toast("Open " + filename_name(_adf) + " in FS-UAE to play", 1);
@@ -2716,6 +2718,19 @@ function kick_path_set(_path)
     settings_save();
 }
 
+/// Machine FS-UAE plays on: launch_machine when launch_fsuae was given one, else the project's
+function launch_mach()
+{
+    if (launch_machine != "") { return machine_get(launch_machine); }
+    return machine_cur();
+}
+
+/// Kickstart ROM for launch_mach() ("" = FS-UAE's AROS)
+function launch_kick()
+{
+    return kick_paths[machine_index(launch_mach().id)];
+}
+
 /// " --floppy_drive_1=..." when the last build of _adf has a disk 2 (the game reads it from DF1)
 function fsuae_disk2_arg(_adf)
 {
@@ -2746,10 +2761,11 @@ function launch_fsuae_now(_adf)
     execute_shell_simple(_exe, _args, "open", 5, filename_dir(_exe));
 }
 
-/// FS-UAE command-line settings for booting _adf on the project's machine
+/// FS-UAE command-line settings for booting _adf on launch_mach() (the project's
+/// machine, or the one a community game asked for)
 function fsuae_args(_adf)
 {
-    var _m = machine_cur();
+    var _m = launch_mach();
     var _args = "--amiga_model=" + _m.fsuae_model
         + " --chip_memory=" + string(_m.chip_kb)
         + " --slow_memory=0 --fast_memory=0"
@@ -2770,7 +2786,7 @@ function fsuae_args(_adf)
         // many Mac keyboards have no right Ctrl: Space fires too
         _args += " --keyboard_key_space=action_joy_1_fire_button";
     }
-    var _kick = kick_path_cur();
+    var _kick = launch_kick();
     if (_kick != "" && file_exists(_kick))
     {
         _args += " --kickstart_file=\"" + _kick + "\"";

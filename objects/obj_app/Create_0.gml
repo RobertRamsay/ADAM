@@ -44,6 +44,7 @@ font_init();
 pixel_sprite_init();
 boing_init();
 examples_init();
+community_init();      // community games (only in builds made with release_build.ps1 -Community)
 
 // ---------- UI state ----------
 ui_mx = 0;
@@ -451,6 +452,7 @@ mem_engine_size = mem_engine_bytes();
 build_show_asm = false;
 launch_pending = "";
 launch_timer = 0;
+launch_machine = "";          // machine id FS-UAE plays launch_pending on ("" = the project's; community games set their own)
 fsuae_dl_id = -1;
 fsuae_dl_zip = "";
 fsuae_dl_got = 0;
@@ -485,6 +487,7 @@ home_shots = [];              // Example games list: each example's screenshot s
 home_shots_aga = false;       // ... for the A1200 (its own versions) when true
 home_ex_click = -1;           // Example games: the row clicked last and when (a second click = build and play)
 home_ex_click_t = 0;
+home_comm = false;            // Home page: true = the Example games panel lists community games (Community button)
 example_last = -1;            // the example loaded last (example_load_now), -1 = none
 whatsnew_active = false;    // "What's new" panel (scr_whatsnew)
 whatsnew_manual = false;    // opened from the Learn ADAM menu (just Close)
