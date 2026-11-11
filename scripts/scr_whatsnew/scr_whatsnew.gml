@@ -9,6 +9,19 @@ function whatsnew_entries()
 {
     return [
         {
+            ver : "1.3.0",
+            items : [
+                "Logic page: new WHENs - an actor reaches an edge, an actor hits the scenery, the counter reaches a number, the time runs out. New DOs - add one to the counter, lose or add health, bounce an actor back, stick one actor to another and let go, stop all sounds, pause and resume the music. IF lines can now ask where an actor is: above, below, level with, left of or right of another (stomp an enemy only from above).",
+                "Health and time limits: give each life some health (Home page) and each level a time limit (Levels page). They show on the score row, or as Health, Time left and Counter fields on a custom HUD.",
+                "Moving platforms: any actor can be 'stood on' - ride a lift or a ferry. Patrols can be given a distance, and the Actors page shows platform tops and how far each patrol goes.",
+                "Tile worlds with levels: each level can have a map of its own (Tiles page, 'Map for'), and big games can keep level maps on a second disk.",
+                "Testing: God mode on the Build page (lives never run out, F8 skips a level) and a Test button on each level to start straight on it.",
+                "Example games: rounder, shaded sprites and better animations - Gem Hunter has a new cast, and Dig Deep's miner bends into each dig.",
+                "The editor allows 128 rules, as the Amiga does. Clicking overlapping actors picks the one in front; the Sound page's preview plays in both speakers.",
+                "On the Amiga: a damaged disk is read again before the game gives up (a yellow screen instead of a crash), and 'Move actor to a random spot' in a tile world picks a clear spot in view."
+            ]
+        },
+        {
             ver : "1.2.1",
             items : [
                 "Page tutorials (Learn ADAM, or F1) now cover everything ADAM Lite can do: BOBs, shots, flyers and enemy fire, pick up and throw, shoot 'em up maps with stamps and spawners, scrolling, items and recipes, AND DO and IF lines, palettes, tools, Hit and Die animations, the Patch synth, sample loops, note effects and more. Each step opens the right tab for you.",
