@@ -1,5 +1,8 @@
 /// ADAM - theme, fonts and Amiga colour helpers
 
+/// Sets up global.TH (the editor's colours, all GameMaker colours, and the
+/// corner radius in UI pixels), the interface scale globals (Step_0 changes
+/// them to fit the window) and the fonts at scale 1.
 function theme_init()
 {
     global.TH = {
@@ -41,6 +44,9 @@ function theme_init()
 }
 
 /// (Re)creates the fonts rasterised for the given interface scale
+/// Sizes in UI pixels: body / bold 12, small 10, title 16, hero 26, from the
+/// Poppins files in datafiles/fonts. A missing file falls back to another
+/// font. ui_text draws them at 1 / scale, so they come out at these sizes.
 function fonts_load(_scale)
 {
     theme_free();
@@ -64,13 +70,15 @@ function fonts_load(_scale)
     {
         global.f_hero = font_add(_dir + "Poppins-Bold.ttf", round(26 * _scale), false, false, 32, 255);
     }
-    if (global.f_body == -1)  { global.f_body  = -1; }
     if (global.f_bold == -1)  { global.f_bold  = global.f_body; }
     if (global.f_title == -1) { global.f_title = global.f_bold; }
     if (global.f_hero == -1)  { global.f_hero  = global.f_title; }
     if (global.f_small == -1) { global.f_small = global.f_body; }
 }
 
+/// Deletes the fonts made by fonts_load, each once (several f_* may share one
+/// font when a file was missing). Called before fonts are made again at a new
+/// scale.
 function theme_free()
 {
     if (is_undefined(global.f_body)) { return; }
@@ -101,9 +109,14 @@ function theme_free()
 // of its 4096 when shown or built. The A1200 (AGA) keeps all 24 bits.
 // ---------------------------------------------------------------------------
 
+/// Red gun (0..255) of a $RRGGBB colour
 function rgb_r(_c) { return (_c >> 16) & 255; }
+/// Green gun (0..255) of a $RRGGBB colour
 function rgb_g(_c) { return (_c >> 8) & 255; }
+/// Blue gun (0..255) of a $RRGGBB colour
 function rgb_b(_c) { return _c & 255; }
+/// $RRGGBB from three guns (rounded, held to 0..255). Not a GameMaker colour:
+/// GameMaker's are $BBGGRR, so draw with amiga_col / make_colour_rgb.
 function rgb_make(_r, _g, _b) { return (clamp(round(_r), 0, 255) << 16) | (clamp(round(_g), 0, 255) << 8) | clamp(round(_b), 0, 255); }
 
 /// Rounds one 8-bit gun to the nearest 4-bit Amiga OCS level (n * 17)

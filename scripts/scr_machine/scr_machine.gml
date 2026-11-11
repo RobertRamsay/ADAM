@@ -97,6 +97,10 @@ function machine_pick_open(_is_launch)
     ui_focus = "";
 }
 
+/// Takes machine _i (index into global.MACHINES) from the picker and closes it.
+/// At launch it switches the open project without an undo step, remembers the
+/// choice (last_machine, settings ini) and may offer the Home tutorial; from the
+/// Build page it is an undoable change (machine_set(_, true)).
 function machine_pick_choose(_i)
 {
     var _m = global.MACHINES[_i];
@@ -160,6 +164,8 @@ function boing_init()
     surface_free(_surf);
 }
 
+/// Draws the boing ball made by boing_init: top-left at (_x, _y), _size pixels
+/// across (the sprites are 48 x 48), _alpha 0..1
 function draw_boing(_x, _y, _size, _alpha)
 {
     var _k = _size / 48;

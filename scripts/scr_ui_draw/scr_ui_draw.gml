@@ -6,6 +6,10 @@
 #macro WIN_MIN_W 960        // smallest window (fits a 1366 x 768 laptop, or 1080p at 150% scaling)
 #macro WIN_MIN_H 540
 
+/// Outline points of a rounded rectangle, clockwise from the top-left corner:
+/// 4 corners x 8 points (7 segments a quarter circle) of radius _r.
+/// Returns a flat array [x0, y0, x1, y1, ...]; the caller must keep _r no
+/// bigger than half the width / height (ui_rrect does).
 function ui_rr_points(_x1, _y1, _x2, _y2, _r)
 {
     var _pts = [];
@@ -67,6 +71,8 @@ function ui_rrect_line(_x1, _y1, _x2, _y2, _r, _col, _alpha, _thick)
     }
 }
 
+/// Soft drop shadow under a rounded rect: 4 black rings growing 2 px each,
+/// shifted 4 px down. _strength scales the darkness (1 = panels, 1.5 = popups).
 function ui_shadow(_x1, _y1, _x2, _y2, _r, _strength)
 {
     for (var i = 4; i >= 1; i--)
@@ -76,6 +82,8 @@ function ui_shadow(_x1, _y1, _x2, _y2, _r, _strength)
     }
 }
 
+/// Hover glow round a rounded rect: 4 fading outlines in _col, 2 px apart.
+/// _strength 0..1 (usually a ui_anim_to fade); nothing is drawn at 0.01 or less.
 function ui_glow(_x1, _y1, _x2, _y2, _r, _col, _strength)
 {
     if (_strength <= 0.01) { return; }
@@ -110,6 +118,10 @@ function ui_inset(_x1, _y1, _x2, _y2, _r)
     draw_line_colour(_x1 + _r, _y2, _x2 - _r, _y2, global.TH.panel_edge, global.TH.panel_edge);
 }
 
+/// Draws one string at (_x, _y) in UI pixels with the given colour, fa_*
+/// alignment, font and alpha. The font is made at ui_scale, so it is drawn
+/// at 1 / ui_scale to come out the right size and sharp. Puts the alignment
+/// back to left / top afterwards.
 function ui_text(_x, _y, _str, _col, _ha, _va, _font, _alpha)
 {
     draw_set_font(_font);
@@ -124,6 +136,8 @@ function ui_text(_x, _y, _str, _col, _ha, _va, _font, _alpha)
     draw_set_valign(fa_top);
 }
 
+/// Draws text wrapped to _w UI pixels wide, top-left at (_x, _y). Measure
+/// its height first with ui_sh_ext (same font and width).
 function ui_text_wrap(_x, _y, _str, _col, _w, _font, _alpha)
 {
     draw_set_font(_font);
@@ -138,21 +152,31 @@ function ui_text_wrap(_x, _y, _str, _col, _w, _font, _alpha)
 
 // ---- resolution independence: fonts are rasterised at ui_scale and drawn at 1/ui_scale,
 // ---- so text stays sharp while the GUI layer is scaled up for 4K screens.
+// ---- Always measure with ui_sw / ui_sh_ext, never string_width, or sizes
+// ---- come out ui_scale times too big.
+/// Width of _str in UI pixels in the font currently set.
 function ui_sw(_str)
 {
     return string_width(_str) / global.ui_scale;
 }
 
+/// Height in UI pixels of _str wrapped to _w (as ui_text_wrap draws it), in
+/// the font currently set with draw_set_font.
 function ui_sh_ext(_str, _w)
 {
     return string_height_ext(_str, -1, _w * global.ui_scale) / global.ui_scale;
 }
 
+/// Clips all drawing to a rect given in UI pixels (x, y, width, height).
+/// gpu_set_scissor works in window pixels, so it is scaled by ui_sx / ui_sy.
+/// Only clips drawing - mouse clipping is ui_clip (ui_scroll_begin). Undo with
+/// ui_scissor_reset; scissors do not stack.
 function ui_scissor(_x, _y, _w, _h)
 {
     gpu_set_scissor(floor(_x * global.ui_sx), floor(_y * global.ui_sy), ceil(_w * global.ui_sx), ceil(_h * global.ui_sy));
 }
 
+/// Removes the clip set by ui_scissor (clip = the whole GUI area).
 function ui_scissor_reset()
 {
     // = the window; in interface pixels while a dev shot draws into its surface
@@ -180,6 +204,8 @@ function ui_scale_fixed(_pref, _ww, _wh)
     return max(UI_SCALE_MIN, min(_pref, _ww / UI_MIN_W, _wh / UI_MIN_H));
 }
 
+/// Returns _str unchanged if it fits in _w UI pixels in _font, else cut
+/// short with "..." on the end so it fits. Leaves _font set.
 function ui_text_fit(_str, _font, _w)
 {
     draw_set_font(_font);
@@ -192,6 +218,7 @@ function ui_text_fit(_str, _font, _w)
     return _s + "...";
 }
 
+/// Dashed straight line: dashes of _dash pixels with gaps of the same length.
 function ui_dotted_line(_x1, _y1, _x2, _y2, _col, _alpha, _dash)
 {
     var _len = point_distance(_x1, _y1, _x2, _y2);
@@ -233,6 +260,8 @@ function ui_leader(_x1, _y1, _x2, _y2, _col, _alpha)
     draw_set_alpha(1);
 }
 
+/// Small filled triangle centred on (_x, _y), _size pixels from the centre to
+/// each side; points down if _down (dropdowns, open folders), else up.
 function ui_chevron(_x, _y, _size, _col, _down)
 {
     draw_set_colour(_col);
@@ -246,6 +275,8 @@ function ui_chevron(_x, _y, _size, _col, _down)
     }
 }
 
+/// Fills the whole GUI (_w x _h UI pixels) with the theme's vertical
+/// gradient and a faint light patch top-left. Drawn first each frame (Draw_64).
 function ui_background(_w, _h)
 {
     draw_rectangle_colour(0, 0, _w, _h, global.TH.bg_top, global.TH.bg_top, global.TH.bg_bot, global.TH.bg_bot, false);

@@ -99,6 +99,8 @@ function app_quit_ask()
     confirm_open("Quit ADAM?", _body, "Quit", "Cancel", true, app_quit_now, 0);
 }
 
+/// Confirm callback of app_quit_ask (the argument is the unused confirm value):
+/// closes ADAM
 function app_quit_now(_unused)
 {
     game_end();     // the Game End event autosaves the project and settings

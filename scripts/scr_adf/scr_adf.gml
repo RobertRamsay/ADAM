@@ -6,7 +6,10 @@
 /// The data block layout is documented at the top of engine.s.
 
 #macro ADF_SIZE 901120
-#macro ADF_HDR 116
+#macro ADF_HDR 120
+#macro WHEN_DISK_MAX 22         // the last WHEN the engine knows (run_rules' jump table)
+#macro DO_DISK_MAX 40           // the last DO the engine knows (acttab)
+#macro COUNTER_MAX 9999         // the counter (DO 32 / WHEN 21) stops here
 #macro D2_TRACK 5632            // disk 2: songs start on a track (11 sectors of 512)
 #macro D2_RAW_BYTES 12800       // engine.s RAW_WORDS x 2: the raw track buffer
 #macro ADF_SONGS_MAX 4
@@ -19,6 +22,8 @@
 // game only gets a warning; on a 512KB A500 the bootblock shows a red screen.
 #macro A500_512K_CHIP_KB 512
 
+/// Writes _v as a big-endian 16-bit word (the 68000's byte order) at the buffer's
+/// position; only the low 16 bits are kept, so -1 becomes $ffff
 function be16(_b, _v)
 {
     var _w = floor(_v) & 0xffff;
@@ -26,6 +31,7 @@ function be16(_b, _v)
     buffer_write(_b, buffer_u8, _w & 255);
 }
 
+/// Writes _v as a big-endian 32-bit long at the buffer's position (low 32 bits kept)
 function be32(_b, _v)
 {
     var _l = floor(_v) & 0xffffffff;
@@ -35,6 +41,8 @@ function be32(_b, _v)
     buffer_write(_b, buffer_u8, _l & 255);
 }
 
+/// Puts _v as a big-endian word at byte offset _o without moving the buffer's
+/// position (used to fill in offsets once the part they point at is written)
 function poke16(_b, _o, _v)
 {
     var _w = floor(_v) & 0xffff;
@@ -42,6 +50,7 @@ function poke16(_b, _o, _v)
     buffer_poke(_b, _o + 1, buffer_u8, _w & 255);
 }
 
+/// Puts _v as a big-endian long at byte offset _o without moving the position
 function poke32(_b, _o, _v)
 {
     var _l = floor(_v) & 0xffffffff;
@@ -51,16 +60,21 @@ function poke32(_b, _o, _v)
     buffer_poke(_b, _o + 3, buffer_u8, _l & 255);
 }
 
+/// Reads the big-endian long at byte offset _o (0..$ffffffff)
 function peek32(_b, _o)
 {
     return (buffer_peek(_b, _o, buffer_u8) << 24) | (buffer_peek(_b, _o + 1, buffer_u8) << 16) | (buffer_peek(_b, _o + 2, buffer_u8) << 8) | buffer_peek(_b, _o + 3, buffer_u8);
 }
 
+/// Pads with zero bytes until the position is a multiple of _n. Every part of
+/// the data block starts on 8 (the 68000 needs even addresses for words and
+/// longs; blitter / bitplane data must be word aligned)
 function buf_align(_b, _n)
 {
     while ((buffer_tell(_b) mod _n) != 0) { buffer_write(_b, buffer_u8, 0); }
 }
 
+/// Writes _n zero bytes (room that the engine fills in, or a size when measuring)
 function buf_zeros(_b, _n)
 {
     var _l = _n div 4;
@@ -68,7 +82,6 @@ function buf_zeros(_b, _n)
     for (var k = 0; k < (_n mod 4); k++) { buffer_write(_b, buffer_u8, 0); }
 }
 
-/// Text in a fixed-size, zero-padded field (upper case, font characters only)
 /// A DO line on the disk: act, target, value (6 bytes) - a rule's DO or one of its AND DO lines
 function adf_do_line(_b, _d, _ncol, _nsnd)
 {
@@ -78,22 +91,35 @@ function adf_do_line(_b, _d, _ncol, _nsnd)
     if (_d.act == 18) { _val = clamp(_val, 0, ADF_SONGS_MAX - 1); }
     if (do_value_is_item(_d.act)) { _val = clamp(_val, 0, max(0, array_length(proj.items) - 1)); }
     if (_d.act == 30) { _val = clamp(_val, 0, max(0, array_length(proj.recipes) - 1)); }
-    be16(_b, clamp(_d.act, 0, 31));
+    if (do_value_is_health(_d.act)) { _val = clamp(_val, 1, HEALTH_MAX); }      // Lose / Add health: how much
+    if (_d.act == 35) { _val = clamp(_val, 0, 2); }                             // Bounce: 0 left-right, 1 up-down, 2 both
+    if (_d.act == 36) { _val = clamp(_val, 0, ACT_MAX_ALL - 1); }               // Stick to: an actor
+    be16(_b, clamp(_d.act, 0, DO_DISK_MAX));
     if (_d.act == 27) { be16(_b, clamp(_d.target, 0, 250)); }       // Switch palette: fade frames
     else if (_d.act == 28 || _d.act == 29) { be16(_b, clamp(_d.target, 1, ITEM_CARRY_MAX)); }   // Give / Take an item: how many
-    else if (_d.act > 29) { be16(_b, 0); }
+    else if (!do_target_is_actor(_d.act)) { be16(_b, 0); }
     else { be16(_b, clamp(_d.target, 0, ACT_MAX_ALL - 1)); }
     be16(_b, clamp(_val, 0, 65535));
 }
 
-/// The IF lines of rule _r as the engine reads them (after its AND DO lines, 8 bytes each:
-/// act = IF_LINE + cond, target = n, value = item, 0)
+/// The IF lines of rule _r as the engine reads them (after its AND DO lines, 8 bytes each).
+/// An item line: act = IF_LINE + cond, target = n, value = item, 0. A position line
+/// (kind 1, version 18): act = IF_LINE + IF_POS ($40) + cond, target = margin in pixels,
+/// value = actor a | actor b << 8 (disk actors: disk_expand maps them), 0.
 function adf_if_lines(_b, _r)
 {
     var _ni = max(1, array_length(proj.items));
     for (var f = 0; f < min(array_length(_r.ifs), RULE_IFS_MAX); f++)
     {
         var _fl = _r.ifs[f];
+        if (_fl.kind == 1)
+        {
+            be16(_b, 0x8000 | 0x40 | clamp(_fl.cond, 0, 4));
+            be16(_b, clamp(_fl.n, 0, IF_POS_MARGIN_MAX));
+            be16(_b, clamp(_fl.a, 0, ACT_MAX_ALL - 1) | (clamp(_fl.b, 0, ACT_MAX_ALL - 1) << 8));
+            be16(_b, 0);
+            continue;
+        }
         be16(_b, 0x8000 | clamp(_fl.cond, 0, 3));
         be16(_b, clamp(_fl.n, 1, ITEM_CARRY_MAX));
         be16(_b, clamp(_fl.item, 0, _ni - 1));
@@ -127,6 +153,8 @@ function sfx_used_on_disk(_p, _rules)
     return _used;
 }
 
+/// Text in a fixed-size, zero-padded field (upper case, font characters only):
+/// _n bytes, at most _n - 1 characters so there is always a 0 at the end
 function buf_fixed_text(_b, _s, _n)
 {
     var _t = string_upper(string_copy(_s, 1, _n - 1));
@@ -356,7 +384,7 @@ function adf_bob_dims(_p, _a)
 /// _measure = true only sizes it (the memory bar): the backdrop planes are left blank.
 /// The game data block for project _p. ADAM Lite writes a copy trimmed to its
 /// limits (lite_trim): the project itself is not changed.
-/// _two: put the level songs on disk 2 even when the project does not ask (it does not fit)
+/// _two: put the level songs and maps on disk 2 even when the project does not ask (it does not fit)
 function adam_data_block(_p, _measure = false, _two = false)
 {
     var _lwarn = [];
@@ -381,7 +409,42 @@ function adam_data_block(_p, _measure = false, _two = false)
     return _r;
 }
 
-/// Actor _i of the project -> its first actor on the disk (0 when it is not on the disk)
+/// A tile map's _n cells (bytes, or words with more than 256 tile types); only its size
+/// when measuring
+function adf_map_cells(_b, _m, _n, _nt, _wcell, _measure)
+{
+    if (_measure)
+    {
+        var _cb = 1;
+        if (_wcell) { _cb = 2; }
+        buf_zeros(_b, _n * _cb);
+    }
+    else if (_wcell)
+    {
+        for (var mc = 0; mc < _n; mc++) { be16(_b, clamp(_m[mc], 0, _nt - 1)); }
+    }
+    else
+    {
+        for (var mc2 = 0; mc2 < _n; mc2++) { buffer_write(_b, buffer_u8, clamp(_m[mc2], 0, _nt - 1)); }
+    }
+}
+
+/// The levels (1..) whose own tile maps go on the disk: a tile world with levels, and
+/// only levels the game has
+function adf_level_maps_used(_p)
+{
+    var _out = [];
+    if (!_p.tiles_on || _p.shmup_map || !_p.levels_on) { return _out; }
+    var _nl = clamp(array_length(_p.levels), 1, LEVEL_MAX);
+    for (var l = 1; l < _nl; l++)
+    {
+        if (array_length(_p.level_maps[l]) == _p.map_w * _p.map_h) { array_push(_out, l); }
+    }
+    return _out;
+}
+
+/// Actor _i of the project -> its first actor on the disk (0 when it is not on the disk).
+/// _first = disk_expand's .disk_first (project actor -> first disk actor, -1 = not on the disk)
 function disk_actor(_first, _i)
 {
     if (_i >= 0 && _i < array_length(_first) && _first[_i] >= 0) { return _first[_i]; }
@@ -469,6 +532,18 @@ function disk_expand(_p)
         var _mo = [];
         for (var m = 0; m < array_length(_ru.more); m++) { array_push(_mo, disk_do_line(_ru.more[m], _first)); }
         _r2.more = _mo;
+        var _fs = [];                   // IF position lines name two actors
+        for (var f = 0; f < array_length(_ru.ifs); f++)
+        {
+            var _f2 = struct_overlay({}, _ru.ifs[f]);
+            if (_f2.kind == 1)
+            {
+                _f2.a = disk_actor(_first, _f2.a);
+                _f2.b = disk_actor(_first, _f2.b);
+            }
+            array_push(_fs, _f2);
+        }
+        _r2.ifs = _fs;
         array_push(_rules, _r2);
     }
     _q.actors = _dacts;
@@ -550,11 +625,27 @@ function shmup_map_disk(_p)
     return scroll_on_disk(_p) && _p.shmup_map && _p.tile_size == 16 && shmup_cols_ok(_p.map_w) && _p.map_h >= BD_H div 16;
 }
 
+/// Writes the game data block for _p, which must already be the disk's copy
+/// (adam_data_block: lite_trim, disk_expand, d2_on set, and proj = _p while it runs).
+/// The layout must stay in step with engine.s (the H_* header and the structures
+/// it points at) and with tools/reference/adf_reference.py build(), which writes
+/// the same block for the example games. A change here is a change in all three.
+/// Order: header room, palette, backdrop planes, actor pictures + animation
+/// tables, actor records, rules, sprite colours, texts, sounds, sky, ground,
+/// game block, tile world, custom HUD, music, work / display / BOB buffers,
+/// scroll block + shoot 'em up map, palettes, items, disk 2 block; then the
+/// cleared memory (BSS) sizes and the header itself.
+/// All offsets are bytes from the start of the data block (the engine adds a4).
+/// _measure = true: sizes only (the memory bar) - pictures and maps are zeros.
+/// Returns { buf, size (bytes on the disk), warnings[], sound_bytes, plane_bytes,
+/// bss (cleared bytes needed after the data), d2 (disk 2 buffer or undefined),
+/// d2_bytes, d2_maps }. The caller deletes buf and d2.
 function adam_data_block_raw(_p, _measure = false)
 {
     var _warn = [];
     var _m = machine_get(_p.machine);
     var _depth = clamp(_p.depth, 1, _m.max_depth);
+    // _ww x _wh = the world actors live in: A_XMAX / A_YMAX and the start x / y clamps use it
     var _ww = BD_W;                       // where actors can be: the screen, the tile map, or a
     var _wh = BD_H;                       // shoot 'em up map's play area
     if (_p.tiles_on)
@@ -575,6 +666,8 @@ function adam_data_block_raw(_p, _measure = false)
     {
         if (_bob[bq]) { _anybob = true; }
     }
+    // the rules that go on the disk: not in a group that is off (group_off_in), not
+    // naming items when the game has none, and at most RULES_DISK_MAX (engine RULES_MAX)
     var _rules = [];
     var _rcut = false;
     var _ritems = 0;
@@ -598,16 +691,21 @@ function adam_data_block_raw(_p, _measure = false)
     var _nr = array_length(_rules);
     var _nsnd = clamp(array_length(_p.sfx), 1, SFX_MAX);
     var _snd_used = sfx_used_on_disk(_p, _rules);
+    // the header (ADF_HDR bytes, H_MAGIC .. H_ITEMS) stays zero until the end, when
+    // every offset is known
     var _b = buffer_create(262144, buffer_grow, 1);
     buf_zeros(_b, ADF_HDR);
     buf_align(_b, 8);
 
     // palette
+    // (H_PAL): (1 << depth) longs $00RRGGBB, rounded to 12-bit colour on OCS (rgb_machine)
     var _off_pal = buffer_tell(_b);
     for (var c = 0; c < _ncol; c++) { be32(_b, rgb_machine(_p.pal[c])); }
     buf_align(_b, 8);
 
     // backdrop bitplanes (pristine copy)
+    // (H_PLANES): depth planes one after another, each 256 lines x 40 bytes = 10240;
+    // bit 7 of a byte is its leftmost pixel
     var _off_planes = buffer_tell(_b);
     if (_measure) { buf_zeros(_b, _depth * 10240); }
     for (var pl = 0; pl < _depth && !_measure; pl++)
@@ -633,6 +731,8 @@ function adam_data_block_raw(_p, _measure = false)
     // BOB images in the nearest backdrop colours instead. Then every frame of
     // its animations, once per sprite slot (and once more turned round when it
     // faces left), and the animation tables (engine.s AN_*).
+    // per actor: _spr_off = A_SPR, _spr2_off = A_SPR2 (hopper crouch), _anim_off = A_ANIM,
+    // _plans = anim_plan entries, _imgs = images made (sprite slot -> [right, left] offsets)
     var _spr_off = array_create(_na, 0);
     var _spr2_off = array_create(_na, 0);
     var _anim_off = array_create(_na, 0);
@@ -692,6 +792,9 @@ function adam_data_block_raw(_p, _measure = false)
         }
     }
     buf_align(_b, 8);
+    // animation tables (A_ANIM -> AN_*): per plan entry ANIM_SIZE 136 bytes = AN_N, AN_RATE,
+    // AN_MODE, 0, then 16 longs facing right (AN_RIGHT) and 16 facing left (AN_LEFT);
+    // slots past the last frame repeat frame 0. adf_reference.py writes the same tables.
     for (var a3 = 0; a3 < _na; a3++)
     {
         var _pl = _plans[a3];
@@ -728,6 +831,8 @@ function adam_data_block_raw(_p, _measure = false)
     buf_align(_b, 8);
 
     // actor records
+    // (H_ACTORS): ACT_SIZE 68 bytes each (engine.s A_*), in disk order (disk_expand);
+    // H_PLAYER is the first player (role 0 or 6)
     var _alloc = actors_alloc_channels();
     var _off_act = buffer_tell(_b);
     var _player = -1;
@@ -744,12 +849,14 @@ function adam_data_block_raw(_p, _measure = false)
             var _bd = adf_bob_dims(_p, a2);
             _aw = _bd[0];
             _ah = _bd[1];
+            // A_BSIZE = BLTSIZE: height << 6 | width in words, + 1 word for the shift into place
             _bsize = (_ah << 6) | (_aw div 16 + 1);
         }
         else if (spr_is_big(_s2))
         {
             array_push(_warn, "Actor '" + _ac.name + "' uses a sprite bigger than 16 x 24 - as a hardware sprite only its top-left 16 x 24 shows.");
         }
+        // A_BX0 .. A_BY1: the box round the drawn pixels of its first picture (touch tests use it)
         var _bx0 = 99;
         var _by0 = 99;
         var _bx1 = -1;
@@ -779,6 +886,7 @@ function adam_data_block_raw(_p, _measure = false)
         var _up = 0;
         if (_ac.start_up) { _up = 1; }
         if (_ac.role == 9) { _up = clamp(_ac.aim, 0, 6); }    // A_UP of a shot = its aim (6 = homing missile)
+        // A_X, A_Y, A_ROLE, A_SPD, A_VIS, A_LEFT, A_UP, A_BX0..A_BY1, A_SPR (long), A_CHAN, A_SPR2 (long)
         be16(_b, clamp(_ac.x, 0, _ww - _aw));     // tile world: anywhere on the map
         be16(_b, clamp(_ac.y, 0, _wh - _ah));
         be16(_b, clamp(_ac.role, 0, 12));
@@ -793,8 +901,10 @@ function adam_data_block_raw(_p, _measure = false)
         be32(_b, _spr_off[a2]);
         be16(_b, max(0, _alloc.chan[a2]));
         be32(_b, _spr2_off[a2]);
-        var _carry = 0;                  // A_CARRY: the player can pick it up and throw it
-        if (_ac.carry) { _carry = 1; }
+        var _carry = 0;                  // A_CARRY: bit 0 the player can pick it up and throw it,
+        if (_ac.carry) { _carry = 1; }   // bit 1 it can be stood on, byte 0 a patrol's distance / 8
+        if (_ac.stand_on) { _carry |= 2; }
+        _carry |= clamp(_ac.patrol, 0, PATROL_MAX) << 8;
         be16(_b, _carry);
         var _am = 0;                     // A_AMODE: bit 0 = 8 directions, bit 1 = Fire animations, bit 2 = Hit / Die
         if (!is_undefined(_plans[a2]))
@@ -858,10 +968,12 @@ function adam_data_block_raw(_p, _measure = false)
         var _ru = _rules[r];
         var _nand = min(array_length(_ru.more), RULE_DOS_MAX - 1);
         var _nif = min(array_length(_ru.ifs), RULE_IFS_MAX);
-        be16(_b, clamp(_ru.when, 0, 18));
+        be16(_b, clamp(_ru.when, 0, WHEN_DISK_MAX));
         be16(_b, clamp(_ru.a, 0, ACT_MAX_ALL - 1));
         be16(_b, clamp(_ru.b, 0, ACT_MAX_ALL - 1));
         if (_ru.when == 17 || _ru.when == 18) { be16(_b, clamp(_ru.n, 0, max(0, array_length(_p.items) - 1))); }   // the item
+        else if (_ru.when == 19) { be16(_b, clamp(_ru.n, 0, 3)); }                  // the edge: 0 left, 1 right, 2 top, 3 bottom
+        else if (_ru.when == 21) { be16(_b, clamp(_ru.n, 1, COUNTER_MAX)); }        // the counter
         else { be16(_b, clamp(_ru.n, 1, 65535)); }
         adf_do_line(_b, _ru, _ncol, _nsnd);
         be16(_b, _nand + _nif);          // R_NAND: the AND DO lines, then the IF lines
@@ -875,6 +987,7 @@ function adam_data_block_raw(_p, _measure = false)
     buf_align(_b, 8);
 
     // sprite pair colours
+    // (H_SPRCOL): 4 sprite pairs x colours 1..3 as longs $00RRGGBB (actors_alloc_channels)
     var _off_sprcol = buffer_tell(_b);
     for (var pr = 0; pr < 4; pr++)
     {
@@ -882,6 +995,7 @@ function adam_data_block_raw(_p, _measure = false)
     }
 
     // messages
+    // (H_TOVER, H_TWIN): game over and win texts, 0 terminated (buf_text)
     var _off_over = buffer_tell(_b);
     buf_text(_b, _p.over_text);
     var _off_win = buffer_tell(_b);
@@ -907,6 +1021,7 @@ function adam_data_block_raw(_p, _measure = false)
         _snd_bytes += array_length(_smp);
     }
     buf_align(_b, 8);
+    // (H_SFX): one 8-byte entry per sound: long offset, word length in words, word Paula period
     var _off_sfx = buffer_tell(_b);
     for (var s2 = 0; s2 < _nsnd; s2++)
     {
@@ -918,6 +1033,7 @@ function adam_data_block_raw(_p, _measure = false)
 
     // copper sky: one $0RGB colour per display line; on AGA a second table of
     // the low nibbles follows (the engine writes them with LOCT set)
+    // (H_GRAD)
     var _off_grad = 0;
     if (_p.sky_on)
     {
@@ -932,6 +1048,7 @@ function adam_data_block_raw(_p, _measure = false)
     }
 
     // ground: for each column, the first pixel from the top in a ground colour
+    // (H_GROUND): 320 words, 256 = no ground in that column; only when a colour is ground
     var _off_ground = 0;
     var _any_solid = false;
     for (var sc = 0; sc < PAL_MAX; sc++)
@@ -947,6 +1064,8 @@ function adam_data_block_raw(_p, _measure = false)
     }
 
     // game block: levels and their hills, goal counter, title screen
+    // (H_GAME, engine.s G_*): G_NLEVELS, G_TERRAIN, G_COLS (4), G_GOAL, G_TITLE, G_LABEL 8,
+    // G_TITLE1 40, G_TITLE2 40, G_LEVTXT 16 bytes, then G_HEIGHTS: 320 words per level
     var _off_game = 0;
     var _lv_on = (_p.levels_on && array_length(_p.levels) > 0);
     if (_lv_on || _p.goal_on || _p.title_on)
@@ -955,7 +1074,7 @@ function adam_data_block_raw(_p, _measure = false)
         var _nlv = 1;
         if (_lv_on) { _nlv = array_length(_p.levels); }
         var _terr = 0;
-        if (_lv_on && _p.hills_on) { _terr = 1; }
+        if (_lv_on && _p.hills_on && !_p.tiles_on) { _terr = 1; }      // (a tile world: the map is the ground - no hills on its title and level cards)
         var _goal = 0;
         if (_p.goal_on) { _goal = clamp(_p.goal, 1, 99); }
         var _tit = 0;
@@ -985,9 +1104,12 @@ function adam_data_block_raw(_p, _measure = false)
     // map as played and the scrolling picture go in cleared memory after the data
     var _off_tiles = 0;
     var _tile_fix = 0;
+    var _d2maps = [];                   // levels' own maps going on disk 2: { slot, buf } (adf_music_table places them)
+    var _d2mapbuf = 0;                  // the map buffer they are read into (whole tracks)
     if (_p.tiles_on)
     {
         buf_align(_b, 8);
+        // (H_TILES) T_W, T_H, T_NT, T_FLAGS (bit 0 dig and place, bit 1 word cells, bit 2 a map per level)
         _off_tiles = buffer_tell(_b);
         var _nt = array_length(_p.tiles);
         var _ts = _p.tile_size;                         // 8, 16, 32 or 64
@@ -1000,9 +1122,11 @@ function adam_data_block_raw(_p, _measure = false)
         if (_p.tile_dig) { _tf = 1; }
         if (_wcell) { _tf = _tf | 2; }
         be16(_b, _tf);
+        // _tile_fix = offset of T_IMG (tile block + 8): T_MAP is +4, T_WMAP +8, T_BUF +12,
+        // T_BUFPL +16, T_ANIM +36 and T_FLAGS -2
         _tile_fix = buffer_tell(_b);
         buf_zeros(_b, 20);              // T_IMG T_MAP T_WMAP T_BUF T_BUFPL, filled in below
-        be16(_b, _ts);                  // T_SIZE, T_SHIFT, T_LINE, T_NCOL, T_NROW, 0, T_RING
+        be16(_b, _ts);                  // T_SIZE, T_SHIFT, T_LINE, T_NCOL, T_NROW, T_NTOOL, T_RING
         be16(_b, _tg.shift);
         be16(_b, _tg.line);
         be16(_b, _tg.ncol);
@@ -1012,6 +1136,8 @@ function adam_data_block_raw(_p, _measure = false)
         be16(_b, _ntool);
         be32(_b, _tg.ring);
         be32(_b, 0);                    // T_ANIM, filled in below
+        // T_PROPS: a TP_* record of 8 bytes per tile type: TP_FLAGS (bit 0 solid, 1 dig, 2 goal,
+        // 3 ladder; bit 5 is the engine's), TP_SOUND ($ff none), TP_HARD, TP_POINTS, TP_BECOMES
         for (var ti = 0; ti < _nt; ti++)
         {
             var _td = _p.tiles[ti];
@@ -1030,6 +1156,7 @@ function adam_data_block_raw(_p, _measure = false)
             if (_bec < 0 || _bec >= _nt) { _bec = 0; }
             be16(_b, _bec);
         }
+        // then 4 letters of name per tile for the HUD (5 written, then back over the 0)
         for (var tn = 0; tn < _nt; tn++) { buf_fixed_text(_b, _p.tiles[tn].name, 5); buffer_seek(_b, buffer_seek_relative, -1); }
         for (var tt = 0; tt < _ntool; tt++)             // TL_*: what fire does, its tile, 8 letters
         {
@@ -1042,12 +1169,14 @@ function adam_data_block_raw(_p, _measure = false)
                 if (_tl.auto) { _tact = _tact | 0x100; }
                 _ttile = clamp(_tl.reach, 4, 64);
             }
+            // TL_ACT word: flags byte (bit 0 Auto) then the act byte; TL_TILE; TL_NAME 8 bytes (9 written, back over the 0)
             be16(_b, _tact);
             be16(_b, _ttile);
             buf_fixed_text(_b, _tl.name, 9);
             buffer_seek(_b, buffer_seek_relative, -1);
         }
         buf_align(_b, 8);
+        // T_IMG: per tile type, depth planes x S lines x S / 8 bytes
         var _off_timg = buffer_tell(_b);
         if (_measure) { buf_zeros(_b, _nt * _depth * _ts * _ts div 8); }     // the memory bar only needs the size
         for (var tp = 0; tp < _nt && !_measure; tp++)
@@ -1070,22 +1199,42 @@ function adam_data_block_raw(_p, _measure = false)
             }
         }
         buf_align(_b, 8);
+        // T_MAP: the map as designed, map_w x map_h cells, top row first
         var _off_tmap = buffer_tell(_b);
-        if (_measure)
-        {
-            var _cb = 1;
-            if (_wcell) { _cb = 2; }
-            buf_zeros(_b, _p.map_w * _p.map_h * _cb);
-        }
-        else if (_wcell)
-        {
-            for (var mc = 0; mc < _p.map_w * _p.map_h; mc++) { be16(_b, clamp(_p.map[mc], 0, _nt - 1)); }
-        }
-        else
-        {
-            for (var mc2 = 0; mc2 < _p.map_w * _p.map_h; mc2++) { buffer_write(_b, buffer_u8, clamp(_p.map[mc2], 0, _nt - 1)); }
-        }
+        adf_map_cells(_b, _p.map, _p.map_w * _p.map_h, _nt, _wcell, _measure);
         buf_align(_b, 8);
+        // levels with maps of their own (T_FLAGS bit 2): T_MAP -> LEVEL_MAX longs, each
+        // level's map (0 = level 1's)
+        var _lmo = adf_level_maps_used(_p);
+        if (array_length(_lmo) > 0)
+        {
+            var _loffs = array_create(LEVEL_MAX, 0);
+            _loffs[0] = _off_tmap;
+            var _mbytes = _p.map_w * _p.map_h;
+            if (_wcell) { _mbytes *= 2; }
+            var _pend = [];
+            for (var lq = 0; lq < array_length(_lmo); lq++)
+            {
+                if (_p.d2_on)
+                {
+                    // on disk 2 (after the songs): its cells aside for now, the table slot filled in later
+                    var _mb2 = buffer_create(_mbytes, buffer_fixed, 1);
+                    adf_map_cells(_mb2, _p.level_maps[_lmo[lq]], _p.map_w * _p.map_h, _nt, _wcell, _measure);
+                    array_push(_pend, { lev : _lmo[lq], buf : _mb2 });
+                    continue;
+                }
+                _loffs[_lmo[lq]] = buffer_tell(_b);
+                adf_map_cells(_b, _p.level_maps[_lmo[lq]], _p.map_w * _p.map_h, _nt, _wcell, _measure);
+                buf_align(_b, 8);
+            }
+            _off_tmap = buffer_tell(_b);
+            for (var lq2 = 0; lq2 < LEVEL_MAX; lq2++) { be32(_b, _loffs[lq2]); }
+            buf_align(_b, 8);
+            poke16(_b, _tile_fix - 2, _tf | 4);
+            for (var pq = 0; pq < array_length(_pend); pq++) { array_push(_d2maps, { slot : _off_tmap + _pend[pq].lev * 4, buf : _pend[pq].buf }); }
+            if (array_length(_pend) > 0) { _d2mapbuf = ceil(_mbytes / D2_TRACK) * D2_TRACK; }
+        }
+        // T_IMG and T_MAP (T_WMAP / T_BUF / T_BUFPL are filled in with the BSS below)
         poke32(_b, _tile_fix, _off_timg);
         poke32(_b, _tile_fix + 4, _off_tmap);
         // animated tiles (engine.s TA_* / TR_*): the picture each tile shows now
@@ -1093,6 +1242,8 @@ function adam_data_block_raw(_p, _measure = false)
         var _tan = tile_anims_on_disk(_p.tiles);
         if (array_length(_tan) > 0)
         {
+            // T_ANIM -> TA_N, 0, TA_PICS (NT words), then TR_SIZE 28-byte records
+            // (tile_anims_on_disk = adf_reference.py tile_anims)
             poke32(_b, _tile_fix + 36, buffer_tell(_b));
             be16(_b, array_length(_tan));
             be16(_b, 0);
@@ -1124,6 +1275,8 @@ function adam_data_block_raw(_p, _measure = false)
     if (_u.on)
     {
         buf_align(_b, 8);
+        // (H_UI) UI_FLAGS (bit 0 on, bit 1 bottom), UI_ROWS, UI_NF, 0, UI_FONT, UI_PANEL, then
+        // UI_FIELDS: F_SIZE 32 bytes each (F_TYPE, F_COL, F_ROW, F_COLOUR, F_SHADOW, F_DIGITS, F_LABEL 20)
         _off_ui = buffer_tell(_b);
         var _uf = 1;
         if (_u.bottom && !_p.tiles_on && !scroll_on_disk(_p)) { _uf = _uf | 2; }     // a scrolling game: always the top
@@ -1192,15 +1345,19 @@ function adam_data_block_raw(_p, _measure = false)
     }
 
     // music: the songs as ProTracker MODs, played by ptplayer in the engine
-    var _mus = adf_music_table(_b, _p, _warn, _rules);
+    // (H_MUSIC, M_*); it also puts the levels' own maps on disk 2 and fills their T_MAP slots
+    var _mus = adf_music_table(_b, _p, _warn, _rules, _d2maps);
+    if (_mus.d2_maps == 0) { _d2mapbuf = 0; }      // none went on disk 2 (it was full)
     var _off_music = _mus.off;
 
     // the backdrop + hills working copy (score text is restored from it)
+    // (H_WORK) - zeros on the disk, like H_DISP / H_DISP2 / H_BACK: the engine fills them at start
     var _off_work = buffer_tell(_b);
     buf_zeros(_b, _depth * 10240);
     buf_align(_b, 8);
 
     // the display bitplanes the game draws into
+    // (H_DISP)
     var _off_disp = buffer_tell(_b);
     buf_zeros(_b, _depth * 10240);
 
@@ -1209,6 +1366,8 @@ function adam_data_block_raw(_p, _measure = false)
     // one word past the end of its buffer.
     var _off_disp2 = 0;
     var _off_back = 0;
+    // _nbuf = screen-sized copies for the memory bar's plane_bytes: planes, work and display
+    // (3), + second display and background with BOBs (5). H_DISP2 / H_BACK stay 0 without BOBs.
     var _nbuf = 3;
     var _scr = scroll_on_disk(_p);
     if (_anybob && !_scr)               // (a scrolling game keeps its BOBs in the scroll buffers)
@@ -1236,6 +1395,7 @@ function adam_data_block_raw(_p, _measure = false)
     if (_scr)
     {
         buf_align(_b, 8);
+        // (H_SCROLL) SC_DIR, SC_SPEED, SC_BUF (long, set with the BSS below), SC_NBUF, 0, SC_MAP (long)
         _off_scroll = buffer_tell(_b);
         if (_anybob) { _sc_nbuf = 3; }
         be16(_b, _sdir);
@@ -1261,6 +1421,7 @@ function adam_data_block_raw(_p, _measure = false)
         be16(_b, _mrows);
         be16(_b, _mnt);
         var _mfix = buffer_tell(_b);
+        // _mfix = offset of MP_IMG (map block + 4): MP_MAP is +4, MP_SP +12
         be32(_b, 0);                    // MP_IMG, MP_MAP: filled in below
         be32(_b, 0);
         be16(_b, array_length(_sps));
@@ -1306,6 +1467,7 @@ function adam_data_block_raw(_p, _measure = false)
             }
         }
         buf_align(_b, 8);
+        // MP_SP: SP_SIZE 16-byte spawner records (adf_spawner_records = spawner_records in gen_examples.py)
         var _off_msp = buffer_tell(_b);
         for (var se = 0; se < array_length(_sps); se++)
         {
@@ -1324,11 +1486,13 @@ function adam_data_block_raw(_p, _measure = false)
         poke32(_b, _mfix, _off_mimg);
         poke32(_b, _mfix + 4, _off_mcells);
         poke32(_b, _mfix + 12, _off_msp);
+        // SC_MAP
         poke32(_b, _off_scroll + 12, _off_map);
     }
 
     // named palettes (version 11): PS_N, the palette each level starts with, then each
     // palette's changed colours { index, 0, $00RRGGBB }
+    // (H_PALS, engine.s PS_*): PS_N word, PS_LEVEL 10 bytes, PS_OFFS longs, then each palette
     var _off_pals = 0;
     var _npal = min(array_length(_p.palettes), PALETTE_MAX);
     if (_npal > 0)
@@ -1370,6 +1534,7 @@ function adam_data_block_raw(_p, _measure = false)
     // items (version 13, engine.s IT_* / RC_*): IT_N, IT_NR, then each item (20 bytes: disk
     // actor or -1, use, flags, uses, carry up to, start with, 8-letter name 0 terminated in 10
     // bytes), then each recipe (8 bytes: a, b, out, flags, n)
+    // (H_ITEMS)
     var _off_items = 0;
     var _nitem = min(array_length(_p.items), ITEM_MAX);
     if (_nitem > 0)
@@ -1411,7 +1576,31 @@ function adam_data_block_raw(_p, _measure = false)
         }
         buf_align(_b, 8);
     }
-    // disk 2 (version 12): D2_ID, then where the raw track buffer and the song buffer are
+    // logic (version 18, engine.s LG_*): health a life starts with, then each level's time
+    // limit in seconds (10 words) - only when the game has one or the other
+    // (H_LOGIC)
+    var _off_logic = 0;
+    var _tl_any = false;
+    for (var lq = 0; lq < LEVEL_MAX; lq++)
+    {
+        if (_p.level_time[lq] > 0 && (lq == 0 || _p.levels_on)) { _tl_any = true; }    // no levels: only level 1's counts
+    }
+    if (_p.health > 0 || _tl_any)
+    {
+        buf_align(_b, 8);
+        _off_logic = buffer_tell(_b);
+        be16(_b, clamp(_p.health, 0, HEALTH_MAX));
+        for (var lq2 = 0; lq2 < LEVEL_MAX; lq2++)
+        {
+            var _lt = 0;
+            if (lq2 == 0 || _p.levels_on) { _lt = clamp(_p.level_time[lq2], 0, TIME_LIMIT_MAX); }   // no levels: level 1's
+            be16(_b, _lt);
+        }
+        buf_align(_b, 8);
+    }
+    // disk 2 (version 12): D2_ID, then where the raw track buffer, the song buffer and
+    // (version 17) the map buffer are
+    // (H_DISK2, engine.s D2_*): D2_ID; D2_RAW, D2_BUF, D2_MAP are set with the BSS below
     var _off_d2 = 0;
     if (!is_undefined(_mus.d2))
     {
@@ -1420,8 +1609,14 @@ function adam_data_block_raw(_p, _measure = false)
         be32(_b, _mus.d2_id);
         be32(_b, 0);
         be32(_b, 0);
+        be32(_b, 0);
         buf_align(_b, 8);
     }
+    // _size = bytes that go on the disk. Everything below is cleared memory after the data
+    // (BSS): not on the disk, but boot.s allocates loadsize + bsssize of chip RAM and
+    // clears it. _bss = how many bytes past _size the engine uses. A tile world and a
+    // scrolling game never come together (scroll_on_disk is false in a tile world), so
+    // only one of the next two applies; disk 2 buffers go after either.
     var _size = buffer_tell(_b);
 
     // tile world: cleared memory after the data (not on the disk): the map as
@@ -1430,6 +1625,7 @@ function adam_data_block_raw(_p, _measure = false)
     if (_p.tiles_on)
     {
         var _base = (_size + 7) & ~7;
+        // T_BUFPL: the ring twice (+ 8 spare), rounded up to 8; T_WMAP = the map as played
         var _bufpl = (2 * tile_geometry(_p.tile_size).ring + 8 + 7) & ~7;
         var _cellb = 1;
         if (array_length(_p.tiles) > 256) { _cellb = 2; }
@@ -1442,6 +1638,7 @@ function adam_data_block_raw(_p, _measure = false)
     }
     if (_scr)
     {
+        // SC_BUF: SC_NBUF buffers, each depth planes of _spl bytes + 16
         var _sbase = (_size + 7) & ~7;
         var _spl = 36864;                               // SCR_PLH: 384 lines x 96 bytes (across)
         if (_sdir == 1 || _sdir == 3) { _spl = 25600; }     // SCR_PLV: 640 lines x 40 bytes
@@ -1451,25 +1648,32 @@ function adam_data_block_raw(_p, _measure = false)
     }
     if (_off_d2 > 0)
     {
-        // disk 2: the raw track buffer, then room for its biggest song (whole tracks)
+        // disk 2: the raw track buffer, then room for its biggest song and for a level map
+        // (whole tracks)
         var _d2base = (_size + _bss + 7) & ~7;
+        var _d2song = ceil(_mus.d2_max / D2_TRACK) * D2_TRACK;
         poke32(_b, _off_d2 + 4, _d2base);
         poke32(_b, _off_d2 + 8, _d2base + D2_RAW_BYTES);
-        _bss = _d2base + D2_RAW_BYTES + ceil(_mus.d2_max / D2_TRACK) * D2_TRACK - _size;
+        if (_d2mapbuf > 0) { poke32(_b, _off_d2 + 12, _d2base + D2_RAW_BYTES + _d2song); }
+        _bss = _d2base + D2_RAW_BYTES + _d2song + _d2mapbuf - _size;
     }
 
     // header
+    // H_MAGIC 'ADAM'. The poke offsets below are the H_* equates of engine.s (H_VERSION 4,
+    // H_FLAGS 6 ... H_ITEMS 112). A new header field needs ADF_HDR, engine.s and
+    // adf_reference.py changed together.
     buffer_poke(_b, 0, buffer_u8, ord("A"));
     buffer_poke(_b, 1, buffer_u8, ord("D"));
     buffer_poke(_b, 2, buffer_u8, ord("A"));
     buffer_poke(_b, 3, buffer_u8, ord("M"));
     var _flags = 0;
     if (_m.aga) { _flags = 1; }
+    _flags |= build_tflags;             // a test copy: God mode bits 1 / 2, the start level in the high byte
     var _sc = 0;
     if (_p.show_score) { _sc = 1; }
     var _lv = 0;
     if (_p.show_lives) { _lv = 1; }
-    poke16(_b, 4, 15);                   // data block version 15: animated tiles (T_ANIM); 14: BOB frame headers (BI_*); 13: items (H_ITEMS), IF lines, WHEN 17 / 18, DO 28..31; 12: disk 2 (H_DISK2); 11: named palettes (H_PALS); 10: shoot 'em up map (SC_MAP), A_TYPE..A_FPAT; 9: shoot 'em up (H_SCROLL, A_PAT..A_RANK); 8: 16-frame animation tables; 7: custom HUD (H_UI); 6: tile world (H_TILES); 5: animation tables (A_ANIM); 4: BOBs
+    poke16(_b, 4, 18);                   // data block version 18: logic block (H_LOGIC 116: health, time limits), WHEN 19..22, DO 32..40, IF position lines; 17: level maps on disk 2 (D2_MAP); 16: a tile map per level (T_FLAGS bit 2); 15: animated tiles (T_ANIM); 14: BOB frame headers (BI_*); 13: items (H_ITEMS), IF lines, WHEN 17 / 18, DO 28..31; 12: disk 2 (H_DISK2); 11: named palettes (H_PALS); 10: shoot 'em up map (SC_MAP), A_TYPE..A_FPAT; 9: shoot 'em up (H_SCROLL, A_PAT..A_RANK); 8: 16-frame animation tables; 7: custom HUD (H_UI); 6: tile world (H_TILES); 5: animation tables (A_ANIM); 4: BOBs
     poke16(_b, 6, _flags);
     poke16(_b, 8, _depth);
     poke16(_b, 10, _na);
@@ -1503,7 +1707,9 @@ function adam_data_block_raw(_p, _measure = false)
     poke32(_b, 104, _off_pals);
     poke32(_b, 108, _off_d2);
     poke32(_b, 112, _off_items);
+    poke32(_b, 116, _off_logic);        // H_LOGIC (version 18)
 
+    // warnings for the Build page (build_warnings)
     for (var rm = 0; rm < _nr; rm++)
     {
         var _bad_song = (_rules[rm].act == 18 && _rules[rm].value >= _mus.nsongs);
@@ -1518,6 +1724,36 @@ function adam_data_block_raw(_p, _measure = false)
         }
     }
     if (_ritems > 0) { array_push(_warn, string(_ritems) + " rule(s) use items, but the game has none - make them on the Logic page (Items tab). Those rules are left out."); }
+    // health and the time limit (version 18): rules that need them, and where they show
+    var _uses_hp = false;
+    var _uses_tout = false;
+    for (var rh = 0; rh < _nr; rh++)
+    {
+        if (rule_has_act(_rules[rh], 33) || rule_has_act(_rules[rh], 34)) { _uses_hp = true; }
+        if (_rules[rh].when == 22) { _uses_tout = true; }
+    }
+    if (_uses_hp && _p.health <= 0) { array_push(_warn, "Lose health / Add health rules do nothing until the game has health - set 'Health a life starts with' on the Home page."); }
+    if (_uses_tout && !_tl_any) { array_push(_warn, "A 'The time runs out' rule never fires - give a level a time limit on the Levels page."); }
+    if (_p.health > 0 || _tl_any)
+    {
+        var _ui_on = (_p.ui.on && pro_on());
+        var _hud_hp = false;
+        var _hud_tm = false;
+        if (_ui_on)
+        {
+            for (var uf = 0; uf < array_length(_p.ui.fields); uf++)
+            {
+                if (_p.ui.fields[uf].type == 8) { _hud_hp = true; }
+                if (_p.ui.fields[uf].type == 9) { _hud_tm = true; }
+            }
+            if (_p.health > 0 && !_hud_hp) { array_push(_warn, "The game has health, but the custom HUD has no Health field to show it (UI page)."); }
+            if (_tl_any && !_hud_tm) { array_push(_warn, "A level has a time limit, but the custom HUD has no Time field to show it (UI page)."); }
+        }
+        else if (_p.goal_on || (_p.tiles_on && _p.tile_dig))
+        {
+            array_push(_warn, "The standard HUD has no room for health and time next to the goal counter or the tile carried - add Health / Time fields on a custom HUD (UI page).");
+        }
+    }
     if (_rcut) { array_push(_warn, "The game has more than " + string(RULES_DISK_MAX) + " rules - the ones after that are left out. Merge some into AND DO lines."); }
     if (_na == 0) { array_push(_warn, "There are no actors yet - the game will just show your backdrop."); }
     if (_player < 0 && _na > 0) { array_push(_warn, "No actor is set as Player, so the joystick will not move anything."); }
@@ -1531,17 +1767,17 @@ function adam_data_block_raw(_p, _measure = false)
     {
         array_push(_warn, string(_nbobs) + " BOBs is a lot for the " + _m.short_name + " at " + string(_ncol) + " colours - about " + string(_bmax) + " small ones run at full speed (big BOBs count as several); with more the game slows down. Fewer BOBs or fewer colours help.");
     }
-    if (array_length(_acts) > _na)
+    if (array_length(_acts) > _na && !_p.tiles_on)      // (a tile world has its own warning below)
     {
-        if (pro_on()) { array_push(_warn, "Only the first " + string(ACT_MAX_ALL) + " actors go on the disk."); }
-        else { array_push(_warn, "Only the first " + string(ACT_MAX_SPR) + " actors go on the disk - more actors (as BOBs) are part of ADAM Pro."); }
+        // _na = how many this edition writes: lim_actors() (Lite 12, Pro 32)
+        array_push(_warn, "Only the first " + string(_na) + " actors go on the disk.");
     }
     if (_p.tiles_on && array_length(_acts) > ACT_MAX_TILE) { array_push(_warn, "A tile world has up to " + string(ACT_MAX_TILE) + " actors (hardware sprites - the scrolling display uses sprite 8's time) - only the first " + string(ACT_MAX_TILE) + " go on the disk."); }
     if (_p.tiles_on && _p.scroll_dir > 0) { array_push(_warn, "The backdrop does not scroll in a tile world - the map scrolls with the player instead."); }
     if (_p.tiles_on && tile_anim_count(_p.tiles) > TILE_ANIM_MAX) { array_push(_warn, "A game has up to " + string(TILE_ANIM_MAX) + " animated tiles - the others stand still."); }
     if (!_p.tiles_on && _p.shmup_map && tile_anim_count(_p.tiles) > 0) { array_push(_warn, "Animated tiles play in a tile world - on a shoot 'em up map they stand still."); }
     return { buf : _b, size : _size, warnings : _warn, sound_bytes : _snd_bytes + _mus.bytes, plane_bytes : _depth * 10240 * _nbuf, bss : _bss,
-             d2 : _mus.d2, d2_bytes : _mus.d2_bytes };
+             d2 : _mus.d2, d2_bytes : _mus.d2_bytes, d2_maps : _mus.d2_maps };
 }
 
 /// The songs that go on disk 2 (version 12): with _on, every song a level starts with
@@ -1592,14 +1828,18 @@ function adf_disk2_path(_path)
 /// word 0, then nsongs x { long offset of the MOD bytes, long length }. A song on disk 2
 /// (_p.d2_on, disk2_song_flags) has bit 31 of its offset set: the rest is where it starts
 /// on disk 2 (a track; the disk's first track holds 'ADM2' and its id).
-/// Returns { off (0 = no music), bytes, nsongs, d2 (disk 2's bytes, or undefined), d2_max, d2_id, d2_bytes }.
-function adf_music_table(_b, _p, _warn, _rules)
+/// _d2maps: levels' own tile maps for disk 2 ({ slot in _b for its offset, buf of its cells }),
+/// put after the songs, each from a track start (the buffers are deleted here).
+/// Returns { off (0 = no music), bytes, nsongs, d2 (disk 2's bytes, or undefined), d2_max, d2_id, d2_bytes, d2_maps }.
+function adf_music_table(_b, _p, _warn, _rules, _d2maps = [])
 {
-    var _res = { off : 0, bytes : 0, nsongs : 0, d2 : undefined, d2_max : 0, d2_id : 0, d2_bytes : 0 };
-    if (!is_array(_p.songs)) { return _res; }
-    var _ns = min(ADF_SONGS_MAX, array_length(_p.songs));
-    if (_ns <= 0) { return _res; }
-
+    var _res = { off : 0, bytes : 0, nsongs : 0, d2 : undefined, d2_max : 0, d2_id : 0, d2_bytes : 0, d2_maps : 0 };
+    var _ns = 0;
+    if (is_array(_p.songs)) { _ns = min(ADF_SONGS_MAX, array_length(_p.songs)); }
+    var _d2pos = D2_TRACK;
+    var _d2id = 0x41444d32;
+    if (_ns > 0)
+    {
     buf_align(_b, 8);
     var _off = buffer_tell(_b);
     be16(_b, _ns);
@@ -1617,8 +1857,6 @@ function adf_music_table(_b, _p, _warn, _rules)
     var _tab = buffer_tell(_b);
     buf_zeros(_b, _ns * 8);
     var _d2f = disk2_song_flags(_p, _rules, _ns, _p.d2_on);
-    var _d2pos = D2_TRACK;
-    var _d2id = 0x41444d32;
 
     for (var s = 0; s < _ns; s++)
     {
@@ -1681,6 +1919,34 @@ function adf_music_table(_b, _p, _warn, _rules)
         _res.bytes += _len;
     }
     buf_align(_b, 8);
+    _res.off = _off;
+    _res.nsongs = _ns;
+    }
+    // the levels' own tile maps (version 17): after the songs, each from a track start;
+    // their table entries get bit 31 (on disk 2). One that does not fit stays level 1's map.
+    for (var mq = 0; mq < array_length(_d2maps); mq++)
+    {
+        var _mm = _d2maps[mq].buf;
+        var _ml = buffer_get_size(_mm);
+        if (_d2pos + _ml > ADF_SIZE)
+        {
+            array_push(_warn, "Disk 2 is full - a level plays on level 1's map.");
+            buffer_delete(_mm);
+            continue;
+        }
+        if (is_undefined(_res.d2))
+        {
+            _res.d2 = buffer_create(ADF_SIZE, buffer_fixed, 1);
+            buffer_fill(_res.d2, 0, buffer_u8, 0, ADF_SIZE);
+        }
+        buffer_copy(_mm, 0, _ml, _res.d2, _d2pos);
+        _d2id = disk2_id_add(_d2id, _mm, _ml);
+        buffer_delete(_mm);
+        poke32(_b, _d2maps[mq].slot, 0x80000000 | _d2pos);
+        _res.d2_bytes += _ml;
+        _res.d2_maps += 1;
+        _d2pos += ceil(_ml / D2_TRACK) * D2_TRACK;
+    }
     if (!is_undefined(_res.d2))
     {
         if (_d2id == 0) { _d2id = 1; }
@@ -1691,12 +1957,9 @@ function adf_music_table(_b, _p, _warn, _rules)
         buffer_poke(_res.d2, 3, buffer_u8, ord("2"));
         poke32(_res.d2, 4, _d2id);
     }
-    _res.off = _off;
-    _res.nsongs = _ns;
     return _res;
 }
 
-/// Builds the ADF file. Returns true on success and fills build_* fields.
 /// Size in bytes of the 68000 engine (engine.bin), or 0 if it is missing
 function mem_engine_bytes()
 {
@@ -1796,6 +2059,13 @@ function mem_bar_draw(_x, _y, _w, _h)
     ui_register("mem_bar", _x - 10 - 190, _y - 6, _x + _w, _y + _h + 6, _help);
 }
 
+/// Builds the ADF file at _path from proj. Returns true on success and fills the build_*
+/// fields (build_ok, build_msg, build_warnings, sizes for the chip RAM bar, build_disk2).
+/// The disk: bootblock (boot.bin, sectors 0-1, its last 16 bytes poked with screenload,
+/// screenmem, loadsize, bsssize), the ADAM Pro loading screen block if any, engine.bin,
+/// then the data block - as adf_reference.py adf(). Too big for one disk or for chip RAM:
+/// tries again with the level songs and maps on disk 2 (<name>_disk2.adf).
+/// Fails (false, build_msg says why) when it still does not fit.
 function build_adf(_path)
 {
     var _dir = working_directory + "engine/";
@@ -1811,15 +2081,19 @@ function build_adf(_path)
     var _bsize = buffer_get_size(_boot);
     var _data = adam_data_block(proj);
     build_disk2 = "";
-    if (ceil((_esize + _data.size) / 512) * 512 > ADF_SIZE - 1024 && !proj.disk2_music && is_array(proj.songs) && array_length(proj.songs) > 0)
+    var _m0 = machine_cur();
+    var _too_big = (ceil((_esize + _data.size) / 512) * 512 > ADF_SIZE - 1024) || (_esize + _data.size + _data.bss > (_m0.chip_kb - OS_RESERVE_KB) * 1024);
+    var _has_d2 = (is_array(proj.songs) && array_length(proj.songs) > 0) || array_length(adf_level_maps_used(proj)) > 0;
+    if (_too_big && !proj.disk2_music && _has_d2)
     {
-        // too big for one disk: try the songs the levels start with on disk 2
+        // too big for one disk (or chip RAM): try the songs the levels start with and the
+        // levels' own maps on disk 2
         var _two = adam_data_block(proj, false, true);
         if (!is_undefined(_two.d2))
         {
             buffer_delete(_data.buf);
             _data = _two;
-            array_push(_data.warnings, "The game did not fit on one disk, so the level music went on disk 2.");
+            array_push(_data.warnings, "The game did not fit on one disk (or in chip RAM), so the level music and maps went on disk 2.");
         }
         else { buffer_delete(_two.buf); }
     }
@@ -1912,7 +2186,12 @@ function build_adf(_path)
     build_sound_size = _data.sound_bytes;
     build_chip_free = _chip_free;
     build_msg = "Built " + filename_name(_path) + " for the " + _m.name + " - " + string(ceil(_need / 1024)) + " KB of chip RAM";
-    if (build_disk2 != "") { build_msg += ", and " + filename_name(build_disk2) + " (" + string(ceil(_data.d2_bytes / 1024)) + " KB of level music)"; }
+    if (build_disk2 != "")
+    {
+        var _d2what = "level music";
+        if (_data.d2_maps > 0) { _d2what = "level music and maps"; }
+        build_msg += ", and " + filename_name(build_disk2) + " (" + string(ceil(_data.d2_bytes / 1024)) + " KB of " + _d2what + ")";
+    }
     if (!_m.aga && _need > (A500_512K_CHIP_KB - OS_RESERVE_KB) * 1024)
     {
         array_push(build_warnings, "Too big for an A500 with only 512KB of chip RAM (about " + string(A500_512K_CHIP_KB - OS_RESERVE_KB) + " KB free) - it will show a red screen there. Fine on 1MB machines.");
@@ -1979,7 +2258,8 @@ function dev_cli_build()
 }
 
 /// Dev tool (ADAM_DEV_TOOLS): a PNG of every page, then quit.
-///     Runner.exe -game data.win -adam_shots in.adam outdir [-adam_shots_w 1920 -adam_shots_h 1080]
+///     Runner.exe -game data.win -adam_shots in.adam outdir [-adam_shots_w 1920 -adam_shots_h 1080] [-adam_shots_tut]
+/// -adam_shots_tut shoots shot_tut_pages instead: pages with one tutorial step showing.
 /// The window is set to that size at 100% scale, the mouse is ignored and nothing is
 /// saved (no autosave, settings or window place), so the session is unchanged.
 function dev_cli_shots()
@@ -1997,6 +2277,11 @@ function dev_cli_shots()
             if (parameter_string(k) == "-adam_shots_w") { _sw = real(parameter_string(k + 1)); }
             if (parameter_string(k) == "-adam_shots_h") { _sh = real(parameter_string(k + 1)); }
         }
+        for (var t = 0; t < _n; t++)
+        {
+            if (parameter_string(t) == "-adam_shots_tut") { shot_tut_on = true; }
+        }
+        if (shot_tut_on) { shot_pages = shot_tut_pages; }
         try
         {
             proj = project_from_loaded(json_parse(file_read_text(_in)));
@@ -2060,6 +2345,22 @@ function dev_shots_step()
     if (_pg.ws == WS_UI) { ui_page_tab = _pg.panel; }
     logic_tab = 0;
     if (_pg.ws == WS_LOGIC) { logic_tab = _pg.panel; }
+    if (shot_tut_on)
+    {
+        // -adam_shots_tut: the page with one of its tutorial steps showing
+        tut_active = false;
+        for (var i = 0; i < array_length(tut_steps); i++)
+        {
+            if (tut_steps[i].tab == _pg.ws && tut_steps[i].target == _pg.tut)
+            {
+                tut_list = [i];
+                tut_index = 0;
+                if (shot_wait == 0) { tut_shown = -1; }     // opens the step's tab once
+                tut_active = true;
+                tut_anim = 1;
+            }
+        }
+    }
     shot_wait += 1;
 }
 
@@ -2094,6 +2395,8 @@ function dev_shots_begin()
     return true;
 }
 
+/// Draw GUI, after drawing into shot_surf: saves it as <shot_dir>/<n>_<page name>.png
+/// and moves on to the next page (dev_cli_shots / dev_shots_step / dev_shots_begin)
 function dev_shots_end()
 {
     global.ui_sx = shot_sx;
@@ -2133,11 +2436,13 @@ function dev_shots_end()
 // + "ARM64" or "x86-64" + ".tar.xz"
 #macro FSUAE_MAC_URL "https://github.com/FrodeSolheim/fs-uae/releases/download/v3.2.35/FS-UAE_3.2.35_macOS_"
 
+/// Folder of ADAM's downloaded FS-UAE test copy (ADAM_DEV_TOOLS), in the save area
 function fsuae_test_dir()
 {
     return game_save_id + "fs-uae/";
 }
 
+/// fs-uae.exe inside the test copy (Windows layout of the official zip)
 function fsuae_test_exe()
 {
     return fsuae_test_dir() + "FS-UAE/Windows/x86-64/fs-uae.exe";
@@ -2404,6 +2709,7 @@ function kick_path_cur()
     return kick_paths[machine_index(proj.machine)];
 }
 
+/// Sets the Kickstart ROM for the project's machine ("" = FS-UAE's AROS) and saves the settings ini
 function kick_path_set(_path)
 {
     kick_paths[machine_index(proj.machine)] = _path;

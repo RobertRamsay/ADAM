@@ -18,22 +18,34 @@
 #macro ITEM_CARRY_MAX 99        // the most of one item the player can carry
 #macro ITEM_NAME_LEN 8          // item names: upper case (the game's font), shown in the space bar menu
 
+/// Fills the global name lists the editor shows in dropdowns: roles, WHEN and DO
+/// names (their index is the number written to the disk - R_WHEN / R_ACT, A_ROLE),
+/// fade times, aim / flight pattern / edge / power-up / scroll names, synth waves,
+/// sound presets (SFX_PRESET_NAMES = the sounds of a new project), rule templates
+/// and colour depths. Called once from obj_app Create. Keep the order of each list:
+/// the numbers are saved in .adam files and read by engine.s.
 function project_defs_init()
 {
     global.ROLE_NAMES = ["Player (joystick)", "Bouncer (diagonal)", "Patrol left-right", "Patrol up-down", "Chaser (follows player)", "Still (does not move)", "Platform player (walks + jumps)", "Hopper (jumps left and right)", "Faller (drops onto the ground)", "Shot (fired by a Shoot rule)", "Flyer (shoot 'em up enemy)", "Option (flies behind the player)", "Effect (explosion, sparkle)"];
-    global.WHEN_NAMES = ["Actor touches actor", "Fire button is pressed", "Every few seconds", "Score reaches", "Lives run out", "The game starts", "Actor jumps", "A level starts", "Fire is held (stick still)", "Actor is in view", "Player strikes actor", "Thrown or shot actor hits", "Player picks up actor", "Seconds into the level", "Fire is held (auto-fire)", "The map reaches its end", "An animation ends", "Player gets an item", "Player uses an item on"];
+    global.WHEN_NAMES = ["Actor touches actor", "Fire button is pressed", "Every few seconds", "Score reaches", "Lives run out", "The game starts", "Actor jumps", "A level starts", "Fire is held (stick still)", "Actor is in view", "Player strikes actor", "Thrown or shot actor hits", "Player picks up actor", "Seconds into the level", "Fire is held (auto-fire)", "The map reaches its end", "An animation ends", "Player gets an item", "Player uses an item on", "Actor reaches an edge", "Actor hits the scenery", "The counter reaches", "The time runs out"];
     global.DO_NAMES   = ["Add to score", "Lose a life", "Play a sound", "Flash the player", "Send actor back to start",
                          "Move actor to a random spot", "Hide actor", "Show actor", "Change background colour",
                          "Game over", "You win!", "Speed up actor", "Slow down actor", "Add a life", "Move actor to another actor",
                          "Show actor for a moment", "Make actor safe for a while", "Count towards the level goal",
                          "Play music", "Stop music", "Place a tile (tile world)", "Drop what is carried", "Shoot (fire a shot actor)",
                          "Power up the player", "Set off an effect", "Spawn actor (split into)", "Play an animation", "Switch palette",
-                         "Give the player an item", "Take an item away", "Make a recipe", "Drop an item"];
+                         "Give the player an item", "Take an item away", "Make a recipe", "Drop an item",
+                         "Add one to the counter", "Lose health", "Add health", "Bounce actor back",
+                         "Stick actor to another", "Let go of actor", "Stop all sounds", "Pause music", "Resume music"];
     global.PAL_FADES = [0, 12, 25, 50, 100, 200];   // DO 27 target: frames the fade takes
     global.PAL_FADE_NAMES = ["at once", "fading 1/4 s", "fading 1/2 s", "fading 1 s", "fading 2 s", "fading 4 s"];
     global.HD_NAMES = ["Hit", "Die", "Hit or Die"];       // DO 26 value (0 / 1), WHEN 16 n (0 / 1 / 2 either)
     global.ITEM_USE_NAMES = ["Used up", "Kept", "A few uses"];   // item.use: what using an item does to it
     global.IF_NAMES = ["has", "uses", "has no", "has at least"];  // IF line cond: check / needs it and uses it / has none / has n or more
+    global.IF_POS_NAMES = ["is above", "is below", "is level with", "is left of", "is right of"];   // IF position line cond (kind 1)
+    global.IF_KIND_NAMES = ["The player", "Actor"];                 // IF line kind: 0 about an item, 1 where an actor is
+    global.SIDE_NAMES = ["Left", "Right", "Top", "Bottom"];         // WHEN 19 n: the edge
+    global.BOUNCE_NAMES = ["Left-right", "Up-down", "Both ways"];   // DO 35 value
     global.AIM_NAMES = ["The way the shooter moves", "Up", "Down", "Left", "Right", "At the player", "Homing missile"];
     global.FIRE_PAT_NAMES = ["The shot's own aim", "At the player", "Three at the player", "Ring of 8", "Fan of three"];
     global.PATTERN_NAMES = ["Straight", "Wave", "Zigzag", "Homing (drifts at the player)", "Moves with the scenery", "Comes in and stays (boss)"];
@@ -81,6 +93,8 @@ function spr_bank_size()
     return lim_bank();
 }
 
+/// A blank sprite bank slot called _name: 16 x 24 (a hardware sprite), pixels
+/// 0 (clear) .. 3, and the three colours (as $RRGGBB) pixels 1-3 are drawn in
 function sprite_new(_name)
 {
     return {
@@ -115,6 +129,11 @@ function spr_is_big(_s)
     return _s.w > SPR_W || _s.h > SPR_H;
 }
 
+/// A new actor called _name with the defaults the Actors page starts from:
+/// sprite slot 0, role 5 (Still), in the middle of the screen. Each field goes
+/// into its A_* record on the disk (adam_data_block_raw); the loader
+/// (project_from_loaded) overlays saved fields onto this, so a field added here
+/// is how older files get a value for it.
 function actor_new(_name)
 {
     return {
@@ -137,7 +156,9 @@ function actor_new(_name)
         faster_every : 0,
         bob : false,            // ADAM Pro: drawn by the blitter instead of a hardware sprite
         carry : false,          // the player picks it up (fire on it) and throws it (fire again)
-        aim : 0,                // a shot (role 9): 0 the way the shooter moves, 1 up, 2 down, 3 left, 4 right, 5 at the player
+        stand_on : false,       // a moving platform: actors with gravity stand on it and ride along
+        patrol : 0,             // a patrol (roles 1-3): how far it goes from its start, in 8-pixel steps (0 = edge to edge)
+        aim : 0,                // a shot (role 9): 0 the way the shooter moves, 1 up, 2 down, 3 left, 4 right, 5 at the player, 6 homing missile
         pattern : 0,            // a flyer (role 10): 0 straight, 1 wave, 2 zigzag, 3 homing, 4 with the scenery, 5 comes in and stays (boss)
         enter : 1,              // a flyer's edge: 0 top, 1 right, 2 bottom, 3 left
         comeback : true,        // a flyer that leaves the far edge comes in again (else it hides)
@@ -150,6 +171,7 @@ function actor_new(_name)
 }
 
 #macro COPIES_MAX 16            // copies of one actor on the disk
+#macro PATROL_MAX 255           // a patrol's distance: up to 255 steps of 8 pixels (A_CARRY byte 0)
 #macro SPAWN_MAX 128            // spawners on a shoot 'em up map
 #macro STAMP_MAX 64             // saved stamps (metatiles) on the Tiles page
 #macro SHMUP_COLS_MIN 12        // a shoot 'em up map's play area: 12 to 20 tiles of 16 across, an even
@@ -212,14 +234,21 @@ function stamp_from_loaded(_raw)
 /// Does DO action _act use its value as an actor (move to, shoot, set off, spawn)?
 function do_value_is_actor(_act)
 {
-    return _act == 14 || _act == 22 || _act == 24 || _act == 25;
+    return _act == 14 || _act == 22 || _act == 24 || _act == 25 || _act == 36;
 }
 
 /// False for the DO actions whose target is not an actor (27 Switch palette: fade frames;
-/// 28 Give / 29 Take an item: how many; 30 Make a recipe, 31 Drop an item: unused)
+/// 28 Give / 29 Take an item: how many; 30 Make a recipe, 31 Drop an item, 32 counter,
+/// 33 / 34 health, 38..40 sound and music: unused). 35 Bounce, 36 Stick, 37 Let go: an actor.
 function do_target_is_actor(_act)
 {
-    return _act < 27;
+    return _act < 27 || (_act >= 35 && _act <= 37);
+}
+
+/// Does DO action _act use its value as an amount of health (33 Lose / 34 Add health)?
+function do_value_is_health(_act)
+{
+    return _act == 33 || _act == 34;
 }
 
 /// Does DO action _act use its value as an item (give, take, drop)?
@@ -229,9 +258,9 @@ function do_value_is_item(_act)
 }
 
 // ---------------------------------------------------------------------------
-// Animations (Animate page, Lite and Pro). Each actor has 4: Idle (standing
+// Animations (Animate page, Lite and Pro). Each actor has 4 basic ones: Idle (standing
 // still), Walk (moving), Jump and Fall (in the air - platform players,
-// hoppers and fallers). Each is up to ANIM_FRAMES sprite-bank slots, a speed
+// hoppers and fallers), then the 8 directions, Fire and Hit / Die (ANIM_COUNT). Each is up to ANIM_FRAMES sprite-bank slots, a speed
 // in 50ths of a second per frame and a mode. Empty ones borrow from the
 // others when the disk is built (anim_plan, same as adf_reference.py).
 // ---------------------------------------------------------------------------
@@ -245,11 +274,14 @@ function do_value_is_item(_act)
 #macro ANIM_FIRE0 12            // Fire with no direction; 13..20 = Fire + the 8 directions
 #macro ANIM_FRAMES 16
 
+/// An empty animation: no frames (sprite bank slots), rate in 50ths of a second per
+/// frame (2..30), mode 0 loop / 1 once / 2 ping-pong. Disk: one AN_* entry (anim_plan).
 function anim_new()
 {
     return { frames : [], rate : 8, mode : 0 };      // mode 0 loop, 1 once, 2 ping-pong
 }
 
+/// An actor's ANIM_COUNT (23) empty animations, indexed by the ANIM_* slots above
 function anims_new()
 {
     var _a = [];
@@ -454,6 +486,14 @@ function anim_plan_k(_plan, _k)
     return -1;
 }
 
+/// The animation table of actor _ac before Hit / Die are added (anim_plan adds them):
+/// an array of { frames, rate, mode, flip } - 4 entries (Idle, Walk, Jump, Fall), 12 with
+/// 8 directions, 21 with Fire animations. Empty entries are filled from the others
+/// (Idle <-> Walk, Jump from Walk, Fall from Jump, directions via anim_resolve_dirs;
+/// an empty Idle with directions is mode 3 'stand facing'). Lite keeps the first
+/// lim_frames() frames. Older actors with only the two-frame animation get a 4-entry
+/// table; no animation at all = undefined (A_ANIM 0). Must give the same table as
+/// anim_plan_main in tools/reference/adf_reference.py.
 function anim_plan_main(_ac)
 {
     if (anims_used(_ac))
@@ -570,8 +610,13 @@ function actor_preview_sprite(_ac)
 }
 
 #macro RULE_DOS_MAX 5           // DO lines on one rule card: the DO and up to 4 AND DO lines
+#macro HEALTH_MAX 99            // health a life can start with (proj.health)
+#macro TIME_LIMIT_MAX 999       // seconds a level's time limit can be (proj.level_time)
+#macro IF_POS_MARGIN_MAX 64     // an IF position line's margin, in pixels
 #macro RULE_IFS_MAX 3           // IF lines on one rule card (items the player must have)
 
+/// A new rule card: WHEN when (with actors a, b and number n), DO act (target, value),
+/// group -1 = not in a group. Disk: an R_* record (16 bytes) + AND DO / IF lines.
 function rule_new()
 {
     // n: seconds / score / tenths held / seconds in view / item (WHEN 17, 18); value: points / sound /
@@ -580,11 +625,14 @@ function rule_new()
     return { when : 0, a : 0, b : 1, n : 1, act : 0, target : 0, value : 10, group : -1, more : [], ifs : [] };
 }
 
-/// An IF line of a rule: the player cond 0 has item / 1 uses item (it must have one, and using it
-/// does what the item's 'When used' says) / 2 has no item / 3 has at least n of item
+/// An IF line of a rule. kind 0: the player cond 0 has item / 1 uses item (it must have one,
+/// and using it does what the item's 'When used' says) / 2 has no item / 3 has at least n of
+/// item. kind 1 (version 18): actor a cond 0 is above / 1 below / 2 level with / 3 left of /
+/// 4 right of actor b - their boxes' middles more than n pixels apart that way (level with:
+/// no more than n apart up or down).
 function if_new()
 {
-    return { cond : 0, item : 0, n : 1 };
+    return { kind : 0, cond : 0, item : 0, n : 1, a : 0, b : 1 };
 }
 
 /// An AND DO line of a rule: what it does, the actor it changes and its value
@@ -604,6 +652,10 @@ function rule_has_act(_r, _act)
     return false;
 }
 
+/// A new sound called _name: kind 0 synth (wave, pitch, sweep, envelope in
+/// len / atk / dec / sus / rel, optional filter), 1 sample (smp = the WAV data,
+/// then rate / bits crunch, gain, trim and loop points 0..1000), 2 patch (scr_patch).
+/// Rendered for the disk by sfx_render_ex (= adf_reference.py render_sfx).
 function sfx_new(_name)
 {
     return {
@@ -732,6 +784,9 @@ function sfx_pick_index(_list, _k)
     return 0;
 }
 
+/// Sets synth sound _s to preset _p (0..7, as global.SFX_PRESET_NAMES: Coin, Laser,
+/// Explosion, Jump, Hit, Power up, Lose, Blip). Each row of the table is
+/// wave, pitch, sweep, len, atk, dec, sus, rel.
 function sfx_apply_preset(_s, _p)
 {
     var _t = [
@@ -755,6 +810,10 @@ function sfx_apply_preset(_s, _p)
     _s.rel = _v[7];
 }
 
+/// A new, empty project on the machine picked last: the default palette, a blank
+/// 320 x 256 backdrop, SPR_COUNT blank sprites, SFX_START preset sounds. Every
+/// project field must be set here - the loader starts from this struct, so a field
+/// missing here is missing in every loaded file too.
 function project_new()
 {
     var _p = {
@@ -771,6 +830,8 @@ function project_new()
         sfx : [],                                // 1..SFX_MAX sounds (Sound page)
         sound_groups : [],                       // Sound page folders: { name, open }
         lives : 3,
+        health : 0,                              // health a life starts with, 0 = no health (Home page; DO 33 / 34)
+        level_time : array_create(LEVEL_MAX, 0), // seconds each level has, 0 = no time limit (Levels page; WHEN 22)
         show_score : true,
         show_lives : true,
         hud_row : 0,
@@ -800,13 +861,14 @@ function project_new()
         level_pal : array_create(LEVEL_MAX, 0),  // the palette each level starts with: 0 main, k = palettes[k - 1]
         items : [],                              // inventory items (Logic page, Items tab): item_new
         recipes : [],                            // item + item makes an item: recipe_new
-        disk2_music : false,                     // the songs levels start with go on disk 2 (Build page)
+        disk2_music : false,                     // the songs levels start with, and the levels' own maps, go on disk 2 (Build page)
         tiles_on : false,                        // play on the tile map (Tiles page) instead of the backdrop
         tile_size : 16,                          // 8, 16, 32 or 64 pixels: every tile in the game
         tiles : tiles_default(16),               // up to TILE_MAX tiles; 0 = air
         map_w : 64,
         map_h : 32,
-        map : map_starter(64, 32),               // map_w x map_h tile numbers
+        map : map_starter(64, 32),               // map_w x map_h tile numbers (level 1's, and every level without its own)
+        level_maps : level_maps_new(),           // [l] = level l + 1's own map (map_w x map_h), [] = level 1's; [0] is always []
         tile_dig : true,                         // the player digs (fire + direction) and places (fire)
         tools : [],                              // space bar menu tools (Tools tab), [] = none
         scroll_dir : 0,                          // the backdrop scrolls: 0 no, the ship flies 1 up, 2 right, 3 down, 4 left (Levels page)
@@ -850,11 +912,23 @@ function groups_fold_all()
     for (var g = 0; g < array_length(proj.groups); g++) { proj.groups[g].collapsed = true; }
 }
 
+/// The loader and validator: turns _raw (a parsed .adam file, an example, or an undo
+/// snapshot merged onto proj) into a safe project. Load path:
+///   json_parse -> project_unpack (packed "_z" keys back to arrays) ->
+///   struct_overlay onto project_new() (fields the file lacks keep their defaults) ->
+///   each part rebuilt and clamped below: sprites, sounds (patch_from_loaded),
+///   actors (anims_from_loaded), rules (AND DO / IF lines), groups (loops cut),
+///   levels, songs (song_from_loaded), palettes, then items_fix (scr_ws_logic),
+///   tiles_fix / shmup_fix (scr_tiles), ui_from_loaded (scr_ws_ui), loadscr_from_loaded.
+/// Never throws on bad data (only json_parse can); a _raw that is not a struct gives a
+/// new project. Returns the new project; the caller puts it in proj.
 function project_from_loaded(_raw)
 {
     var _p = project_new();
     if (!is_struct(_raw)) { return _p; }
     project_unpack(_raw);
+    // keep the defaults: struct_overlay below replaces these arrays with the file's (or
+    // leaves them missing), and they are rebuilt from the defaults + the file's entries
     var _sprites = _p.sprites;
     var _sfx = _p.sfx;
     var _pal = _p.pal;
@@ -965,6 +1039,14 @@ function project_from_loaded(_raw)
             _lact.fire_rate = clamp(floor(_lact.fire_rate), 10, 500);
             if (!is_numeric(_lact.fire_pat)) { _lact.fire_pat = 0; }
             _lact.fire_pat = clamp(floor(_lact.fire_pat), 0, 4);
+            if (!is_bool(_lact.stand_on))
+            {
+                var _so = false;
+                if (is_numeric(_lact.stand_on)) { _so = (_lact.stand_on != 0); }
+                _lact.stand_on = _so;
+            }
+            if (!is_numeric(_lact.patrol)) { _lact.patrol = 0; }
+            _lact.patrol = clamp(floor(_lact.patrol), 0, PATROL_MAX);
             array_push(_acts, _lact);
         }
     }
@@ -974,7 +1056,8 @@ function project_from_loaded(_raw)
     var _lr = _raw[$ "rules"];
     if (is_array(_lr))
     {
-        for (var m = 0; m < min(100, array_length(_lr)); m++)
+        // up to RULES_DISK_MAX (128), the Logic page's limit and the most the disk takes
+        for (var m = 0; m < min(RULES_DISK_MAX, array_length(_lr)); m++)
         {
             var _ru = struct_overlay(rule_new(), _lr[m]);
             var _mo = [];                   // AND DO lines (older files have none)
@@ -993,12 +1076,26 @@ function project_from_loaded(_raw)
                 {
                     if (!is_struct(_ru.ifs[fi])) { continue; }
                     var _if = struct_overlay(if_new(), _ru.ifs[fi]);
+                    if (!is_numeric(_if.kind)) { _if.kind = 0; }
                     if (!is_numeric(_if.cond)) { _if.cond = 0; }
                     if (!is_numeric(_if.item)) { _if.item = 0; }
                     if (!is_numeric(_if.n)) { _if.n = 1; }
-                    _if.cond = clamp(floor(_if.cond), 0, 3);
+                    if (!is_numeric(_if.a)) { _if.a = 0; }
+                    if (!is_numeric(_if.b)) { _if.b = 1; }
+                    _if.kind = clamp(floor(_if.kind), 0, 1);
                     _if.item = clamp(floor(_if.item), 0, ITEM_MAX - 1);
-                    _if.n = clamp(floor(_if.n), 1, ITEM_CARRY_MAX);
+                    _if.a = clamp(floor(_if.a), 0, ACT_MAX_ALL - 1);
+                    _if.b = clamp(floor(_if.b), 0, ACT_MAX_ALL - 1);
+                    if (_if.kind == 1)              // where actor a is from actor b
+                    {
+                        _if.cond = clamp(floor(_if.cond), 0, 4);
+                        _if.n = clamp(floor(_if.n), 0, IF_POS_MARGIN_MAX);
+                    }
+                    else                            // an item the player has
+                    {
+                        _if.cond = clamp(floor(_if.cond), 0, 3);
+                        _if.n = clamp(floor(_if.n), 1, ITEM_CARRY_MAX);
+                    }
                     array_push(_ifs, _if);
                 }
             }
@@ -1108,6 +1205,20 @@ function project_from_loaded(_raw)
     }
     _p.level_pal = _lpv;
     _p.disk2_music = (_raw[$ "disk2_music"] == true);
+    // health and time limits (version 18; older files have neither)
+    var _hr = _raw[$ "health"];
+    _p.health = 0;
+    if (is_numeric(_hr)) { _p.health = clamp(floor(_hr), 0, HEALTH_MAX); }
+    var _ltv = array_create(LEVEL_MAX, 0);
+    var _ltr = _raw[$ "level_time"];
+    if (is_array(_ltr))
+    {
+        for (var lt = 0; lt < min(LEVEL_MAX, array_length(_ltr)); lt++)
+        {
+            if (is_numeric(_ltr[lt])) { _ltv[lt] = clamp(floor(_ltr[lt]), 0, TIME_LIMIT_MAX); }
+        }
+    }
+    _p.level_time = _ltv;
     items_fix(_p, _raw);                 // inventory items and recipes (older files have none)
     if (!is_numeric(_p.scroll_dir)) { _p.scroll_dir = 0; }
     _p.scroll_dir = clamp(floor(_p.scroll_dir), 0, 4);
@@ -1126,6 +1237,7 @@ function project_from_loaded(_raw)
     return _p;
 }
 
+/// Writes _text to _path as UTF-8 without a trailing 0. Returns true.
 function file_write_text(_path, _text)
 {
     var _b = buffer_create(string_byte_length(_text) + 1, buffer_grow, 1);
@@ -1135,6 +1247,7 @@ function file_write_text(_path, _text)
     return true;
 }
 
+/// The whole text file at _path, or "" when it is missing, unreadable or empty
 function file_read_text(_path)
 {
     if (!file_exists(_path)) { return ""; }
@@ -1268,6 +1381,25 @@ function project_pack(_src)
         if (is_array(_lt0)) { _big = (array_length(_lt0) > 256); }
         if (_big) { _out.map_z16 = pack_u16(_src.map); }      // more than 256 tile types: 16-bit cells
         else { _out.map_z = pack_u8(_src.map); }
+        // the levels' own maps the same way ("" = level 1's)
+        var _lms = _src[$ "level_maps"];
+        if (is_array(_lms))
+        {
+            variable_struct_remove(_out, "level_maps");
+            var _lz = [];
+            for (var lm = 0; lm < array_length(_lms); lm++)
+            {
+                var _z = "";
+                if (is_array(_lms[lm]) && array_length(_lms[lm]) > 0)
+                {
+                    if (_big) { _z = pack_u16(_lms[lm]); }
+                    else { _z = pack_u8(_lms[lm]); }
+                }
+                array_push(_lz, _z);
+            }
+            if (_big) { _out.level_maps_z16 = _lz; }
+            else { _out.level_maps_z = _lz; }
+        }
     }
     var _lt = _src[$ "tiles"];
     if (is_array(_lt))
@@ -1388,6 +1520,28 @@ function project_unpack(_raw)
         if (is_numeric(_mw16) && is_numeric(_mh16)) { _raw.map = unpack_u16(_mz16, floor(_mw16) * floor(_mh16)); }
         variable_struct_remove(_raw, "map_z16");
     }
+    for (var lz = 0; lz < 2; lz++)
+    {
+        var _lkey = "level_maps_z";
+        if (lz == 1) { _lkey = "level_maps_z16"; }
+        var _lzs = _raw[$ _lkey];
+        if (!is_array(_lzs)) { continue; }
+        var _lmw = _raw[$ "map_w"];
+        var _lmh = _raw[$ "map_h"];
+        var _lout = [];
+        for (var lq = 0; lq < array_length(_lzs); lq++)
+        {
+            var _lmap = [];
+            if (is_string(_lzs[lq]) && _lzs[lq] != "" && is_numeric(_lmw) && is_numeric(_lmh))
+            {
+                if (lz == 1) { _lmap = unpack_u16(_lzs[lq], floor(_lmw) * floor(_lmh)); }
+                else { _lmap = unpack_u8(_lzs[lq], floor(_lmw) * floor(_lmh)); }
+            }
+            array_push(_lout, _lmap);
+        }
+        _raw.level_maps = _lout;
+        variable_struct_remove(_raw, _lkey);
+    }
     var _tsz = 16;
     if (is_numeric(_raw[$ "tile_size"])) { _tsz = tile_size_ok(_raw.tile_size); }
     var _lt = _raw[$ "tiles"];
@@ -1481,6 +1635,9 @@ function project_pack_selftest()
     return _ok;
 }
 
+/// Saves proj to _path. Save path: project_to_json -> project_pack (backdrop, sprite
+/// and tile pixels, maps, hills, song data packed as zlib + base64) -> json_stringify
+/// -> file_write_text. Remembers the path (proj_path, settings ini), clears proj_dirty.
 function project_save_to(_path)
 {
     var _t0 = get_timer();
@@ -1492,6 +1649,9 @@ function project_save_to(_path)
     toast("Saved " + filename_name(_path), 0);
 }
 
+/// Opens the .adam file at _path: json_parse -> project_from_loaded, folds the rule
+/// groups, sets out_path to <name>.adf beside it, clears undo. The machine comes from
+/// the file. Returns false (with a toast) when the file cannot be read or parsed.
 function project_load_from(_path)
 {
     var _txt = file_read_text(_path);
@@ -1528,6 +1688,9 @@ function project_load_from(_path)
     return true;
 }
 
+/// Call after proj has been replaced or changed in many places (load, undo, example):
+/// marks every cache stale (memory bar, tile atlas, sprites, backdrop, drum rows,
+/// listing) and clamps the editor's selections and the depth to the new project
 function project_after_change()
 {
     mem_mark_stale();
@@ -1547,6 +1710,8 @@ function project_after_change()
 // of the project it changes, so undoing on the Logic page never touches the
 // backdrop you painted afterwards, and so on.
 // ---------------------------------------------------------------------------
+
+// Named palettes (Backdrop page Palettes tab, DO 27, Levels page); undo continues at undo_keys
 
 /// A named palette: changes none of the main palette's colours yet
 function palette_new(_name)
@@ -1629,21 +1794,30 @@ function palette_look(_k, _look)
     }
 }
 
-/// Project fields each editor owns
+// How undo works: each page has its own undo and redo stack (undo_stacks[ws]).
+// undo_mark(tag) is called BEFORE a change and pushes a snapshot: a partial one
+// holds only the page's undo_keys fields, a full one (undo_mark_full, or a page
+// with no keys) the whole project. Snapshots are project_to_json text (packed),
+// so later edits cannot change them. undo_restore parses one, project_unpack's it,
+// lays its fields over a shallow copy of proj and runs the result through
+// project_from_loaded, so restored data gets the same checks as a loaded file.
+// A field a page changes must be in its list here, or undo will not bring it back.
+
+/// Project fields each editor owns (the page's partial undo snapshot); _ws = a WS_* page
 function undo_keys(_ws)
 {
     switch (_ws)
     {
         case WS_HOME:     return ["name", "lives", "show_score", "show_lives", "hud_row", "hud_colour", "msg_colour", "over_text", "win_text"];
         case WS_BACKDROP: return ["pixels", "pal", "depth", "solid", "sky_on", "sky_top", "sky_mid", "sky_bot", "sky_mid_y", "hud_colour", "msg_colour", "terrain_cols", "palettes", "level_pal", "ui"];
-        case WS_LEVELS:   return ["levels_on", "levels", "terrain_cols", "goal_on", "goal", "goal_label", "title_on", "title1", "title2", "lev_text", "level_song", "scroll_dir", "scroll_speed", "hills_on", "level_pal"];
+        case WS_LEVELS:   return ["levels_on", "levels", "level_maps", "terrain_cols", "goal_on", "goal", "goal_label", "title_on", "title1", "title2", "lev_text", "level_song", "scroll_dir", "scroll_speed", "hills_on", "level_pal"];
         case WS_SPRITES:  return ["sprites"];
         case WS_ACTORS:   return ["actors", "rules", "spawners", "items"];
         case WS_LOGIC:    return ["rules", "groups", "items", "recipes", "ui"];
         case WS_SOUND:    return ["sfx", "sound_groups"];
         case WS_MUSIC:    return ["songs", "level_song"];
         case WS_ANIMATE:  return ["actors"];
-        case WS_TILES:    return ["tiles_on", "tile_size", "tiles", "map_w", "map_h", "map", "tile_dig", "tools", "actors", "shmup_map", "spawners", "stamps", "scroll_dir"];
+        case WS_TILES:    return ["tiles_on", "tile_size", "tiles", "map_w", "map_h", "map", "level_maps", "tile_dig", "tools", "actors", "shmup_map", "spawners", "stamps", "scroll_dir"];
         case WS_UI:       return ["ui", "loadscr"];
     }
     return [];
@@ -1682,6 +1856,7 @@ function undo_restore(_snap)
     if (ADAM_DEV_TOOLS) { show_debug_message("ADAM undo restore: " + string((get_timer() - _t0) / 1000) + " ms, snapshot " + string(string_byte_length(_snap.data)) + " bytes"); }
 }
 
+/// Empties the undo and redo history of every page (a new project, a load, an example)
 function undo_clear_all()
 {
     undo_stacks = array_create(WS_COUNT, 0);
@@ -1707,6 +1882,10 @@ function undo_mark_full(_tag)
     undo_mark_ex(_tag, true);
 }
 
+/// Pushes a snapshot of proj onto the current page's undo stack before a change
+/// (undo_mark / undo_mark_full call this). Marks of the same _tag less than 1.2 s
+/// apart are one step (dragging a slider). _full, or a page with no undo_keys,
+/// saves the whole project. Up to 40 steps per page; a new mark clears that page's redo.
 function undo_mark_ex(_tag, _full)
 {
     proj_dirty = true;
@@ -1728,6 +1907,8 @@ function undo_mark_ex(_tag, _full)
     redo_stacks[_w] = [];
 }
 
+/// Undo: puts back the current page's last snapshot, first saving the present state
+/// (the same part: full or the page's keys) on its redo stack
 function undo_do()
 {
     var _w = ws;
@@ -1742,6 +1923,7 @@ function undo_do()
     undo_last_tag = "";
 }
 
+/// Redo: the reverse of undo_do on the current page
 function redo_do()
 {
     var _w = ws;
@@ -1756,11 +1938,13 @@ function redo_do()
     undo_last_tag = "";
 }
 
+/// Undo steps on the current page (ws)
 function undo_count()
 {
     return array_length(undo_stacks[ws]);
 }
 
+/// Redo steps on the current page (ws)
 function redo_count()
 {
     return array_length(redo_stacks[ws]);
@@ -1803,6 +1987,11 @@ function actor_remove(_idx)
             var _d = _r.more[m];
             if (do_target_is_actor(_d.act)) { _d.target = actor_ref_after_remove(_d.target, _idx, 0); }
             if (do_value_is_actor(_d.act)) { _d.value = actor_ref_after_remove(_d.value, _idx, 0); }
+        }
+        for (var f = 0; f < array_length(_r.ifs); f++)     // IF position lines name two actors
+        {
+            _r.ifs[f].a = actor_ref_after_remove(_r.ifs[f].a, _idx, 0);
+            _r.ifs[f].b = actor_ref_after_remove(_r.ifs[f].b, _idx, 0);
         }
     }
     for (var a = 0; a < array_length(proj.actors); a++)
@@ -1894,6 +2083,11 @@ function backdrop_set_depth(_depth)
     bd_sel = clamp(bd_sel, 0, _count - 1);
 }
 
+/// Reads adam_settings.ini (in the save area): paths (FS-UAE, Kickstart per machine -
+/// an old single "kickstart" key goes to the machine used last, last disk and
+/// project), emulator and God mode options, last machine, UI options, window place,
+/// pages seen and lessons done. Missing keys get their defaults; the first run is
+/// when [machine] last is missing.
 function settings_load()
 {
     ini_open("adam_settings.ini");
@@ -1908,6 +2102,9 @@ function settings_load()
     }
     fsuae_light = ini_read_real("emulator", "light", 1) == 1;
     fsuae_pad = clamp(round(ini_read_real("emulator", "pad", 0)), 0, 1);
+    god_mode = ini_read_real("god", "on", 0) == 1;
+    god_lives = ini_read_real("god", "lives", 1) == 1;
+    god_skip = ini_read_real("god", "skip", 1) == 1;
     out_path = ini_read_string("paths", "adf", "");
     proj_path = ini_read_string("paths", "project", "");
     last_machine = ini_read_string("machine", "last", "A1200");
@@ -1935,6 +2132,8 @@ function settings_load()
     last_machine = machine_get(last_machine).id;
 }
 
+/// Writes everything settings_load reads back to adam_settings.ini (and removes the
+/// old single "kickstart" key)
 function settings_save()
 {
     ini_open("adam_settings.ini");
@@ -1948,6 +2147,15 @@ function settings_save()
     if (fsuae_light) { _light = 1; }
     ini_write_real("emulator", "light", _light);
     ini_write_real("emulator", "pad", fsuae_pad);
+    var _g = 0;
+    if (god_mode) { _g = 1; }
+    ini_write_real("god", "on", _g);
+    _g = 0;
+    if (god_lives) { _g = 1; }
+    ini_write_real("god", "lives", _g);
+    _g = 0;
+    if (god_skip) { _g = 1; }
+    ini_write_real("god", "skip", _g);
     ini_write_string("paths", "adf", out_path);
     ini_write_string("paths", "project", proj_path);
     ini_write_string("machine", "last", last_machine);
@@ -1984,6 +2192,8 @@ function settings_save()
     ini_close();
 }
 
+/// Where the session's project is saved automatically (Step event, and on closing):
+/// autosave.adam in the save area, written with project_to_json
 function autosave_path()
 {
     return game_save_id + "autosave.adam";

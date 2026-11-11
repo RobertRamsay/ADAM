@@ -49,11 +49,14 @@ PI_DATA     equ 12         ; long: its bytes, plane after plane (offset from the
 PI_SIZE     equ 16
 PLANE_BYTES equ 10240      ; 40 bytes x 256 lines
 
-            bra.w   ls_init
-            bra.w   ls_prog
-            bra.w   ls_done
+            bra.w   ls_init                 ; entry 0
+            bra.w   ls_prog                 ; entry 4
+            bra.w   ls_done                 ; entry 8
 
 ; ---------------------------------------------------------------------------
+; init: a0 = the block, a5 = $dff000. Walks ADAM's copper list (to its $ffff
+; wait) adding a0 to every BPLxPT / SPRxPT pair (offsets -> addresses), clears
+; the progress counters, starts the copper. Changes d1, d2, a1-a3.
 ls_init:    lea     ls_data(pc),a1
             move.l  LS_COPPER(a1),a2
             add.l   a0,a2                   ; a2 = copper list
@@ -92,7 +95,12 @@ ls_init:    lea     ls_data(pc),a1
             rts
 
 ; ---------------------------------------------------------------------------
-; d0.w = progress 0..1024
+; progress: a0 = the block, d0.w = progress 0..1024 (clamped). Copies the part of
+; the full-bar strip the progress has newly reached onto the picture (ls_px =
+; columns / rows already shown), then shows each picture whose PI_THR it has
+; reached (ls_pic = pictures shown). Uses d0-d7 and a1-a6 as scratch - a5 too,
+; so it is no longer $dff000 on return: the bootblock's call_block saves
+; d2-d7 / a2-a6 and sets a5 again before each call.
 ls_prog:    lea     ls_data(pc),a1
             and.l   #$ffff,d0
             cmp.w   #1024,d0
@@ -266,6 +274,8 @@ ls_prog:    lea     ls_data(pc),a1
 .out        rts
 
 ; ---------------------------------------------------------------------------
+; done: a5 = $dff000. Display off and colour 0 black, so nothing shows while the
+; bootblock frees this block and jumps into the engine.
 ls_done:    move.w  #$0180,$96(a5)          ; DMACON: bitplanes and copper off
             move.w  #$0200,$100(a5)         ; BPLCON0: no bitplanes
             move.w  #0,$180(a5)             ; COLOR00 black

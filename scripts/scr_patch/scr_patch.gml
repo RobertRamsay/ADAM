@@ -12,6 +12,10 @@
 #macro PATCH_MAX_SECONDS 6
 #macro PATCH_BLOCK 16          // samples between envelope / LFO / filter updates
 
+/// Fills the patch globals once at start: PATCH_DEF (every setting's range,
+/// control kind, label, help and display format; the Sound page builds its
+/// patch panel from it), PATCH_IDX (name -> PATCH_DEF entry) and the presets.
+/// A new setting needs an entry here and a default in patch_new.
 function patch_defs_init()
 {
     var _waves = ["Saw", "Square", "Triangle", "Sine", "Noise"];
@@ -131,6 +135,8 @@ function patch_defs_init()
     }
 }
 
+/// The default patch (preset "Init"): one saw through a low-pass filter at
+/// note 24 (C3). Ranges of every field are in PATCH_DEF.
 function patch_new()
 {
     return {
@@ -162,6 +168,8 @@ function patch_from_loaded(_raw)
     return _p;
 }
 
+/// Sets patch _p (in place) to preset _i of PATCH_PRESETS: first every
+/// setting back to patch_new, then the preset's own settings on top
 function patch_apply_preset(_p, _i)
 {
     var _fresh = patch_new();
@@ -207,12 +215,16 @@ function patch_randomise(_p, _amount)
     }
 }
 
+/// Envelope time in ms for a slider value _v 0..100 (curved: 1 ms .. 8001 ms)
 function patch_env_ms(_v) { return 1 + 0.8 * _v * _v; }
+/// LFO rate in Hz for a slider value _v 0..100 (0.05 Hz .. 25.6 Hz, 9 octaves)
 function patch_lfo_hz(_v) { return 0.05 * power(2, _v / 100 * 9); }
 
 /// The frequency of patch note _key (0 = C1 ... 59 = B5)
 function patch_key_hz(_key) { return 32.7032 * power(2, _key / 12); }
 
+/// Name of patch note _key (0..59): "C-1" .. "B-5". Patch note 12 (C-2) has
+/// the same name as tracker note 13 (see patch_root).
 function patch_key_name(_key)
 {
     var _k = clamp(round(_key), 0, 59);

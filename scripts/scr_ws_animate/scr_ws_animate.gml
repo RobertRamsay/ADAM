@@ -9,18 +9,25 @@
 /// while a platform player, hopper or faller is in the air. Empty animations
 /// borrow from the others (anim_plan).
 
+/// Short names of the 23 animation slots, by slot number (ANIM_COUNT): 0..3 Idle / Walk / Jump / Fall,
+/// 4..11 the 8 directions, 12 Fire, 13..20 Fire + a direction, 21 Hit, 22 Die. Same order as the
+/// engine's AN_* table entries.
 function anim_names()
 {
     return ["Idle", "Walk", "Jump", "Fall", "N", "NE", "E", "SE", "S", "SW", "W", "NW",
             "Fire", "N", "NE", "E", "SE", "S", "SW", "W", "NW", "Hit", "Die"];
 }
 
+/// The same 23 slots as anim_names, spelt out for labels and hover help ("Up and right" for NE).
 function anim_long_names()
 {
     return ["Idle", "Walk", "Jump", "Fall", "Up", "Up and right", "Right", "Down and right", "Down", "Down and left", "Left", "Up and left",
             "Fire", "Fire + up", "Fire + up and right", "Fire + right", "Fire + down and right", "Fire + down", "Fire + down and left", "Fire + left", "Fire + up and left", "Hit", "Die"];
 }
 
+/// Dropdown names for an animation's mode, by mode number: 0 loop, 1 once (holds the last frame),
+/// 2 ping-pong. Written to disk as the AN_* mode byte. (Mode 3, stand facing the last direction,
+/// is only made by anim_plan for an empty Idle with 8 directions and is not offered here.)
 function anim_mode_names()
 {
     return ["Loop", "Once (then hold)", "Ping-pong"];
@@ -427,6 +434,12 @@ function anim_joystick(_which, _x, _y, _size, _s, _plan, _cols, _in, _test_k)
     }
 }
 
+/// Draws and runs the Animate page inside (_x1, _y1)-(_x2, _y2), in UI pixels: actor list on the
+/// left, then the Moving and With Fire joysticks (anim_joystick), the live preview, the frame strip and
+/// speed / mode / frame buttons in the middle, and options plus the sprite bank or the animation
+/// library on the right. Edits go into proj.actors[sel_actor].anims[anim_sel] ({ frames, rate, mode });
+/// the disk writer turns them into the AN_* table (anim_plan, A_ANIM). anim_drag_update runs last so
+/// every drop zone drawn this frame has had its chance to set anim_drop_k.
 function ws_animate_draw(_x1, _y1, _x2, _y2)
 {
     var _lw = 240;
@@ -510,6 +523,8 @@ function ws_animate_draw(_x1, _y1, _x2, _y2)
     // ---------------- centre: two joysticks, preview, frames ----------------
     ui_panel(_cx1, _y1, _cx2, _y2, ui_text_fit("Animate " + _s.name, global.f_title, _cx2 - _cx1 - 32));
     var _plan = anim_plan(_s);
+    // the preview is scaled for the biggest frame the actor can show, so it does not jump in
+    // size when the animation changes (undefined plan = no animation, just its own sprite)
     var _preview_bw = 16;
     var _preview_bh = 16;
     if (is_undefined(_plan))
@@ -579,6 +594,8 @@ function ws_animate_draw(_x1, _y1, _x2, _y2)
     // In air / Falling and the Test switch
     var _jx = _cx1 + 20;
     var _jy = _y1 + 52;
+    // two joysticks share the height left after their two headings (24 each), the three rows of
+    // tabs and Test (38 each) and the input note (40); between 110 and 190 pixels square
     var _jsize = floor(min(190, (_y2 - _jy - 20 - 2 * 24 - 3 * 38 - 40) / 2));
     _jsize = max(110, _jsize);
     ui_heading(_jx, _jy, "Moving");
@@ -700,6 +717,7 @@ function ws_animate_draw(_x1, _y1, _x2, _y2)
     {
         var _pk = _test_k;
         var _pe = _plan[anim_plan_k(_plan, _pk)];
+        // 20 ms = one Amiga frame (50 a second), the unit of the animation's rate
         var _ticks = (current_time - anim_t0) div 20;
         if (anim_test) { _ticks = (current_time - anim_test_t0) div 20; }
         var _flip = _pe.flip;
@@ -767,6 +785,8 @@ function ws_animate_draw(_x1, _y1, _x2, _y2)
     ui_heading(_ax1, _sy, ui_text_fit(_fhd, global.f_small, _fhw));
     var _lim = lim_frames();
     _sy += 20;
+    // each slot k is one of: locked (past the Lite limit and empty), a frame (k < _nf),
+    // the "+" add slot (k == _nf), or an empty outline
     var _strip_cols = 8;
     var _strip_rows = ceil(ANIM_FRAMES / _strip_cols);
     var _cellw = min(64, floor((_fhw - (_strip_cols - 1) * 8) / _strip_cols));
@@ -947,6 +967,8 @@ function ws_animate_draw(_x1, _y1, _x2, _y2)
         anim_drag_update();
         return;
     }
+    // sprite bank, 5 a row: a click puts the sprite in the selected frame, or adds it at the end when
+    // the "+" slot is selected (anim_click_added remembers that, so a double-click can take it back)
     var _bank = spr_bank_size();
     var _gcols = 5;
     var _gcell = floor((_fw - (_gcols - 1) * 6) / _gcols);

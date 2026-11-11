@@ -13,11 +13,13 @@ PAL = [0x000000, 0xffffff, 0x4a2a14, 0x7a4a24, 0xa86c3c, 0x34343e, 0x5e5e6a, 0x8
 AIR, GRASS, DIRT, STONE, SLATE, SAND, CLAY, COAL, IRON, GOLD, GEM, WOOD, LEAVES, BRICK, BEDROCK, MOSS, WATER, DWALL, SWALL, TORCH, LADDER = range(21)
 WATER2, WATER3, WATER4, TORCH2, TORCH3 = range(21, 26)    # animated tiles' frames (ADAM Pro, data version 15)
 
+# a hash of (x, y, seed) -> 0..65535 (repeatable noise for the textures)
 def noise(x, y, s):
     v = (x * 374761393 + y * 668265263 + s * 2147483647) & 0xffffffff
     v = (v ^ (v >> 13)) * 1274126177 & 0xffffffff
     return (v ^ (v >> 16)) & 0xffff
 
+# a 16 x 16 tile texture: base colour with dark and light specks (dens = how many); A1200: soft in-between shades round them
 def tex(base, dark, light, seed, dens=5):
     import gen_examples as g
     aga = g.AGA['on']
@@ -36,6 +38,7 @@ def tex(base, dark, light, seed, dens=5):
             px.append(v)
     return px
 
+# n ore lumps of colour col with a hi glint dropped into the texture px (A1200: soft rims)
 def blobs(px, col, hi, seed, n=3, r=2.2):
     import gen_examples as g
     aga = g.AGA['on']
@@ -52,9 +55,11 @@ def blobs(px, col, hi, seed, n=3, r=2.2):
                 if d < 1.2: px[y * 16 + x] = hi
     return px
 
+# the tile set (Tiles page): a tile's number is its place in the list (AIR .. LADDER, then WATER2 .. TORCH3)
 def tiles():
     import gen_examples as ge
     t = []
+    # appends a tile type (TP_*: solid, dig, goal, ladder flags; hard = how long it takes to dig; becomes = what is left)
     def add(name, px, solid=True, dig=True, hard=12, points=0, goal=False, sound=-1, becomes=0, ladder=False):
         t.append(dict(name=name, px=px, solid=solid, dig=dig, hard=hard, points=points, goal=goal, sound=sound, becomes=becomes, ladder=ladder))
     add("AIR", [0] * 256, False, False)
@@ -161,10 +166,13 @@ def tiles():
     t[TORCH].update(anim=[TORCH, TORCH2, TORCH, TORCH3], anim_rate=6, anim_mode=0)
     return t
 
+# the 128 x 64 map (random but repeatable from seed): surface, rock layers, caves, ores, water, trees -> (map, surface heights)
 def world(seed=1985):
     rnd = random.Random(seed)
     m = [AIR] * (W * H)
+    # the tile at (x, y)
     def at(x, y): return m[y * W + x]
+    # sets the tile at (x, y), ignored outside the map
     def put(x, y, v):
         if 0 <= x < W and 0 <= y < H: m[y * W + x] = v
     # surface: a smoothed random walk
@@ -294,6 +302,7 @@ def miner_rows(legs=0, arm=None, bob=0):
     ]
     rows = body + legsets[legs] + ["................"] * 4
     rows = [list(r) for r in rows]
+    # sets pixel (x, y) to letter c, ignored outside 16 x 24
     def dot(x, y, c):
         if 0 <= x < 16 and 0 <= y < 24: rows[y][x] = c
     if arm == "up":          # pick raised over the head
@@ -325,6 +334,36 @@ def miner_rows(legs=0, arm=None, bob=0):
         rows = rows[bob:] + ["................"] * bob
     return rows
 
+def miner_pose(arm, bend=0, rise=0):
+    """the miner swinging the pick: bend 1..2 = bent into the stroke (head lower, knees
+    bent), rise 1 = stretched up tall on his toes for the flick. The feet stay on the same
+    row, so he does not hop."""
+    base = miner_rows(0)
+    armed = miner_rows(0, arm)
+    armpx = [(x, y, armed[y][x]) for y in range(24) for x in range(16) if armed[y][x] != base[y][x]]
+    dy = bend - rise
+    if bend == 1:
+        legs = ["....22....22....", "...22......22...", "...11......11...", "..111......111.."]
+    elif bend >= 2:
+        legs = ["...22......22...", "...11......11...", "..111......111.."]
+    elif rise:
+        legs = [".....22..22....."] * 4 + [".....11..11.....", ".....11..11....."]
+    else:
+        legs = base[15:20]
+    rows = [["."] * 16 for _ in range(24)]
+    for y in range(15):                        # head and body, lower when bent, higher on his toes
+        for x in range(16):
+            if base[y][x] != "." and 0 <= y + dy < 24:
+                rows[y + dy][x] = base[y][x]
+    for k, r in enumerate(legs):
+        for x in range(16):
+            if r[x] != ".":
+                rows[15 + dy + k][x] = r[x]
+    for x, y, c in armpx:                      # the arm and the pick move with him
+        if 0 <= y + dy < 24:
+            rows[y + dy][x] = c if c != "." else rows[y + dy][x]
+    return ["".join(r) for r in rows]
+
 ROCK = ["................"] * 14 + [
     "......2222......",
     "....22333322....",
@@ -340,6 +379,7 @@ ROCK = ["................"] * 14 + [
 def bell_rows(sw=0):
     # a little bell hung from a wooden post; sw = -1 / 0 / 1 swings it
     rows = [['.'] * 16 for _ in range(24)]
+    # sets pixel (x, y) to letter c, ignored outside 16 x 24
     def dot(x, y, c):
         if 0 <= x < 16 and 0 <= y < 24: rows[y][x] = c
     for y in range(2, 24): dot(2, y, '1'); dot(3, y, '1')          # the post
@@ -414,6 +454,7 @@ MOLE = ["................"] * 12 + [
     "................",
     "................"]
 
+# the Dig Deep project (.adam dict); gen_examples.py calls it twice (A500/600, then the A1200 pass)
 def dig_deep():
     import gen_examples as g
     random.seed(7)
@@ -519,9 +560,11 @@ def dig_deep():
         1: (walk, 5, 0),
         2: ([("Miner leap", miner_rows(1)), ("Miner leap 2", miner_rows(3))], 6, 1),
         3: ([("Miner drop", miner_rows(2)), ("Miner drop 2", miner_rows(2, bob=1))], 6, 0),
-        15: ([("Miner pick up", miner_rows(0, "up")), ("Miner pick fwd", miner_rows(0, "fwd")), ("Miner pick fwd 2", miner_rows(0, "fwd", 1))], 5, 0),
-        17: ([("Miner pick up", None), ("Miner pick down", miner_rows(0, "down")), ("Miner pick down 2", miner_rows(0, "down", 1))], 5, 0),
-        13: ([("Miner pick up", None), ("Miner pick high", miner_rows(0, "high")), ("Miner pick high 2", miner_rows(0, "high", 1))], 5, 0),
+        # digging: up tall as the pick goes up, bent into the stroke as it bites, half back up
+        15: ([("Miner pick up", miner_pose("up", rise=1)), ("Miner pick fwd", miner_pose("fwd", bend=2)), ("Miner pick fwd 2", miner_pose("fwd", bend=1))], 5, 0),
+        17: ([("Miner pick up", None), ("Miner pick down", miner_pose("down", bend=2)), ("Miner pick down 2", miner_pose("down", bend=1))], 5, 0),
+        # digging up: crouch, then spring up on his toes as he flicks the pick at the roof
+        13: ([("Miner pick crouch", miner_pose("up", bend=1)), ("Miner pick high", miner_pose("high", rise=1)), ("Miner pick high 2", miner_pose("high"))], 5, 0),
         # Fire on its own: the sword's swing (the pickaxe uses Fire + the way he faces)
         12: ([("Miner sword up", miner_rows(0, "sword up")), ("Miner sword fwd", miner_rows(0, "sword fwd")), ("Miner sword low", miner_rows(0, "sword low"))], 5, 1)}),
         1: dict(anims={0: ([1, ("Slime wobble", T(SLIME, dy=1)), ("Slime squash", SLIME_SQ)], 10, 2),
@@ -549,6 +592,7 @@ def dig_deep():
                                 dict(spr=1, x=216, y=100, pct=70), dict(spr=3, x=272, y=96, pct=90)])
     return p
 
+# saves the whole map as a picture (tools/reference/out/dig_deep_map.png), colour 0 as sky blue
 def map_png(p, fn):
     pal = p['pal']
     im = Image.new('RGB', (W * 16, H * 16))

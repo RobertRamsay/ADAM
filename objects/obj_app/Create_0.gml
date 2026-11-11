@@ -1,4 +1,9 @@
 /// ADAM - Amiga no-code game maker - app controller
+/// Runs once at start. Sets up the display, then gives every obj_app instance
+/// variable its first value (Bob's rule: all of them here, never checked with
+/// variable_instance_exists), loads settings and the last session's project,
+/// runs dev command-line modes (-adam_build, -adam_shots) and opens the
+/// machine picker. Each frame after this: Step_0, then Draw_64.
 
 // ---------- display ----------
 // 2x anti-aliasing at most: it smooths the rounded corners just as well as
@@ -115,6 +120,10 @@ fsuae_path = "";
 kick_paths = array_create(array_length(global.MACHINES), "");  // Kickstart ROM per machine ("" = FS-UAE's AROS)
 fsuae_light = true;
 fsuae_pad = 0;              // FS-UAE joystick: 0 keyboard (cursors + right Ctrl), 1 gamepad
+god_mode = false;           // Build page: Build and play makes a test copy with the choices below
+god_lives = true;           //     the lives never run out (H_FLAGS bit 1)
+god_skip = true;            //     F8 ends the level (H_FLAGS bit 2)
+build_tflags = 0;           // test copy bits OR'd into H_FLAGS while a test disk is written (0 = the real game)
 global.FSUAE_PAD_NAMES = ["Keyboard", "Gamepad"];
 app_focused = true;
 logo_quit_k = 0;            // top-left ball fading into the quit X (0 ball - 1 X)
@@ -226,6 +235,7 @@ tile_atlas_buf = -1;
 tile_atlas_dirty = true;
 tile_map_surf = -1;         // the part of the map in view, drawn from the atlas (a cache)
 tile_map_dirty = true;
+tmap_lvl = 0;               // Tiles page: the level whose map is shown (0 = level 1, the main map; tmap())
 tile_view_mx = 0;           // map pixel at the top left of that cache
 tile_view_my = 0;
 
@@ -563,6 +573,18 @@ shot_pages = [
     { ws : WS_SOUND,    panel : 0, name : "sound" },
     { ws : WS_MUSIC,    panel : 0, name : "music" },
     { ws : WS_BUILD,    panel : 0, name : "build" }
+];
+// -adam_shots_tut: pages with one of their tutorial steps showing (devlog pictures)
+shot_tut_on = false;
+shot_tut_pages = [
+    { ws : WS_LOGIC,   panel : 1, name : "tut_items",    tut : "item_add" },
+    { ws : WS_LOGIC,   panel : 0, name : "tut_anddo",    tut : "rule_0_anddo" },
+    { ws : WS_ACTORS,  panel : 0, name : "tut_shots",    tut : "act_role" },
+    { ws : WS_ACTORS,  panel : 0, name : "tut_bob",      tut : "act_bob" },
+    { ws : WS_TILES,   panel : 0, name : "tut_tools",    tut : "tile_tab_2" },
+    { ws : WS_ANIMATE, panel : 0, name : "tut_hitdie",   tut : "anim_tab_21" },
+    { ws : WS_SOUND,   panel : 0, name : "tut_patch",    tut : "snd_kind_2" },
+    { ws : WS_MUSIC,   panel : 0, name : "tut_notes",    tut : "mus_grid" }
 ];
 if (ADAM_DEV_TOOLS) { dev_cli_shots(); }
 

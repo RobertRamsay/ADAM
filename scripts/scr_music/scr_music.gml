@@ -6,23 +6,33 @@
 ///   bars  : song length in bars (1..128)
 ///   lanes : 4 arrays (one per Paula channel) of MUS_BAR_MAX entries,
 ///           each an index into arr.loops, or -1 for an empty bar
-///   loops : the song's 1-bar loops = { name, cat, lib, inst, notes, insts, arps, fx, fxp, glide_to }
+///   loops : the song's 1-bar loops = { name, cat, lib, group, inst, notes, lengths,
+///           insts, arps, fx, fxp, glide_to, fx_end }
 ///           glide_to : explicit source -> later destination step, -1 = unlinked
 ///           cat   : 0 drums, 1 bass, 2 chords, 3 lead, 4 fx
 ///           lib   : built-in library loop it was copied from, -1 = edited (user loop)
+///           group : index into arr.loop_groups (Music page folders), -1 = none
 ///           inst  : instrument new notes use
-///           notes : 16 steps, 0 = none, 1..36 = C-1..B-3 (ProTracker notes)
-///           insts : 16 steps, instrument per step (0.. built-in, 100+k = Sound page sound k)
-///           arps  : 16 steps, ProTracker arpeggio 0xy (chords); a chord keeps
+///           notes : MUS_STEPS (32) steps, 0 = none, 1..36 = C-1..B-3 (ProTracker notes)
+///                   (files saved before 32 steps had 16; loop_from_loaded spreads
+///                   them onto the even steps)
+///           lengths : steps a note sounds, 0 = the default 2 (music_note_length)
+///           insts : instrument per step (0.. built-in, 100+k = Sound page sound k)
+///           arps  : ProTracker arpeggio 0xy (chords); a chord keeps
 ///                   playing on the empty steps after its note
+///           fx / fxp : tracker effect and parameter per step (0 none, 1 slide up,
+///                   2 slide down, 4 vibrato, 12 set volume), fx_end = last step
+///                   the effect runs on (-1 = only its own step)
 ///
 /// Mapping to ProTracker (song_to_modsong):
-///   1 step = 1 row, speed 6 (F06), tempo = BPM (Fxx), so 4 rows = 1 beat.
-///   A pattern holds up to 4 bars (64 rows). Patterns start again at the loop
-///   bar so the song can jump back there; a shorter pattern ends with D00 and
-///   the last one ends with Bxx (jump to the loop bar's order position, also
-///   stored as modsong.restart). Identical patterns are shared.
-///   Swing delays every odd step's note by EDx, x = swing% of a row's ticks.
+///   1 step = 1 row, MOD speed = song.speed / 2 (F03 for the default 6), tempo
+///   = BPM (Fxx), so 8 rows = 1 beat and a 32-step bar is 32 rows.
+///   A pattern holds up to 2 bars (64 rows, music_chunks). Patterns start again
+///   at the loop bar so the song can jump back there; a shorter pattern ends
+///   with D00 and the last one ends with Bxx (jump to the loop bar's order
+///   position, also stored as modsong.restart). Identical patterns are shared.
+///   Swing delays the note on every step 2, 6, 10... (the off-beat 16ths) by
+///   EDx, x = swing% of a row's ticks.
 ///   Instruments become samples (31 max), played at F-2 for their own pitch.
 
 #macro MUS_SONG_MAX 4
@@ -41,6 +51,9 @@ function mus_inst_def(_name, _drum, _p, _hz, _vol, _f = [0, 0, 0])
     return { name : _name, drum : _drum, p : _p, hz : _hz, vol : _vol, f : _f };
 }
 
+/// Fills the music globals once at start: ProTracker period table, note and
+/// category names, chord codes, the built-in instruments (MUS_INST) and the
+/// built-in loop library (MUS_LIB). Each library loop's lib = its own index.
 function music_defs_init()
 {
     // ProTracker periods (finetune 0); index 1 = C-1 ... 36 = B-3
@@ -52,6 +65,8 @@ function music_defs_init()
     global.MUS_CAT_NAMES = ["Drums", "Bass", "Chords", "Lead", "FX", "Mine"];
     global.MUS_CAT_COLS = [make_colour_rgb(232, 96, 84), make_colour_rgb(240, 170, 60), make_colour_rgb(110, 196, 110),
                            make_colour_rgb(88, 158, 240), make_colour_rgb(186, 120, 232), make_colour_rgb(200, 206, 214)];
+    // Chord = ProTracker arpeggio 0xy: x and y are the semitones above the root
+    // played on the 2nd and 3rd tick (min 3+7, maj 4+7, 7th 4+10, sus 5+7, oct 12)
     global.MUS_CHORD_NAMES = ["-", "min", "maj", "7th", "sus", "oct"];
     global.MUS_CHORD_CODES = [0, 0x37, 0x47, 0x4a, 0x57, 0xc0];
 
@@ -77,9 +92,12 @@ function music_defs_init()
         mus_inst_def("Riser",       true,  [2, 20, 4, 30, 4, 9, 10, 5], 0, 40),
         mus_inst_def("Noise sweep", true,  [3, 30, 2, 40, 8, 10, 8, 8], 0, 36)
     ];
+    // Drum grid rows (instrument ids); music_drum_rows_refresh rebuilds this from the Sound page
     global.MUS_DRUM_ROWS = [0, 1, 2, 3, 4, 5, 13, 14, 15, 100, 101, 102, 103, 104, 105, 106, 107];
 
     // ---------- the built-in loop library (deterministic data) ----------
+    // Patterns are written as 16 steps; mus_lib_drums / mus_lib_tone put them on
+    // the even steps of the 32-step loop. Note 13 = C-2, 25 = C-3.
     var _z = array_create(MUS_STEPS, 0);
     var _min = 0x37;
     var _maj = 0x47;
@@ -127,6 +145,9 @@ function music_defs_init()
     for (var i = 0; i < array_length(global.MUS_LIB); i++) { global.MUS_LIB[i].lib = i; }
 }
 
+/// A new empty 1-bar loop (see the loop fields at the top of this script).
+/// _cat: 0 drums .. 4 fx, 5 Mine; _inst: instrument id every step starts with.
+/// Every field added here must also go in loop_copy and loop_from_loaded.
 function loop_new(_name, _cat, _inst)
 {
     return {
@@ -163,6 +184,8 @@ function mus_lib_drums(_name, _pat)
     return _l;
 }
 
+/// Library loop from 16 notes (1..36, 0 rest) and 16 chord codes (arpeggio 0xy,
+/// 0 none), written on the even steps of the 32-step loop. _cat 1..4, _inst = instrument id.
 function mus_lib_tone(_name, _cat, _inst, _notes, _chords)
 {
     var _l = loop_new(_name, _cat, _inst);
@@ -174,6 +197,7 @@ function mus_lib_tone(_name, _cat, _inst, _notes, _chords)
     return _l;
 }
 
+/// A deep copy of loop _l (own arrays), keeping lib and group
 function loop_copy(_l)
 {
     var _c = loop_new(_l.name, _l.cat, _l.inst);
@@ -190,6 +214,8 @@ function loop_copy(_l)
     return _c;
 }
 
+/// True if _id is an instrument id: 0.. a built-in (MUS_INST), or
+/// MUS_INST_USER (100) + k for Sound page sound k (k < SFX_MAX)
 function music_inst_valid(_id)
 {
     if (!is_numeric(_id)) { return false; }
@@ -198,6 +224,8 @@ function music_inst_valid(_id)
     return false;
 }
 
+/// Menu name of instrument _id: a built-in's name, or "Folder / 3: Name" /
+/// "Sound 3: Name" for a Sound page sound; "Sound" if that sound is gone, "?" if unknown
 function music_inst_name(_id)
 {
     if (_id >= MUS_INST_USER)
@@ -226,6 +254,7 @@ function music_inst_ids()
     return _out;
 }
 
+/// Tracker name of note _n (1 = "C-1" .. 36 = "B-3"); "---" for 0 (no note)
 function music_note_name(_n)
 {
     if (_n < 1) { return "---"; }
@@ -251,6 +280,7 @@ function music_note_for_period(_period)
 
 /// Song data ----------------------------------------------------------------
 
+/// An empty arrangement: 8 bars, 4 empty lanes, no loops or folders, lane volumes 64 (full)
 function arr_new()
 {
     var _a = { bars : 8, lanes : [], loops : [], loop_groups : [], volumes : [64, 64, 64, 64] };
@@ -258,6 +288,8 @@ function arr_new()
     return _a;
 }
 
+/// A new arranged song (kind 0): 125 BPM, speed 6 (written as MOD speed 3),
+/// no swing, loops back to bar 0. "mod" stays undefined until a .mod is imported (kind 1).
 function song_new(_name)
 {
     var _s = { name : _name, kind : 0, bpm : 125, speed : 6, swing : 0, loop_bar : 0, arr : arr_new() };
@@ -265,10 +297,15 @@ function song_new(_name)
     return _s;
 }
 
+/// A clean loop from loop data read from a .adam file or snapshot: every field
+/// checked and clamped, missing ones left at loop_new's values. Old 16-step
+/// loops are spread onto the even steps (step s -> 2s; glide targets x 2,
+/// effect ends 2e + 1). Called by song_from_loaded.
 function loop_from_loaded(_raw)
 {
     var _l = loop_new("Loop", 0, 0);
     if (!is_struct(_raw)) { return _l; }
+    // note: cat is clamped to 0..4, so a loop saved with cat 5 (MUS_CAT_MINE) loads as 4
     if (is_string(_raw[$ "name"])) { _l.name = string_copy(_raw.name, 1, 24); }
     if (is_numeric(_raw[$ "cat"])) { _l.cat = clamp(floor(_raw.cat), 0, 4); }
     if (is_numeric(_raw[$ "lib"])) { _l.lib = clamp(floor(_raw.lib), -1, array_length(global.MUS_LIB) - 1); }
@@ -292,6 +329,7 @@ function loop_from_loaded(_raw)
         if (is_array(_n) && _src_step < array_length(_n) && is_numeric(_n[_src_step])) { _l.notes[s] = clamp(floor(_n[_src_step]), 0, 36); }
         if (is_array(_i) && _src_step < array_length(_i) && music_inst_valid(_i[_src_step])) { _l.insts[s] = floor(_i[_src_step]); }
         if (is_array(_a) && _src_step < array_length(_a) && is_numeric(_a[_src_step])) { _l.arps[s] = clamp(floor(_a[_src_step]), 0, 255); }
+        // effects allowed: 0..4, plus 12 (set volume, parameter 0..64)
         if (is_array(_fx) && _src_step < array_length(_fx) && is_numeric(_fx[_src_step]))
         {
             _l.fx[s] = clamp(floor(_fx[_src_step]), 0, 4);
@@ -334,6 +372,9 @@ function music_drum_rows_refresh()
     global.MUS_DRUM_ROWS = _rows;
 }
 
+/// Grid row of the note on step _step of loop _lp. Piano roll (_drums false):
+/// row 0 = note 36 (B-3) at the top, so row = 36 - note. Drum grid: the row
+/// in MUS_DRUM_ROWS holding that step's instrument, -1 if it has no row.
 function music_note_row(_lp, _step, _drums)
 {
     if (!_drums) { return 36 - _lp.notes[_step]; }
@@ -364,6 +405,10 @@ function music_notes_in_box(_lp, _drums, _stride, _cw, _rh, _box)
     return _selected;
 }
 
+/// Copies the selected notes of loop _lp (_selected = MUS_STEPS bools) to a
+/// clipboard { notes, drums }. Each note keeps its step and row relative to
+/// the earliest / highest selected note, so music_notes_paste can drop it
+/// anywhere. Glides are kept only when both ends are selected.
 function music_notes_copy(_lp, _selected, _drums)
 {
     var _clip = { notes : [], drums : _drums };
@@ -442,6 +487,8 @@ function music_notes_paste(_lp, _clip, _step, _row, _drums, _apply = true)
     return _result;
 }
 
+/// Self-test (debug output PASS / FAIL): box select, copy / paste, drag move and
+/// duplicate, note lengths and the note cut they write into the MOD
 function music_notes_clipboard_selftest()
 {
     var _ok = true;
@@ -525,6 +572,8 @@ function music_notes_clipboard_selftest()
     else { show_debug_message("ADAM note selection / clipboard self-test: FAIL"); }
 }
 
+/// The step whose tracker effect is running on step _step (its own, or an
+/// earlier one whose fx_end reaches it; the latest wins), -1 if none
 function music_fx_active_step(_lp, _step)
 {
     var _active = -1;
@@ -535,6 +584,8 @@ function music_fx_active_step(_lp, _step)
     return _active;
 }
 
+/// The next effect when the effect button is clicked:
+/// 0 none -> 1 slide up -> 2 slide down -> 4 vibrato -> 12 volume -> 0 (3 goes to 4)
 function music_fx_next_kind(_kind)
 {
     if (_kind == 0) { return 1; }
@@ -544,12 +595,15 @@ function music_fx_next_kind(_kind)
     return 0;
 }
 
+/// Index of effect _kind in the effect menu: 0..4 as they are, 12 (volume) = 5
 function music_fx_ui_index(_kind)
 {
     if (_kind == 12) { return 5; }
     return clamp(_kind, 0, 4);
 }
 
+/// Self-test (debug output PASS / FAIL): loop folders (rows, save / load,
+/// moving loops into folders) and effects that run over several steps
 function music_library_effect_selftest()
 {
     var _ok = true;
@@ -651,6 +705,8 @@ function music_loop_group_assign(_song, _src, _group)
     return _li;
 }
 
+/// True if step _source of loop _lp has a glide (glide_to) to a later step and
+/// both steps hold a note
 function music_glide_valid(_lp, _source)
 {
     var _target = _lp.glide_to[_source];
@@ -671,6 +727,7 @@ function music_glide_connect(_lp, _source, _target)
     _lp.glide_to[_source] = _target;
 }
 
+/// Removes every glide that starts or ends on step _step
 function music_glide_unlink(_lp, _step)
 {
     _lp.glide_to[_step] = -1;
@@ -692,6 +749,10 @@ function music_note_can_move(_lp, _from, _to)
     return true;
 }
 
+/// Moves the note on step _from to step _to with pitch _pitch (1..36), taking
+/// its length, instrument, chord, effect span and glides with it. _from == _to
+/// just changes the pitch. Returns false (nothing changed) if the move would put
+/// a glide end at or before its start (music_note_can_move).
 function music_note_move(_lp, _from, _to, _pitch)
 {
     if (!music_note_can_move(_lp, _from, _to)) { return false; }
@@ -782,6 +843,10 @@ function music_notes_move(_lp, _selected, _steps, _rows, _drums, _apply = true)
     return _result;
 }
 
+/// Copies the note on step _from to step _to with pitch _pitch (a copy-drag in
+/// the loop editor, scr_ws_music). The
+/// copy keeps the effect span; it keeps the glide only if the glide's end is
+/// still after _to. Returns false if _from == _to.
 function music_note_duplicate(_lp, _from, _to, _pitch)
 {
     if (_from == _to) { return false; }
@@ -870,6 +935,10 @@ function music_glide_selftest()
     else { show_debug_message("ADAM glide self-test: FAIL"); }
 }
 
+/// A clean song from song data read from a .adam file or snapshot (after
+/// songs_unpack): every field checked and clamped, loops via loop_from_loaded,
+/// lane entries that point past the loops dropped. A kind 1 song whose MOD is
+/// unusable (modsong_sanitize gives undefined) falls back to an arranged song.
 function song_from_loaded(_raw)
 {
     var _s = song_new("Song");
@@ -943,11 +1012,15 @@ function song_from_loaded(_raw)
     return _s;
 }
 
+/// An empty MOD pattern cell. note 1..36, sample 1..31 (0 = none), effect 0..15
+/// and param 0..255 as in ProTracker. volume_base is ADAM's own (not in the MOD
+/// file): a Cxx volume before the lane volume was applied, -1 = none.
 function music_empty_cell()
 {
     return { note : 0, sample : 0, effect : 0, param : 0, volume_base : -1 };
 }
 
+/// An empty pattern: 64 rows x 4 channels of music_empty_cell, indexed [row][channel]
 function music_empty_pattern()
 {
     var _p = array_create(64, 0);
@@ -958,6 +1031,9 @@ function music_empty_pattern()
     return _p;
 }
 
+/// An empty MOD sample: data = signed 8-bit values (-128..127), volume 0..64,
+/// finetune -8..7, loop start / length in bytes (loop_len 0 = no loop).
+/// base_volume is ADAM's own: the instrument's volume before the lane volume.
 function music_empty_sample()
 {
     return { name : "", data : [], volume : 0, base_volume : 0, finetune : 0, loop_start : 0, loop_len : 0 };
@@ -1033,6 +1109,8 @@ function modsong_sanitize(_ms)
 // rendered when needed), so they are stored as they are.
 // ---------------------------------------------------------------------------
 
+/// A copy of the song list ready to save: imported songs' MODs go through
+/// modsong_pack; the songs in proj are not changed. Undone by songs_unpack.
 function songs_pack(_songs)
 {
     var _out = [];
@@ -1050,6 +1128,11 @@ function songs_pack(_songs)
     return _out;
 }
 
+/// A packed copy of modsong _ms: each sample's data becomes data_z (pack_u8 text
+/// of the bytes, signed values stored as 0..255) + data_n (length); patterns
+/// become patterns_z (4 bytes per cell: note, sample, effect, param; 64 rows x
+/// 4 channels = 1024 bytes a pattern) + patterns_n. volume_base is not kept.
+/// Undone by modsong_unpack.
 function modsong_pack(_ms)
 {
     var _m = struct_overlay({}, _ms);
@@ -1115,6 +1198,8 @@ function songs_unpack(_songs)
     }
 }
 
+/// Unpacks modsong _m in place (the other half of modsong_pack): data_z back to
+/// signed sample data, patterns_z back to 64 x 4 cell patterns
 function modsong_unpack(_m)
 {
     var _ls = _m[$ "samples"];
@@ -1227,6 +1312,9 @@ function music_sample_from_render(_r, _preview_root = -1)
     return _sample;
 }
 
+/// Self-test (debug output PASS / FAIL): a looped Sound page sample keeps its
+/// loop through song_to_modsong, mod_write / mod_parse and the preview player,
+/// and lane volumes scale sample volumes. Borrows proj.sfx[0] and puts it back.
 function music_sample_loop_volume_selftest()
 {
     var _ok = true;
@@ -1284,6 +1372,9 @@ function music_sample_loop_volume_selftest()
     else { show_debug_message("ADAM sample loops / lane volume self-test: FAIL"); }
 }
 
+/// Self-test (debug output PASS / FAIL): volume effect (Cxx) scaled by the lane
+/// volume, volume change during a glide, 10-second samples and the sample-size
+/// cap, and pitched audition (sfx_preview_note). Stops any preview it starts.
 function music_sampler_controls_selftest()
 {
     var _ok = true;
@@ -1355,6 +1446,11 @@ function music_sampler_controls_selftest()
 
 #macro MUS_SYNTH_UNIT (256 * 985248 / 16777216)   // Hz per step of the Sound page pitch
 
+/// The sample instrument _id plays: { data (signed 8-bit), volume 0..64, root
+/// (the note that plays it at its own pitch), src, loop_start, loop_len, capped
+/// (true if cut to MOD_MAX_SAMPLE_BYTES) }. Cached in mus_inst_cache: "b<id>"
+/// for built-ins (never change), "u<k>" for Sound page sound k (rebuilt when
+/// sfx_render_ex gives a new render, i.e. the sound was edited).
 function music_inst_sample(_id)
 {
     if (_id >= MUS_INST_USER)
@@ -1385,6 +1481,7 @@ function music_inst_sample(_id)
         mus_inst_cache[$ _key] = _res;
         return _res;
     }
+    // built-in instrument: rendered once at the root note's Paula rate
     var _key2 = "b" + string(_id);
     var _hit2 = mus_inst_cache[$ _key2];
     if (!is_undefined(_hit2)) { return _hit2; }
@@ -1447,7 +1544,9 @@ function music_synth_render(_s, _hz)
 {
     var _atk_ms = [2, 8, 16, 24, 38, 56, 68, 80, 100, 250, 500, 800, 1000, 3000, 5000, 8000];
     var _dr_ms  = [6, 24, 48, 72, 114, 168, 204, 240, 300, 750, 1500, 2400, 3000, 9000, 15000, 24000];
+    // sample rate = the rate Paula plays the root note (F-2, period 320) at
     var _rate = PAULA_CLOCK / global.MUS_PERIODS[MUS_ROOT];
+    // length is in 50ths of a second (frames); the release comes after it
     var _gate_s = clamp(_s.len, 1, 100) / 50;
     var _cap = sfx_max_seconds(_s);
     var _rel_s = min(_dr_ms[clamp(_s.rel, 0, 15)] / 1000, _cap);
@@ -1552,8 +1651,8 @@ function music_inst_root(_id)
 // song -> modsong
 // ---------------------------------------------------------------------------
 
-/// Bar ranges that become patterns: up to 4 bars each, starting again at the
-/// loop bar. Returns an array of [first bar, bar count].
+/// Bar ranges that become patterns: up to 2 bars each (2 x 32 steps = 64 rows),
+/// starting again at the loop bar. Returns an array of [first bar, bar count].
 function music_chunks(_song)
 {
     var _bars = clamp(_song.arr.bars, 1, MUS_BAR_MAX);
@@ -1589,6 +1688,8 @@ function music_put_fx(_row, _fx, _prm, _prefer)
     return false;
 }
 
+/// A text key of every non-empty cell in pattern _pat ("" if all empty);
+/// song_to_modsong uses it to share identical patterns
 function music_pattern_key(_pat)
 {
     var _s = "";
@@ -1606,10 +1707,11 @@ function music_pattern_key(_pat)
     return _s;
 }
 
-/// Contract: renders a song into a modsong (kind 1 returns the imported one).
-/// Problems found on the way are left in mus_warnings.
 /// An instrument-only row can set its sample volume while the effect column
 /// carries a pitch bend. The copied waveform/loop keeps the same source voice.
+/// Returns the sample number (1..31) of instrument _iid at volume _volume x
+/// lane volume / 64, adding it to _ms in the first free slot (cached in _map);
+/// 0 if no slot is free or the instrument is silent.
 function music_volume_sample(_ms, _map, _iid, _volume, _lane_volume)
 {
     var _key = string(_iid) + "v" + string(_lane_volume) + "level" + string(_volume);
@@ -1633,6 +1735,12 @@ function music_volume_sample(_ms, _map, _iid, _volume, _lane_volume)
     return 0;
 }
 
+/// Contract: renders a song into a modsong (kind 1 returns the imported one).
+/// Problems found on the way are left in mus_warnings.
+/// A modsong = { title, samples (31 x music_empty_sample), order (pattern
+/// numbers), restart (order position Bxx jumps back to), patterns }. Used by
+/// the preview player (music_player_new), mod_write (scr_mod: .mod export and
+/// the disk writer in scr_adf). See the mapping notes at the top of this script.
 function song_to_modsong(_song)
 {
     mus_warnings = [];
@@ -1651,10 +1759,15 @@ function song_to_modsong(_song)
     }
     var _arr = _song.arr;
     var _nloops = array_length(_arr.loops);
+    // _map: "<instrument>v<lane volume>" -> sample number, so each instrument at
+    // each lane volume becomes one MOD sample
     var _map = {};
     var _nsmp = 0;
     var _dropped = 0;
+    // a loop has 32 steps a bar (one row each), so the MOD speed is half the
+    // song's speed: the default 6 gives F03, i.e. 8 rows = 1 beat at Fxx BPM
     var _speed = clamp(floor(_song.speed * 0.5), 1, 31);
+    // swing as ticks of note delay (EDx), always less than a row
     var _swing = clamp(round(_song.swing * _speed / 100), 0, _speed - 1);
     var _chunks = music_chunks(_song);
     var _nc = array_length(_chunks);
@@ -1664,6 +1777,7 @@ function song_to_modsong(_song)
     {
         if (_chunks[c][0] == _lb) { _restart = c; }
     }
+    // one pattern per chunk; _keys maps music_pattern_key text -> pattern number
     var _keys = {};
     for (var c2 = 0; c2 < _nc; c2++)
     {
@@ -1683,6 +1797,9 @@ function song_to_modsong(_song)
                 {
                     var _cell = _pat[b * MUS_STEPS + st][lane];
                     var _nt = _lp.notes[st];
+                    // Is this step inside a glide (_bend_source = the glide's
+                    // first step, st before its end) or the glide's end
+                    // (_bend_arrival = the step it came from)?
                     var _bend_source = -1;
                     var _bend_arrival = -1;
                     for (var _candidate = 0; _candidate <= st; _candidate++)
@@ -1704,6 +1821,8 @@ function song_to_modsong(_song)
                         _nt = 0;
                         _arp = 0;
                     }
+                    // A note: find (or make) its sample, then write note, sample
+                    // and either a swing delay or the chord arpeggio
                     if (_nt > 0)
                     {
                         var _iid = _lp.insts[st];
@@ -1745,6 +1864,7 @@ function song_to_modsong(_song)
                         _cell.note = clamp(_nt, 1, 36);
                         _cell.sample = _sn;
                         _arp = _lp.arps[st];
+                        // EDx = note delay by x ticks (swing wins over a chord on this step)
                         if (_swing > 0 && (st mod 4) == 2)
                         {
                             _cell.effect = 14;
@@ -1761,12 +1881,16 @@ function song_to_modsong(_song)
                     }
                     else
                     {
+                        // empty step: the last chord keeps arpeggiating
                         if (_arp != 0)
                         {
                             _cell.effect = 0;
                             _cell.param = _arp;
                         }
                     }
+                    // A tracker effect placed on the loop (or running on from an
+                    // earlier step) replaces the chord / swing effect. Cxx volume is
+                    // scaled by the lane volume; volume_base keeps the unscaled value
                     var _effect_step = music_fx_active_step(_lp, st);
                     if (_effect_step >= 0)
                     {
@@ -1808,6 +1932,9 @@ function song_to_modsong(_song)
                         var _from_period = global.MUS_PERIODS[_lp.notes[_source]];
                         var _to_period = global.MUS_PERIODS[_lp.notes[_target]];
                         var _delta = _to_period - _from_period;
+                        // 1xx / 2xx slide xx period units on each tick after the
+                        // first (speed - 1 ticks a row). The whole slide is spread
+                        // over the _span rows so the rounded steps add up exactly.
                         var _ticks = max(1, _speed - 1);
                         var _span = _target - _source;
                         var _units = round(abs(_delta) / _ticks);
@@ -1819,6 +1946,8 @@ function song_to_modsong(_song)
                         // A zero slide parameter recalls the previous speed in ProTracker.
                         if (_cell.param == 0) { _cell.effect = 0; }
                     }
+                    // Note length: on the step right after a note with a set
+                    // length ends, write C00 (volume 0) to cut it
                     if (_nt == 0 && _bend_source < 0 && _bend_arrival < 0)
                     {
                         for (var _held_step = st - 1; _held_step >= 0; _held_step--)
@@ -1836,6 +1965,8 @@ function song_to_modsong(_song)
                 }
             }
         }
+        // First pattern: F speed and F tempo. Last: Bxx back to the loop bar.
+        // A pattern shorter than 64 rows: D00 to the next pattern.
         var _rows = _nb * MUS_STEPS;
         if (c2 == 0)
         {
@@ -1914,6 +2045,7 @@ function music_loop_song(_loop, _bpm, _swing)
 // Song list helpers
 // ---------------------------------------------------------------------------
 
+/// The names of the project's songs, in order
 function music_song_names()
 {
     var _out = [];
@@ -1954,6 +2086,8 @@ function music_scope_song(_song, _mode, _start)
     return _preview;
 }
 
+/// Self-test (debug output PASS / FAIL): playback range (1 bar, 4 bars, whole
+/// song) from music_scope_song and the patterns it gives
 function music_scope_selftest()
 {
     var _ok = true;
@@ -2078,6 +2212,10 @@ function music_song_delete(_i)
 // channels 1 and 4 left, 2 and 3 right) into a GameMaker play queue.
 // ---------------------------------------------------------------------------
 
+/// A player for modsong _ms starting at order position _ord, row _row.
+/// _once: stop at the end (or when it jumps back) instead of looping. Speed and
+/// tempo are read from every row before the start so a mid-song start is in time.
+/// Driven by music_player_mix; started for the Music page by music_preview_start.
 function music_player_new(_ms, _once, _ord, _row)
 {
     var _pl = {
@@ -2118,6 +2256,8 @@ function music_player_new(_ms, _once, _ord, _row)
     return _pl;
 }
 
+/// Starts channel _ch's current sample (_ch.smp 1..31) from the beginning at
+/// Paula period _per; a loop running past the sample's end is cut to fit
 function music_trigger(_pl, _ch, _per)
 {
     if (_ch.smp < 1 || _ch.smp > 31) { return; }
@@ -2133,6 +2273,8 @@ function music_trigger(_pl, _ch, _per)
     _ch.period = _per;
 }
 
+/// Volume slide (Axy, also in 5xy / 6xy) for one tick: x > 0 raises the volume
+/// by x, else it drops by y; kept in 0..64
 function music_volslide(_ch, _prm)
 {
     var _up = _prm >> 4;
@@ -2141,6 +2283,8 @@ function music_volslide(_ch, _prm)
     else { _ch.vol = max(0, _ch.vol - _dn); }
 }
 
+/// Tone portamento (3xx / 5xy) for one tick: moves the period porta_spd units
+/// toward porta_to and stops there (porta_to 0 = no target yet)
 function music_porta(_ch)
 {
     if (_ch.porta_to <= 0) { return; }
@@ -2180,11 +2324,15 @@ function music_player_row(_pl)
         if (_cell.note > 0)
         {
             var _per = global.MUS_PERIODS[_cell.note];
+            // finetune -8..7 in eighths of a semitone (1/96 octave each)
             if (_ch.smp > 0)
             {
                 var _ft = _ms.samples[_ch.smp - 1].finetune;
                 if (_ft != 0) { _per = _per * power(2, -_ft / 96); }
             }
+            // 3xx / 5xy: the note is a slide target, not a new note (ADAM's
+            // glide ends rely on this); EDx: start the note x ticks late;
+            // 9xx: start xx x 256 bytes into the sample
             if (_fx == 3 || _fx == 5)
             {
                 _ch.porta_to = _per;
@@ -2204,6 +2352,9 @@ function music_player_row(_pl)
                 }
             }
         }
+        // tick-0 effects: 3 portamento speed, B jump to order, C set volume,
+        // D pattern break (row in decimal digits), E1/E2 fine slides, EA/EB
+        // fine volume, EC0 cut now, F speed (< 32) or tempo
         switch (_fx)
         {
             case 3:
@@ -2255,6 +2406,7 @@ function music_player_effects(_pl)
         switch (_ch.fx)
         {
             case 0:
+                // 0xy arpeggio: root, +x, +y semitones on ticks 0, 1, 2, 0...
                 if (_prm != 0)
                 {
                     var _k = _t mod 3;
@@ -2265,6 +2417,7 @@ function music_player_effects(_pl)
                 }
                 break;
             case 1:
+                // slides stay in ProTracker's range: 113 (B-3) .. 856 (C-1)
                 _ch.base = max(113, _ch.base - _prm);
                 _ch.period = _ch.base;
                 break;
@@ -2276,6 +2429,8 @@ function music_player_effects(_pl)
                 music_porta(_ch);
                 break;
             case 4:
+                // 4xy vibrato: x speed, y depth (0 = ADAM's defaults 4 / 7); a
+                // 64-step sine, close to ProTracker's but not its exact table
                 var _vib_speed = _prm >> 4;
                 var _vib_depth = _prm & 15;
                 if (_vib_speed == 0) { _vib_speed = 4; }
@@ -2296,6 +2451,7 @@ function music_player_effects(_pl)
             case 14:
                 var _sub = _prm >> 4;
                 var _v = _prm & 15;
+                // ECx cut on tick x, EDx delayed note, E9x retrigger every x ticks
                 if (_sub == 12 && _t == _v) { _ch.vol = 0; }
                 if (_sub == 13 && _t == _v && _ch.dtick >= 0)
                 {
@@ -2312,6 +2468,10 @@ function music_player_effects(_pl)
     }
 }
 
+/// One player tick (a 50th of a second at tempo 125): tick 0 reads the row,
+/// the others run effects. After speed ticks it moves to the next row, or to
+/// where a Bxx / Dxx asked; past the last order it goes to restart. With once,
+/// going back (wrapping) sets ended.
 function music_player_tick(_pl)
 {
     if (_pl.tick == 0) { music_player_row(_pl); }
@@ -2356,6 +2516,8 @@ function music_player_mix(_pl, _buf, _n)
     var _ml = array_create(_n, 0);
     var _mr = array_create(_n, 0);
     var _done = 0;
+    // a channel steps PAULA_CLOCK / period sample bytes a second; per output
+    // frame at MUS_RATE (22050 Hz) that is _clock / period
     var _clock = PAULA_CLOCK / MUS_RATE;
     while (_done < _n)
     {
@@ -2367,6 +2529,7 @@ function music_player_mix(_pl, _buf, _n)
                 var _cc = _pl.ch[c];
                 _cc.inc = _clock / clamp(_cc.period, 100, 2000);
             }
+            // a tick lasts 2.5 / tempo seconds (CIA timing: 125 = 50 ticks a second)
             _pl.tick_left += MUS_RATE * 2.5 / max(32, _pl.tempo);
         }
         var _k = min(_n - _done, ceil(_pl.tick_left));
@@ -2396,7 +2559,8 @@ function music_player_mix(_pl, _buf, _n)
                         break;
                     }
                 }
-                var _s = _d[floor(_pos)] * _v;
+                // sample (-128..127) x volume (0..64), no interpolation, as Paula
+            var _s = _d[floor(_pos)] * _v;
                 if (_left) { _ml[i] += _s; }
                 else { _mr[i] += _s; }
                 _pos += _inc;
@@ -2406,6 +2570,7 @@ function music_player_mix(_pl, _buf, _n)
         _pl.tick_left -= _k;
         _pl.frame += _k;
         _done += _k;
+        // after the end, let the last notes ring for 0.6 s, then done
         if (_pl.ended)
         {
             _pl.tail += _k;
@@ -2471,6 +2636,9 @@ function music_preview_fill(_ahead)
     }
 }
 
+/// Stops the Music page preview and frees its play queue. Queued buffers go to
+/// mus_dead_bufs and are deleted later by music_preview_step (the audio system
+/// may still be reading them).
 function music_preview_stop()
 {
     if (mus_queue_inst != -1)

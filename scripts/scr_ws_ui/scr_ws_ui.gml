@@ -10,19 +10,25 @@
 #macro UI_ROWS_MAX 6
 #macro UI_LABEL_MAX 19
 
+/// Names of the HUD font styles, in the order of ui.font_style (0..5; 5 = Custom,
+/// the 512 bytes in ui.font). ui_font_bytes makes the others from global.FONT8;
+/// ui_ref.font_bytes in tools/reference does the same.
 function ui_font_styles()
 {
     return ["ADAM", "Bold", "Thin", "Italic", "Bold italic", "Custom (drawn here)"];
 }
 
+/// Names of the frame presets (ui.style), each drawn by ui_frame_rgb (= ui_ref.frame_rgb).
 function ui_frame_styles()
 {
     return ["Metal", "Wood", "Stone", "Neon", "Parchment", "Window"];
 }
 
+/// Names of the HUD field types, in the order of field.type (0..7). On disk this is
+/// the F_* type word the engine's HUD drawer switches on (engine.s, H_UI).
 function ui_field_types()
 {
-    return ["Text", "Score", "Lives", "Goal", "Tile carried", "Level", "Tool", "Item count"];
+    return ["Text", "Score", "Lives", "Goal", "Tile carried", "Level", "Tool", "Item count", "Health", "Time left", "Counter"];
 }
 
 /// The custom HUD of a new project: off (the standard HUD is used)
@@ -41,6 +47,8 @@ function ui_new()
     };
 }
 
+/// A new HUD field of type _type (ui_field_types index): column 1, row 0 of the panel,
+/// colour 1, no shadow (-1), 5 digits. Written to disk as a 32-byte F_* record.
 function ui_field_new(_type)
 {
     return { type : _type, label : "", col : 1, row : 0, colour : 1, shadow : -1, digits : 5, item : 0 };   // item: type 7's item
@@ -77,7 +85,7 @@ function ui_from_loaded(_raw)
             if (!is_struct(_src)) { continue; }
             var _fd = struct_overlay(ui_field_new(0), _src);
             if (!is_numeric(_fd.type)) { _fd.type = 0; }
-            _fd.type = clamp(floor(_fd.type), 0, 7);
+            _fd.type = clamp(floor(_fd.type), 0, 10);
             if (!is_numeric(_fd.item)) { _fd.item = 0; }
             _fd.item = clamp(floor(_fd.item), 0, ITEM_MAX - 1);
             if (!is_string(_fd.label)) { _fd.label = ""; }
@@ -298,6 +306,13 @@ function ui_field_text(_f)
             if (_f.item >= array_length(proj.items)) { return ""; }     // (the Amiga leaves it out too)
             if (_lab == "") { _lab = proj.items[_f.item].name + " "; }
             return _lab + string_replace_all(string_format(min(proj.items[_f.item].max, 2) mod power(10, _f.digits), _f.digits, 0), " ", "0");
+        case 8:
+            if (proj.health <= 0) { return ""; }    // (the Amiga leaves it out too)
+            return _lab + string_replace_all(string_format(proj.health mod power(10, _f.digits), _f.digits, 0), " ", "0");
+        case 9:
+            if (proj.level_time[0] <= 0) { return ""; }     // only on a level with a time limit
+            return _lab + string_replace_all(string_format(proj.level_time[0] mod power(10, _f.digits), _f.digits, 0), " ", "0");
+        case 10: return _lab + string_replace_all(string_format(0, _f.digits, 0), " ", "0");
     }
     return _lab;
 }
@@ -366,6 +381,8 @@ function ui_preview_surface()
     return ui_prev_surf;
 }
 
+/// Frees the UI page's preview surface and buffer (and the loading screen page's
+/// graphics). Safe to call when they do not exist; ui_preview_surface remakes them.
 function ui_gfx_free()
 {
     if (surface_exists(ui_prev_surf)) { surface_free(ui_prev_surf); }
@@ -407,6 +424,11 @@ function ui_switch_on()
     ui_sel_field = 0;
 }
 
+/// Draws the UI page in the work area (_x1, _y1) - (_x2, _y2), UI pixels. Tab 1
+/// (Loading screen, Pro) hands the whole page to loadscr_page_draw. Tab 0: left panel
+/// (on / place / rows / frame / font / field list), centre (preview, frame or font
+/// editor), right (the picked field ui_sel_field). Changes go into proj.ui, which
+/// adam_data_block writes as the H_UI block.
 function ws_ui_draw(_x1, _y1, _x2, _y2)
 {
     var _lw = 270;
@@ -415,6 +437,7 @@ function ws_ui_draw(_x1, _y1, _x2, _y2)
     var _cx1 = _x1 + _lw + 12;
     var _cx2 = _x2 - _rw - 12;
     var _nf = array_length(_u.fields);
+    // (a field may have gone since last frame: undo, or another project)
     ui_sel_field = clamp(ui_sel_field, 0, max(0, _nf - 1));
     var _pro = pro_edition();
     if (!_pro) { ui_page_tab = 0; }
@@ -547,6 +570,7 @@ function ws_ui_draw(_x1, _y1, _x2, _y2)
     ui_panel(_cx1, _y1, _cx2, _y2, "Preview");
     var _pw = _cx2 - _cx1 - 32;
     var _ph = floor((_y2 - _y1) * 0.5);
+    // preview scale in half steps (1, 1.5, 2...), so it fits in half the page's height
     var _sc = max(1, floor(min(_pw / BD_W, (_ph - 10) / BD_H) * 2) / 2);
     var _vx = floor((_cx1 + _cx2 - BD_W * _sc) / 2);
     var _vy = _y1 + 50;
@@ -560,6 +584,8 @@ function ws_ui_draw(_x1, _y1, _x2, _y2)
     if (_u.on)
     {
         // the panel's outline, and the fields: click to pick, drag to move
+        // ui_drag_dx / dy: where in the field the mouse took hold, so it does not jump;
+        // it snaps to whole 8 x 8 text cells, rows kept inside the panel
         draw_set_alpha(0.5);
         draw_rectangle_colour(_vx, _vy + _r0 * 8 * _sc, _vx + BD_W * _sc - 1, _vy + (_r0 + _u.rows) * 8 * _sc - 1, global.TH.accent2, global.TH.accent2, global.TH.accent2, global.TH.accent2, true);
         draw_set_alpha(1);
@@ -635,9 +661,10 @@ function ws_ui_draw(_x1, _y1, _x2, _y2)
         ui_text_wrap(_gx, _gy, _msg, global.TH.text_dim, _gw, global.f_body, 1);
         return;
     }
+    // the picked field's settings; set_val calls undo_mark(tag) only when the value really changes
     var _sf = _u.fields[ui_sel_field];
     ui_heading(_gx, _gy, "Shows");
-    set_val(_sf, "type", ui_dropdown("ui_ftype", _gx, _gy + 18, _gw, 30, ui_field_types(), _sf.type, "Shows|Text: just the label. Score, Lives, Level: the label then the number. Goal: the label (or the goal's name) and 'got / needed'. Tile carried: the tile's name and how many (tile worlds where the player digs). Tool: the label then the tool in use (8 letters; tile worlds with tools - Tiles page, Tools tab). Item count: the label (or the item's name) and how many the player carries (Logic page, Items tab)."), "uiftype");
+    set_val(_sf, "type", ui_dropdown("ui_ftype", _gx, _gy + 18, _gw, 30, ui_field_types(), _sf.type, "Shows|Text: just the label. Score, Lives, Level: the label then the number. Goal: the label (or the goal's name) and 'got / needed'. Tile carried: the tile's name and how many (tile worlds where the player digs). Tool: the label then the tool in use (8 letters; tile worlds with tools - Tiles page, Tools tab). Item count: the label (or the item's name) and how many the player carries (Logic page, Items tab). Health: the player's health (Home page). Time left: the level's time limit counting down (Levels page). Counter: the number 'Add one to the counter' rules count up."), "uiftype");
     _gy += 58;
     if (_sf.type == 7)
     {
@@ -674,7 +701,7 @@ function ws_ui_draw(_x1, _y1, _x2, _y2)
         set_val(_sf, "shadow", ui_colour_drop("ui_fshcol", _gx, _gy, _gw, 30, clamp(_sf.shadow, 0, pal_count() - 1), "Shadow colour|The shadow's colour."), "uifshcol");
         _gy += 40;
     }
-    if (_sf.type == 1 || _sf.type == 2 || _sf.type == 5 || _sf.type == 7)
+    if (_sf.type == 1 || _sf.type == 2 || _sf.type == 5 || _sf.type >= 7)
     {
         ui_heading(_gx, _gy, "Digits");
         set_val(_sf, "digits", ui_stepper("ui_fdig", _gx, _gy + 18, _gh, _sf.digits, 1, 6, "Digits|How many digits the number has, with leading zeros (score up to 99999)."), "uifdig");

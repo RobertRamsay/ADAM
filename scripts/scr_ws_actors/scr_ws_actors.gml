@@ -197,6 +197,12 @@ function actor_shown_cols(_i)
     return actor_cols_from(actors_alloc_channels(), _i);
 }
 
+/// Draws and runs the Actors page inside (_x1, _y1)-(_x2, _y2), in UI pixels: the cast list with
+/// Add / Duplicate / Remove on the left, the stage (backdrop or a screen of the tile world, actors at
+/// their start, ground line, platform tops, patrol range) in the middle, and the selected actor's
+/// settings on the right. Settings are proj.actors[sel_actor] fields; the disk writer (adam_data_block,
+/// scr_adf) turns each into the 68-byte A_* actor record. Sprite channels and BOBs come from
+/// actors_alloc_channels, worked out again every frame.
 function ws_actors_draw(_x1, _y1, _x2, _y2)
 {
     var _lw = 240;
@@ -210,7 +216,7 @@ function ws_actors_draw(_x1, _y1, _x2, _y2)
     ui_panel(_x1, _y1, _x1 + _lw, _y2, "Cast  (" + string(_na) + " / " + string(_amax) + ")");
     var _ly = _y1 + 54;
     var _rowh = 58;
-    var _by = _y2 - 130;
+    var _by = _y2 - 130;        // top of the three buttons under the list (42 apart)
     var _lcontent = _na * _rowh + 8;
     var _loff = ui_scroll_begin("act_list", _x1 + 6, _y1 + 50, _x1 + _lw - 6, _by - 8, _lcontent);
     var _role_short = ["Player", "Bouncer", "Patrol L-R", "Patrol U-D", "Chaser", "Still", "Platform player", "Hopper", "Faller", "Shot", "Flyer", "Option", "Effect"];
@@ -306,6 +312,8 @@ function ws_actors_draw(_x1, _y1, _x2, _y2)
     var _cx1 = _x1 + _lw + 12;
     var _cx2 = _x2 - _rw - 12;
     ui_panel(_cx1, _y1, _cx2, _y2, "");
+    // one 320 x 256 screen, as big as fits (whole numbers from 2x up); _ox / _oy below = the world
+    // pixel at the stage's top-left, so screen = _fx + (world x - _ox) * _scale
     var _scale = min((_cx2 - _cx1 - 32) / BD_W, (_y2 - _y1 - 70) / BD_H);
     if (_scale >= 2) { _scale = floor(_scale); }
     var _fw = BD_W * _scale;
@@ -318,6 +326,8 @@ function ws_actors_draw(_x1, _y1, _x2, _y2)
     var _oy = 0;
     if (proj.tiles_on)
     {
+        // the camera follows the selected actor, but stays still while one is dragged
+        // (else the stage would slide away under the mouse)
         if (!act_drag && _na > 0)
         {
             act_camx = clamp(proj.actors[sel_actor].x + 8 - BD_W div 2, 0, world_w() - BD_W);
@@ -333,7 +343,8 @@ function ws_actors_draw(_x1, _y1, _x2, _y2)
         terrain_draw(_fx, _fy, _scale);
         _ox = -shmup_xoff();                // a shoot 'em up map: x is across its play area
     }
-    // the ground line that walkers, hoppers and fallers stand on
+    // the ground line that walkers, hoppers and fallers stand on; worked out at most every 400 ms
+    // (the Backdrop page and Levels page set ground_cache_time to -10000 to force it)
     if (!proj.tiles_on && current_time - ground_cache_time > 400)
     {
         ground_cache = ground_table_cached(proj);
@@ -363,10 +374,13 @@ function ws_actors_draw(_x1, _y1, _x2, _y2)
     var _sthelp = "Stage|Drag actors to set where they start. Hidden actors are drawn faded.";
     if (proj.tiles_on) { _sthelp = "Stage|A screen of the tile world round the selected actor: drag actors to set where they start. To place them anywhere on the map, use the Map on the Tiles page."; }
     ui_register("act_stage", _fx, _fy, _fx + _fw, _fy + _fh, _sthelp);
+    // which actor is under the mouse: searched from actor 0 up, first hit wins. Actors are
+    // drawn highest number first (actor 0 in front), so where two overlap this picks the
+    // one in front, as on the Amiga.
     var _hover = -1;
     if (ui_hit(_fx, _fy, _fx + _fw, _fy + _fh))
     {
-        for (var h = _na - 1; h >= 0; h--)
+        for (var h = 0; h < _na; h++)
         {
             var _hx = _fx + (proj.actors[h].x - _ox) * _scale;
             var _hy = _fy + (proj.actors[h].y - _oy) * _scale;
@@ -388,6 +402,7 @@ function ws_actors_draw(_x1, _y1, _x2, _y2)
         ui_take_click();
     }
     if (!ui_held) { act_drag = false; }
+    // dragging: keep the grab offset, clamp so the whole actor stays in the world
     if (act_drag && _na > 0)
     {
         var _ad = proj.actors[sel_actor];
@@ -396,25 +411,71 @@ function ws_actors_draw(_x1, _y1, _x2, _y2)
         _ad.y = clamp(round((ui_my - act_drag_dy - _fy) / _scale) + _oy, 0, world_h() - _dd[1]);
         proj_dirty = true;
     }
-    // draw back to front: lower channels are in front on the Amiga
+    // draw back to front: lower channels are in front on the Amiga. Clipped to the stage, so
+    // an actor partly off it does not spill over the panel round it.
+    ui_scissor(_fx, _fy, _fw, _fh);
     for (var d = _na - 1; d >= 0; d--)
     {
         var _ac2 = proj.actors[d];
         var _dx = _fx + (_ac2.x - _ox) * _scale;
         var _dy = _fy + (_ac2.y - _oy) * _scale;
-        if (_dx < _fx - SPR_W * _scale || _dy < _fy - SPR_H * _scale || _dx > _fx + _fw || _dy > _fy + _fh) { continue; }
+        var _dd2 = actor_dims(_ac2);
+        if (_dx < _fx - _dd2[0] * _scale || _dy < _fy - _dd2[1] * _scale || _dx > _fx + _fw || _dy > _fy + _fh) { continue; }
         var _alpha = 1;
         if (!_ac2.visible) { _alpha = 0.4; }
         var _frame_spr = actor_preview_sprite(_ac2);
         draw_sprite_amiga_cols(_frame_spr, _dx, _dy, _scale, actor_cols_from(_alloc, d), _alpha);
     }
+    // platforms: their tops (what is stood on) in a bright line
+    for (var pq = 0; pq < _na; pq++)
+    {
+        var _pa = proj.actors[pq];
+        if (!_pa.stand_on || _pa.role == 0 || _pa.role == 6 || _pa.role == 9) { continue; }
+        var _pd = actor_dims(_pa);
+        var _ptx = _fx + (_pa.x - _ox) * _scale;
+        var _pty = _fy + (_pa.y + sprite_top(_pa.sprite) - _oy) * _scale;
+        draw_set_alpha(0.85);
+        draw_line_width_colour(_ptx, _pty - 1, _ptx + _pd[0] * _scale, _pty - 1, 2, global.TH.accent2, global.TH.accent2);
+        draw_set_alpha(1);
+    }
+    // the selected patroller: where it goes (ghosts at both ends, joined by a dotted line)
+    if (_na > 0)
+    {
+        var _sa = proj.actors[sel_actor];
+        if (_sa.role >= 1 && _sa.role <= 3)
+        {
+            var _sd = actor_dims(_sa);
+            for (var ax = 0; ax < 2; ax++)
+            {
+                var _across = (ax == 0);
+                if (_across && _sa.role == 3) { continue; }
+                if (!_across && _sa.role == 2) { continue; }
+                var _rg = act_patrol_range(_sa, _across);
+                var _x0 = _sa.x;
+                var _y0 = _sa.y;
+                var _x1r = _sa.x;
+                var _y1r = _sa.y;
+                if (_across) { _x0 = _rg[0]; _x1r = _rg[1]; }
+                else { _y0 = _rg[0]; _y1r = _rg[1]; }
+                var _ga = _fx + (_x0 - _ox) * _scale;
+                var _gb = _fy + (_y0 - _oy) * _scale;
+                var _gc = _fx + (_x1r - _ox) * _scale;
+                var _gd = _fy + (_y1r - _oy) * _scale;
+                ui_dotted_line(_ga + _sd[0] * _scale / 2, _gb + _sd[1] * _scale / 2, _gc + _sd[0] * _scale / 2, _gd + _sd[1] * _scale / 2, global.TH.accent, 0.8, 6);
+                ui_rrect_line(_ga, _gb, _ga + _sd[0] * _scale, _gb + _sd[1] * _scale, 4, global.TH.accent, 0.45, 1);
+                ui_rrect_line(_gc, _gd, _gc + _sd[0] * _scale, _gd + _sd[1] * _scale, 4, global.TH.accent, 0.45, 1);
+            }
+        }
+    }
+    ui_scissor_reset();
+    // selection box and name over the selected actor, a thin box (and hover help) on the hovered one
     for (var d2 = 0; d2 < _na; d2++)
     {
         var _ac3 = proj.actors[d2];
         var _ex = _fx + (_ac3.x - _ox) * _scale;
         var _ey = _fy + (_ac3.y - _oy) * _scale;
-        if (_ex < _fx - SPR_W * _scale || _ey < _fy - SPR_H * _scale || _ex > _fx + _fw || _ey > _fy + _fh) { continue; }
         var _ed = actor_dims(_ac3);
+        if (_ex < _fx - _ed[0] * _scale || _ey < _fy - _ed[1] * _scale || _ex > _fx + _fw || _ey > _fy + _fh) { continue; }
         if (d2 == sel_actor)
         {
             ui_rrect_line(_ex - 4, _ey - 4, _ex + _ed[0] * _scale + 4, _ey + _ed[1] * _scale + 4, 6, global.TH.accent, 1, 2);
@@ -476,8 +537,8 @@ function ws_actors_draw(_x1, _y1, _x2, _y2)
     var _rdesc = [
         "Moves with a joystick in port 2. Stops at the edges of the screen.",
         "Moves diagonally and bounces off every edge like a ball.",
-        "Moves left and right, turning around at the screen edges.",
-        "Moves up and down, turning around at the top and bottom.",
+        "Moves left and right, turning around at the screen edges - or after the distance set under Patrols.",
+        "Moves up and down, turning around at the top and bottom - or after the distance set under Patrols. With 'Can be stood on' it is a lift.",
         "Always heads towards the player. Speed 1 is gentle, 3 is scary!",
         "Stays where you put it. Great for pickups, doors and goals.",
         "Walks left and right on the ground and jumps with fire (or up). Follows the hills - set your ground colours on the Backdrop page.",
@@ -509,6 +570,15 @@ function ws_actors_draw(_x1, _y1, _x2, _y2)
     {
         set_val(_s, "start_up", ui_toggle("act_up", _fx2, _y, "Starts moving up", _s.start_up, "Start direction|Whether this actor starts heading up instead of down."), "actup");
         _y += 32;
+    }
+    if (_s.role >= 1 && _s.role <= 3)
+    {
+        ui_heading(_fx2, _y, "Patrols (8-pixel steps)");
+        set_val(_s, "patrol", ui_stepper("act_patrol", _fx2, _y + 18, _half, _s.patrol, 0, PATROL_MAX, "Patrol distance|How far it goes from where it starts before turning back, in steps of 8 pixels, the way it starts moving (4 = 32 pixels). 0 = right across the screen (or until a wall in a tile world). Hold Shift for steps of 10."), "actpatrol");
+        var _ptxt = "edge to edge";
+        if (_s.patrol > 0) { _ptxt = string(_s.patrol * 8) + " pixels"; }
+        ui_text(_fx2 + _half + 12, _y + 34, _ptxt, global.TH.text_dim, fa_left, fa_middle, global.f_body, 1);
+        _y += 62;
     }
     if (_s.role == 9)
     {
@@ -571,6 +641,7 @@ function ws_actors_draw(_x1, _y1, _x2, _y2)
         }
     }
     _y += 6;
+    // start position in world pixels (written into the actor record); the top limit keeps the whole picture in the world
     var _sd = actor_dims(_s);
     ui_heading(_fx2, _y, "Start X");
     set_val(_s, "x", ui_stepper("act_x", _fx2, _y + 18, _half, _s.x, 0, world_w() - _sd[0], "Start X|Horizontal start position in pixels (0 = left edge, " + string(world_w() - _sd[0]) + " = right edge). Hold Shift for steps of 10."), "actx");
@@ -634,10 +705,12 @@ function ws_actors_draw(_x1, _y1, _x2, _y2)
     {
         set_val(_s, "carry", ui_toggle("act_carry", _fx2, _y, "Can be carried", _s.carry, "Can be carried|The player picks it up by touching it and pressing fire - it rides on the player's head - and fire again throws it the way the player faces, in an arc. Make rules with WHEN 'Thrown actor hits actor' (knock out an enemy, break a box) and 'Player picks up actor'. A rock, a barrel, a bomb, a key."), "actcarry");
         _y += 34;
+        set_val(_s, "stand_on", ui_toggle("act_standon", _fx2, _y, "Can be stood on (a platform)", _s.stand_on, "Can be stood on|A moving platform: a platform player (and hoppers, fallers and thrown things) landing on its top stands on it and rides along - jump up through it from below. Make it Patrol left-right or Patrol up-down and set how far it patrols for a lift or a ferry. Its top is the top of its drawn pixels, so draw a flat sprite."), "actstandon");
+        _y += 34;
     }
-    var _yend = _y;
+    var _yend = _y;     // bottom of the settings, for the scroll height below
 
-    // hardware sprite channel
+    // hardware sprite channel (read-only: what actors_alloc_channels gave it)
     var _hw = false;
     var _isbob = false;
     if (sel_actor < array_length(_alloc.chan))
@@ -683,8 +756,42 @@ function ws_actors_draw(_x1, _y1, _x2, _y2)
         ui_text_wrap(_fx2 + 10, _y + 24, _msg, _mc, _fw2 - 20, global.f_small, 1);
         _yend = _y + 18 + _mh;
     }
+    // the content height measured this frame, used by ui_scroll_begin next frame
     ds_map_replace(ui_scroll, "act_props_h", _yend + _soff - _sy1 + 12);
     ui_scroll_end("act_props", _px + 4, _sy1, _x2 - 4, _sy2, _sh);
+}
+
+/// Where actor _a patrols (engine.s pat_lim): [low end, high end] of its x (_across) or y,
+/// from where it starts the way it starts moving; edge to edge when its patrol is 0
+function act_patrol_range(_a, _across)
+{
+    var _d = actor_dims(_a);
+    var _start = _a.x;
+    var _back = _a.start_left;
+    var _max = world_w() - _d[0];
+    if (!_across)
+    {
+        _start = _a.y;
+        _back = _a.start_up;
+        _max = world_h() - _d[1];
+    }
+    var _lo = 0;
+    var _hi = _max;
+    if (_a.patrol > 0)
+    {
+        var _dist = _a.patrol * 8;
+        if (_back)
+        {
+            _lo = max(0, _start - _dist);
+            _hi = min(_start, _max);
+        }
+        else
+        {
+            _lo = _start;
+            _hi = min(_start + _dist, _max);
+        }
+    }
+    return [_lo, _hi];
 }
 
 /// Colours for actor _i from an allocation result

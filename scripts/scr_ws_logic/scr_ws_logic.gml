@@ -1,5 +1,7 @@
 /// ADAM - Logic workspace (WHEN / DO rules)
 
+/// The first actor whose role is in _roles (role numbers, e.g. [0, 6] = either
+/// kind of player), or _fallback when none has one. Used to fill in new rules.
 function logic_find_role(_roles, _fallback)
 {
     for (var i = 0; i < array_length(proj.actors); i++)
@@ -12,11 +14,15 @@ function logic_find_role(_roles, _fallback)
     return _fallback;
 }
 
+/// Adds Quick recipe _t (global.TEMPLATE_NAMES index 0..5) as new rule cards in a
+/// new group named after it, with the actors picked by logic_find_role: 0 enemy hit,
+/// 1 pickup, 2 win at 100 points, 3 game over when lives run out, 4 enemy speeds up
+/// every 10 s, 5 fire plays sound 2 (value 1). One undo step.
 function logic_add_template(_t)
 {
-    if (array_length(proj.rules) > 96)
+    if (array_length(proj.rules) >= RULES_DISK_MAX)    // each recipe adds one rule card
     {
-        toast("That is a lot of rules! The limit is 100.", 1);
+        toast("That is a lot of rules! The limit is " + string(RULES_DISK_MAX) + ".", 1);
         return;
     }
     undo_mark("tpl" + string(current_time));
@@ -90,6 +96,9 @@ function logic_song_names()
     return _n;
 }
 
+/// Rule _r as one plain English sentence: the WHEN, its IF lines, the DO and each
+/// AND DO line ("When Hero touches Gem, add 10 to the score, then ..."). Actor
+/// numbers past the last actor show as "?". The WHEN numbers match engine.s run_rules.
 function logic_sentence(_r)
 {
     var _names = actor_names();
@@ -127,6 +136,10 @@ function logic_sentence(_r)
         case 16: _s += _an + "'s " + string_lower(global.HD_NAMES[clamp(_r.n, 0, 2)]) + " animation ends"; break;
         case 17: _s += "the player gets a " + item_name(_r.n); break;
         case 18: _s += "the player uses a " + item_name(_r.n) + " on " + _bn; break;
+        case 19: _s += _an + " reaches the " + string_lower(global.SIDE_NAMES[clamp(_r.n, 0, 3)]) + " edge"; break;
+        case 20: _s += _an + " hits the scenery"; break;
+        case 21: _s += "the counter reaches " + string(_r.n) + " (it starts again from 0)"; break;
+        case 22: _s += "the level's time runs out"; break;
     }
     for (var f = 0; f < array_length(_r.ifs); f++)
     {
@@ -214,13 +227,42 @@ function logic_do_phrase(_d, _names, _na)
         case 29: _s += "take " + string(max(1, _d.target)) + " " + item_name(_d.value) + " away from the player"; break;
         case 30: _s += "make " + recipe_name(_d.value) + " (if the player has what it takes)"; break;
         case 31: _s += "the player drops a " + item_name(_d.value); break;
+        case 32: _s += "add one to the counter"; break;
+        case 33: _s += "the player loses " + string(max(1, _d.value)) + " health"; break;
+        case 34: _s += "the player gets " + string(max(1, _d.value)) + " health back"; break;
+        case 35: _s += _tn + " bounces back (" + string_lower(global.BOUNCE_NAMES[clamp(_d.value, 0, 2)]) + ")"; break;
+        case 36:
+            var _hn = "?";
+            if (_d.value < _na) { _hn = _names[_d.value]; }
+            _s += _tn + " sticks to " + _hn;
+            break;
+        case 37: _s += _tn + " lets go"; break;
+        case 38: _s += "stop all sounds"; break;
+        case 39: _s += "pause the music"; break;
+        case 40: _s += "the music plays on"; break;
     }
     return _s;
 }
 
-/// What one IF line asks, as words: "the player uses a KEY (used up)"
+/// What one IF line asks, as words: "the player uses a KEY (used up)", "Hero is above Slime"
 function logic_if_phrase(_f)
 {
+    if (_f.kind == 1)
+    {
+        var _names = actor_names();
+        var _na = array_length(proj.actors);
+        var _pa = "?";
+        var _pb = "?";
+        if (_f.a < _na) { _pa = _names[_f.a]; }
+        if (_f.b < _na) { _pb = _names[_f.b]; }
+        var _ps = _pa + " " + global.IF_POS_NAMES[clamp(_f.cond, 0, 4)] + " " + _pb;
+        if (_f.n > 0)
+        {
+            if (_f.cond == 2) { _ps += " (within " + string(_f.n) + " pixels)"; }
+            else { _ps += " (by more than " + string(_f.n) + " pixels)"; }
+        }
+        return _ps;
+    }
     var _in = item_name(_f.item);
     switch (_f.cond)
     {
@@ -256,6 +298,8 @@ function group_new(_name)
     return { name : _name, collapsed : true, enabled : true, parent : -1 };
 }
 
+/// The colour of group _g's stripe and outline: a hue stepped by 47 per group so
+/// groups next to each other differ.
 function group_colour(_g)
 {
     return make_colour_hsv((_g * 47 + 140) mod 255, 150, 230);
@@ -379,6 +423,8 @@ function group_path(_g)
     return _s;
 }
 
+/// The Group drop-down list on a rule card: "(no group)" first, then each group's
+/// path ("Enemies > Bats"). Entry k is group k - 1, so a rule's group + 1 is its entry.
 function group_names()
 {
     var _n = ["(no group)"];
@@ -583,6 +629,31 @@ function logic_do_row(_d, _rid, _x, _y, _pill, _anames, _snames, _xr)
     {
         set_val(_d, "value", logic_item_drop(_rid + "_item", _dx, _dy, min(190, _xr - _dx - 38), _d.value, "Which item|If the player has one, they lose it and its actor (Items tab, 'found as') comes out where the player is, to pick up again."), _rid + "item");
     }
+    if (_act == 33 || _act == 34)
+    {
+        var _hhelp = "How much|Health the player loses. At 0 a life goes and the next life starts with full health. Set the health a life starts with on the Home page.";
+        if (_act == 34) { _hhelp = "How much|Health the player gets back - never more than a life starts with (Home page). A first-aid kit, a meal, a potion."; }
+        set_val(_d, "value", ui_stepper(_rid + "_hp", _dx, _dy, 110, clamp(_d.value, 1, HEALTH_MAX), 1, HEALTH_MAX, _hhelp), _rid + "hp");
+        if (proj.health <= 0 && _xr - (_dx + 118) >= 120) { ui_text(_dx + 118, _dy + 15, "(no health: Home page)", global.TH.warn, fa_left, fa_middle, global.f_small, 1); }
+    }
+    if (_act == 35)
+    {
+        set_val(_d, "target", ui_dropdown(_rid + "_t", _dx, _dy, LOGIC_ACTOR_W, 30, _anames, _d.target, "Which actor|It turns round: a patrol, bouncer or hopper changes the way it goes, a shot or thrown actor flies back, anything else steps back to where it was a moment ago (a player walking into a closed door)."), _rid + "t");
+        _dx += LOGIC_ACTOR_W + 10;
+        set_val(_d, "value", ui_dropdown(_rid + "_bnc", _dx, _dy, max(100, min(130, _xr - _dx)), 30, global.BOUNCE_NAMES, clamp(_d.value, 0, 2), "Which way|Left-right, up-down, or both - a ball off a bat turns up-down, off a wall left-right."), _rid + "bnc");
+    }
+    if (_act == 36)
+    {
+        set_val(_d, "target", ui_dropdown(_rid + "_t", _dx, _dy, LOGIC_ACTOR_W, 30, _anames, _d.target, "Which actor|It sticks where it is now and rides along with the other actor until a 'Let go of actor' rule - a frog on a log, a ball held on a bat, a passenger in a lift."), _rid + "t");
+        _dx += LOGIC_ACTOR_W + 10;
+        var _stx = logic_word(_dx, _dy, "to");
+        var _stw = max(100, min(LOGIC_ACTOR_W, _xr - _stx));
+        set_val(_d, "value", ui_dropdown(_rid + "_stk", _stx, _dy, _stw, 30, _anames, clamp(_d.value, 0, max(0, array_length(proj.actors) - 1)), "To which actor|The actor it rides with. It keeps the same distance from it."), _rid + "stk");
+    }
+    if (_act == 37)
+    {
+        set_val(_d, "target", ui_dropdown(_rid + "_t", _dx, _dy, LOGIC_ACTOR_W, 30, _anames, _d.target, "Which actor|An actor stuck to another (DO 'Stick actor to another') moves by itself again - the ball leaves the bat when fire is pressed."), _rid + "t");
+    }
 }
 
 /// An item drop-down with the item's picture before it; returns the item picked. With no
@@ -600,13 +671,42 @@ function logic_item_drop(_id, _x, _y, _w, _k, _help)
     return ui_dropdown(_id, _x + 38, _y, max(100, _w), 30, item_names(), _kk, _help);
 }
 
-/// One IF line of a rule card: the player [has / uses / has no / has at least n] [item]
+/// One IF line of a rule card: [The player] [has / uses / has no / has at least n] [item], or
+/// [Actor] [a] [is above / below / level with / left of / right of] [b] (by n pixels)
 function logic_if_row(_f, _rid, _x, _y, _xr)
 {
     var _dx = _x;
     ui_rrect(_dx, _y + 4, _dx + 56, _y + 26, 11, global.TH.warn, merge_colour(global.TH.warn, c_black, 0.3), 1);
     ui_text(_dx + 28, _y + 15, "IF", make_colour_rgb(40, 28, 8), fa_center, fa_middle, global.f_small, 1);
-    _dx = logic_word(_dx + 66, _y, "the player");
+    _dx += 66;
+    var _nk = ui_dropdown(_rid + "_kind", _dx, _y, 120, 30, global.IF_KIND_NAMES, clamp(_f.kind, 0, 1), "IF about|The player: an item they carry (Items tab). Actor: where one actor is from another - above, below, level with, left of or right of it.");
+    if (_nk != _f.kind)
+    {
+        undo_mark(_rid + "kind");
+        _f.kind = _nk;
+        _f.cond = 0;
+        _f.n = 1;
+        if (_nk == 1) { _f.n = 0; }
+    }
+    _dx += 130;
+    if (_f.kind == 1)
+    {
+        var _anames = actor_names();
+        var _na = max(1, array_length(_anames));
+        var _aw = 130;
+        set_val(_f, "a", ui_dropdown(_rid + "_pa", _dx, _y, _aw, 30, _anames, clamp(_f.a, 0, _na - 1), "Which actor|The actor whose place is checked (a copy of it, when a copy made the rule fire)."), _rid + "pa");
+        _dx += _aw + 8;
+        set_val(_f, "cond", ui_dropdown(_rid + "_pc", _dx, _y, 130, 30, global.IF_POS_NAMES, clamp(_f.cond, 0, 4), "Where|Above / below / left of / right of: its middle is further that way than the other actor's middle, by more than the margin. Level with: their middles are no more than the margin apart up or down - landing on top of an enemy, hitting a bat on its left or right half."), _rid + "pc");
+        _dx += 138;
+        var _bw = max(90, min(_aw, _xr - _dx - 92));
+        set_val(_f, "b", ui_dropdown(_rid + "_pb", _dx, _y, _bw, 30, _anames, clamp(_f.b, 0, _na - 1), "Than which actor|The actor it is compared with."), _rid + "pb");
+        _dx += _bw + 8;
+        if (_xr - _dx >= 80)
+        {
+            set_val(_f, "n", ui_stepper(_rid + "_pm", _dx, _y, 84, clamp(_f.n, 0, IF_POS_MARGIN_MAX), 0, IF_POS_MARGIN_MAX, "Margin|In pixels. Above, below, left of, right of: by more than this. Level with: no more than this apart."), _rid + "pm");
+        }
+        return;
+    }
     set_val(_f, "cond", ui_dropdown(_rid + "_cond", _dx, _y, 150, 30, global.IF_NAMES, _f.cond, "IF|The rule only fires when this is true. Has: the player is carrying one (it stays). Uses: the player must have one, and using it does what the item's 'When used' says - a key is used up, a lantern is kept. Has no: they carry none. Has at least: they carry that many or more (coins for a shop)."), _rid + "cond");
     _dx += 160;
     if (_f.cond == 3)
@@ -736,6 +836,23 @@ function logic_rule_card(_r, i, _cx, _cy, _cw, _anames, _snames, _gnames)
             _wx = logic_word(_wx + 38 + 178, _wy, "on");
             set_val(_r, "b", ui_dropdown(_rid + "_b", _wx, _wy, _aw, 30, _anames, _r.b, "Which actor|The actor the player is touching when they use the item - a door, a person to give it to, a lock."), _rid + "b");
             break;
+        case 19:
+            set_val(_r, "a", ui_dropdown(_rid + "_a", _wx, _wy, _aw, 30, _anames, _r.a, "Which actor|Fires once each time this actor (or a copy of it) gets to the edge - of the screen, or of the map in a tile world. Then it waits until the actor has moved away from it."), _rid + "a");
+            _wx = logic_word(_wx + _aw + 8, _wy, "reaches the");
+            set_val(_r, "n", ui_dropdown(_rid + "_edge", _wx, _wy, 110, 30, global.SIDE_NAMES, clamp(_r.n, 0, 3), "Which edge|Left, right, top or bottom. A ball that gets past the bat, an enemy that walks off the side, a player who reaches the exit side of the screen."), _rid + "n");
+            logic_word(_wx + 118, _wy, "edge");
+            break;
+        case 20:
+            set_val(_r, "a", ui_dropdown(_rid + "_a", _wx, _wy, _aw, 30, _anames, _r.a, "Which actor|Fires once when this actor (or a copy of it) touches the scenery: a solid tile next to it in a tile world, else the hills or painted ground under it. Then it waits until the actor is clear of it - a ball that bounces off a wall, a faller that lands."), _rid + "a");
+            logic_word(_wx + _aw + 8, _wy, "hits the scenery");
+            break;
+        case 21:
+            set_val(_r, "n", ui_stepper(_rid + "_n", _wx, _wy, 120, clamp(_r.n, 1, COUNTER_MAX), 1, COUNTER_MAX, "Counter|Fires when 'Add one to the counter' rules have counted up to this, then the counter starts again from 0 - five switches pulled opens the door, every tenth coin gives a life. It starts at 0 each level. Show it with a Counter field on a custom HUD (UI page)."), _rid + "n");
+            logic_word(_wx + 128, _wy, "(then back to 0)");
+            break;
+        case 22:
+            logic_word(_wx, _wy, "(set the time limit on the Levels page)");
+            break;
     }
 
     // IF lines (the rule fires only when they are all true)
@@ -815,6 +932,13 @@ function logic_rule_card(_r, i, _cx, _cy, _cw, _anames, _snames, _gnames)
     return _res;
 }
 
+/// Draws the Logic page in the work area (_x1, _y1) - (_x2, _y2), UI pixels. Tab 1
+/// (Items) hands over to logic_items_draw / logic_item_ideas_draw. Tab 0: the top bar
+/// (+ Add rule, + Add group, Collapse all), the scrolling list of group headers and
+/// rule cards (logic_rule_card) in run order, then Quick recipes on the right.
+/// Clicks inside the list are only noted (_del, _movei, _gact) and acted on after
+/// the list is drawn, so proj.rules / proj.groups never change while being walked.
+/// The rules go to disk as R_* records via adam_data_block (scr_adf).
 function ws_logic_draw(_x1, _y1, _x2, _y2)
 {
     var _rw = 320;
@@ -827,6 +951,7 @@ function ws_logic_draw(_x1, _y1, _x2, _y2)
         logic_item_ideas_draw(_x2 - _rw, _y1, _x2, _y2);
         return;
     }
+    // ---------------- top bar: count, + Add rule, + Add group, Collapse all ----------------
     logic_drag_item = -1;
     var _nr = array_length(proj.rules);
     var _ngr = array_length(proj.groups);
@@ -835,7 +960,8 @@ function ws_logic_draw(_x1, _y1, _x2, _y2)
     ui_text(_x1 + 200, _y1 + 15, ui_text_fit(string(_nr) + " rule(s) in " + string(_ngr) + " group(s). Checked every frame, top to bottom.", global.f_small, _subr - _x1 - 200), global.TH.text_faint, fa_left, fa_top, global.f_small, 1);
     if (ui_button("logic_add", _lx2 - 150, _y1 + 8, 136, 30, "+ Add rule", "Add rule|Adds a new WHEN / DO rule (outside any group). Use the + Rule button on a group to add straight into it.", BTN_ACCENT))
     {
-        if (_nr < 100)
+        // the editor stops at the disk and engine limit, RULES_DISK_MAX (128)
+        if (_nr < RULES_DISK_MAX)
         {
             undo_mark("ruleadd" + string(current_time));
             var _nrule = rule_new();
@@ -845,7 +971,7 @@ function ws_logic_draw(_x1, _y1, _x2, _y2)
             logic_sort_rules();
             logic_reveal = _nrule;
         }
-        else { toast("100 rules is the limit", 1); }
+        else { toast(string(RULES_DISK_MAX) + " rules is the limit", 1); }
     }
     if (ui_button("logic_addgroup", _lx2 - 296, _y1 + 8, 136, 30, "+ Add group", "Add group|Makes a new named group. Put rules in it with the Group drop-down on each rule, put groups inside groups (+ Group, or 'In:' on a group), fold it to tidy up, or switch it off to test without those rules.", BTN_NORMAL))
     {
@@ -924,6 +1050,9 @@ function ws_logic_draw(_x1, _y1, _x2, _y2)
         }
         logic_reveal = -1;
     }
+    // ---------------- the list: group headers and rule cards ----------------
+    // only rows inside the view (with 10 px spare) are drawn and registered; the others
+    // just move _y on, so a long list stays quick
     var _off = ui_scroll_begin("logic_list", _lx, _ly1, _lx2 - 10, _ly2, _content);
     if (_nr == 0 && _ngr == 0)
     {
@@ -1032,6 +1161,7 @@ function ws_logic_draw(_x1, _y1, _x2, _y2)
         logic_sort_rules();
     }
 
+    // ---------------- act on what was clicked in the list (after drawing it) ----------------
     if (_del >= 0)
     {
         undo_mark("ruledel" + string(current_time));
@@ -1085,7 +1215,7 @@ function ws_logic_draw(_x1, _y1, _x2, _y2)
         }
         if (_gop == "add")
         {
-            if (array_length(proj.rules) < 100)
+            if (array_length(proj.rules) < RULES_DISK_MAX)
             {
                 undo_mark("ruleadd" + string(current_time));
                 var _nr2 = rule_new();
@@ -1105,7 +1235,7 @@ function ws_logic_draw(_x1, _y1, _x2, _y2)
                 logic_sort_rules();
                 logic_reveal = _nr2;
             }
-            else { toast("100 rules is the limit", 1); }
+            else { toast(string(RULES_DISK_MAX) + " rules is the limit", 1); }
         }
     }
 
@@ -1118,8 +1248,8 @@ function ws_logic_draw(_x1, _y1, _x2, _y2)
     draw_set_font(global.f_small);
     _ry += max(50, ceil(ui_sh_ext(_rintro, _rw - 40)) + 14);
     var _rhelp = [
-        "Enemy hit|Adds 4 rules: when the player touches an enemy, lose a life, go back to the start, flash and stay safe for 3 seconds.",
-        "Pickup|Adds 3 rules: when the player touches a pickup, add 10 points, move the pickup somewhere random and play the Coin sound.",
+        "Enemy hit|Adds a rule card: when the player touches an enemy, lose a life, AND go back to the start, flash and stay safe for 3 seconds.",
+        "Pickup|Adds a rule card: when the player touches a pickup, add 10 points, AND move the pickup somewhere random and play the Coin sound.",
         "Win condition|Adds a rule: when the score reaches 100, you win.",
         "Lose condition|Adds a rule: when lives run out, it's game over.",
         "Getting harder|Adds a rule: every 10 seconds the enemy speeds up.",
@@ -1158,6 +1288,7 @@ function recipe_new()
     return { a : -1, b : -1, out : -1, keep_a : false, keep_b : false, n : 1 };
 }
 
+/// The names of proj.items in order (item drop-downs; entry k = item k).
 function item_names()
 {
     var _n = [];
@@ -1287,6 +1418,7 @@ function item_delete(_k)
         }
         for (var f = array_length(_ru.ifs) - 1; f >= 0; f--)
         {
+            if (_ru.ifs[f].kind == 1) { continue; }       // a position line names no item
             if (_ru.ifs[f].item == _k) { array_delete(_ru.ifs, f, 1); }
             else { _ru.ifs[f].item = item_ref_after_remove(_ru.ifs[f].item, _k, 0); }
         }
@@ -1313,10 +1445,14 @@ function recipe_delete(_r)
     }
 }
 
-/// Does rule _r use items (an IF line, WHEN 17 / 18, or a DO line that gives, takes, makes or drops one)?
+/// Does rule _r use items (an item IF line, WHEN 17 / 18, or a DO line that gives, takes, makes
+/// or drops one)? IF position lines (kind 1) are about actors, not items.
 function rule_uses_items(_r)
 {
-    if (array_length(_r.ifs) > 0) { return true; }
+    for (var f = 0; f < array_length(_r.ifs); f++)
+    {
+        if (_r.ifs[f].kind != 1) { return true; }
+    }
     if (_r.when == 17 || _r.when == 18) { return true; }
     if (_r.act >= 28 && _r.act <= 31) { return true; }
     for (var m = 0; m < array_length(_r.more); m++)
@@ -1334,6 +1470,8 @@ function recipe_names()
     return _n;
 }
 
+/// Recipe _r as "A + B > OUT" from its item names; "?" for an item not picked yet
+/// (or for _r out of range).
 function recipe_name(_r)
 {
     if (_r < 0 || _r >= array_length(proj.recipes)) { return "?"; }

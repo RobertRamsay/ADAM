@@ -1,5 +1,7 @@
 /// ADAM - Home workspace
 
+/// Saves the project to proj_path. _save_as true (or no path yet) asks for a file
+/// name first (".adam" added when it has no extension); cancelling saves nothing.
 function home_save(_save_as)
 {
     var _path = proj_path;
@@ -12,6 +14,8 @@ function home_save(_save_as)
     project_save_to(_path);
 }
 
+/// Home 'Open' button: asks first when there are unsaved changes (confirm box,
+/// which calls home_open_now on 'Open...'), else opens straight away.
 function home_open()
 {
     if (proj_dirty)
@@ -22,12 +26,16 @@ function home_open()
     home_open_now(0);
 }
 
+/// Shows the file picker and loads the .adam file chosen (project_load_from).
+/// _unused: the confirm box's callback argument.
 function home_open_now(_unused)
 {
     var _path = get_open_filename("ADAM project|*.adam", "");
     if (_path != "") { project_load_from(_path); }
 }
 
+/// Home 'New' button: asks first when there are unsaved changes (confirm box,
+/// which calls home_new_now), else starts a new project straight away.
 function home_new()
 {
     if (proj_dirty)
@@ -38,6 +46,8 @@ function home_new()
     home_new_now(0);
 }
 
+/// Replaces the project with a blank one for the same machine, forgets the save
+/// and disk paths, clears every page's undo. _unused: the confirm box's callback argument.
 function home_new_now(_unused)
 {
     var _machine = proj.machine;
@@ -147,6 +157,10 @@ function home_row(_id, _x1, _y1, _x2, _h, _badge, _c1, _c2, _title, _tag, _desc,
     return false;
 }
 
+/// Draws the Home page in the work area (_x1, _y1) - (_x2, _y2), UI pixels.
+/// Left 60 %: the hero panel (New / Open / Save), then 'How it works' and
+/// 'Example games' lists side by side; right 40 %: Game settings (saved in the
+/// project) above Studio settings (settings ini, every project).
 function ws_home_draw(_x1, _y1, _x2, _y2)
 {
     var _split = _x1 + floor((_x2 - _x1) * 0.6);
@@ -268,7 +282,7 @@ function ws_home_draw(_x1, _y1, _x2, _y2)
             if (home_ex_click == e && current_time - home_ex_click_t < 400)
             {
                 home_ex_click = -1;
-                if (example_last == e && !proj_dirty) { build_ws_build(true); }
+                if (example_last == e && !proj_dirty) { build_ws_build(true, 0, false); }     // never in God mode
             }
             else
             {
@@ -316,6 +330,9 @@ function ws_home_draw(_x1, _y1, _x2, _y2)
     set_val(proj, "lives", ui_stepper("home_lives", _fx, _y + 18, _half, proj.lives, 0, 9, "Lives|How many lives the player starts with. Use the 'Lose a life' action in Logic to take them away."), "lives");
     ui_heading(_fx + _half + 12, _y, "Score / lives row");
     set_val(proj, "hud_row", ui_stepper("home_hudrow", _fx + _half + 12, _y + 18, _half, proj.hud_row, 0, 31, "Score row|Which 8-pixel text row (0 = top, 31 = bottom) shows the score and lives. They are drawn on top of the backdrop."), "hudrow");
+    _y += 64;
+    ui_heading(_fx, _y, "Health a life starts with (0 = none)");
+    set_val(proj, "health", ui_stepper("home_health", _fx, _y + 18, _half, proj.health, 0, HEALTH_MAX, "Health|Gives the player health as well as lives: 'Lose health' rules take some away, and at 0 a life goes and the next one starts with full health. 'Add health' gives some back. 0 = no health - each hit is a life. Shown as HEALTH on the score row, or a Health field on a custom HUD (UI page)."), "health");
     _y += 64;
     set_val(proj, "show_score", ui_toggle("home_showscore", _fx, _y, "Show score", proj.show_score, "Show score|Shows SCORE 00000 on the left of the score row."), "showscore");
     set_val(proj, "show_lives", ui_toggle("home_showlives", _fx + _half + 12, _y, "Show lives", proj.show_lives, "Show lives|Shows LIVES 3 on the right of the score row."), "showlives");

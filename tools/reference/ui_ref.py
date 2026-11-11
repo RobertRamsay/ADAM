@@ -8,6 +8,7 @@ FONT_STYLES = ["ADAM", "Bold", "Thin", "Italic", "Bold italic", "Custom"]
 FRAME_STYLES = ["Metal", "Wood", "Stone", "Neon", "Parchment", "Window"]
 FIELD_TYPES = ["Text", "Score", "Lives", "Goal", "Tile carried", "Level", "Tool"]
 
+# the HUD font as 512 bytes (64 letters x 8 rows): Custom (style 5), or ADAM's font made bold / thin / italic (scr_ws_ui ui_font_bytes)
 def font_bytes(ui):
     st = ui.get('font_style', 0)
     if st == 5 and len(ui.get('font', [])) == 512: return list(ui['font'])
@@ -58,6 +59,7 @@ def frame_rgb(style, x, y):
         return None
     return None
 
+# nearest palette colour to $RRGGBB, never colour 0 (scr_adf pal_nearest)
 def pal_nearest(pal, rgb, ncol):
     best, bd = 1, -1
     r, g, b = (rgb >> 16) & 255, (rgb >> 8) & 255, rgb & 255
@@ -67,6 +69,7 @@ def pal_nearest(pal, rgb, ncol):
         if bd < 0 or dd < bd: bd, best = dd, c
     return best
 
+# the 24 x 24 frame template of a style in the nearest palette colours, 0 = see-through
 def frame_preset(style, pal, ncol):
     out = []
     for y in range(24):
@@ -93,6 +96,7 @@ def panel_pixels(ui, pixels):
             if v: out[y * 320 + x] = v
     return out
 
+# a HUD field as the engine reads it (engine.s F_*, 32 bytes): type, column, row, colour, shadow, digits, 20-byte label
 def field_bytes(f):
     lab = f.get('label', '').upper().encode('ascii', 'replace')[:19]
     sh = f.get('shadow', -1)

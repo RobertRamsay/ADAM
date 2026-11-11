@@ -87,6 +87,7 @@ function mod_num(_s, _key, _def)
     return _v;
 }
 
+/// _v rounded down to a whole number and kept in _lo.._hi
 function mod_int(_v, _lo, _hi)
 {
     return clamp(floor(_v), _lo, _hi);
@@ -112,6 +113,8 @@ function mod_song_order(_ms)
     return _out;
 }
 
+/// Patterns the file holds: highest pattern number in the order table + 1
+/// (how ProTracker counts them; see Conventions above)
 function mod_pattern_count(_order)
 {
     var _top = 0;
@@ -167,12 +170,14 @@ function mod_size(_ms)
     return _total;
 }
 
+/// Writes word _v (0..65535) big-endian (68000 order) at byte _pos of buffer _b
 function mod_poke16(_b, _pos, _v)
 {
     buffer_poke(_b, _pos, buffer_u8, (_v >> 8) & 0xff);
     buffer_poke(_b, _pos + 1, buffer_u8, _v & 0xff);
 }
 
+/// Reads a big-endian word (0..65535) at byte _pos of buffer _b
 function mod_peek16(_b, _pos)
 {
     return (buffer_peek(_b, _pos, buffer_u8) << 8) | buffer_peek(_b, _pos + 1, buffer_u8);
@@ -535,6 +540,8 @@ function mod_empty_pattern()
     return _pat;
 }
 
+/// Puts a new cell in pattern _pat at row 0..63, channel 0..3: note 1..36
+/// (0 none), sample 1..31 (0 none), effect 0..15, param 0..255 (self-test songs)
 function mod_set_cell(_pat, _row, _ch, _note, _smp, _eff, _par)
 {
     var _cells = _pat[_row];

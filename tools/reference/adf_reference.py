@@ -10,19 +10,35 @@ ENGINE_DIR=os.path.join(REPO,'datafiles','engine')
 ENGINE=open(os.path.join(ENGINE_DIR,'engine.bin'),'rb').read()
 BOOT=open(os.path.join(ENGINE_DIR,'boot.bin'),'rb').read()
 
+# build(proj, aga) -> the data block (bytes) that goes right after engine.bin; the twin of
+# scr_adf.gml adam_data_block / adam_data_block_raw. proj is the flat 'builder' dict that
+# gen_examples.to_builder makes (actors already expanded into disk actors), not an .adam file.
+# Also sets proj['_need'] (bytes used from the data start, cleared memory included) and
+# proj['_disk2'] (the disk 2 image, or None).
+# Blocks in the order they are written (offsets go in the header, H_* in engine.s):
+#   header 120 bytes (written last), palette, backdrop planes, sprite / BOB images and the
+#   animation tables (AN_*), actors (A_*), rules (R_*), sprite pair colours, messages, sounds
+#   + sfx table, copper sky, painted ground, game block (G_*), tile world (T_*, TP_*, TL_*,
+#   TA_*), custom HUD (UI_*), music (M_*) and disk 2 songs / maps, work and display planes,
+#   BOB second display + background, scroll block (SC_*, MP_*, SP_*), named palettes (PS_*),
+#   items (IT_* / RC_*), logic (LG_*: health, time limits), disk 2 block (D2_*). Cleared
+#   memory (BSS) follows the data.
 def build(proj, aga):
     depth=proj['depth']; ncol=1<<depth
     actors=proj['actors']; rules=proj['rules'][:128]
     blob=bytearray()
+    # pads the block with zeros to a multiple of n bytes (scr_adf buf_align)
     def align(n):
         while len(blob)%n: blob.append(0)
-    blob+= b'\0'*116                         # header (HDR_SIZE)
+    blob+= b'\0'*120                         # header (HDR_SIZE)
     sc=proj.get('scroll')                     # scrolling backdrop: dict(dir 1 up / 2 right / 3 down / 4 left, speed 1..16)
     if sc and (proj.get('tiles') or not sc.get('dir')): sc=None
+    # palette (H_PAL 32): one long $00RRGGBB per colour (scr_adf '// palette')
     align(8)
     off_pal=len(blob)
     for i in range(ncol):
         blob+=struct.pack('>L',proj['pal'][i] if i<len(proj['pal']) else 0)
+    # backdrop bitplanes (H_PLANES 36, the pristine copy): depth planes of 256 lines x 40 bytes
     align(8)
     off_planes=len(blob)
     px=proj['pixels']
@@ -39,9 +55,11 @@ def build(proj, aga):
     # sprite dicts: px is w x h (default 16 x 24); pixel (x, y), 0 outside
     def sw(s): return s.get('w',16)
     def sh(s): return s.get('h',24)
+    # colour number 0..3 of sprite s at (x, y), 0 outside it
     def pix(s,x,y):
         if x<0 or y<0 or x>=sw(s) or y>=sh(s): return 0
         return s['px'][y*sw(s)+x]
+    # a hardware sprite block (scr_adf adf_sprite_block): 2 control words, 24 lines of 2 plane words, 2 end words
     def sblock(s):
         # hardware sprite: the top-left 16 x 24 pixels
         align(8); o=len(blob)
@@ -54,6 +72,7 @@ def build(proj, aga):
                 if v&2: w1|=0x8000>>x
             blob.extend(struct.pack('>HH',w0,w1))
         blob.extend(b'\0\0\0\0'); return o
+    # (scr_adf adf_bob_image)
     def bimg(s,cmap,bw,bh):
         # BOB image (engine.s A_BSIZE): a BI_* header, bw/16 x bh mask words, then depth
         # planes the same size; sprite pixel 1-3 becomes backdrop colour cmap[0-2]
@@ -92,6 +111,7 @@ def build(proj, aga):
         s=proj['sprites'][a['sprite']]
         if a.get('bob'): return sw(s),sh(s)
         return 16,24
+    # sprite s turned round left to right (scr_adf spr_flipped)
     def flipped(s):
         w,h=sw(s),sh(s)
         return dict(s,px=[s['px'][y*w+(w-1-x)] for y in range(h) for x in range(w)])
@@ -107,6 +127,7 @@ def build(proj, aga):
         plan=anim_plan(a)
         if plan:
             made={(a['sprite'],False):spr_offs[-1]}
+            # the offset of sprite si's image (fl = turned round); each is written only once per actor
             def img(si,fl,mk=mk):
                 if (si,fl) not in made:
                     sp=proj['sprites'][si]
@@ -122,7 +143,8 @@ def build(proj, aga):
             plans.append(ents)
         else: plans.append(None)
     align(8)
-    # animation tables (engine.s AN_*): 4 x { n, rate, mode, 0, 16 right offsets, 16 left offsets }
+    # animation tables (engine.s AN_*): 4 (12 with 8 directions, 21 with Fire, + 2 with Hit / Die)
+    # x { n, rate, mode, 0, 16 right offsets, 16 left offsets }
     anim_offs=[]
     for ents in plans:
         if not ents: anim_offs.append(0); continue
@@ -132,6 +154,7 @@ def build(proj, aga):
             for side in (right,left):
                 for k in range(16): blob.extend(struct.pack('>L',side[k] if k<n else side[0]))
     align(8)
+    # actor records (H_ACTORS 40, engine.s A_*, 68 bytes each; scr_adf '// actor records')
     off_act=len(blob)
     for i,a in enumerate(actors):
         s=proj['sprites'][a['sprite']]
@@ -152,7 +175,7 @@ def build(proj, aga):
         if plans[i] and dirs_on(a) and nmain>=12: aflags|=1
         if plans[i] and nmain>12: aflags|=2
         if plans[i] and hd_used(a): aflags|=4
-        blob+=struct.pack('>HLHHHHHHHH',a.get('chan',i),spr2_offs[i],1 if a.get('carry') else 0,aflags,a.get('from',1),a.get('fast',0),
+        blob+=struct.pack('>HLHHHHHHHH',a.get('chan',i),spr2_offs[i],(1 if a.get('carry') else 0)|(2 if a.get('stand_on') else 0)|(min(255,a.get('patrol',0))<<8),aflags,a.get('from',1),a.get('fast',0),
                           1 if a.get('bob') else 0,ww-bw,wh-bh,bsize)
         blob+=struct.pack('>L',anim_offs[i])
         # shoot 'em up (version 9): A_PAT, A_ENTER (byte: comes back, byte: edge 0 top 1 right
@@ -166,6 +189,8 @@ def build(proj, aga):
         if not (0<=fire<len(actors)): fire=-1
         blob+=struct.pack('>HhHH',a.get('type',i),fire,max(10,min(500,a.get('frate',60))),max(0,min(4,a.get('fpat',0))))
     align(8)
+    # rules (H_RULES 44, engine.s R_*): 16 bytes each, R_NAND = how many 8-byte lines follow it
+    # (AND DO lines, then IF lines); scr_adf '// rules', adf_do_line / adf_if_lines
     off_rules=len(blob)
     for r in rules:
         more=r.get('more',[])[:4]          # AND DO lines: R_NAND, then 8 bytes each (engine.s AND_SIZE)
@@ -173,8 +198,13 @@ def build(proj, aga):
         sv=lambda d: max(0,min(len(proj['sfx'])-1,d['value'])) if d['act']==2 else d['value']   # sound: below the count
         blob+=struct.pack('>HHHHHHHH',r['when'],r['a'],r['b'],r['n'],r['act'],r['target'],sv(r),len(more)+len(ifs))
         for m in more: blob+=struct.pack('>HHHH',m['act'],m['target'],sv(m),0)
-        for f in ifs: blob+=struct.pack('>HHHH',0x8000|f['cond'],f.get('n',1),f['item'],0)
+        for f in ifs:
+            if f.get('kind',0)==1:         # version 18: a position line - IF_LINE + IF_POS + cond, margin, a | b << 8
+                blob+=struct.pack('>HHHH',0x8040|f['cond'],f.get('n',0),f['a']|(f['b']<<8),0)
+            else:
+                blob+=struct.pack('>HHHH',0x8000|f['cond'],f.get('n',1),f['item'],0)
     align(8)
+    # sprite pair colours (H_SPRCOL 60): 4 pairs x 3 longs $00RRGGBB, from the first actor on each pair
     off_sprcol=len(blob)
     for pair in range(4):
         cols=[0,0,0]
@@ -182,6 +212,7 @@ def build(proj, aga):
             if a.get('chan',k)//2==pair:
                 cols=proj['sprites'][a['sprite']]['cols']; break
         for c in cols: blob+=struct.pack('>L',c)
+    # a message (H_OVER 52 / H_WIN 56): upper case, up to 40 letters, 0 terminated (scr_adf buf_text)
     def text(s):
         o=len(blob); blob.extend(s.upper().encode('ascii','replace')[:40]+b'\0'); return o
     off_over=text(proj['over']); off_win=text(proj['win'])
@@ -204,9 +235,11 @@ def build(proj, aga):
         if len(data)%2: data+=b'\0'
         blob+=data; sfx_entries.append((o,len(data)//2))
     align(8)
+    # sfx table (H_SFX 48): offset, length in words, period (0 here: the engine uses SFX_PERIOD; scr_adf writes the period)
     off_sfx=len(blob)
     for o,l in sfx_entries: blob+=struct.pack('>LHH',o,l,0)
     align(8)
+    # copper sky (H_GRAD 68; scr_adf '// copper sky'): 256 lines
     off_grad=0
     if proj.get('grad'):
         off_grad=len(blob)
@@ -215,15 +248,20 @@ def build(proj, aga):
         if aga:
             for c in proj['grad']: blob+=struct.pack('>H',((c>>8)&0xf00)|((c>>4)&0xf0)|(c&0xf))
     align(8)
+    # painted ground (H_GROUND 72): per column the first ground-coloured line from the top (scr_adf ground_table)
     off_ground=0
     if proj.get('ground'):
         off_ground=len(blob)
         for c in proj['ground']: blob+=struct.pack('>H',c)
     align(8)
+    # game block (H_GAME 28, engine.s G_*; scr_adf '// game block'): levels, terrain on, 4 terrain
+    # colours, goal, title on, then label 8 / title 40 / title 40 / level text 16 bytes, then
+    # 320 hill heights per level
     off_game=0
     g=proj.get('game')
     if g:
         off_game=len(blob)
+        # text in exactly n bytes, 0 padded (scr_adf buf_fixed_text)
         def fixed(t,n):
             b=t.upper().encode('ascii','replace')[:n-1]; return b+b'\0'*(n-len(b))
         blob.extend(struct.pack('>HHHHHHHH',len(g['levels']),1 if g['terrain'] else 0,*g['cols'],g['goal'],1 if g['title'] else 0))
@@ -231,10 +269,13 @@ def build(proj, aga):
         for lv in g['levels']:
             for h in lv: blob.extend(struct.pack('>H',h))
     align(8)
+    # header H_TILES 92; twin: scr_adf '// tile world', adf_map_cells, adf_level_maps_used, tile_anims_on_disk
     # tile world (engine.s T_*): proj['tiles'] = dict(w, h, dig, size (8/16/32/64), tiles=[dict(name,
     # px (size x size colour indexes), solid, dig, hard, points, goal, sound (-1 none), becomes)],
     # map=[w*h tile numbers]). More than 256 tile types: map cells are words.
     off_tiles=0; tile_fix=None
+    d2maps=[]                                  # levels' own maps for disk 2: (table slot, bytes), placed after the songs
+    d2mapbuf=0
     t=proj.get('tiles')
     if t:
         align(8)
@@ -279,6 +320,27 @@ def build(proj, aga):
         off_map=len(blob)
         if wcell: blob.extend(b''.join(struct.pack('>H',v) for v in t['map']))
         else: blob.extend(bytes(t['map']))
+        # levels with maps of their own (t['level_maps'][l] = level l+1's map, None = level 1's):
+        # T_FLAGS bit 2, T_MAP -> 10 longs (0 = level 1's)
+        lms=t.get('level_maps') or []
+        nlev=len(proj['game']['levels']) if proj.get('game') else 1
+        own=[l for l in range(1,min(10,nlev)) if l<len(lms) and lms[l]]
+        if own:
+            while len(blob)%8: blob.append(0)
+            offs=[0]*10; offs[0]=off_map
+            pend=[]
+            for l in own:
+                cells=b''.join(struct.pack('>H',v) for v in lms[l]) if wcell else bytes(lms[l])
+                if proj.get('d2maps'):             # version 17: on disk 2 (proj['d2maps'], Build page switch)
+                    pend.append((l,cells)); continue
+                offs[l]=len(blob)
+                blob.extend(cells)
+                while len(blob)%8: blob.append(0)
+            off_map=len(blob)
+            blob.extend(struct.pack('>10L',*offs))
+            d2maps=[(off_map+l*4,c) for l,c in pend]
+            if pend: d2mapbuf=(len(pend[0][1])+5631)//5632*5632
+            struct.pack_into('>H',blob,tile_fix-2,struct.unpack_from('>H',blob,tile_fix-2)[0]|4)
         align(8)
         struct.pack_into('>LL',blob,tile_fix,off_img,off_map)
         # animated tiles (version 15, engine.s TA_* / TR_*): a tile's 'anim' = [2..8 tile numbers
@@ -294,6 +356,7 @@ def build(proj, aga):
                 blob.extend(b'\0'*6)               # TR_CNT TR_STEP TR_DIR: the engine's
             align(8)
             struct.pack_into('>L',blob,tile_fix+36,off_anim)
+    # header H_UI 96; twin: scr_adf '// custom HUD', ui_font_bytes / ui_panel_pixels in scr_ws_ui
     # custom HUD (engine.s UI_*, ADAM Pro): proj['ui'] = dict(bottom, rows, font (512 bytes or None),
     # panel (320 x rows*8 colour indexes or None), fields = [ui_ref field dicts])
     off_ui=0
@@ -323,6 +386,7 @@ def build(proj, aga):
                         blob.append(v)
             align(8)
         struct.pack_into('>LL',blob,ufix,off_font,off_panel)
+    # header H_MUSIC 80; twin: scr_adf adf_music_table, disk2_song_flags, disk2_id_add
     # music table (engine.s M_*): proj['songs'] = list of MOD files as bytes (up to 4),
     # proj['level_song'] = song index per level (10 entries, -1 = none)
     off_music=0
@@ -353,6 +417,17 @@ def build(proj, aga):
             struct.pack_into('>LL',blob,tab+i*8,len(blob),len(m))
             blob.extend(m)
         align(8)
+    nd2maps=0
+    for slot,m in d2maps:                      # the levels' own maps after the songs, each from a track start
+        if d2pos+len(m)>901120: continue       # disk 2 full: level 1's map
+        if disk2 is None: disk2=bytearray(901120)
+        disk2[d2pos:d2pos+len(m)]=m
+        d2id=disk2_id_add(d2id,m)
+        struct.pack_into('>L',blob,slot,0x80000000|d2pos)
+        d2pos+=(len(m)+5631)//5632*5632; nd2maps+=1
+    if not nd2maps: d2mapbuf=0
+    # work planes (H_WORK 76: backdrop + hills, the score is restored from it) and display
+    # planes (H_DISP 64): depth x 10240 bytes each, zeros here (the engine fills them)
     off_work=len(blob)
     blob+=b'\0'*(depth*10240)
     align(8)
@@ -364,6 +439,7 @@ def build(proj, aga):
         blob+=b'\0'*8                           # (a scrolling game keeps its BOBs in the scroll buffers)
         off_disp2=len(blob); blob+=b'\0'*(depth*10240+8)
         off_back=len(blob); blob+=b'\0'*(depth*10240+8)
+    # header H_SCROLL 100; twin: scr_adf '// scrolling backdrop', scroll_on_disk, adf_spawner_records
     # scrolling backdrop (engine.s SC_*): its block, then the buffers in cleared memory after the data
     off_scroll=0
     if sc:
@@ -402,6 +478,7 @@ def build(proj, aga):
             struct.pack_into('>LL',blob,off_map+4,off_mimg,off_cells)
             struct.pack_into('>L',blob,off_map+16,off_sp)
             struct.pack_into('>L',blob,off_scroll+12,off_map)
+    # header H_PALS 104, engine.s PS_*; twin: scr_adf '// named palettes'
     # named palettes (version 11): proj['palettes'] = [dict(name, cols=[$RRGGBB or -1 per colour])],
     # proj['level_pal'] = the palette each level starts with (0 = the main one)
     off_pals=0
@@ -419,6 +496,7 @@ def build(proj, aga):
             blob.extend(struct.pack('>H',len(ents)))
             for i,c in ents: blob.extend(struct.pack('>HHL',i,0,c))
         align(8)
+    # header H_ITEMS 112; twin: scr_adf '// items'
     # items (version 13, engine.s IT_* / RC_*): proj['items'] = [dict(name, actor (disk actor, -1 none),
     # use 0 used up / 1 kept / 2 a few uses, uses, max, start, keep (next level), lose (with a life))],
     # proj['recipes'] = [dict(a, b, out, keep_a, keep_b, n)]
@@ -437,13 +515,23 @@ def build(proj, aga):
             fl=(1 if rc.get('keep_a') else 0)|(2 if rc.get('keep_b') else 0)
             blob.extend(struct.pack('>HHHBB',rc['a'],rc['b'],rc['out'],fl,rc.get('n',1)))
         align(8)
+    # logic block (H_LOGIC 116, version 18, engine.s LG_*; scr_adf '// logic'): proj['health'] (0 = none),
+    # proj['level_time'] = 10 seconds (0 = no limit) - only when the game has one or the other
+    off_logic=0
+    lt=(list(proj.get('level_time',[]))+[0]*10)[:10]
+    if proj.get('health',0)>0 or any(lt):
+        align(8)
+        off_logic=len(blob)
+        blob.extend(struct.pack('>H',max(0,min(99,proj.get('health',0))))+struct.pack('>10H',*[max(0,min(999,v)) for v in lt]))
+        align(8)
+    # disk 2 block (H_DISK2 108, engine.s D2_*; scr_adf '// disk 2'): the buffers' offsets are filled in below
     off_d2=0
     if disk2 is not None:                       # D2_ID, raw track buffer, song buffer (fixed below)
         d2id=d2id or 1
         disk2[0:8]=b'ADM2'+struct.pack('>L',d2id)
         align(8)
         off_d2=len(blob)
-        blob.extend(struct.pack('>LLL',d2id,0,0))
+        blob.extend(struct.pack('>LLLL',d2id,0,0,0))    # D2_ID, D2_RAW, D2_BUF, D2_MAP (version 17)
         align(8)
     proj['_disk2']=bytes(disk2) if disk2 is not None else None
     # tile world: the map as played and the scrolling picture go in cleared memory after the data
@@ -464,29 +552,37 @@ def build(proj, aga):
     if off_d2:
         size_now=(len(blob)+7)//8*8
         base=(size_now+bss+7)//8*8
+        songbuf=(d2max+5631)//5632*5632
         struct.pack_into('>LL',blob,off_d2+4,base,base+12800)
-        bss=base+12800+(d2max+5631)//5632*5632-size_now
+        if d2mapbuf: struct.pack_into('>L',blob,off_d2+12,base+12800+songbuf)
+        bss=base+12800+songbuf+d2mapbuf-size_now
     proj['_need']=((len(blob)+7)//8*8)+bss if (t or sc or off_d2) else 0     # bytes needed from the data start
+    # the header (engine.s H_*, 120 bytes; scr_adf '// header'): 'ADAM', version 18, flags, depth,
+    # counts, HUD settings, the player actor, then the offset of every block above (0 = absent)
     player=-1
     for i,a in enumerate(actors):
         if a['role'] in (0,6): player=i; break
-    hdr=struct.pack('>4sHHHHHHHHHHHH',b'ADAM',15,1 if aga else 0,depth,len(actors),len(rules),proj['lives'],
+    # H_FLAGS: bit 0 AGA; a test copy (God mode, Test a level - ADAM only, proj['_test']) ORs in
+    # bit 1 lives never run out, bit 2 F8 ends the level, and the level to start on << 8
+    flags=(1 if aga else 0)|proj.get('_test',0)
+    hdr=struct.pack('>4sHHHHHHHHHHHH',b'ADAM',18,flags,depth,len(actors),len(rules),proj['lives'],
                     int(proj['show_score']),int(proj['show_lives']),proj['hud_row'],proj['hud_col'],proj['msg_col'],player & 0xffff)+struct.pack('>L',off_game)
     hdr+=struct.pack('>LLLLLLLLLLLLLLL',off_pal,off_planes,off_act,off_rules,off_sfx,off_over,off_win,off_sprcol,off_disp,off_grad,off_ground,off_work,off_music,off_disp2,off_back)
-    hdr+=struct.pack('>LLLLLL',off_tiles,off_ui,off_scroll,off_pals,off_d2,off_items)
-    blob[0:116]=hdr
+    hdr+=struct.pack('>LLLLLLL',off_tiles,off_ui,off_scroll,off_pals,off_d2,off_items,off_logic)
+    blob[0:120]=hdr
     return bytes(blob)
 
 # ---- animations (data block version 8, 16 frames); scr_project.gml anim_plan() does the same
-# actor dict: anims = 12 x {frames: [sprite indexes, up to 16], rate: 2..30, mode: 0 loop / 1 once / 2 ping-pong}
-# (0 Idle, 1 Walk, 2 Jump, 3 Fall, 4..11 = N NE E SE S SW W NW), dirs = use the 8 directions
+# actor dict: anims = up to 23 x {frames: [sprite indexes, up to 16], rate: 2..30, mode: 0 loop / 1 once / 2 ping-pong}
+# (0 Idle, 1 Walk, 2 Jump, 3 Fall, 4..11 = N NE E SE S SW W NW, 12 Fire, 13..20 Fire + N..NW,
+# 21 Hit, 22 Die), dirs = use the 8 directions
 # instead of Walk, flip = frames turn round to face left (in 8 directions: a missing
 # side is the other side turned round); or the version 4 two-frame animation:
 # anim = second sprite, rate, amode (1 = only while moving)
 TILE_ANIM_MAX=32   # animated tile types in a game (scr_tiles.gml TILE_ANIM_MAX)
 
 def tile_anims(tiles):
-    """Animated tiles that go on the disk (scr_adf.gml adf_tile_anims): (tile, frames, rate, mode)"""
+    """Animated tiles that go on the disk (scr_tiles.gml tile_anims_on_disk): (tile, frames, rate, mode)"""
     out=[]
     nt=len(tiles)
     for ti,td in enumerate(tiles):
@@ -505,6 +601,7 @@ DIR_CHAINS=[  # (entry, turned round) tried in order for each direction; 1 = Wal
     [(10,0),(6,1),(1,2)],                 # W
     [(11,0),(5,1),(10,0),(6,1),(1,2)]]    # NW
 
+# the actor's 23 animation entries (0 Idle .. 22 Die): (frames, rate, mode, 0), None when one has no frames
 def anim_entries(a):
     out=[]
     for k in range(23):                        # 21 Hit, 22 Die
@@ -513,6 +610,7 @@ def anim_entries(a):
         out.append((fr,max(2,min(30,e.get('rate',8))),max(0,min(2,e.get('mode',0))),0) if fr else None)
     return out
 
+# any animation has frames
 def anims_used(a):
     return any(e for e in anim_entries(a))
 
@@ -520,6 +618,7 @@ def dirs_on(a):
     """the 8 directions are used (instead of Walk) when any of them has frames"""
     return any(e for e in anim_entries(a)[4:12])
 
+# the Fire animations (12 Fire, 13..20 Fire + N..NW) have frames (A_AMODE bit 1)
 def fire_used(a):
     return any(e for e in anim_entries(a)[12:21])
 
@@ -554,6 +653,8 @@ def anim_plan(a):
         plan=plan+[hit,die]
     return plan
 
+# the plan without Hit / Die (scr_project.gml anim_plan_main): empty entries are filled in
+# from the others; the old two-frame animation becomes a 4-entry table
 def anim_plan_main(a):
     base=a['sprite']
     if anims_used(a):
@@ -587,6 +688,9 @@ def anim_plan_main(a):
         return [idle,both,both,both]
     return None
 
+# a synth sound as signed 8-bit samples at the Paula rate of period 322, as sfx_render /
+# sfx_render_ex in scr_sfx.gml (keep the two the same). With a filter the output is
+# normalised to peak 0.9
 def render_sfx(s):
     rate=3546895/322
     atk_ms=[2,8,16,24,38,56,68,80,100,250,500,800,1000,3000,5000,8000]
@@ -634,12 +738,14 @@ def render_sfx(s):
 LS_HDR=48
 LS_PI=16
 
+# a loading screen settings dict with the defaults (scr_loadscr.gml loadscr_new); kw overrides them
 def ls_new(**kw):
     l=dict(on=True,source=0,pixels=[],pal=[],depth=5,bar_x=32,bar_y=216,bar_w=256,bar_h=16,style='Metal',
            left_w=8,mid_w=8,right_w=8,left=[],mid=[],right=[],empty=0,mode=0,pics=[])
     l.update(kw)
     return l
 
+# nearest palette colour to $RRGGBB (weights 3 / 4 / 2); colour 0 only if allow0 (loadscr_nearest)
 def ls_nearest(pal,n,rgb,allow0):
     r,g,b=(rgb>>16)&255,(rgb>>8)&255,rgb&255
     best=0 if allow0 else 1; bd=1000000000
@@ -649,6 +755,7 @@ def ls_nearest(pal,n,rgb,allow0):
         if d<bd: bd,best=d,c
     return best
 
+# the loading screen's picture: the backdrop (source 0) or its own PNG (source 1) -> (pixels, palette, depth, colours) (loadscr_picture)
 def ls_picture(l,proj_px,proj_pal,proj_depth,aga):
     md=8 if aga else 5
     px,pal,depth=proj_px,proj_pal,max(1,min(md,proj_depth))
@@ -656,6 +763,8 @@ def ls_picture(l,proj_px,proj_pal,proj_depth,aga):
         px,pal,depth=l['pixels'],l['pal'],max(1,min(md,l['depth']))
     return px,pal,depth,min(1<<depth,len(pal))
 
+# the bar's left / middle / right pieces (colour numbers): the Custom pieces, or cut from the
+# 24 x 24 frame preset (loadscr_pieces / loadscr_preset_pieces)
 def ls_pieces(l,pal,ncol):
     if l['style']=='Custom': return l['left'],l['mid'],l['right']
     from ui_ref import frame_rgb
@@ -682,6 +791,8 @@ def ls_pieces(l,pal,ncol):
                 out[k][py*w+px]=cache[c]
     return out
 
+# (screen, full): the picture with the bar empty (a dark copy of the frame, or nothing when
+# 'empty' is set) and with the bar full (loadscr_compose)
 def ls_compose(l,px,pal,ncol):
     pc=ls_pieces(l,pal,ncol)
     mx=ncol-1
@@ -717,12 +828,18 @@ def ls_pics(l,sprites,pal,ncol):
     out.sort(key=lambda e:(e[0],e[1]))
     return [(t,x,y,w,h,px) for t,i,x,y,w,h,px in out]
 
+# draws a picture from ls_pics into a 320 x 256 pixel list, 0 = see-through (loadscr_pic_draw)
 def ls_pic_draw(a,q):
     t,x,y,w,h,px=q
     for yy in range(h):
         for xx in range(w):
             if px[yy*w+xx]: a[(y+yy)*320+x+xx]=px[yy*w+xx]
 
+# the loading screen's copper list as (register, value) pairs, registers as $dff0xx offsets
+# (loadscr_copper): BPLCON0/1/2 ($100-$104), DIWSTRT/STOP ($8e/$90), DDFSTRT/STOP ($92/$94),
+# modulos ($108/$10a), AGA FMODE ($1fc) / BPLCON4 ($10c) / BPLCON3 ($106), BPLxPT and SPRxPT
+# (offsets from the block, fixed up by loadscr.s init), the colours (AGA: per bank of 32 the
+# high nibbles, then with LOCT the low nibbles), then the copper sky with a WAIT per line
 def ls_copper(depth,aga,pal,ncol,planes_off,spr_off,sky=None):
     c=[]
     con0=((depth&7)<<12)|0x200
@@ -836,6 +953,7 @@ def adf(game,need=0,ls=b''):
     img=bytearray(901120); img[:1024]=boot; img[1024:1024+len(ls)]=ls; img[1024+len(ls):1024+len(ls)+len(game)]=game
     return bytes(img)
 
+# a small test game (python adf_reference.py [aga] -> out/test.adf)
 def test_project():
     px=[0]*(320*256)
     for y in range(256):
@@ -844,6 +962,7 @@ def test_project():
             if 40<x<280 and 100<y<160: v=8+((x//20)%7)
             px[y*320+x]=v
     pal=[0x000022,0x223366,0x334488,0x4455aa,0x5566cc,0x6677dd,0x7788ee,0x8899ff,0xff4444,0xffaa22,0xffff44,0x44ff44,0x44ffff,0x8888ff,0xff88ff,0xffffff]
+    # a 16 x 24 sprite dict from fn(x, y) -> 0..3
     def spr(fn,cols):
         return {'px':[fn(x,y) for y in range(24) for x in range(16)],'cols':cols}
     hero=spr(lambda x,y: (1 if (x-7.5)**2+(y-11.5)**2<50 else 0) + (2 if abs(x-7.5)<2 and abs(y-8)<2 else 0),[0xffee00,0x000000,0xffffff])

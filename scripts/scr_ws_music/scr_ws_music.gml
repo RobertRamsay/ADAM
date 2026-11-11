@@ -39,12 +39,16 @@ function music_lib_items(_cat)
     return _out;
 }
 
+/// The loop a library entry from music_lib_items stands for: [0, i] = built-in
+/// MUS_LIB[i], [1, k] = loop k of the current song
 function music_item_loop(_it)
 {
     if (_it[0] == 0) { return global.MUS_LIB[_it[1]]; }
     return music_cur_song().arr.loops[_it[1]];
 }
 
+/// Short instrument name for tight spaces: "3 Name" for Sound page sound 3
+/// (no folder), else the same as music_inst_name
 function music_inst_short(_id)
 {
     if (_id >= MUS_INST_USER)
@@ -97,6 +101,11 @@ function music_preview_note(_inst, _note, _fx = 0, _param = 0)
     music_preview_start(_ms, true, 0, 0, "note");
 }
 
+/// Play / Stop button: stops the song if it is playing, else plays the current
+/// song from the cursor bar over the chosen range (mus_play_mode 0 one bar,
+/// 1 four bars, 2 whole song; music_scope_song). Shows the first warning.
+/// mus_ord_bar maps order positions to bars for the playhead; music_preview_step
+/// rebuilds the music when the song is edited while it plays.
 function music_play_toggle()
 {
     if (mus_playing && mus_play_what == "song")
@@ -117,6 +126,8 @@ function music_play_toggle()
     {
         mus_ord_bar = music_order_bars(_preview);
         var _cb = clamp(mus_cursor_bar, 0, _song.arr.bars - 1);
+        // whole song: start at the order position holding the cursor bar
+        // (each bar is MUS_STEPS rows); a range already starts at the cursor
         if (mus_play_mode == 2)
         {
             for (var i = 0; i < array_length(mus_ord_bar); i++)
@@ -140,6 +151,7 @@ function music_play_toggle()
     mus_play_rebuild_t = current_time;
 }
 
+/// New song button: adds an empty arranged song (up to MUS_SONG_MAX) and selects it
 function music_song_add()
 {
     if (array_length(proj.songs) >= MUS_SONG_MAX)
@@ -152,6 +164,10 @@ function music_song_add()
     music_song_added();
 }
 
+/// New loop button: adds an empty loop of the selected category (Mine counts as
+/// lead) to the current song (making a song first if there is none or it is an
+/// imported MOD), puts it in the selected folder, makes it the brush, opens it
+/// in the loop editor and scrolls the library to it
 function music_loop_add()
 {
     var _song = music_cur_song();
@@ -169,6 +185,7 @@ function music_loop_add()
     }
     var _cat = mus_cat;
     if (_cat >= MUS_CAT_MINE) { _cat = 3; }
+    // starting instrument per category: Kick, Square bass, Organ, Square lead, Zap
     var _defaults = [0, 6, 8, 10, 13];
     undo_mark("musnewloop" + string(current_time));
     array_push(_song.arr.loops, loop_new("Loop " + string(_li + 1), _cat, _defaults[_cat]));
@@ -184,6 +201,7 @@ function music_loop_add()
     mus_drag = false;
     music_touch();
     music_open_editor(_li, 0, clamp(mus_cursor_bar, 0, _song.arr.bars - 1));
+    // scroll the library list to the new loop's row (row heights from music_loop_group_rows)
     var _rows = music_loop_group_rows(_song, true);
     var _offset = 4;
     for (var _row = 0; _row < array_length(_rows); _row++)
@@ -197,6 +215,8 @@ function music_loop_add()
     }
 }
 
+/// New folder button: adds a loop folder (arr.loop_groups) to the current song,
+/// selects it and puts the keyboard in its name box so it can be typed at once
 function music_group_add()
 {
     var _song = music_cur_song();
@@ -236,6 +256,9 @@ function music_song_added()
     music_touch();
 }
 
+/// Import .mod button: asks for a ProTracker file, reads it (mod_read in
+/// scr_mod), cleans it (modsong_sanitize) and adds it as an imported song
+/// (kind 1, played as it is). Named from the module title, else the file name.
 function music_import_mod()
 {
     if (array_length(proj.songs) >= MUS_SONG_MAX)
@@ -264,6 +287,8 @@ function music_import_mod()
     toast("Imported " + filename_name(_f), 0);
 }
 
+/// Export .mod button: asks for a file name and saves song _song as an M.K.
+/// ProTracker module (song_to_modsong, then mod_write in scr_mod)
 function music_export_mod(_song)
 {
     var _f = get_save_filename("ProTracker module|*.mod", _song.name + ".mod");
@@ -291,6 +316,9 @@ function music_loop_edit_begin(_song, _li, _tag)
     }
 }
 
+/// Clears every note of a loop (confirm_open callback of 'Clear this loop?'). _arg = { song,
+/// loop } indexes; does nothing if they no longer exist. Instruments are kept.
+/// Also drops any drag / selection in the loop editor and stops its preview.
 function music_loop_clear_now(_arg)
 {
     if (_arg.song < 0 || _arg.song >= array_length(proj.songs)) { return; }
@@ -318,6 +346,10 @@ function music_loop_clear_now(_arg)
     if (mus_playing && mus_play_what == "edit") { music_preview_stop(); }
 }
 
+/// Opens loop _li of the current song in the loop editor. [_lane, _bar] = the
+/// timeline cell it was opened from (lane 0 + the cursor bar when opened from
+/// the library; _bar -1 keeps the cursor). For tuned loops the piano roll
+/// scrolls to the loop's average note (16 px a row).
 function music_open_editor(_li, _lane, _bar)
 {
     mus_edit = _li;
@@ -344,8 +376,8 @@ function music_open_editor(_li, _lane, _bar)
     }
 }
 
-/// Paints the brush (or _src) into a bar of the timeline
-/// Timeline cells [lane, bar] on a line from (_l0, _b0) to (_l1, _b1), both ends included
+/// Timeline cells [lane, bar] on a line from (_l0, _b0) to (_l1, _b1), both ends
+/// included (Bresenham), so a fast mouse drag paints every bar it crossed
 function music_stroke_cells(_l0, _b0, _l1, _b1)
 {
     var _out = [];
@@ -377,6 +409,10 @@ function music_stroke_cells(_l0, _b0, _l1, _b1)
     return _out;
 }
 
+/// Paints the brush (or _src) into a bar of the timeline.
+/// _src = [0, library index] (the song gets its own copy, music_song_loop_for_lib)
+/// or [1, song loop index]. Makes the song longer if the bar is past its end.
+/// _tag = undo tag (one tag per stroke, so a stroke undoes in one go).
 function music_paint_cell(_song, _src, _lane, _bar, _tag)
 {
     var _li = -1;
@@ -427,8 +463,14 @@ function music_draw_steps(_lp, _x1, _y1, _x2, _y2, _col, _alpha)
     draw_set_alpha(1);
 }
 
+/// Draws the whole Music page in the rectangle (_x1, _y1)-(_x2, _y2) (GUI pixels):
+/// loop library on the left (music_library_panel), then the song toolbar
+/// (music_toolbar), the timeline (music_timeline) and under it either the loop
+/// editor (music_editor, when mus_edit >= 0) or Where the music plays
+/// (music_level_panel). Also finishes drag and drop and handles Space.
 function ws_music_draw(_x1, _y1, _x2, _y2)
 {
+    // drop an open loop or brush that no longer exists (after undo / delete)
     var _lw = 250;
     var _song = music_cur_song();
     if (is_undefined(_song) || _song.kind != 0) { mus_edit = -1; }
@@ -445,6 +487,7 @@ function ws_music_draw(_x1, _y1, _x2, _y2)
         }
     }
 
+    // panels can add or delete songs, so the current song is read again after each
     music_library_panel(_x1, _y1, _x1 + _lw, _y2);
     _song = music_cur_song();
 
@@ -477,7 +520,9 @@ function ws_music_draw(_x1, _y1, _x2, _y2)
     if (mus_edit >= 0) { music_editor(_cx1 + 16, _py1, _x2 - 16, _y2 - 14, _song); }
     else { music_level_panel(_cx1 + 16, _py1, _x2 - 16, _y2 - 14); }
 
-    // drag and drop from the library or a bar
+    // drag and drop from the library or a bar: a press arms it (mus_drag_arm),
+    // moving 6 px makes it a drag, letting go drops it on a timeline bar
+    // (mus_hover) or on a Mine folder header (mus_group_hover, -1 = Ungrouped)
     if (mus_drag_arm)
     {
         if (ui_held)
@@ -533,6 +578,11 @@ function ws_music_draw(_x1, _y1, _x2, _y2)
     }
 }
 
+/// The Loops panel on the left of the Music page: category tabs (mus_cat; Mine
+/// = the song's own loops in folders), New loop / New group, and the scrolling
+/// list. Clicking a loop hears it and makes it the brush (and arms a drag);
+/// a double-click on one of your loops opens it in the editor; right-click
+/// deletes an unused one of yours. Sets mus_group_hover (-2 = none) for drops.
 function music_library_panel(_x1, _y1, _x2, _y2)
 {
     mus_group_hover = -2;
@@ -581,6 +631,8 @@ function music_library_panel(_x1, _y1, _x2, _y2)
     var _tip_h = ui_sh_ext(_tip, _x2 - _x1 - 32);      // the tip sits at the bottom, as tall as it wraps
     var _ly2 = _y2 - 24 - _tip_h;
     if (mus_edit >= 0) { _ly2 = _y2 - 108; }
+    // list rows: Mine uses folder headers + loops (music_loop_group_rows),
+    // the other tabs just the library loops of that category
     var _items = music_lib_items(mus_cat);
     var _song = music_cur_song();
     var _rows = [];
@@ -601,6 +653,7 @@ function music_library_panel(_x1, _y1, _x2, _y2)
     var _content = 4;
     for (var _ri = 0; _ri < array_length(_rows); _ri++) { array_push(_offsets, _content); _content += _rows[_ri].h; }
     var _off = ui_scroll_begin("mus_lib", _x1 + 8, _ly1, _x2 - 8, _ly2, _content);
+    // while dragging, holding near the top or bottom edge scrolls the list
     if (mus_drag && ui_hit(_x1 + 8, _ly1, _x2 - 22, _ly2))
     {
         if (ui_my < _ly1 + 22) { _off -= 6; }
@@ -619,6 +672,7 @@ function music_library_panel(_x1, _y1, _x2, _y2)
             if (mus_drag) { mus_group_hover = _row.group; }
             if (ui_pressed_raw) { mus_group_selected = _row.group; }
         }
+        // folder header row: open / close arrow, name box, loop count
         if (_row.kind == 1)
         {
             var _gi = _row.group;
@@ -671,6 +725,7 @@ function music_library_panel(_x1, _y1, _x2, _y2)
             mus_drag_src = [_it[0], _it[1]];
             mus_drag_mx = ui_mx;
             mus_drag_my = ui_my;
+            // second click on the same own loop within 350 ms = double-click: edit it
             if (_it[0] == 1 && mus_lib_click_loop == _it[1] && current_time - mus_lib_click_time < 350)
             {
                 music_open_editor(_it[1], 0, clamp(mus_cursor_bar, 0, _song.arr.bars - 1));
@@ -721,6 +776,11 @@ function music_library_panel(_x1, _y1, _x2, _y2)
     }
 }
 
+/// The two toolbar rows above the timeline. Row 1: song picker, New, name,
+/// Delete, Import .mod, Save .mod. Row 2 (arranged songs): Play, playback range,
+/// tempo, swing, loop bar, length; for an imported song, its pattern count.
+/// Top right: the song's chip RAM size and first warning, recomputed with
+/// song_to_modsong only when the song or mus_rev changes.
 function music_toolbar(_cx1, _y1, _x2, _song)
 {
     var _fx = _cx1 + 20;
@@ -865,6 +925,9 @@ function music_toolbar(_cx1, _y1, _x2, _song)
     }
 }
 
+/// The horizontal scroll bar under the timeline (10 px high from _y1). _vis =
+/// bars that fit, _total = bars (or order positions) that can be scrolled to.
+/// Dragging sets mus_scroll_bar, the first bar shown.
 function music_hscroll(_x1, _y1, _x2, _vis, _total)
 {
     var _h = 10;
@@ -893,8 +956,9 @@ function music_hscroll(_x1, _y1, _x2, _vis, _total)
     ui_rrect(_bx, _y1 + 1, _bx + _bw, _y1 + _h - 1, 4, merge_colour(global.TH.text_dim, global.TH.accent, _ha), global.TH.text_faint, 0.8 + 0.2 * _ha);
 }
 
-/// The 4-lane timeline. Returns its bottom edge.
 /// Compact volume slider fits beside a lane even with the note editor open.
+/// Sets arr.volumes[_lane] (0..64) and changes the volume of a preview that
+/// is playing at once, without rebuilding it.
 function music_lane_volume(_song, _lane, _px, _py, _width)
 {
     var _id = "mus_lane_volume_" + string(_lane);
@@ -926,6 +990,12 @@ function music_lane_volume(_song, _lane, _px, _py, _width)
     draw_circle_colour(_knob, _py, 4, c_white, c_white, false);
 }
 
+/// The 4-lane timeline. Returns its bottom edge.
+/// _lane_h = lane height in pixels (smaller while the loop editor is open).
+/// Bars are 72 px wide; an imported song shows its order positions instead and
+/// cannot be painted. Draws lane names and volumes, the bar ruler (click = play
+/// from here, right-click = loop bar), the bars and the playhead, then handles
+/// painting (music_paint_cell), rubbing out, double-click to edit and drag to copy.
 function music_timeline(_tx1, _ty1, _tx2, _song, _lane_h)
 {
     var _hdr = 92;
@@ -944,10 +1014,12 @@ function music_timeline(_tx1, _ty1, _tx2, _song, _lane_h)
         _ms = _song[$ "mod"];
         if (is_struct(_ms)) { _total = array_length(_ms.order); }
     }
+    // an arranged song can scroll 8 bars past its end, so it can be painted longer
     else { _total = min(MUS_BAR_MAX, max(_song.arr.bars + 8, _vis)); }
     mus_scroll_bar = clamp(mus_scroll_bar, 0, max(0, _total - _vis));
 
-    // follow the playhead
+    // follow the playhead: _ph = bar being heard (with fraction), from the
+    // player's [order, row] and mus_ord_bar (set in music_play_toggle)
     var _ph = -1;
     if (mus_playing && mus_play_what == "song" && mus_play_song == mus_song)
     {
@@ -1133,6 +1205,8 @@ function music_timeline(_tx1, _ty1, _tx2, _song, _lane_h)
         if (ui_pressed)
         {
             ui_take_click();
+            // a filled bar: double-click (400 ms) edits it, one click picks it
+            // up as the brush and arms a drag; an empty bar starts a paint stroke
             if (_cur >= 0)
             {
                 if (current_time - mus_click_time < 400 && mus_click_cell[0] == _hl && mus_click_cell[1] == _hb)

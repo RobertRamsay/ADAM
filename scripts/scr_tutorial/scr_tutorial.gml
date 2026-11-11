@@ -5,6 +5,11 @@ function tut_step(_tab, _target, _title, _body)
     return { tab : _tab, target : _target, title : _title, body : _body };
 }
 
+/// Builds tut_steps, every step of every page in top-bar order (Create event).
+/// Each step's target is the id string a control passes to ui_register /
+/// ui_button etc. (for example "top_machine", "bd_canvas"); "" = no control,
+/// the card sits in the middle. Renaming a control's id breaks its step
+/// silently - the step then shows with no highlight, so search for the id here.
 function tut_init()
 {
     tut_steps = [
@@ -15,6 +20,7 @@ function tut_init()
         tut_step(WS_HOME, "home_card_0", "Every editor, in order", "Each row of How it works is one of ADAM's pages, in the same order as the top bar: paint a backdrop or a tile world, set up levels, draw sprites, place and animate actors, design the HUD, write rules, add sounds and music, then build. Click any row to jump to that page - the last one starts this tour."),
         tut_step(WS_HOME, "home_name", "Name your game", "Give your game a name. It is also used for the file names when you save and build."),
         tut_step(WS_HOME, "home_lives", "Lives and score", "Choose how many lives the player gets and where the score and lives are shown. A rule on the Logic page takes lives away."),
+        tut_step(WS_HOME, "home_health", "Health", "Give each life some health: 'Lose health' rules take a little at a time, and only at 0 does a life go. 'Add health' gives some back. Leave it at 0 for one hit, one life."),
         tut_step(WS_HOME, "home_over", "Messages", "These messages appear when the game ends. The player presses fire to play again."),
         tut_step(WS_HOME, "home_helpers", "Hover helpers", "Rest your mouse on anything and a helper line points to a bubble that explains it. Switch them off here (or with Helpers at the top) once you know your way around."),
         tut_step(WS_HOME, "home_scale", "Interface size", "Auto fits ADAM to your screen. Pick a size if you like things bigger; Ctrl + and Ctrl - change it anywhere, Ctrl 0 goes back to Auto. On a small laptop screen ADAM shrinks to fit."),
@@ -38,13 +44,16 @@ function tut_init()
         tut_step(WS_TILES, "tile_tab_2", "Tools", "Give the player tools to pick with the space bar in the game: a pickaxe to dig, a hammer to build, ladder parts or torches to put down, or a sword that strikes enemies (the rule WHEN 'The player's weapon strikes an actor')."),
         tut_step(WS_TILES, "tile_tool_3", "Stamps", "Drag a box over the map to copy a block of tiles - a temple, a tree, a gun platform - then click to stamp it down as often as you like. Save the ones you use often."),
         tut_step(WS_TILES, "tile_tool_4", "Spawners", "On a shoot 'em up map: click to put a spawner where a wave should start. When the view reaches it, it sends out copies of an actor - how many, how they fly and where from are on the right. (Pick 'A shoot 'em up map' above to see this tool.)"),
+        tut_step(WS_TILES, "tile_maplvl", "A map for each level", "In a tile world with levels, each level can have a map of its own: pick the level under 'Map for' and click Own map - it starts as a copy of level 1's map. A level without one plays on level 1's map. (Switch levels on, with 2 or more, on the Levels page to see this.)"),
         tut_step(WS_TILES, "tile_anim_n", "Animated tiles", "ADAM Pro: a tile can show 2 to 8 pictures in turn - water, lava, torches. It shows its own picture, then the next tiles' in the set, and still behaves as itself. Pick the speed and Loop or Ping-pong."),
         // ---------- LEVELS ----------
         tut_step(WS_LEVELS, "lvl_on", "Levels", "Switch levels on for a game of up to 10 levels. Each one has its own hills for platform players, hoppers and fallers to walk on."),
         tut_step(WS_LEVELS, "lvl_canvas", "Shape the ground", "Drag across the picture to draw where the ground is, or right-drag to smooth it. The hills are drawn by the Amiga at the start of each level, so they cost almost no memory."),
         tut_step(WS_LEVELS, "lvl_gen", "Grow hills from a seed", "Every level starts from a seed number. The same seed always grows the same hills - change it and press Generate for a new shape."),
         tut_step(WS_LEVELS, "lvl_goal_on", "The level goal", "Show a counter like GEMS 00/20. The 'Count towards the level goal' action adds one, and reaching the target moves on to the next level."),
+        tut_step(WS_LEVELS, "lvl_time", "Time limit", "Give a level a time limit in seconds. It counts down on the HUD; when it reaches 0, rules with WHEN 'The time runs out' fire - lose a life, or game over. A lost life starts the clock again."),
         tut_step(WS_LEVELS, "lvl_scroll", "Scrolling", "For a shoot 'em up: the backdrop scrolls the way the player flies - up, down, left or right - at the speed you set. Flyers come in from the edges and the hills can be switched off for space games."),
+        tut_step(WS_LEVELS, "lvl_test_0", "Test a level", "Test plays the game from that level straight away, with no title screen - handy for checking level 7 without playing 1 to 6. It makes a test copy; your own disk is not changed. (Switch levels on to see the Test buttons.)"),
         tut_step(WS_LEVELS, "lvl_title_on", "Title and level cards", "A title screen before the game, a 'LEVEL 2 - PRESS FIRE' card between levels, and your Win message after the last one."),
         // ---------- SPRITES ----------
         tut_step(WS_SPRITES, "spr_slot_0", "Your sprites", "Sprites are the pictures for the things that move. At 16 x 24 with 3 colours (plus see-through) a sprite is one of the Amiga's hardware sprites. Bigger sizes - up to 32 x 32, or 64 x 64 in ADAM Pro - are drawn by the blitter as BOBs, in the backdrop's colours."),
@@ -62,6 +71,8 @@ function tut_init()
         tut_step(WS_ACTORS, "act_bob", "BOBs", "Draw an actor with the blitter instead of a hardware sprite. BOBs can be big, use the backdrop's colours and don't take one of the 8 sprites - but each one is work for the Amiga, so keep them for where you need them."),
         tut_step(WS_ACTORS, "act_role", "Shots, flyers and more", "More behaviours for action games: a Shot is fired by the rule DO 'Shoot'; a Flyer comes in from an edge in a pattern (wave, zigzag, homing, a boss that stays); an Option follows the player and fires with it; an Effect plays once - an explosion. Enemies can fire by themselves, and Copies make one actor into a whole wave."),
         tut_step(WS_ACTORS, "act_carry", "Pick up and throw", "Switch on 'Can be carried' and the player picks this actor up with fire and throws it with fire again - a rock, a barrel, a bomb. Rules: WHEN 'Thrown or shot actor hits' and 'Player picks up actor'. (Pick an actor that is not the player or a shot to see it.)"),
+        tut_step(WS_ACTORS, "act_standon", "Moving platforms", "Switch on 'Can be stood on' and a platform player lands on this actor and rides it. Make it Patrol left-right for a ferry or Patrol up-down for a lift, and set how far it patrols. (Pick an actor that is not the player or a shot to see it.)"),
+        tut_step(WS_ACTORS, "act_patrol", "How far it patrols", "A patroller or bouncer goes this many 8-pixel steps from where it starts before turning back - guard a ledge, or make a lift that stops at the next floor. 0 = right across the screen. (Pick a patroller to see it.)"),
         tut_step(WS_ACTORS, "act_anim", "Animation", "A quick two-frame animation: give an actor a second sprite and it flips between the two. For walk, jump, fire, hit and die animations in 8 directions, use the Animate page."),
         // ---------- ANIMATE ----------
         tut_step(WS_ANIMATE, "anim_mid_0", "Two joysticks", "The Moving joystick: Idle in the middle (click the stick) and an animation for each of the 8 ways it can move - people walking every way, a ship that veers and holds its lean (set it to Once). Hover a direction and the stick pushes that way."),
@@ -83,10 +94,10 @@ function tut_init()
         // ---------- LOGIC ----------
         tut_step(WS_LOGIC, "", "Rules make it a game", "Each rule is a sentence: WHEN something happens, DO something. For example: WHEN Hero touches Gem, DO add 10 to the score."),
         tut_step(WS_LOGIC, "logic_add", "Add a rule", "Press this to add a new rule, then change its parts with the drop-down menus."),
-        tut_step(WS_LOGIC, "rule_0_when", "The WHEN part", "Choose what triggers the rule: two actors touching, the fire button, a timer, a score target, a shot or a weapon hitting something, picking up or using an item, an animation ending and more. (Add a rule first if the list is empty.)"),
-        tut_step(WS_LOGIC, "rule_0_act", "The DO part", "Choose what happens: add score, lose or gain a life, play a sound or music, move, hide, show or spawn actors, shoot, power up, play an animation, switch palette, give or take items, win or game over."),
+        tut_step(WS_LOGIC, "rule_0_when", "The WHEN part", "Choose what triggers the rule: two actors touching, the fire button, a timer, a score target, a shot or a weapon hitting something, picking up or using an item, an animation ending, an actor reaching an edge or hitting the scenery, the counter, the time running out and more. (Add a rule first if the list is empty.)"),
+        tut_step(WS_LOGIC, "rule_0_act", "The DO part", "Choose what happens: add score, lose or gain a life, play a sound or music, move, hide, show or spawn actors, shoot, power up, play an animation, switch palette, give or take items, lose or add health, count, bounce an actor back, stick one actor to another, stop sounds, pause the music, win or game over."),
         tut_step(WS_LOGIC, "rule_0_anddo", "AND DO", "One thing is rarely enough: add up to 4 more lines that happen at the same moment - add to the score AND play a sound AND send the enemy home."),
-        tut_step(WS_LOGIC, "rule_0_addif", "IF lines", "Only fire the rule when the player has (or uses) an item - WHEN the hero touches the door, IF the player uses a KEY, DO hide the door. Make items on the Items tab."),
+        tut_step(WS_LOGIC, "rule_0_addif", "IF lines", "Only fire the rule when the player has (or uses) an item - WHEN the hero touches the door, IF the player uses a KEY, DO hide the door. Or when an actor is above, below, level with, left or right of another - WHEN the hero touches a slime, IF the hero is above it, DO squash it."),
         tut_step(WS_LOGIC, "logic_tab_items", "Items", "Keys, potions, coins, torches: things the player picks up and carries. Each item is an actor touched to pick it up (or one only rules give), used up, kept or good for a few uses. The space bar menu in the game uses them."),
         tut_step(WS_LOGIC, "item_add", "Add an item", "Name it, pick the actor that is picked up as it, and say how it is used and how many the player can carry. IF lines on rule cards check for it, and DOs give it, take it or drop it."),
         tut_step(WS_LOGIC, "recipe_add", "Recipes", "Two items make another: a STICK and a CLOTH make a TORCH. The player makes it with the space bar menu when it has both."),
@@ -118,7 +129,8 @@ function tut_init()
         tut_step(WS_BUILD, "build_adf", "Build", "Press Build to create an .ADF disk image. It boots in FS-UAE or WinUAE, on a Gotek drive, or written to a real floppy."),
         tut_step(WS_BUILD, "build_fsuae", "Set up FS-UAE", "FS-UAE is a free Amiga emulator. Point ADAM at fs-uae.exe once and it will remember. No Kickstart ROM is needed - FS-UAE's free AROS ROM boots ADAM games."),
         tut_step(WS_BUILD, "build_run", "Build and play", "Builds your game and boots it straight away on a stock Amiga of the type you picked."),
-        tut_step(WS_BUILD, "build_disk2", "Two disks", "Level music can go on a second disk - the game asks for it when a level needs its song. ADAM uses one by itself when a game does not fit on a single disk."),
+        tut_step(WS_BUILD, "build_disk2", "Two disks", "Level music, and the levels' own tile maps, can go on a second disk - the game asks for it when a level needs them. ADAM uses one by itself when a game does not fit on a single disk or in chip RAM."),
+        tut_step(WS_BUILD, "build_god", "God mode", "For testing: Build and play makes a copy where the lives never run out and F8 skips to the next level. Build .ADF always makes the real game."),
         tut_step(WS_BUILD, "build_showasm", "Peek under the hood", "Curious? This shows the 68000 engine your game runs on. ADAM never writes code: your game is data that the engine reads."),
         tut_step(WS_BUILD, "", "You're ready!", "That's everything. Load the example, change something, build it and see what happens. Have fun making Amiga games!")
     ];
@@ -185,10 +197,23 @@ function tut_start(_tab)
     }
 }
 
+/// Draws the running tutorial over the page (Draw GUI, after the page so that
+/// ui_rects already holds this frame's controls): dims everything except the
+/// step's target, draws a pulsing outline, a leader line and the step card,
+/// and handles Next / Back / Close (also right / left arrow, Enter, Esc).
+/// Finding the target: every widget stores its rect in the ds_map ui_rects
+/// under its id (ui_register, cleared each frame in ui_frame_begin), so the
+/// step's target string is looked up there. Not found = the control is not
+/// on screen this frame (other tab, scrolled away): the whole page is dimmed.
+/// tut_target_rect / tut_card_rect are read by the next ui_frame_begin: the
+/// page takes input only over the target (when tut_allow_target), never under
+/// the card; the card's own buttons use ui_force_input. _gw, _gh = GUI size.
 function tut_draw(_gw, _gh)
 {
     if (!tut_active) { return; }
     var _step = tut_steps[tut_list[tut_index]];
+    // step on another page: switch to it (plain ws =, so no tutorial offer)
+    // and draw nothing this frame - its controls register next frame
     if (_step.tab != ws)
     {
         ws = _step.tab;
@@ -233,7 +258,10 @@ function tut_draw(_gw, _gh)
         ui_glow(_x1, _y1, _x2, _y2, 10, global.TH.warn, _a);
     }
 
-    // card
+    // card: centred with no target; otherwise below the target, else above it,
+    // else beside it (right first). The leader runs from the target's nearest
+    // edge to the card's nearest edge. The 44 / 66-70 margins keep it off the
+    // status bar and the top bar.
     var _cw = 420;
     draw_set_font(global.f_body);
     var _bh = ui_sh_ext(_step.body, _cw - 48);

@@ -406,6 +406,7 @@ function sound_delete(_k)
     toast("Deleted " + _name, 0);
 }
 
+/// "" for 1, "s" for any other count (for "1 sound" / "3 sounds")
 function sound_plural(_n)
 {
     if (_n == 1) { return ""; }
@@ -424,7 +425,11 @@ function sound_folder_remove(_g)
     array_delete(proj.sound_groups, _g, 1);
 }
 
-/// Sample controls (Sound page when the sound is a sample)
+/// The 17-white-key piano under the waveform: plays sound _s at notes 1..29
+/// (C-1 .. E-3) by mouse or computer keys (Z-M lower octave, Q-P upper, with
+/// the rows above for sharps; Q = C-2 = the sample's own speed) through
+/// sfx_preview_note. A looped note sustains until the key or mouse is let go;
+/// a one-shot note stops at its end (preview_note_end).
 function sound_sample_keyboard(_s, _px, _py, _width, _height)
 {
     var _keys = ["Z", "S", "X", "D", "C", "V", "G", "B", "H", "N", "J", "M", "Q", "2", "W", "3", "E", "R", "5", "T", "6", "Y", "7", "U", "I", "9", "O", "0", "P"];
@@ -551,6 +556,11 @@ function sound_draw_wave(_s, _r, _gx, _gy, _gw, _gh, _help)
     }
 }
 
+/// Sample controls (Sound page when the sound is a sample)
+/// Left column from (_fx, _y), _colw wide: Import WAV, sample rate, bit crunch,
+/// volume, trim, Play. Right column (to _x2, between _y1 and _y2): the waveform
+/// as Paula plays it (sfx_render_ex), its chip RAM cost, the sample loop and
+/// the piano (sound_sample_keyboard). _cx1 is not used.
 function sound_sample_panel(_s, _fx, _y, _colw, _cx1, _x2, _y1, _y2)
 {
     if (ui_button("snd_import", _fx, _y, _colw, 38, "Import WAV...", "Import sample|Loads a .WAV file (8, 16, 24 or 32-bit, mono or stereo, any rate). Up to 10 seconds are kept; stereo is mixed to mono.", BTN_ACCENT))
@@ -663,6 +673,8 @@ function sound_sample_panel(_s, _fx, _y, _colw, _cx1, _x2, _y1, _y2)
         set_val(_s, "loop_b", ui_slider("snd_loop_end", _gx + _loop_width + 12, _loop_y + 56, _loop_width, _s.loop_b, _s.loop_a + 1, 1000, "Loop end|Where playback returns to the loop start. Only the sample up to this point is stored in the music instrument."), "sndloopend");
         if (_s.loop_b <= _s.loop_a) { _s.loop_b = min(1000, _s.loop_a + 1); }
     }
+    // a setting changed while it was sounding: restart the preview with the new
+    // render (once the mouse is let go), keeping the note being played
     if (_playing_loop && !ui_held && preview_render != sfx_render_ex(_s))
     {
         if (mus_play_what == "sound_note" && snd_jam_note >= 0)

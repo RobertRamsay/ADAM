@@ -12,10 +12,12 @@ CAVE = (7, 15)          # the cave's colours: the Dark palette blacks them out u
 GROUND = 210            # the ground line (painted ground colours 11 and 12)
 
 
+# rows of '.123' letters from fn(x, y) -> 0..3
 def grid(fn, w=16, h=24):
     return ["".join(".123"[fn(x, y)] for x in range(w)) for y in range(h)]
 
 
+# the hero's letter at (x, y); step = the walking frame (legs apart)
 def hero(x, y, step=False):
     rows = ["................",
             "................",
@@ -51,6 +53,7 @@ def hero(x, y, step=False):
     return rows[y][x]
 
 
+# draws every Torchlight picture into art.A (the tl_* names)
 def make_art():
     A = art.A
     A['tl_hero'] = [''.join(hero(x, y) for x in range(16)) for y in range(24)]
@@ -104,6 +107,7 @@ def make_art():
         return 0
     A['tl_sconce'] = grid(sconce)
 
+    # a bat's pixel; up = wings up
     def bat(x, y, up=False):
         if math.hypot(x - 7.5, y - 12) <= 2.6: return 1
         if (x, y) in ((6, 11), (9, 11)): return 3
@@ -126,6 +130,7 @@ def make_art():
         return 0
     A['tl_cloth'] = grid(cloth)
 
+    # a flame's pixel; k = 0 / 1 leans the tip one way or the other
     def flame(x, y, k=0):
         cx = 7.5 + (0.6 if k else -0.6) * max(0, (16 - y)) / 8
         r = max(0, (y - 6) * 0.45) if y < 16 else max(0, 4.5 - (y - 16) * 0.9)
@@ -147,6 +152,7 @@ def make_art():
     A['tl_torch'] = grid(torch)
 
 
+# the Torchlight project (.adam dict), made by gen_examples.py
 def torchlight():
     import gen_examples as g
     make_art()
@@ -164,6 +170,7 @@ def torchlight():
             elif r <= 20: P[x, y] = g.dmix(14, 3, (r - 14) / 6, x, y)
             elif r <= 40: P[x, y] = g.skymix(3, (r - 20) / 20, x, y)   # the orange rim melting into the sky
 
+    # the far hills' top at column x
     def far(x): return int(176 + math.sin(x / 31) * 9 + math.sin(x / 13 + 1) * 4)
     for x in range(W):                                      # far hills, darker further down
         y0 = far(x)
@@ -176,6 +183,7 @@ def torchlight():
         return int(64 + math.sin(x / 7) * 4 + math.sin(x / 17) * 6)
     cx0, cx1, cyt = 234, 316, 112                           # the cave: an arch from x 234 to 316, up to line 112
 
+    # (x, y) is inside the cave mouth (a half ellipse standing on the ground)
     def in_cave(x, y):
         u = (x - (cx0 + cx1) / 2) / ((cx1 - cx0) / 2)
         if abs(u) > 1: return False
@@ -241,6 +249,7 @@ def torchlight():
               g.actor("Flame", 9, 5, 1, 256, gy - 36, 13, 5, vis=False)]
     actors[HOPPER]['faster_every'] = 0
 
+    # gives rule r IF lines, each (cond 0 has / 1 uses / 2 has none / 3 has at least n, item, n)
     def ifs(r, *lines):
         r['ifs'] = [dict(cond=c, item=i, n=n) for c, i, n in lines]
         return r
@@ -305,6 +314,7 @@ def torchlight():
     hero_a = dict(flip=True, anims={0: ([0], 12, 0), 1: ([0, 10], 6, 0)})
     g.animate(p, "tl", {HERO: hero_a})
 
+    # the Logic page group of rule r
     def gk(r):
         if r['when'] == 17: return "Getting items"
         if r['when'] == 18: return "Lighting the cave"

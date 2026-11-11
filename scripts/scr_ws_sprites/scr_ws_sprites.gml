@@ -1,10 +1,14 @@
 /// ADAM - Sprites workspace (16 x 24 hardware sprites, 3 colours; ADAM Pro: up to 64 x 64, drawn as BOBs)
 
+/// Pen at pixel (_x, _y) of sprite _s: 0 = see-through, 1..3 = _s.cols[pen - 1].
+/// px is one row after another, _s.w pens a row.
 function spr_get_px(_s, _x, _y)
 {
     return _s.px[_y * _s.w + _x];
 }
 
+/// Sets pixel (_x, _y) of sprite _s to pen _v (0 = see-through, 1..3 = the sprite's colours).
+/// No range check: the caller keeps _x, _y inside _s.w x _s.h.
 function spr_set_px(_s, _x, _y, _v)
 {
     _s.px[_y * _s.w + _x] = _v;
@@ -63,6 +67,10 @@ function spr_paint_line(_s, _ax, _ay, _bx, _by, _v)
     return _changed;
 }
 
+/// Changes the whole of sprite _s in place. _kind: "fliph" / "flipv" mirror it, "left" / "right" /
+/// "up" / "down" shift every pixel one step (the edge it leaves is see-through), "clear" rubs it out.
+/// Any other string leaves the picture as it was. Colours and size are kept; the caller marks undo
+/// and spr_dirty.
 function spr_transform(_s, _kind)
 {
     var _sw = _s.w;
@@ -145,6 +153,10 @@ function spr_onion_draw(_k, _gx, _gy, _ps, _w, _h, _tint, _alpha)
     draw_set_alpha(1);
 }
 
+/// Draws and runs the Sprites page inside (_x1, _y1)-(_x2, _y2), in UI pixels: sprite bank list on the
+/// left (_lw wide), drawing canvas in the middle, properties (name, size, pens, colours, whole-sprite
+/// buttons, actual size) on the right (_rw wide). Pixels go into proj.sprites[spr_sel].px; spr_dirty
+/// tells scr_gfx to rebuild that sprite's cached picture.
 function ws_sprites_draw(_x1, _y1, _x2, _y2)
 {
     var _lw = 230;
@@ -162,6 +174,7 @@ function ws_sprites_draw(_x1, _y1, _x2, _y2)
     for (var i = 0; i < _bank; i++)
     {
         var _ry = _ly + i * _rowh - _loff;
+        // rows scrolled out of the panel are skipped (the scroll scissor would hide them anyway)
         if (_ry < _y1 - _rowh || _ry > _y2) { continue; }
         var _id = "spr_slot_" + string(i);
         var _hot = ui_register(_id, _x1 + 10, _ry, _x1 + _lw - 10, _ry + _rowh - 6, proj.sprites[i].name + "|Click to edit this sprite. Actors use sprites as their pictures.");
@@ -203,6 +216,8 @@ function ws_sprites_draw(_x1, _y1, _x2, _y2)
     var _cx1 = _x1 + _lw + 12;
     var _cx2 = _x2 - _rw - 12;
     ui_panel(_cx1, _y1, _cx2, _y2, "");
+    // _ps = size of one sprite pixel on screen: the biggest whole number that fits (at least 4);
+    // 120 leaves room below the canvas for the X / Y read-out and the onion skin dropdown
     var _ps = floor(min((_cx2 - _cx1 - 40) / _s.w, (_y2 - _y1 - 120) / _s.h));
     _ps = max(4, _ps);
     var _gw = _s.w * _ps;
@@ -228,6 +243,7 @@ function ws_sprites_draw(_x1, _y1, _x2, _y2)
             }
         }
     }
+    // faint pixel grid, then stronger accent lines every 8 pixels
     draw_set_alpha(0.14);
     for (var gx = 0; gx <= _s.w; gx++) { draw_line_colour(_gx + gx * _ps, _gy, _gx + gx * _ps, _gy + _gh, c_white, c_white); }
     for (var gy = 0; gy <= _s.h; gy++) { draw_line_colour(_gx, _gy + gy * _ps, _gx + _gw, _gy + gy * _ps, c_white, c_white); }
@@ -248,6 +264,7 @@ function ws_sprites_draw(_x1, _y1, _x2, _y2)
         draw_set_alpha(1);
         draw_rectangle_colour(_gx + _hx * _ps, _gy + _hy * _ps, _gx + _hx * _ps + _ps - 1, _gy + _hy * _ps + _ps - 1, c_white, c_white, c_white, c_white, true);
         ui_text(_gx, _gy + _gh + 14, "X " + string(_hx) + "   Y " + string(_hy), global.TH.text_dim, fa_left, fa_top, global.f_small, 1);
+        // a new press starts a stroke: one undo step per stroke (the key is unique, so strokes never merge)
         if (ui_pressed || ui_rpressed)
         {
             undo_mark("sprdraw" + string(current_time));
@@ -338,6 +355,7 @@ function ws_sprites_draw(_x1, _y1, _x2, _y2)
         }
     }
     _y += 62;
+    // pens 1..3 = the sprite's three colours (pen 0, see-through, is the right mouse button)
     ui_heading(_fx, _y, "Pen");
     var _pw3 = floor((_fw - 16) / 3);
     var _phelp = ["Colour 1|Draws with this sprite's first colour.", "Colour 2|Draws with this sprite's second colour.", "Colour 3|Draws with this sprite's third colour."];
@@ -362,6 +380,7 @@ function ws_sprites_draw(_x1, _y1, _x2, _y2)
     }
     _y += 100;
 
+    // whole-sprite buttons, 3 x 3: copy / paste use spr_clip (the sprite as JSON); the rest go to spr_transform
     ui_heading(_fx, _y, "Change the whole sprite");
     _y += 18;
     var _bw = floor((_fw - 16) / 3);
@@ -400,6 +419,7 @@ function ws_sprites_draw(_x1, _y1, _x2, _y2)
                         var _keep = _s.name;
                         var _ns = struct_overlay(sprite_new(_keep), json_parse(spr_clip));
                         _ns.name = _keep;
+                        // a clip with a bad size or pixel count becomes a blank 16 x 24 sprite
                         if (!spr_size_ok(_ns.w, _ns.h) || !is_array(_ns.px) || array_length(_ns.px) != _ns.w * _ns.h)
                         {
                             _ns.w = SPR_W;

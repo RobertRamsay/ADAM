@@ -1,4 +1,7 @@
 /// Free everything
+/// Runs once when obj_app is destroyed (the app closing): stops sound
+/// previews and frees surfaces, caches and ds_maps made in Create_0.
+/// Other_3 (game end) has already saved the session.
 
 sfx_preview_stop();
 music_preview_free();

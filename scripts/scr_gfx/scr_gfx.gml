@@ -246,12 +246,17 @@ function backdrop_shader_sky(_texh, _ofs)
     shader_set_uniform_f(bd_u_sky_map, _texh, _ofs);
 }
 
+/// Ends a backdrop_shader_begin() block: back to the default shader and
+/// smooth texture filtering (the shader needs point sampling)
 function backdrop_shader_end()
 {
     shader_reset();
     gpu_set_texfilter(true);
 }
 
+/// Draws the painted backdrop (index surface through the palette shader) with
+/// its top-left at _x, _y in GUI pixels, _scale screen pixels per Amiga pixel
+/// (1 = 320 x 256). The sky uniforms are whatever backdrop_shader_begin set.
 function backdrop_draw(_x, _y, _scale)
 {
     var _s = backdrop_surface();
@@ -260,6 +265,9 @@ function backdrop_draw(_x, _y, _scale)
     backdrop_shader_end();
 }
 
+/// Frees the backdrop index surface, its pixel buffer bd_buf and the Levels
+/// page terrain surface (terr_surf, made in scr_levels). Called from the
+/// CleanUp event; the surfaces are remade on demand if drawn again.
 function backdrop_gfx_free()
 {
     if (surface_exists(bd_surf)) { surface_free(bd_surf); }
@@ -323,6 +331,8 @@ function draw_sprite_amiga(_i, _x, _y, _scale, _alpha)
     draw_sprite_amiga_cols(_i, _x, _y, _scale, proj.sprites[_i].cols, _alpha);
 }
 
+/// Frees the three colour-mask surfaces of every sprite design (CleanUp event).
+/// spr_cache_update remakes a missing one the next time the sprite is drawn.
 function spr_cache_free()
 {
     for (var i = 0; i < SPR_COUNT; i++)
@@ -334,6 +344,8 @@ function spr_cache_free()
     }
 }
 
+/// Marks every sprite design for a redraw of its mask surfaces (for example
+/// after the whole sprite bank is replaced). Not called anywhere at present.
 function spr_mark_all_dirty()
 {
     for (var i = 0; i < SPR_COUNT; i++) { spr_dirty[i] = true; }

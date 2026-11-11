@@ -73,12 +73,14 @@ function pro_gate(_what)
 #macro LITE_MAP_H 256
 #macro LITE_SOUNDS 8            // sounds (Sound page slots; Pro: SFX_MAX = 64)
 
+/// Sounds the game can use: Pro SFX_MAX (64), Lite LITE_SOUNDS (8)
 function lim_sounds()
 {
     if (pro_edition()) { return SFX_MAX; }
     return LITE_SOUNDS;
 }
 
+/// Most frames in one animation: Pro ANIM_FRAMES (16), Lite LITE_FRAMES (6)
 function lim_frames()
 {
     if (pro_edition()) { return ANIM_FRAMES; }
@@ -91,42 +93,49 @@ function lim_fire()
     return true;
 }
 
+/// Most actors written to the disk: Pro ACT_MAX_ALL (32), Lite LITE_ACTORS (12: 8 sprites, the rest BOBs)
 function lim_actors()
 {
     if (pro_edition()) { return ACT_MAX_ALL; }
     return LITE_ACTORS;
 }
 
+/// Sprite bank slots: Pro SPR_COUNT (128), Lite LITE_BANK (64); see spr_bank_size()
 function lim_bank()
 {
     if (pro_edition()) { return SPR_COUNT; }
     return LITE_BANK;
 }
 
+/// Widest sprite / BOB in pixels: Pro 64, Lite LITE_SPR_W (32)
 function lim_spr_w()
 {
     if (pro_edition()) { return 64; }
     return LITE_SPR_W;
 }
 
+/// Tallest sprite / BOB in pixels: Pro 64, Lite LITE_SPR_H (32)
 function lim_spr_h()
 {
     if (pro_edition()) { return 64; }
     return LITE_SPR_H;
 }
 
+/// Most tile types in the tile set: Pro TILE_MAX (512), Lite LITE_TILES (96)
 function lim_tiles()
 {
     if (pro_edition()) { return TILE_MAX; }
     return LITE_TILES;
 }
 
+/// Widest tile map in tiles: Pro MAP_MAX (1024), Lite LITE_MAP_W (256)
 function lim_map_w()
 {
     if (pro_edition()) { return MAP_MAX; }
     return LITE_MAP_W;
 }
 
+/// Tallest tile map in tiles: Pro MAP_MAX (1024), Lite LITE_MAP_H (256)
 function lim_map_h()
 {
     if (pro_edition()) { return MAP_MAX; }
@@ -187,9 +196,15 @@ function lite_trim(_p, _warn)
         {
             var _ru = _p.rules[r];
             var _far = (_ru.a >= _keepn || _ru.b >= _keepn || (_ru.target >= _keepn && do_target_is_actor(_ru.act)));
+            if (_ru.value >= _keepn && do_value_is_actor(_ru.act)) { _far = true; }
             for (var mq = 0; mq < array_length(_ru.more); mq++)
             {
                 if (_ru.more[mq].target >= _keepn && do_target_is_actor(_ru.more[mq].act)) { _far = true; }
+                if (_ru.more[mq].value >= _keepn && do_value_is_actor(_ru.more[mq].act)) { _far = true; }
+            }
+            for (var fq = 0; fq < array_length(_ru.ifs); fq++)       // IF position lines name two actors
+            {
+                if (_ru.ifs[fq].kind == 1 && (_ru.ifs[fq].a >= _keepn || _ru.ifs[fq].b >= _keepn)) { _far = true; }
             }
             if (_far) { _dropped += 1; }
             else { array_push(_rl, _ru); }
@@ -284,6 +299,23 @@ function lite_trim(_p, _warn)
                 }
             }
             _q.tiles = _tl;
+            var _qlm = level_maps_new();     // the levels' own maps, cut the same way
+            for (var lq = 1; lq < LEVEL_MAX; lq++)
+            {
+                var _om = _p.level_maps[lq];
+                if (array_length(_om) != _p.map_w * _p.map_h) { continue; }
+                var _nm2 = array_create(_mw * _mh, 0);
+                for (var mr2 = 0; mr2 < _mh; mr2++)
+                {
+                    for (var mc2 = 0; mc2 < _mw; mc2++)
+                    {
+                        var _v2 = _om[mr2 * _p.map_w + mc2];
+                        if (_v2 < _nt) { _nm2[mr2 * _mw + mc2] = _v2; }
+                    }
+                }
+                _qlm[lq] = _nm2;
+            }
+            _q.level_maps = _qlm;
             _q.map = _map;
             _q.map_w = _mw;
             _q.map_h = _mh;

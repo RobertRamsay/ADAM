@@ -81,6 +81,7 @@ function map_w_min(_s)
     return 320 div _s + 2;
 }
 
+/// Smallest map height in tiles for tile size _s: a screen and a bit
 function map_h_min(_s)
 {
     return 256 div _s + 2;
@@ -92,6 +93,7 @@ function map_w_max(_s)
     return min(lim_map_w(), WORLD_PX_MAX div _s);
 }
 
+/// Biggest map height in tiles for this edition (_s = tile size); never over WORLD_PX_MAX pixels
 function map_h_max(_s)
 {
     return min(lim_map_h(), WORLD_PX_MAX div _s);
@@ -103,6 +105,10 @@ function tile_px()
     return proj.tile_size;
 }
 
+/// A new tile type called _name (up to 4 letters), _s x _s pixels of colour 0
+/// (air). Its flags, sound, hard, points and becomes go to the disk as a TP_*
+/// record (engine.s; written in adam_data_block_raw = tile block in
+/// adf_reference.py), anim as a TR_* record (tile_anims_on_disk).
 function tile_new(_name, _s)
 {
     return {
@@ -408,9 +414,70 @@ function tiles_fix(_p)
         var _v = _p.map[c];
         if (!is_numeric(_v) || _v < 0 || _v >= _nt) { _p.map[c] = 0; }
     }
+    // the levels' own maps: the same size as level 1's, or none
+    var _lm = level_maps_new();
+    var _llm = _p[$ "level_maps"];
+    if (is_array(_llm))
+    {
+        for (var l = 1; l < min(LEVEL_MAX, array_length(_llm)); l++)
+        {
+            var _m = _llm[l];
+            if (!is_array(_m) || array_length(_m) != _p.map_w * _p.map_h) { continue; }
+            for (var mc = 0; mc < array_length(_m); mc++)
+            {
+                if (!is_numeric(_m[mc]) || _m[mc] < 0 || _m[mc] >= _nt) { _m[mc] = 0; }
+            }
+            _lm[l] = _m;
+        }
+    }
+    _p.level_maps = _lm;
     if (!is_bool(_p.tiles_on)) { _p.tiles_on = (is_numeric(_p.tiles_on) && _p.tiles_on != 0); }
     if (!is_bool(_p.tile_dig)) { _p.tile_dig = (is_numeric(_p.tile_dig) && _p.tile_dig != 0); }
     tools_fix(_p);
+}
+
+/// LEVEL_MAX empty entries: no level has a map of its own
+function level_maps_new()
+{
+    var _m = array_create(LEVEL_MAX, 0);
+    for (var l = 0; l < LEVEL_MAX; l++) { _m[l] = []; }
+    return _m;
+}
+
+/// True when level _l + 1 (1..9) has a map of its own
+function level_map_own(_l)
+{
+    return _l > 0 && _l < array_length(proj.level_maps) && array_length(proj.level_maps[_l]) > 0;
+}
+
+/// Levels can have their own tile maps: a tile world (not a shoot 'em up map) with levels
+function level_maps_on()
+{
+    return proj.tiles_on && !proj.shmup_map && proj.levels_on && array_length(proj.levels) >= 2;
+}
+
+/// The map the Tiles page shows and edits: level tmap_lvl + 1's own map, else level 1's
+function tmap()
+{
+    if (level_map_own(tmap_lvl)) { return proj.level_maps[tmap_lvl]; }
+    return proj.map;
+}
+
+/// The map shown can be painted (a level without its own map shows level 1's, read only)
+function tmap_editable()
+{
+    return tmap_lvl == 0 || level_map_own(tmap_lvl);
+}
+
+/// Every map of the project (level 1's, then the levels' own) - for changes to them all
+function maps_all(_p)
+{
+    var _out = [_p.map];
+    for (var l = 1; l < array_length(_p.level_maps); l++)
+    {
+        if (array_length(_p.level_maps[l]) > 0) { array_push(_out, _p.level_maps[l]); }
+    }
+    return _out;
 }
 
 /// Checks a loaded project's shoot 'em up map, spawners and stamps (after tiles_fix)
@@ -485,16 +552,26 @@ function shmup_set_cols(_w)
     if (_w == _ow) { return; }
     var _d = (_w - _ow) div 2;              // columns added at each side (less than 0: cut)
     var _h = proj.map_h;
-    var _nm = array_create(_w * _h, 0);
-    for (var my = 0; my < _h; my++)
+    for (var lm = -1; lm < LEVEL_MAX; lm++)
     {
-        for (var mx = 0; mx < _w; mx++)
+        var _om = proj.map;
+        if (lm >= 0)
         {
-            var _src = mx - _d;
-            if (_src >= 0 && _src < _ow) { _nm[my * _w + mx] = proj.map[my * _ow + _src]; }
+            if (array_length(proj.level_maps[lm]) == 0) { continue; }
+            _om = proj.level_maps[lm];
         }
+        var _nm = array_create(_w * _h, 0);
+        for (var my = 0; my < _h; my++)
+        {
+            for (var mx = 0; mx < _w; mx++)
+            {
+                var _src = mx - _d;
+                if (_src >= 0 && _src < _ow) { _nm[my * _w + mx] = _om[my * _ow + _src]; }
+            }
+        }
+        if (lm >= 0) { proj.level_maps[lm] = _nm; }
+        else { proj.map = _nm; }
     }
-    proj.map = _nm;
     proj.map_w = _w;
     var _px = _d * 16;
     for (var s = 0; s < array_length(proj.spawners); s++)
@@ -515,14 +592,24 @@ function shmup_resize(_h)
 {
     var _w = proj.map_w;
     var _d = _h - proj.map_h;              // rows added at the top
-    var _nm = array_create(_w * _h, 0);
-    for (var my = 0; my < _h; my++)
+    for (var lm = -1; lm < LEVEL_MAX; lm++)
     {
-        var _src = my - _d;
-        if (_src < 0 || _src >= proj.map_h) { continue; }
-        for (var mx = 0; mx < _w; mx++) { _nm[my * _w + mx] = proj.map[_src * _w + mx]; }
+        var _om = proj.map;
+        if (lm >= 0)
+        {
+            if (array_length(proj.level_maps[lm]) == 0) { continue; }
+            _om = proj.level_maps[lm];
+        }
+        var _nm = array_create(_w * _h, 0);
+        for (var my = 0; my < _h; my++)
+        {
+            var _src = my - _d;
+            if (_src < 0 || _src >= proj.map_h) { continue; }
+            for (var mx = 0; mx < _w; mx++) { _nm[my * _w + mx] = _om[_src * _w + mx]; }
+        }
+        if (lm >= 0) { proj.level_maps[lm] = _nm; }
+        else { proj.map = _nm; }
     }
-    proj.map = _nm;
     proj.map_h = _h;
     for (var s = array_length(proj.spawners) - 1; s >= 0; s--)
     {
@@ -550,20 +637,34 @@ function map_starter(_w, _h)
     return _m;
 }
 
-/// Changes the map size, keeping the top-left of what was there
+/// Changes the map size (and the levels' own maps), keeping the top-left of what was there
 function map_resize(_p, _w, _h)
 {
-    var _nm = array_create(_w * _h, 0);
-    for (var my = 0; my < min(_h, _p.map_h); my++)
+    _p.map = map_resized(_p.map, _p.map_w, _p.map_h, _w, _h);
+    var _lms = _p[$ "level_maps"];
+    if (is_array(_lms))
     {
-        for (var mx = 0; mx < min(_w, _p.map_w); mx++)
+        for (var l = 1; l < array_length(_lms); l++)
         {
-            _nm[my * _w + mx] = _p.map[my * _p.map_w + mx];
+            if (is_array(_lms[l]) && array_length(_lms[l]) == _p.map_w * _p.map_h) { _lms[l] = map_resized(_lms[l], _p.map_w, _p.map_h, _w, _h); }
         }
     }
     _p.map_w = _w;
     _p.map_h = _h;
-    _p.map = _nm;
+}
+
+/// Map _m (_ow x _oh) as _w x _h, keeping its top-left
+function map_resized(_m, _ow, _oh, _w, _h)
+{
+    var _nm = array_create(_w * _h, 0);
+    for (var my = 0; my < min(_h, _oh); my++)
+    {
+        for (var mx = 0; mx < min(_w, _ow); mx++)
+        {
+            _nm[my * _w + mx] = _m[my * _ow + mx];
+        }
+    }
+    return _nm;
 }
 
 /// Changes the tile size of the project: every tile is scaled (nearest pixel),
@@ -599,6 +700,7 @@ function world_w()
     return BD_W;
 }
 
+/// Height of the play world in pixels: the tile map in a tile world, else the 256-line screen
 function world_h()
 {
     if (proj.tiles_on) { return proj.map_h * proj.tile_size; }
@@ -634,11 +736,16 @@ function tile_atlas_x(_t)
     return (_t mod TILE_ATLAS_COLS) * proj.tile_size;
 }
 
+/// Top of tile _t in the atlas (TILE_ATLAS_COLS tiles a row), in pixels
 function tile_atlas_y(_t)
 {
     return (_t div TILE_ATLAS_COLS) * proj.tile_size;
 }
 
+/// The tile atlas: an index surface (alpha 255, colour number in the low bits;
+/// shown through the backdrop palette shader), TILE_ATLAS_COLS tiles across.
+/// Remade when the tile size or count changes or tile_atlas_dirty is set, which
+/// also marks the map view for redrawing. Returns the surface.
 function tile_atlas_surface()
 {
     var _s = proj.tile_size;
@@ -718,7 +825,8 @@ function tile_atlas_update(_t)
 function tile_map_cell(_atlas, _c, _r)
 {
     var _s = proj.tile_size;
-    var _t = proj.map[_r * proj.map_w + _c];
+    var _map = tmap();
+    var _t = _map[_r * proj.map_w + _c];
     draw_surface_part(_atlas, tile_atlas_x(_t), tile_atlas_y(_t), _s, _s, _c * _s - tile_view_mx, _r * _s - tile_view_my);
 }
 
@@ -755,11 +863,12 @@ function tile_view_surface(_mx, _my, _w, _h)
         var _r0 = max(0, _my div _s);
         var _c1 = min(proj.map_w - 1, (_mx + _w - 1) div _s);
         var _r1 = min(proj.map_h - 1, (_my + _h - 1) div _s);
+        var _map = tmap();
         for (var r = _r0; r <= _r1; r++)
         {
             for (var c = _c0; c <= _c1; c++)
             {
-                if (proj.map[r * proj.map_w + c] != 0) { tile_map_cell(_atlas, c, r); }
+                if (_map[r * proj.map_w + c] != 0) { tile_map_cell(_atlas, c, r); }
             }
         }
         gpu_set_blendenable(true);
@@ -775,8 +884,9 @@ function tile_map_set(_c, _r, _t)
 {
     if (_c < 0 || _r < 0 || _c >= proj.map_w || _r >= proj.map_h) { return; }
     var _i = _r * proj.map_w + _c;
-    if (proj.map[_i] == _t) { return; }
-    proj.map[_i] = _t;
+    var _map = tmap();
+    if (!tmap_editable() || _map[_i] == _t) { return; }
+    _map[_i] = _t;
     proj_dirty = true;
     if (surface_exists(tile_map_surf) && !tile_map_dirty)
     {
@@ -820,6 +930,8 @@ function tile_draw(_t, _x, _y, _size)
     backdrop_shader_end();
 }
 
+/// Frees the tile atlas, the map view surface and the atlas buffer (they are
+/// made again when next drawn)
 function tiles_gfx_free()
 {
     if (surface_exists(tile_atlas_surf)) { surface_free(tile_atlas_surf); }
@@ -879,6 +991,10 @@ function tiles_grid(_x, _y, _w, _y2, _id)
     return _y + _boxh + 4;
 }
 
+/// Draws the Tiles page in the rect (_x1, _y1)-(_x2, _y2): left the tile grid
+/// and world settings (world kind, tile size, map size, level whose map is
+/// shown), centre the Tile set / Map / Tools editor, right the picked tile
+/// (or the Stamp / Spawn tool settings).
 function ws_tiles_draw(_x1, _y1, _x2, _y2)
 {
     var _lw = 260;
@@ -890,7 +1006,14 @@ function ws_tiles_draw(_x1, _y1, _x2, _y2)
     // ---------------- left: the tiles, and the world settings ----------------
     ui_panel(_x1, _y1, _x1 + _lw, _y2, "Tiles (" + string(array_length(proj.tiles)) + " / " + string(lim_tiles()) + ")");
     var _S = proj.tile_size;
-    var _ly = tiles_grid(_x1 + 16, _y1 + 54, _lw - 32, max(_y1 + 160, _y2 - 360), "tile_pick_") + 10;
+    // the level whose map is shown (a tile world with levels)
+    var _tml = tmap_lvl;
+    if (!level_maps_on()) { tmap_lvl = 0; }
+    tmap_lvl = clamp(tmap_lvl, 0, max(0, array_length(proj.levels) - 1));
+    if (tmap_lvl != _tml) { tile_map_dirty = true; }
+    var _lvh = 0;
+    if (level_maps_on()) { _lvh = 58; }
+    var _ly = tiles_grid(_x1 + 16, _y1 + 54, _lw - 32, max(_y1 + 160, _y2 - 360 - _lvh), "tile_pick_") + 10;
     // 'Remove last' (100 px of bold text) needs the wider button
     var _bw = 90;
     var _bw2 = _lw - 32 - 8 - _bw;
@@ -922,9 +1045,14 @@ function ws_tiles_draw(_x1, _y1, _x2, _y2)
         {
             undo_mark("tiledel" + string(current_time));
             array_delete(proj.tiles, _last, 1);
-            for (var c = 0; c < array_length(proj.map); c++)
+            var _maps = maps_all(proj);
+            for (var mq = 0; mq < array_length(_maps); mq++)
             {
-                if (proj.map[c] >= _last) { proj.map[c] = 0; }
+                var _mm = _maps[mq];
+                for (var c = 0; c < array_length(_mm); c++)
+                {
+                    if (_mm[c] >= _last) { _mm[c] = 0; }
+                }
             }
             for (var k = 0; k < array_length(proj.tiles); k++)
             {
@@ -1045,6 +1173,51 @@ function ws_tiles_draw(_x1, _y1, _x2, _y2)
         tile_map_dirty = true;
     }
     _ly += 40;
+    if (level_maps_on())
+    {
+        ui_heading(_x1 + 16, _ly, "Map for");
+        _ly += 18;
+        var _ln = [];
+        for (var lq = 0; lq < array_length(proj.levels); lq++)
+        {
+            var _lnm = "Level " + string(lq + 1);
+            if (lq > 0 && !level_map_own(lq)) { _lnm += " (level 1's)"; }
+            array_push(_ln, _lnm);
+        }
+        var _obw = 96;
+        var _lsel = ui_dropdown("tile_maplvl", _x1 + 16, _ly, _lw - 32 - _obw - 8, 30, _ln, tmap_lvl, "Map for|Each level can have a map of its own (the same size, the same tiles): pick a level to see the map it plays on. A level without one plays on level 1's map. The actors start in the same places on every level.");
+        if (_lsel != tmap_lvl)
+        {
+            tmap_lvl = _lsel;
+            tile_map_dirty = true;
+        }
+        var _obx = _x1 + _lw - 16 - _obw;
+        if (tmap_lvl > 0 && !level_map_own(tmap_lvl))
+        {
+            if (ui_button("tile_mapown", _obx, _ly, _obw, 30, "Own map", "Own map|Gives this level a map of its own, starting as a copy of level 1's. Paint it to make the level different. Each map takes " + string(proj.map_w * proj.map_h div 1024 + 1) + " KB more chip RAM.", BTN_ACCENT))
+            {
+                undo_mark("tilemapown" + string(current_time));
+                var _cp = array_create(array_length(proj.map), 0);
+                array_copy(_cp, 0, proj.map, 0, array_length(proj.map));
+                proj.level_maps[tmap_lvl] = _cp;
+                tile_map_dirty = true;
+                proj_dirty = true;
+                mem_mark_stale();
+            }
+        }
+        else if (tmap_lvl > 0)
+        {
+            if (ui_button("tile_mapdrop", _obx, _ly, _obw, 30, "Level 1's", "Use level 1's map|This level plays on level 1's map again - its own map goes. You can Undo this.", BTN_GHOST))
+            {
+                undo_mark("tilemapdrop" + string(current_time));
+                proj.level_maps[tmap_lvl] = [];
+                tile_map_dirty = true;
+                proj_dirty = true;
+                mem_mark_stale();
+            }
+        }
+        _ly += 40;
+    }
     var _mkb = ceil(tiles_mem_bytes(clamp(proj.depth, 1, machine_cur().max_depth)) / 1024);
     ui_text_wrap(_x1 + 16, _ly, string(proj.map_w * _S) + " x " + string(proj.map_h * _S) + " pixels (" + string_format(proj.map_w * _S / 320, 0, 1) + " x " + string_format(proj.map_h * _S / 256, 0, 1) + " screens) - the tile world needs about " + string(_mkb) + " KB of chip RAM", global.TH.text_faint, _lw - 32, global.f_small, 1);
 
@@ -1351,6 +1524,8 @@ function tiles_set_editor(_x1, _y1, _x2, _y2)
 /// Ctrl: zoom), the middle button or Space + drag moves the view
 function tiles_map_editor(_x1, _y1, _x2, _y2)
 {
+    var _map = tmap();                      // level 1's map, or the level picked on the left
+    var _edit = tmap_editable();
     var _S = proj.tile_size;
     var _mw = proj.map_w * _S;
     var _mh = proj.map_h * _S;
@@ -1503,7 +1678,16 @@ function tiles_map_editor(_x1, _y1, _x2, _y2)
 
     // the stamp: a ghost of it under the mouse; click stamps it down, right-click lets go
     var _stamping = (tile_tool == 3 && tile_stamp.w > 0);
-    if (_stamping && !tile_pan && _inview)
+    if (!_edit)
+    {
+        // a level with no map of its own plays on level 1's: shown, but not painted here
+        var _ro = "Level " + string(tmap_lvl + 1) + " plays on level 1's map - click Own map (left) to give it a map of its own";
+        draw_set_font(global.f_small);
+        var _row = ui_sw(_ro) + 24;
+        ui_rrect(_dx + 8, _dy + 8, _dx + 8 + _row, _dy + 36, 8, c_black, c_black, 0.7);
+        ui_text(_dx + 20, _dy + 22, _ro, global.TH.text, fa_left, fa_middle, global.f_small, 1);
+    }
+    if (_stamping && !tile_pan && _inview && _edit)
     {
         var _gx0 = _dx + (_cellx * _S - tile_camx) * _sc;
         var _gy0 = _dy + (_celly * _S - tile_camy) * _sc;
@@ -1529,7 +1713,7 @@ function tiles_map_editor(_x1, _y1, _x2, _y2)
                     var _tc = _cellx + pc;
                     var _trow = _celly + pr;
                     if (_tc < 0 || _trow < 0 || _tc >= proj.map_w || _trow >= proj.map_h) { continue; }
-                    proj.map[_trow * proj.map_w + _tc] = clamp(tile_stamp.cells[pr * tile_stamp.w + pc], 0, array_length(proj.tiles) - 1);
+                    _map[_trow * proj.map_w + _tc] = clamp(tile_stamp.cells[pr * tile_stamp.w + pc], 0, array_length(proj.tiles) - 1);
                 }
             }
             proj_dirty = true;
@@ -1543,7 +1727,7 @@ function tiles_map_editor(_x1, _y1, _x2, _y2)
     }
 
     // painting (Paint, Box, Pick - and Stamp's box that copies a block)
-    if (!tile_pan && tile_drag_actor < 0 && _inview && (tile_tool <= 2 || (tile_tool == 3 && !_stamping)))
+    if (!tile_pan && tile_drag_actor < 0 && _inview && (tile_tool <= 2 || (tile_tool == 3 && !_stamping)) && (_edit || tile_tool == 2 || tile_tool == 3))
     {
         if (_cellx >= 0 && _celly >= 0 && _cellx < proj.map_w && _celly < proj.map_h)
         {
@@ -1553,7 +1737,7 @@ function tiles_map_editor(_x1, _y1, _x2, _y2)
             if (ui_pressed || ui_rpressed)
             {
                 ui_take_click();
-                if (tile_tool == 2) { tile_sel = proj.map[_celly * proj.map_w + _cellx]; }
+                if (tile_tool == 2) { tile_sel = _map[_celly * proj.map_w + _cellx]; }
                 else if (tile_tool == 3)
                 {
                     tile_painting = true;
@@ -1611,16 +1795,16 @@ function tiles_map_editor(_x1, _y1, _x2, _y2)
             var _cells = array_create(_sw * _shh, 0);
             for (var cr = 0; cr < _shh; cr++)
             {
-                for (var cc = 0; cc < _sw; cc++) { _cells[cr * _sw + cc] = proj.map[(_r0 + cr) * proj.map_w + _c0 + cc]; }
+                for (var cc = 0; cc < _sw; cc++) { _cells[cr * _sw + cc] = _map[(_r0 + cr) * proj.map_w + _c0 + cc]; }
             }
             tile_stamp = { name : "", w : _sw, h : _shh, cells : _cells };
             tile_painting = false;
         }
-        else if (!ui_held && !ui_rheld)
+        else if (!ui_held && !ui_rheld && tmap_editable())
         {
             for (var br = max(0, _r0); br <= min(proj.map_h - 1, _r1); br++)
             {
-                for (var bc = max(0, _c0); bc <= min(proj.map_w - 1, _c1); bc++) { proj.map[br * proj.map_w + bc] = tile_paint_v; }
+                for (var bc = max(0, _c0); bc <= min(proj.map_w - 1, _c1); bc++) { _map[br * proj.map_w + bc] = tile_paint_v; }
             }
             proj_dirty = true;
             tile_map_dirty = true;
@@ -1630,9 +1814,10 @@ function tiles_map_editor(_x1, _y1, _x2, _y2)
 
     // status line
     var _st = "Map " + string(proj.map_w) + " x " + string(proj.map_h) + " tiles of " + string(_S) + " x " + string(_S) + "  -  zoom " + string(tile_zoom) + "x";
+    if (level_maps_on()) { _st = "Level " + string(tmap_lvl + 1) + "  -  " + _st; }
     if (_inview && _cellx >= 0 && _celly >= 0 && _cellx < proj.map_w && _celly < proj.map_h)
     {
-        var _under = proj.map[_celly * proj.map_w + _cellx];
+        var _under = _map[_celly * proj.map_w + _cellx];
         _st += "  -  column " + string(_cellx) + ", row " + string(_celly) + ": " + proj.tiles[_under].name;
     }
     if (_shm)

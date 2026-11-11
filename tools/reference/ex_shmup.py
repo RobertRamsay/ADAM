@@ -20,6 +20,7 @@ def rim(im, lx=-1, ly=-1, keep=(2, 3)):
     w, h = im.size
     src = im.copy().load()
     px = im.load()
+    # (x, y) is outside the picture or empty
     def clear(x, y):
         return not (0 <= x < w and 0 <= y < h) or src[x, y] == 0
     for y in range(h):
@@ -44,12 +45,15 @@ def outline(im, col=2):
                     break
     return im
 
+# the picture turned round left to right
 def flip_h(im): return im.transpose(Image.FLIP_LEFT_RIGHT)
 
+# an 'L' picture -> an ADAM sprite dict of its size
 def spr(name, im, cols):
     w, h = im.size
     return dict(name=name, w=w, h=h, px=list(im.getdata()), cols=list(cols))
 
+# sets pixel (x, y), ignored outside the picture
 def put(im, x, y, v):
     if 0 <= x < im.size[0] and 0 <= y < im.size[1]: im.putpixel((x, y), v)
 
@@ -142,13 +146,16 @@ def blank(i): return dict(name="Sprite %d" % (i + 1), w=16, h=24, px=[0] * 384, 
 
 class Bank:
     """the sprite bank: pictures added in order, animations made from their slots"""
+    # an empty bank
     def __init__(self):
         self.s = []
         self.idx = {}
+    # adds picture im as sprite name -> its slot
     def add(self, name, im, cols):
         self.idx[name] = len(self.s)
         self.s.append(spr(name, im, cols))
         return self.idx[name]
+    # bank['name'] -> its slot
     def __getitem__(self, name): return self.idx[name]
 
 def anims_of(entries):
@@ -158,6 +165,8 @@ def anims_of(entries):
         out[k] = dict(frames=list(fr), rate=rate, mode=mode)
     return out
 
+# a shoot 'em up actor: gen_examples.actor plus the flyer settings (pattern, enter edge,
+# comes back, hits to destroy, aim) and its 21 animations
 def act(name, sprite, role, speed, x, y, vis=True, bob=False, pattern=0, enter=0, comeback=True, hits=1, aim=0,
         anims=None, frm=1, fast=0, left=False, up=False):
     a = g.actor(name, sprite, role, speed, x, y, vis=vis, left=left, up=up)
@@ -185,6 +194,7 @@ SFX = {0: dict(name="Laser", wave=2, pitch=150, sweep=-14, len=5, atk=0, dec=4, 
        7: dict(name="Warp", wave=0, pitch=24, sweep=9, len=40, atk=2, dec=8, sus=10, rel=9)}
 LASER, BOOM, BIGBOOM, POWER, WARNING, READY, LOSE, WARPS = range(8)
 
+# the two songs: 0 the stage music (levels start with it), 1 the boss tune (DO 18 at the boss)
 def songs():
     main = g.song("Strike force", 140, [
         g.bars("Breakbeat", 3, "Tom fill", 1, "Breakbeat", 3, "Disco claps", 1, "Breakbeat", 3, "Tom fill", 1, "Four on the floor", 7, "Tom fill", 1),
@@ -198,7 +208,9 @@ def songs():
         g.bars("Trill", 2, "Arp down", 2, "Trill", 2, "Arp up", 2)])
     return [main, boss]
 
+# the Logic page groups of a shoot 'em up: a key(rule) function for auto_groups (p['_gk'])
 def group_key(names):
+    # the group name of rule r
     def key(r):
         w = r['when']
         if w == 14: return "Fire (hold for auto-fire)"
@@ -251,15 +263,19 @@ def common_rules(R, A, enemies, carriers, shooters, laser_snd=True):
     rules += [R(b=warpg, act=2, value=WARPS), R(b=warpg, act=0, value=1000), R(b=warpg, act=6, target=warpg), R(b=warpg, act=17)]
     return rules
 
+# rules: secs seconds into the level (WHEN 13) the boss shows, its music starts, a warning
+# sounds, the ship blinks and the actors in hide go
 def boss_arrives(R, A, hide, secs=45):
     out = [R(when=13, n=secs, act=7, target=A['Boss']), R(when=13, n=secs, act=18, value=1), R(when=13, n=secs, act=2, value=WARNING),
            R(when=13, n=secs, act=3)]
     for nm in hide: out.append(R(when=13, n=secs, act=6, target=A[nm]))
     return out
 
+# rules: no lives left = game over; music at game start; at each level start the ship goes home and 'ready' plays
 def flow(R, A):
     return [R(when=4, act=9), R(when=5, act=18, value=0), R(when=7, act=16, target=A['Ship']), R(when=7, act=2, value=READY)]
 
+# the common end of a shoot 'em up project: depth, songs, title, goal 1 'WARP', and the HUD (score, stage, ships)
 def finish(p, songs_list, title1, title2, hud_style, hud_font):
     set_depth(p)                        # first, so the HUD's colours are ones the screen shows
     p['songs'] = songs_list
@@ -275,6 +291,7 @@ def aga_cap():
     # BOBs to draw every frame, and 6 bitplanes still leave it the time for them
     g.AGA['max'] = 1 << AGA_DEPTH
 
+# A1200: 6 bitplanes (64 colours); then gives dmix its full 128 back for the next example
 def set_depth(p):
     if p['machine'] == "A1200":
         p['depth'] = AGA_DEPTH
@@ -330,6 +347,7 @@ def nebula_strike():
     # ---------------- sprites
     B = Bank()
     shipc = [pal[9], pal[8], pal[7]]                       # BOBs take the nearest backdrop colours
+    # the ship facing right; flame = the exhaust frame
     def ship_img(flame):
         im2, d = new(32, 16)
         d.polygon([(4, 7), (14, 3), (24, 5), (31, 8), (24, 10), (14, 12), (4, 9)], fill=1)   # hull, nose to the right
@@ -345,6 +363,7 @@ def nebula_strike():
         return im2
     B.add("Ship", ship_img(3), shipc); B.add("Ship flame", ship_img(4), shipc); B.add("Ship flame 2", ship_img(2), shipc)
     lasc = [pal[7], pal[9], pal[1]]
+    # a laser bolt; n = how far it has grown from the gun
     def laser_img(n):
         im2, d = new(16, 16)
         d.line([(1 + n, 7), (15, 7)], fill=1); d.line([(1 + n, 8), (15, 8)], fill=1)
@@ -360,6 +379,7 @@ def nebula_strike():
     for L, cc in (("P", capc), ("S", capc), ("M", capm)):
         for k in range(3): B.add("Capsule %s %d" % (L, k + 1), capsule(L, k * 4), cc)
     dartc = [pal[12], pal[11], pal[13]]
+    # a dart fighter facing left, frame f
     def dart_img(f):
         im2, d = new(32, 16)
         d.polygon([(0, 8), (10, 4), (22, 2), (30, 5), (30, 11), (22, 14), (10, 12)], fill=1)   # pointing left
@@ -372,6 +392,7 @@ def nebula_strike():
         return im2
     B.add("Dart", dart_img(0), dartc); B.add("Dart burn", dart_img(1), dartc)
     spinc = [pal[6], pal[5], pal[1]]
+    # a spinner saucer, frame f
     def spin_img(f):
         im2, d = new(32, 16)
         d.ellipse([4, 1, 27, 14], fill=1)
@@ -385,6 +406,7 @@ def nebula_strike():
         return im2
     for k in range(4): B.add("Spinner %d" % (k + 1), spin_img(k), spinc)
     heavyc = [pal[9], pal[8], pal[3]]
+    # a heavy gunship, 32 x 32, frame f
     def heavy_img(f):
         im2, d = new(32, 32)
         d.rounded_rectangle([6, 4, 31, 27], radius=7, fill=1)
@@ -398,6 +420,7 @@ def nebula_strike():
         return im2
     B.add("Heavy", heavy_img(0), heavyc); B.add("Heavy glow", heavy_img(1), heavyc)
     seekc = [pal[13], pal[3], pal[12]]
+    # a seeker mine, frame f
     def seek_img(f):
         im2, d = new(16, 16)
         d.ellipse([3, 3, 12, 12], fill=1)
@@ -409,6 +432,7 @@ def nebula_strike():
         return im2
     B.add("Seeker", seek_img(0), seekc); B.add("Seeker blink", seek_img(1), seekc)
     bossc = [pal[9], pal[8], pal[12]]
+    # the boss, 64 x 48, frame f
     def boss_img(f):
         im2, d = new(64, 48)
         d.polygon([(0, 24), (14, 10), (40, 4), (63, 8), (63, 40), (40, 44), (14, 38)], fill=1)
@@ -434,6 +458,7 @@ def nebula_strike():
     # ---------------- actors (the backdrop flies left: flyers come in from the right, edge 1)
     actors = []
     A = {}
+    # adds actor a; A[name] = its index
     def add(a):
         A[a['name']] = len(actors); actors.append(a)
     add(act("Ship", B["Ship"], 0, 2, 32, 120, bob=True, anims={0: ([B["Ship"], B["Ship flame"], B["Ship flame 2"]], 3, 0)}))
@@ -514,6 +539,7 @@ def starfire():
     def wall_l(y):
         k = (y // 64) % 4
         return 34 + (0, 10, 4, 14)[k] + int(round(3 * math.sin(y * T * 4)))
+    # the right wall's inner edge on line y
     def wall_r(y):
         k = ((y + 32) // 64) % 4
         return 286 - (0, 12, 6, 10)[k] - int(round(3 * math.sin(y * T * 4 + 1)))
@@ -556,6 +582,7 @@ def starfire():
     # ---------------- sprites
     B = Bank()
     shipc = [0xe8ecf8, 0x2a58c0, 0x60e8ff]                    # hardware sprite: white hull, blue, cyan glow
+    # the fighter (16 x 24 hardware sprite), nose up; flame = exhaust frame, lean = banking
     def ship_img(flame, lean=0):
         im2, d = new(16, 24)
         d.polygon([(7, 1), (8, 1), (11, 9), (11, 16), (8, 19), (7, 19), (4, 16), (4, 9)], fill=1)
@@ -569,6 +596,7 @@ def starfire():
         return im2
     B.add("Fighter", ship_img(2), shipc); B.add("Fighter flame", ship_img(3), shipc); B.add("Fighter flame 2", ship_img(1), shipc)
     capm = [0xe8ecf8, 0x2a58c0, 0x60e8ff]                     # the M capsule shares the fighter's colours (one sprite pair)
+    # the M capsule, in the fighter's colours; shine = where the shine is
     def capsule_m(shine):
         im2, d = new(16, 24)
         d.rounded_rectangle([1, 7, 14, 16], radius=4, fill=2)
@@ -587,6 +615,7 @@ def starfire():
     for L in "PS":
         for k in range(3): B.add("Capsule %s %d" % (L, k + 1), capsule(L, k * 4), capc)
     lasc = [pal[7], pal[14], pal[1]]
+    # a laser bolt going up; n = how far it has grown
     def laser_img(n):
         im2, d = new(16, 16)
         d.line([(7, n), (7, 15)], fill=1); d.line([(8, n), (8, 15)], fill=1)
@@ -595,6 +624,7 @@ def starfire():
         return im2
     B.add("Laser", laser_img(0), lasc); B.add("Laser glint", laser_img(2), lasc)
     sauc = [pal[9], pal[8], pal[10]]
+    # a saucer, 32 x 24, frame f
     def saucer_img(f):
         im2, d = new(32, 24)
         d.ellipse([1, 9, 30, 19], fill=1)
@@ -607,6 +637,7 @@ def starfire():
         return im2
     for k in range(3): B.add("Saucer %d" % (k + 1), saucer_img(k), sauc)
     dartc = [pal[12], pal[11], pal[13]]
+    # a dart diving down, frame f
     def dart_img(f):
         im2, d = new(16, 24)
         d.polygon([(7, 23), (8, 23), (12, 12), (15, 4), (11, 6), (8, 2), (7, 2), (4, 6), (0, 4), (3, 12)], fill=1)   # nose down
@@ -616,6 +647,7 @@ def starfire():
         return im2
     B.add("Dart", dart_img(0), dartc); B.add("Dart burn", dart_img(1), dartc)
     turc = [pal[5], pal[4], pal[12]]
+    # a turret that moves with the scenery, frame f
     def turret_img(f):
         im2, d = new(16, 16)
         d.ellipse([1, 1, 14, 14], fill=1)
@@ -625,6 +657,7 @@ def starfire():
         return im2
     B.add("Turret", turret_img(0), turc); B.add("Turret blink", turret_img(1), turc)
     cruc = [pal[14], pal[4], pal[15]]
+    # a cruiser, 48 x 32, frame f
     def cruiser_img(f):
         im2, d = new(48, 32)
         d.polygon([(24, 31), (34, 22), (46, 18), (47, 8), (36, 4), (30, 0), (18, 0), (12, 4), (1, 8), (0, 18), (14, 22)], fill=1)
@@ -635,6 +668,7 @@ def starfire():
         return im2
     B.add("Cruiser", cruiser_img(0), cruc); B.add("Cruiser glow", cruiser_img(1), cruc)
     bossc = [pal[6], pal[4], pal[12]]
+    # the boss, 64 x 48, frame f
     def boss_img(f):
         im2, d = new(64, 48)
         d.polygon([(0, 14), (10, 6), (22, 4), (32, 0), (42, 4), (54, 6), (63, 14), (63, 26), (52, 34), (40, 38), (32, 47), (24, 38), (12, 34), (0, 26)], fill=1)
@@ -657,6 +691,7 @@ def starfire():
     # ---------------- actors (the backdrop moves down: flyers come in from the top, edge 0)
     actors = []
     A = {}
+    # adds actor a; A[name] = its index
     def add(a):
         A[a['name']] = len(actors); actors.append(a)
     add(act("Ship", B["Fighter"], 0, 2, 152, 200, anims={0: ([B["Fighter"], B["Fighter flame"], B["Fighter flame 2"]], 3, 0)}))

@@ -14,6 +14,13 @@
 #macro WS_UI 11
 #macro WS_COUNT 12
 
+// WS_* numbers are stored (settings ws_seen, tutorial / lesson steps), so new
+// pages go on the end; the top-bar order is ws_tabs(), the names ws_name().
+
+/// Switches to page _i (WS_*): stops a Sound page preview when leaving it,
+/// drops text focus and any open dropdown, and offers the page's tutorial the
+/// first time it is visited (auto_tutorials, ws_seen; not during a tutorial or
+/// lesson). Does nothing if _i is already shown.
 function ws_set(_i)
 {
     if (ws == _i) { return; }
@@ -88,8 +95,13 @@ function draw_logo(_x, _y, _compact)
     return _w;
 }
 
+/// Draws the 60 px top bar across GUI width _gw and handles its clicks.
+/// Left to right: logo (quit ball), LITE / PRO chip, machine badge, page tabs;
+/// laid out from the right edge: Learn ADAM, Helpers, Redo, Undo, Build & play.
+/// The page tabs get whatever width is left between the two groups.
 function draw_topbar(_gw)
 {
+    // bar background, edge line and a faint shadow under it
     ui_rrect(0, -20, _gw, 60, 0, global.TH.bar_top, global.TH.bar_bot, 1);
     draw_line_colour(0, 60, _gw, 60, global.TH.panel_edge, global.TH.panel_edge);
     draw_set_alpha(0.25);
@@ -114,6 +126,9 @@ function draw_topbar(_gw)
     // narrow window: if the page tabs would get squeezed, use the compact bar -
     // just the ball for the logo, shorter labels and no Helpers button (it is on Home too).
     // At 1280 wide only the compact bar fits the 12 tabs (labels are about 590 px together).
+    // _full_avail = tab space with the full bar: the left group (logo, 54 chip,
+    // 150 machine badge, gaps) and the right group (Learn, Helpers, two 64 px
+    // Undo / Redo, Play, gaps) taken off. Each tab wants its label + 16.
     var _full_avail = _gw - (14 + _logo_full + 10 + 54 + 8 + 150 + 18) - (14 + _tutw + 6 + _helpw + 6 + 64 + 6 + 64 + 12 + _playw + 12);
     var _compact = (_full_avail < _lsum + 16 * _nt);
     var _mw = 150;
@@ -202,10 +217,13 @@ function draw_topbar(_gw)
         _tabx += _tws[i];
     }
 
+    // right-hand group, placed from the right edge leftwards (_rx = left of
+    // the next button); the widths must match _right above
     var _rx = _gw - 14;
     _rx -= _tutw;
     // Learn ADAM: this page's tutorial (F1), the guided tour and the lessons
-    var _learn = ui_menu_button("top_learn", _rx, 14, _tutw, 32, _tutlab, learn_menu_names(), "Learn ADAM|This page's tutorial (also F1), the guided tour of every page, and lessons that each make a whole game step by step: Basics, Beginner, Intermediate and Experienced, then BOBs for ADAM Pro.", BTN_ACCENT);
+    var _learn = ui_menu_button("top_learn", _rx, 14, _tutw, 32, _tutlab, learn_menu_names(), "Learn ADAM|This page's tutorial (also F1), the guided tour of every page, and lessons that each make a whole game step by step: Basics, Beginner, Intermediate and Experienced, then for ADAM Pro: BOBs, a shoot 'em up, a loading screen and items.", BTN_ACCENT);
+    // menu index -> action; must match the order built in learn_menu_names (scr_lessons)
     if (_learn == 0) { tut_start(ws); }
     if (_learn == 1) { tut_start(-1); }
     if (_learn >= 2 && _learn < 2 + array_length(les_defs)) { lesson_start(_learn - 2); }
@@ -241,6 +259,7 @@ function draw_topbar(_gw)
     {
         undo_do();
     }
+    // badge on Undo: how many steps this page can undo (shown up to 99)
     if (undo_count() > 0)
     {
         draw_circle_colour(_rx + _udw - 4, 18, 7, global.TH.accent, global.TH.accent_dark, false);
@@ -253,6 +272,14 @@ function draw_topbar(_gw)
     }
 }
 
+/// Global keyboard shortcuts, once a frame (Step event): Ctrl+Z / Y undo /
+/// redo, Ctrl+S save, Ctrl+B build, F5 build and play, Ctrl + / - / 0
+/// interface size, F1 page tutorial on / off, and 1-9, 0 jump to the pages in
+/// ws_tabs() order (0 = the last page, Build). Ignored while a text field has
+/// focus or a modal card (machine picker, About, confirm, What's new) is open.
+/// The number keys are left alone on the Sound page when the selected sound
+/// is a sample or patch (the keys are used there) and, for 1-4, over the music
+/// editor (grid snap).
 function shortcuts_step()
 {
     var _music_keys = (ws == WS_MUSIC && mus_ed_keys_hover);
@@ -305,23 +332,27 @@ function ui_scale_step(_d)
     toast("Interface size: " + global.UI_SCALE_NAMES[_best], 0);
 }
 
+/// The pages in top-bar order (WS_* numbers). Also the order of the number
+/// key shortcuts and of the full guided tour.
 function ws_tabs()
 {
     return [WS_HOME, WS_BACKDROP, WS_TILES, WS_LEVELS, WS_SPRITES, WS_ACTORS, WS_ANIMATE, WS_UI, WS_LOGIC, WS_SOUND, WS_MUSIC, WS_BUILD];
 }
 
+/// Page name shown on tab _w (WS_*); the array is in WS_* number order
 function ws_name(_w)
 {
     var _n = ["Home", "Backdrop", "Sprites", "Actors", "Logic", "Sound", "Build", "Levels", "Music", "Animate", "Tiles", "UI"];
     return _n[_w];
 }
 
+/// Hover help "Title|Body" for page tab _w (WS_*); in WS_* number order
 function ws_help(_w)
 {
     var _h = [
         "Home|Start here: open or create projects, pick the Amiga, and set game-wide options.",
         "Backdrop|Paint the 320 x 256 background picture, choose its colours, or import a picture.",
-        "Sprites|Draw up to 128 sprite pictures, 16 x 24 pixels with 3 colours each, for your players, enemies and pickups.",
+        "Sprites|Draw the pictures for your players, enemies and pickups (64 in ADAM Lite, 128 in Pro): 16 x 24 hardware sprites with 3 colours, or bigger BOBs in the backdrop's colours (up to 32 x 32 in Lite, 64 x 64 in Pro).",
         "Actors|Place the things that move: the player, enemies and pickups. Choose how each one behaves.",
         "Logic|Make the game rules in plain English: WHEN something happens, DO something. The Items tab holds the things the player carries, and recipes that make one item from two others.",
         "Sound|Design sound effects and instruments for the Amiga's Paula chip and hear them instantly - 8 in ADAM Lite, up to 64 in ADAM Pro, in folders.",
@@ -330,7 +361,7 @@ function ws_help(_w)
         "Music|Make up to 4 songs from ready-made loops on Paula's 4 channels, edit their notes, and choose the music for each level.",
         "Animate|Give each actor Idle, Walk, Jump and Fall animations from the sprite bank (6 frames each in ADAM Lite, 16 in ADAM Pro). The Amiga picks the right one as the actor moves.",
         "Tiles|Draw a tile set - tiles of 8 x 8 up to 64 x 64 pixels, 96 kinds in ADAM Lite, 512 in Pro - and paint a tile world (up to 256 x 256 tiles in Lite, 1024 x 1024 in Pro) that scrolls both ways - with digging and placing tiles, Terraria style.",
-        "UI|ADAM Pro: design the game's HUD - a framed panel (metal, wood, stone, neon, parchment or your own 9-slice frame), a font style or your own font, and fields for score, lives, the goal, the tile carried, the level and text, each with its own place, colour and shadow."
+        "UI|Design the game's HUD - a framed panel (metal, wood, stone, neon, parchment or your own 9-slice frame), a font style (or your own font in ADAM Pro), and fields for score, lives, the goal, the tile carried, the level, the tool, items and text, each with its own place, colour and shadow. ADAM Pro also makes a loading screen here."
     ];
     return _h[_w];
 }

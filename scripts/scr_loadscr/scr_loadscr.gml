@@ -1,6 +1,6 @@
 /// ADAM Pro - loading screen: a picture shown while the game loads, with a
 /// bar made of a left cap, a repeating middle tile and a right cap that fills
-/// from left to right. The bootblock reads it before the game (boot.s,
+/// from left to right (or right to left, upwards, downwards: mode). The bootblock reads it before the game (boot.s,
 /// loadscr.s); this script makes its data block. The same layout is in
 /// tools/reference/adf_reference.py.
 
@@ -11,6 +11,8 @@
 #macro LS_PIC_MAX 16             // pictures that show at a percentage
 #macro LS_PI_SIZE 16             // loadscr.s PI_SIZE
 
+/// A new loading screen (proj.loadscr), switched off. Written to the disk by
+/// loadscr_block (= adf_reference.py ls_new / loadscr_block); loaded back by loadscr_from_loaded.
 function loadscr_new()
 {
     return {
@@ -42,6 +44,11 @@ function loadscr_pic_new(_spr, _x, _y, _pct)
     return { spr : _spr, x : _x, y : _y, pct : _pct };
 }
 
+/// proj.loadscr from a loaded .adam (_raw = the parsed struct, or anything else):
+/// starts from loadscr_new, takes each field that has the right type, clamps it
+/// (bar on the screen, at least as wide as its caps; up to LS_PIC_MAX pictures),
+/// falls back to the backdrop when its own picture is missing and to "Metal" when
+/// Custom pieces are missing. Never fails; returns the cleaned struct.
 function loadscr_from_loaded(_raw)
 {
     var _l = loadscr_new();
@@ -107,6 +114,7 @@ function loadscr_from_loaded(_raw)
     return _l;
 }
 
+/// A copy of pixel array _a with every entry a whole number 0.._max (not a number = 0)
 function loadscr_clean_px(_a, _max)
 {
     var _out = array_create(array_length(_a), 0);
@@ -117,6 +125,7 @@ function loadscr_clean_px(_a, _max)
     return _out;
 }
 
+/// A bar piece from a loaded file: its _n pixels cleaned, or [] when it is not _n long
 function loadscr_piece_from(_a, _n)
 {
     if (!is_array(_a) || array_length(_a) != _n) { return []; }
@@ -742,6 +751,8 @@ function loadscr_selftest()
     else { show_debug_message("ADAM loading screen self-test: FAIL"); }
 }
 
+/// Frees the preview surfaces and buffer (empty / full bar, the pictures) and clears
+/// ls_key so the preview is made again when next drawn
 function loadscr_gfx_free()
 {
     if (surface_exists(ls_surf_empty)) { surface_free(ls_surf_empty); }
@@ -988,6 +999,7 @@ function loadscr_preview_update(_p)
     }
 }
 
+/// Frees the preview surfaces of the pictures that show at a percentage (ls_pic_surfs)
 function loadscr_pic_surfs_free()
 {
     for (var i = 0; i < array_length(ls_pic_surfs); i++)
@@ -1057,6 +1069,10 @@ function loadscr_info(_p)
     return "Disk: " + string(_kb) + " KB, about " + string_format(_secs, 1, 1) + " s more to load. Chip RAM while loading: " + string(_kb) + " KB more, freed before the game starts.";
 }
 
+/// The UI page's Loading screen tab (ADAM Pro), in the rect (_x1, _y1)-(_x2, _y2):
+/// left panel _lw wide (picture source, colours, bar place / size, fill direction,
+/// pictures at a percentage), centre the preview with its progress slider and Play,
+/// right panel _rw wide (the bar style or Custom pieces). Called by the UI page draw.
 function loadscr_page_draw(_x1, _y1, _x2, _y2, _lw, _rw)
 {
     var _l = proj.loadscr;
