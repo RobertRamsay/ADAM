@@ -365,9 +365,9 @@ function ws_sprites_draw(_x1, _y1, _x2, _y2)
         }
     }
     _y += 62;
-    if (ui_button("spr_import", _fx, _y, _fw, 32, "Import picture or sheet...", "Import a picture or sprite sheet|Loads a PNG, JPG, GIF or Amiga IFF (Deluxe Paint pictures and brushes). One picture becomes this sprite; a sheet (a grid of frames) fills this slot and the ones after it. You set the cell size, margins and spacing, and the see-through colour; each sprite gets the 3 colours that suit it best.", BTN_ACCENT))
+    if (ui_button("spr_import", _fx, _y, _fw, 32, "Import picture or sheet...", "Import a picture or sprite sheet|Loads a PNG, JPG, GIF, BMP or Amiga IFF (Deluxe Paint pictures and brushes). One picture becomes this sprite; a sheet (a grid of frames) fills this slot and the ones after it. You set the cell size, margins and spacing, and the see-through colour; each sprite gets the 3 colours that suit it best, or - from an indexed picture - keeps the colour numbers you drew it with.", BTN_ACCENT))
     {
-        var _f = get_open_filename("Pictures|*.png;*.jpg;*.jpeg;*.gif;*.iff;*.ilbm;*.lbm;*.bbm|Amiga IFF|*.iff;*.ilbm;*.lbm;*.bbm", "");
+        var _f = get_open_filename("Pictures|*.png;*.jpg;*.jpeg;*.gif;*.bmp;*.iff;*.ilbm;*.lbm;*.bbm|Amiga IFF|*.iff;*.ilbm;*.lbm;*.bbm", "");
         if (_f != "") { spr_import_open(_f); }
     }
     _y += 44;
@@ -567,26 +567,37 @@ function spr_import_load(_path)
     return true;
 }
 
-/// Opens picture file _path in the import view: PNG / JPG / GIF straight away, an IFF
-/// picture or brush through a PNG copy in the temp folder (its mask or transparent colour
-/// becomes see-through)
+/// Opens picture file _path in the import view. A true-colour PNG or a JPG straight away;
+/// an indexed picture (IFF picture or brush, PNG with a palette, GIF, BMP) through a PNG
+/// copy in the temp folder (its mask or transparent colour see-through), keeping its
+/// colour numbers in spr_imp_ix for 'The picture's own colour numbers'
 function spr_import_open(_path)
 {
-    if (!iff_is_path(_path)) { return spr_import_load(_path); }
-    var _iff = iff_read(_path);
+    var _iff = indexed_read(_path);
     if (_iff.err != "")
     {
         toast(_iff.err, 1);
         return false;
     }
+    if (!_iff.indexed)
+    {
+        if (!spr_import_load(_path)) { return false; }
+        spr_imp_ix = [];
+        spr_imp_ipal = [];
+        if (spr_imp_cols == 2) { spr_imp_cols = 0; }
+        return true;
+    }
     var _tmp = temp_directory + "adam_iff_import.png";
     if (!iff_to_png(_iff, _tmp))
     {
-        toast("Could not convert that IFF picture", 1);
+        toast("Could not convert that picture", 1);
         return false;
     }
     if (!spr_import_load(_tmp)) { return false; }
     spr_imp_name = filename_change_ext(filename_name(_path), "");
+    spr_imp_ix = _iff.idx;
+    spr_imp_ipal = _iff.pal;
+    spr_imp_cols = 2;
     return true;
 }
 
@@ -597,6 +608,8 @@ function spr_import_close()
     if (sprite_exists(spr_imp_spr)) { sprite_delete(spr_imp_spr); }
     spr_imp_spr = -1;
     spr_imp_px = [];
+    spr_imp_ix = [];
+    spr_imp_ipal = [];
     spr_imp_cells = [];
     spr_imp_ckey = "";
 }
@@ -712,6 +725,65 @@ function spr_import_colours(_cells, _sw, _sh)
     return _out;
 }
 
+/// Pens for an indexed picture's own colour numbers in cells _cells (each [x, y]):
+/// { ok, map (colour number -> pen 1..3), cols (the 3 in the machine's colours) }.
+/// Numbers in one group of 4 after its first (like the Amiga's sprite colours 17-19,
+/// 16 see-through) keep pen = number mod 4; else up to 3 numbers go to pens 1-3 in order.
+/// ok is false when the cells use more than 3.
+function spr_import_ixmap(_cells, _sw, _sh)
+{
+    var _res = { ok : false, map : array_create(256, 1), cols : [0x000000, 0x000000, 0x000000] };
+    var _use = array_create(256, false);
+    var _list = [];
+    for (var k = 0; k < array_length(_cells); k++)
+    {
+        var _cx = _cells[k][0];
+        var _cy = _cells[k][1];
+        for (var _iy = 0; _iy < min(spr_imp_ch, _sh); _iy++)
+        {
+            for (var _ix = 0; _ix < min(spr_imp_cw, _sw); _ix++)
+            {
+                var _o = (_cy + _iy) * spr_imp_w + _cx + _ix;
+                if (spr_import_clear(spr_imp_px[_o])) { continue; }
+                var _ci = spr_imp_ix[_o] & 255;
+                if (!_use[_ci])
+                {
+                    _use[_ci] = true;
+                    array_push(_list, _ci);
+                    if (array_length(_list) > 3) { return _res; }
+                }
+            }
+        }
+    }
+    array_sort(_list, true);
+    var _nu = array_length(_list);
+    var _np = array_length(spr_imp_ipal);
+    var _same = (_nu > 0);
+    for (var i = 0; i < _nu; i++)
+    {
+        if ((_list[i] & 3) == 0 || (_list[i] >> 2) != (_list[0] >> 2)) { _same = false; }
+    }
+    if (_same)
+    {
+        var _g = (_list[0] >> 2) << 2;
+        for (var p = 1; p <= 3; p++)
+        {
+            _res.map[_g + p] = p;
+            if (_g + p < _np) { _res.cols[p - 1] = rgb_machine(spr_imp_ipal[_g + p]); }
+        }
+    }
+    else
+    {
+        for (var j = 0; j < _nu; j++)
+        {
+            _res.map[_list[j]] = j + 1;
+            if (_list[j] < _np) { _res.cols[j] = rgb_machine(spr_imp_ipal[_list[j]]); }
+        }
+    }
+    _res.ok = true;
+    return _res;
+}
+
 /// Imports the cells into sprite slots from spr_sel on (as many as fit in the bank, or
 /// spr_imp_n), each named after the file, then closes the import view
 function spr_import_run()
@@ -731,10 +803,27 @@ function spr_import_run()
     undo_mark("sprimport" + string(current_time));
     var _shared = [0, 0, 0];
     if (spr_imp_cols == 0) { _shared = spr_import_colours(_cells, _sw, _sh); }
+    var _byix = (spr_imp_cols == 2 && array_length(spr_imp_ix) == spr_imp_w * spr_imp_h);
+    var _mall = undefined;
+    if (_byix) { _mall = spr_import_ixmap(_cells, _sw, _sh); }
+    var _fall = 0;                      // sprites with more than 3 colour numbers (their best 3 picked)
     for (var k = 0; k < _nc; k++)
     {
         var _cols = _shared;
         if (spr_imp_cols == 1) { _cols = spr_import_colours([_cells[k]], _sw, _sh); }
+        var _m = undefined;
+        if (_byix)
+        {
+            _m = _mall;
+            if (!_m.ok) { _m = spr_import_ixmap([_cells[k]], _sw, _sh); }
+            if (_m.ok) { _cols = _m.cols; }
+            else
+            {
+                _cols = spr_import_colours([_cells[k]], _sw, _sh);
+                _m = undefined;
+                _fall += 1;
+            }
+        }
         var _nm = spr_imp_name;
         if (_nc > 1) { _nm = spr_imp_name + " " + string(k + 1); }
         var _s = sprite_new(string_copy(_nm, 1, 20));
@@ -751,6 +840,11 @@ function spr_import_run()
             {
                 var _c = spr_imp_px[(_cy + _iy) * spr_imp_w + _cx + _ix];
                 if (spr_import_clear(_c)) { continue; }
+                if (!is_undefined(_m))
+                {
+                    _s.px[_iy * _sw + _ix] = _m.map[spr_imp_ix[(_cy + _iy) * spr_imp_w + _cx + _ix] & 255];
+                    continue;
+                }
                 var _rgb = _c & 0xffffff;
                 var _pen = _near[? _rgb];
                 if (is_undefined(_pen))
@@ -778,7 +872,9 @@ function spr_import_run()
     proj_dirty = true;
     var _what = "1 sprite";
     if (_nc > 1) { _what = string(_nc) + " sprites"; }
-    toast("Imported " + _what + " (" + string(_sw) + " x " + string(_sh) + ")", 0);
+    var _note = "";
+    if (_fall > 0) { _note = " - " + string(_fall) + " used more than 3 colour numbers, so the best 3 were picked"; }
+    toast("Imported " + _what + " (" + string(_sw) + " x " + string(_sh) + ")" + _note, 0);
     spr_import_close();
 }
 
@@ -869,7 +965,9 @@ function spr_import_draw(_x1, _y1, _x2, _y2, _rw)
     spr_imp_key = ui_dropdown("spimp_key", _fx, _y + 18, _fw, 32, ["The picture's own", "Also the top-left colour"], spr_imp_key, "See-through|Pixels that are transparent in the file are always see-through. 'Also the top-left colour': every pixel of the colour in the sheet's top-left corner is too - for sheets on a plain background (magenta, black...).");
     _y += 62;
     ui_heading(_fx, _y, "Colours");
-    spr_imp_cols = ui_dropdown("spimp_cols", _fx, _y + 18, _fw, 32, ["One set of 3 for all", "Each sprite its own 3"], spr_imp_cols, "Colours|A sprite has 3 colours plus see-through. 'One set for all' picks the 3 that suit the whole sheet - the frames of one animation, and the Amiga pairs actors whose colours match on its 8 hardware sprites. 'Each its own' suits a sheet of different things. BOBs are drawn in the nearest backdrop colours.");
+    var _copts = ["One set of 3 for all", "Each sprite its own 3"];
+    if (array_length(spr_imp_ix) > 0) { array_push(_copts, "The picture's own colour numbers"); }
+    spr_imp_cols = ui_dropdown("spimp_cols", _fx, _y + 18, _fw, 32, _copts, min(spr_imp_cols, array_length(_copts) - 1), "Colours|A sprite has 3 colours plus see-through. 'One set for all' picks the 3 that suit the whole sheet - the frames of one animation, and the Amiga pairs actors whose colours match on its 8 hardware sprites. 'Each its own' suits a sheet of different things. 'The picture's own colour numbers' (an indexed picture: IFF, PNG with a palette, GIF, BMP) keeps the pens you drew with: colours 17-19 (or 1-3, 21-23...) become pens 1-3 as on the Amiga, else the 3 numbers used go to pens 1-3 in order, in the picture's own colours. BOBs are drawn in the nearest backdrop colours.");
     _y += 62;
     spr_imp_skip = ui_toggle("spimp_skip", _fx, _y, "Leave out empty cells", spr_imp_skip, "Leave out empty cells|Cells with nothing but see-through pixels (the gaps at the end of a sheet) are not imported.");
     _y += 40;

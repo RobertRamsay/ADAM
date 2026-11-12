@@ -562,21 +562,21 @@ function ws_backdrop_draw(_x1, _y1, _x2, _y2)
 
     ui_heading(_fx, _y, "Picture");
     _y += 18;
-    if (ui_button("bd_import", _fx, _y, _fw - 120, 32, "Import picture...", "Import picture|Loads a PNG, JPG, GIF or Amiga IFF picture. A PNG or JPG is fitted into 320 x 256 and gets the best " + string(_n) + " colours for it. An IFF picture (Deluxe Paint...) with up to " + string(_n) + " colours keeps its own palette and pixels exactly (top left, cut to 320 x 256); one with more is fitted and its colours worked out like a PNG. This replaces the backdrop and its palette (Undo brings them back).", BTN_ACCENT))
+    if (ui_button("bd_import", _fx, _y, _fw - 120, 32, "Import picture...", "Import picture|Loads a PNG, JPG, GIF, BMP or Amiga IFF picture. An indexed picture (a palette: IFF from Deluxe Paint, an 8-bit PNG, GIF or BMP) of about screen size using up to " + string(_n) + " colours keeps its own palette and pixels exactly (cut to 320 x 256). Others are fitted into 320 x 256 and get the best " + string(_n) + " colours for them. This replaces the backdrop and its palette (Undo brings them back).", BTN_ACCENT))
     {
-        var _f = get_open_filename("Pictures|*.png;*.jpg;*.jpeg;*.gif;*.iff;*.ilbm;*.lbm;*.bbm|Amiga IFF|*.iff;*.ilbm;*.lbm;*.bbm", "");
+        var _f = get_open_filename("Pictures|*.png;*.jpg;*.jpeg;*.gif;*.bmp;*.iff;*.ilbm;*.lbm;*.bbm|Amiga IFF|*.iff;*.ilbm;*.lbm;*.bbm", "");
         if (_f != "")
         {
             undo_mark("bdimport" + string(current_time));
-            if (iff_is_path(_f))
+            var _iff = indexed_read(_f);
+            if (_iff.err != "") { toast(_iff.err, 2); }
+            else if (_iff.indexed)
             {
-                var _iff = iff_read(_f);
-                if (_iff.err != "") { toast(_iff.err, 2); }
-                else if (backdrop_import_iff(_iff)) { toast("IFF picture imported with its own colours", 0); }
+                if (backdrop_import_indexed(_iff)) { toast("Picture imported with its own colours", 0); }
                 else
                 {
                     var _tmp = temp_directory + "adam_iff_import.png";
-                    if (iff_to_png(_iff, _tmp) && backdrop_import(_tmp, bd_dither)) { toast("IFF picture has more than " + string(_n) + " colours - imported with the best " + string(_n), 0); }
+                    if (iff_to_png(_iff, _tmp) && backdrop_import(_tmp, bd_dither)) { toast("Picture has more than " + string(_n) + " colours or is not screen size - fitted, with the best " + string(_n), 0); }
                     else { toast("Could not load that picture", 2); }
                 }
             }

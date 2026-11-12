@@ -215,7 +215,9 @@ spr_imp_gx = 0;             // spacing between cells across / down
 spr_imp_gy = 0;
 spr_imp_n = 0;              // how many cells to import, 0 = all
 spr_imp_key = 0;            // see-through: 0 the picture's own, 1 also the top-left colour
-spr_imp_cols = 0;           // colours: 0 one set of 3 for all, 1 each sprite its own
+spr_imp_cols = 0;           // colours: 0 one set of 3 for all, 1 each sprite its own, 2 the picture's own colour numbers
+spr_imp_ix = [];            // an indexed picture's colour number a pixel (row by row), [] = not indexed
+spr_imp_ipal = [];          // and its palette ($RRGGBB)
 spr_imp_skip = true;        // leave out empty cells
 spr_imp_cells = [];         // the preview's cells [x, y, used], worked out when the settings change
 spr_imp_ckey = "";          // the settings they were worked out for
