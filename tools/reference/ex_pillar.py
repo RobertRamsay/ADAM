@@ -11,7 +11,8 @@
 #   'Column'  32 x 256  - the whole pillar, its top edge in the first rows (the screen cuts it off)
 #   'Hero' + 'Hero walk' ...  16 x 24 frames (Animate page)
 #   'Door' 16 x 24, 'Pick-up' 16 x 24
-# Made by gen_examples.py: python gen_examples.py pillar_run
+# PRIVATE: not shipped with ADAM (made for Kalle Kloakk's authors). Made only when named:
+#   python gen_examples.py pillar_run   ->  tools/reference/out/private/pillar_run(_a1200).adam
 import math
 import art
 

@@ -3,7 +3,8 @@
 # Usage: python gen_examples.py
 #
 # What it makes, for each example (gem_hunter, deep_dive, star_catcher, dodge_ball, firefly_night
-# here; dig_deep, nebula_strike, starfire, jade_serpent, torchlight, piston_pass, pillar_run in the ex_*.py files):
+# here; dig_deep, nebula_strike, starfire, jade_serpent, torchlight, piston_pass, pillar_run in the ex_*.py files;
+# pillar_run is PRIVATE - not shipped, made only when named, into out/private):
 #   datafiles/examples/<name>.adam and <name>_a1200.adam   the projects ADAM loads (json)
 #   datafiles/examples/shots/<name>.png                    first screen, 320 x 256 (Home page, shot())
 #   tools/reference/out/<name>.adf (+ <name>_disk2.adf)    test disks, built by adf_reference.py
@@ -1148,11 +1149,16 @@ def shot(p):
                 if v and 0<=ax+xx<W and 0<=ay+k<H: im.putpixel((ax+xx,ay+k),rgb(q(oc[v-1])))
     return im
 
-# saves the first screen to datafiles/examples/shots/<name>.png (Home page) and a 2x copy as fn
-def preview(p,fn):
+# saves the first screen to <shots>/<name>.png (default datafiles/examples/shots, the Home page) and a 2x copy as fn
+def preview(p,fn,shots=None):
     im=shot(p)
-    im.save(os.path.join(REPO,'datafiles','examples','shots',os.path.splitext(os.path.basename(fn))[0]+'.png'))
+    if shots is None: shots=os.path.join(REPO,'datafiles','examples','shots')
+    im.save(os.path.join(shots,os.path.splitext(os.path.basename(fn))[0]+'.png'))
     im.resize((640,512),Image.NEAREST).save(fn)
+
+# examples that are not shipped with ADAM (made for one game's authors): built only when named
+# (python gen_examples.py pillar_run), written to out/private instead of datafiles/examples
+PRIVATE={'pillar_run'}
 
 # the examples' flat-coloured actors get light from the upper left (shade.py): a shine and a
 # dithered shadow on round bodies ('round'), a lit rim and a shadow edge on others ('edge')
@@ -1174,6 +1180,10 @@ if __name__=='__main__':
                     ('nebula_strike',ex_shmup.nebula_strike),('starfire',ex_shmup.starfire),('jade_serpent',ex_aztec.jade_serpent),
                     ('torchlight',ex_torch.torchlight),('piston_pass',ex_piston.piston_pass),('pillar_run',ex_pillar.pillar_run)]:
       if only and fn not in only: continue
+      if fn in PRIVATE and fn not in only: continue
+      dest=os.path.join(REPO,'datafiles','examples'); shots=None
+      if fn in PRIVATE:
+        dest=os.path.join(OUT,'private'); shots=dest; os.makedirs(dest,exist_ok=True)
       for aga in (False,True):
         # every example also comes as an A1200 version with smooth in-between colours (<name>_a1200.adam)
         if aga: aga_begin()
@@ -1184,7 +1194,7 @@ if __name__=='__main__':
         merge_rules(p)
         name=fn
         if aga: name=fn+'_a1200'
-        json.dump(p,open(os.path.join(REPO,'datafiles','examples','%s.adam'%name),'w'),separators=(',',':'))
+        json.dump(p,open(os.path.join(dest,'%s.adam'%name),'w'),separators=(',',':'))
         bp,conf=to_builder(p)
         # build_test's pair colour rule takes the first actor on the pair
         data=build(bp,aga)
@@ -1193,6 +1203,6 @@ if __name__=='__main__':
             ls=loadscr_block(p['loadscr'],p['pixels'],p['pal'],p['depth'],aga,bp.get('grad'),p['sprites'])
         open(os.path.join(OUT,'%s.adf'%name),'wb').write(adf(ENGINE+data,bp.get('_need',0),ls))
         if bp.get('_disk2'): open(os.path.join(OUT,'%s_disk2.adf'%name),'wb').write(bp['_disk2'])
-        preview(p,os.path.join(OUT,'%s.png'%name))
+        preview(p,os.path.join(OUT,'%s.png'%name),shots)
         if p.get('tiles_on') and not aga: ex_dig_deep.map_png(p,os.path.join(OUT,'%s_map.png'%fn))
         print(name,'conflicts' if any(conf) else 'ok', len(json.dumps(p)), 'colours', 1<<p['depth'], 'blends', len(AGA['order']) if aga else 0)
