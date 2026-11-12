@@ -784,3 +784,287 @@ function sky_presets()
         ["Lava",      0x200000, 0x902000, 0xffc020, 170]
     ];
 }
+
+// ---------------------------------------------------------------------------
+// IFF pictures (Deluxe Paint, Personal Paint, Brilliance...): FORM ILBM (bitplanes)
+// and FORM PBM (chunky, DPaint's other format). iff_read gives the palette, a colour
+// number per pixel and which pixels are see-through (a brush's mask plane or its
+// transparent colour). EHB pictures get their 32 half-bright colours; HAM and 24-bit
+// ones are refused. ByteRun1 (compression 1) or none. iff_to_png writes one as a PNG
+// so the PNG import (sprites) and picture_quantize (backdrop) can take it.
+// ---------------------------------------------------------------------------
+
+/// Is _path an IFF picture by its name (.iff, .ilbm, .lbm, .bbm)?
+function iff_is_path(_path)
+{
+    var _e = string_lower(filename_ext(_path));
+    return _e == ".iff" || _e == ".ilbm" || _e == ".lbm" || _e == ".bbm";
+}
+
+/// Big-endian word / long / 4-letter id at byte _o of buffer _b
+function iff_u16(_b, _o)
+{
+    return (buffer_peek(_b, _o, buffer_u8) << 8) | buffer_peek(_b, _o + 1, buffer_u8);
+}
+function iff_u32(_b, _o)
+{
+    return (iff_u16(_b, _o) << 16) | iff_u16(_b, _o + 2);
+}
+function iff_id(_b, _o)
+{
+    var _s = "";
+    for (var i = 0; i < 4; i++) { _s += chr(buffer_peek(_b, _o + i, buffer_u8)); }
+    return _s;
+}
+
+/// Reads IFF picture _path -> { w, h, pal (array of $RRGGBB), idx (colour per pixel,
+/// row by row), clear (true = see-through), masked (it had a mask or transparent
+/// colour), err ("" = fine, else why it could not be read) }
+function iff_read(_path)
+{
+    var _res = { w : 0, h : 0, pal : [], idx : [], clear : [], masked : false, err : "" };
+    var _b = buffer_load(_path);
+    if (_b == -1)
+    {
+        _res.err = "Could not read that file";
+        return _res;
+    }
+    var _len = buffer_get_size(_b);
+    if (_len < 12 || iff_id(_b, 0) != "FORM")
+    {
+        buffer_delete(_b);
+        _res.err = "That is not an IFF file";
+        return _res;
+    }
+    var _form = iff_id(_b, 8);
+    if (_form != "ILBM" && _form != "PBM ")
+    {
+        buffer_delete(_b);
+        _res.err = "That IFF file is not a picture (ILBM)";
+        return _res;
+    }
+    var _w = 0;
+    var _h = 0;
+    var _np = 0;
+    var _mask = 0;
+    var _comp = 0;
+    var _tcol = -1;
+    var _camg = 0;
+    var _body = -1;
+    var _blen = 0;
+    var _cmap = [];
+    var _end = min(_len, 8 + iff_u32(_b, 4));
+    var _o = 12;
+    while (_o + 8 <= _end)
+    {
+        var _id = iff_id(_b, _o);
+        var _sz = iff_u32(_b, _o + 4);
+        var _d = _o + 8;
+        if (_d + _sz > _len) { _sz = _len - _d; }
+        if (_id == "BMHD" && _sz >= 20)
+        {
+            _w = iff_u16(_b, _d);
+            _h = iff_u16(_b, _d + 2);
+            _np = buffer_peek(_b, _d + 8, buffer_u8);
+            _mask = buffer_peek(_b, _d + 9, buffer_u8);
+            _comp = buffer_peek(_b, _d + 10, buffer_u8);
+            _tcol = iff_u16(_b, _d + 12);
+        }
+        else if (_id == "CMAP")
+        {
+            for (var i = 0; i + 2 < _sz; i += 3)
+            {
+                array_push(_cmap, rgb_make(buffer_peek(_b, _d + i, buffer_u8), buffer_peek(_b, _d + i + 1, buffer_u8), buffer_peek(_b, _d + i + 2, buffer_u8)));
+            }
+        }
+        else if (_id == "CAMG" && _sz >= 4)
+        {
+            _camg = iff_u32(_b, _d);
+        }
+        else if (_id == "BODY")
+        {
+            _body = _d;
+            _blen = _sz;
+        }
+        _o = _d + _sz + (_sz & 1);
+    }
+    if (_w <= 0 || _h <= 0 || _body < 0)
+    {
+        buffer_delete(_b);
+        _res.err = "There is no picture in that IFF file";
+        return _res;
+    }
+    if ((_camg & 0x800) != 0)
+    {
+        buffer_delete(_b);
+        _res.err = "HAM pictures can't be imported - save it with up to 256 colours";
+        return _res;
+    }
+    if (_np > 8 || (_form == "ILBM" && _np < 1))
+    {
+        buffer_delete(_b);
+        _res.err = "Only pictures of 1 to 8 bitplanes (2 to 256 colours) can be imported";
+        return _res;
+    }
+    if (_comp > 1)
+    {
+        buffer_delete(_b);
+        _res.err = "That IFF picture is packed in a way ADAM does not know";
+        return _res;
+    }
+    // old painting programs write 4-bit colours as $X0: make them full ($XX)
+    var _lownib = false;
+    for (var c = 0; c < array_length(_cmap); c++)
+    {
+        if ((_cmap[c] & 0x0f0f0f) != 0) { _lownib = true; }
+    }
+    if (!_lownib)
+    {
+        for (var c2 = 0; c2 < array_length(_cmap); c2++) { _cmap[c2] = _cmap[c2] | ((_cmap[c2] >> 4) & 0x0f0f0f); }
+    }
+    // Extra Half-Brite: colours 32..63 are 0..31 at half brightness
+    if ((_camg & 0x80) != 0 && _np == 6 && array_length(_cmap) >= 32)
+    {
+        array_resize(_cmap, 32);
+        for (var e = 0; e < 32; e++) { array_push(_cmap, rgb_make(rgb_r(_cmap[e]) >> 1, rgb_g(_cmap[e]) >> 1, rgb_b(_cmap[e]) >> 1)); }
+    }
+    // a picture with no palette: greys
+    if (array_length(_cmap) == 0)
+    {
+        var _ng = 1 << max(1, _np);
+        for (var gq = 0; gq < _ng; gq++)
+        {
+            var _gv = round(gq * 255 / max(1, _ng - 1));
+            array_push(_cmap, rgb_make(_gv, _gv, _gv));
+        }
+    }
+    // unpack BODY: ILBM rows are each plane in turn (and a mask plane), PBM rows are bytes
+    var _rb = ((_w + 15) >> 4) << 1;
+    var _planes = _np;
+    if (_mask == 1) { _planes += 1; }
+    var _row = _rb * _planes;
+    if (_form == "PBM ") { _row = _w + (_w & 1); }
+    var _total = _row * _h;
+    var _u = buffer_create(_total, buffer_fixed, 1);
+    buffer_fill(_u, 0, buffer_u8, 0, _total);
+    var _p = _body;
+    var _pe = min(_len, _body + _blen);
+    var _q = 0;
+    if (_comp == 0)
+    {
+        buffer_copy(_b, _body, min(_total, _pe - _body), _u, 0);
+    }
+    else
+    {
+        while (_q < _total && _p < _pe)
+        {
+            var _n = buffer_peek(_b, _p, buffer_s8);
+            _p += 1;
+            if (_n >= 0)
+            {
+                for (var k = 0; k <= _n && _q < _total && _p < _pe; k++)
+                {
+                    buffer_poke(_u, _q, buffer_u8, buffer_peek(_b, _p, buffer_u8));
+                    _p += 1;
+                    _q += 1;
+                }
+            }
+            else if (_n != -128)
+            {
+                var _v = buffer_peek(_b, _p, buffer_u8);
+                _p += 1;
+                for (var k2 = 0; k2 <= -_n && _q < _total; k2++)
+                {
+                    buffer_poke(_u, _q, buffer_u8, _v);
+                    _q += 1;
+                }
+            }
+        }
+    }
+    buffer_delete(_b);
+    var _idx = array_create(_w * _h, 0);
+    var _clr = array_create(_w * _h, false);
+    for (var _iy = 0; _iy < _h; _iy++)
+    {
+        var _ro = _iy * _row;
+        for (var _ix = 0; _ix < _w; _ix++)
+        {
+            var _ci = 0;
+            if (_form == "PBM ")
+            {
+                _ci = buffer_peek(_u, _ro + _ix, buffer_u8);
+            }
+            else
+            {
+                var _byo = _ro + (_ix >> 3);
+                var _bit = 7 - (_ix & 7);
+                for (var pl = 0; pl < _np; pl++)
+                {
+                    _ci |= ((buffer_peek(_u, _byo + pl * _rb, buffer_u8) >> _bit) & 1) << pl;
+                }
+                if (_mask == 1 && ((buffer_peek(_u, _byo + _np * _rb, buffer_u8) >> _bit) & 1) == 0) { _clr[_iy * _w + _ix] = true; }
+            }
+            if (_mask == 2 && _ci == _tcol) { _clr[_iy * _w + _ix] = true; }
+            _idx[_iy * _w + _ix] = _ci;
+        }
+    }
+    buffer_delete(_u);
+    _res.w = _w;
+    _res.h = _h;
+    _res.pal = _cmap;
+    _res.idx = _idx;
+    _res.clear = _clr;
+    _res.masked = (_mask == 1 || _mask == 2);
+    return _res;
+}
+
+/// Writes IFF picture _iff (from iff_read) to PNG file _out, see-through pixels clear.
+/// Returns true when written.
+function iff_to_png(_iff, _out)
+{
+    var _w = _iff.w;
+    var _h = _iff.h;
+    var _ord = surface_byte_order();
+    var _buf = buffer_create(_w * _h * 4, buffer_fixed, 1);
+    var _np = array_length(_iff.pal);
+    for (var i = 0; i < _w * _h; i++)
+    {
+        var _c = 0;
+        var _ci = _iff.idx[i];
+        if (_ci < _np) { _c = _iff.pal[_ci]; }
+        var _o = i * 4;
+        buffer_poke(_buf, _o + _ord[0], buffer_u8, rgb_r(_c));
+        buffer_poke(_buf, _o + _ord[1], buffer_u8, rgb_g(_c));
+        buffer_poke(_buf, _o + _ord[2], buffer_u8, rgb_b(_c));
+        var _a = 255;
+        if (_iff.clear[i]) { _a = 0; }
+        buffer_poke(_buf, _o + 3, buffer_u8, _a);
+    }
+    var _surf = surface_create(_w, _h);
+    buffer_set_surface(_buf, _surf, 0);
+    buffer_delete(_buf);
+    surface_save(_surf, _out);
+    surface_free(_surf);
+    return file_exists(_out);
+}
+
+/// Imports IFF picture _iff into the backdrop keeping its own colours and pixels (top
+/// left, cut to 320 x 256) when it has no more colours than the backdrop can show.
+/// Returns false (nothing changed) when it has more - then quantize it instead.
+function backdrop_import_iff(_iff)
+{
+    var _nc = array_length(_iff.pal);
+    // the colours actually used decide, not the palette's length
+    var _top = 0;
+    for (var i = 0; i < array_length(_iff.idx); i++) { _top = max(_top, _iff.idx[i]); }
+    if (_top >= pal_count()) { return false; }
+    for (var c = 0; c < min(_nc, pal_count()); c++) { proj.pal[c] = rgb_machine(_iff.pal[c]); }
+    var _px = array_create(BD_W * BD_H, 0);
+    for (var _iy = 0; _iy < min(BD_H, _iff.h); _iy++)
+    {
+        for (var _ix = 0; _ix < min(BD_W, _iff.w); _ix++) { _px[_iy * BD_W + _ix] = _iff.idx[_iy * _iff.w + _ix]; }
+    }
+    proj.pixels = _px;
+    bd_dirty = true;
+    return true;
+}

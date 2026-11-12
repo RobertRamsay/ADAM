@@ -36,7 +36,8 @@ One object, `obj_app`, draws everything in **Draw GUI** with an immediate-mode U
 |---|---|
 | `scr_project` | Data model (`project_new`, `project_from_loaded` = loader + validator), per-page undo (`undo_keys`, `undo_mark`, `undo_mark_full`), settings ini. |
 | `scr_machine` | Machine profiles (`machine_cur()`), launch picker, boing ball. |
-| `scr_gfx` | Backdrop index surface + `sh_palette` shader (palette & copper-sky preview), sprite caches, font, PNG import (median cut). Painting writes `bd_buf` then uploads — never draws into the surface. |
+| `scr_gfx` | Backdrop index surface + `sh_palette` shader (palette & copper-sky preview), sprite caches, font, PNG import (median cut). Painting writes `bd_buf` then uploads — never draws into the surface. IFF pictures (`iff_read`: FORM ILBM / PBM, ByteRun1, mask plane or transparent colour, EHB, 4-bit CMAPs; HAM / 24-bit refused; `iff_to_png` for the other importers; `backdrop_import_iff` keeps an IFF's own palette and pixels when its colours fit). |
+| `scr_ws_sprites` import | Sprites page 'Import picture or sheet...' (`spr_import_open` / `spr_import_load` / `spr_import_draw` / `spr_import_run`, state `spr_imp_*` in obj_app Create): PNG / JPG / GIF / IFF; cell size, margin, spacing, how many, see-through (alpha, or also the top-left colour), one set of 3 colours for all or each its own (median cut), empty cells left out; fills slots from `spr_sel`, size = the smallest allowed that holds a cell (`spr_import_size`, edition limits). Editor only. |
 | `scr_levels` | Levels page, terrain generator (`terrain_generate`, LCG — must match `gen_examples.py`), title/goal settings. |
 | `scr_adf` | **Game data block + ADF writer**, FS-UAE launch/test-copy download. |
 | `scr_sfx` | Synth + WAV sample import, crunch (rate/bits), preview (exact Paula output). |
