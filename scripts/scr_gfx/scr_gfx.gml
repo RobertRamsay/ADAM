@@ -324,6 +324,21 @@ function draw_sprite_amiga_cols(_i, _x, _y, _scale, _cols, _alpha)
     gpu_set_texfilter(true);
 }
 
+/// A column's foot (actor setting 'Reaches the floor'): row _row of sprite design _i drawn
+/// again on _rows lines from _x, _y down, in colours _cols (as draw_sprite_amiga_cols)
+function draw_sprite_column_cols(_i, _row, _x, _y, _scale, _rows, _cols, _alpha)
+{
+    if (_i < 0 || _i >= SPR_COUNT || _rows <= 0) { return; }
+    spr_cache_update(_i);
+    gpu_set_texfilter(false);
+    var _w = surface_get_width(spr_surf[_i][0]);
+    for (var c = 0; c < 3; c++)
+    {
+        draw_surface_part_ext(spr_surf[_i][c], 0, _row, _w, 1, _x, _y, _scale, _scale * _rows, amiga_col(_cols[c]), _alpha);
+    }
+    gpu_set_texfilter(true);
+}
+
 /// Draws sprite design _i in its own colours
 function draw_sprite_amiga(_i, _x, _y, _scale, _alpha)
 {
@@ -768,4 +783,914 @@ function sky_presets()
         ["Neon",      0x400060, 0xc02090, 0x102080, 128],
         ["Lava",      0x200000, 0x902000, 0xffc020, 170]
     ];
+}
+
+// ---------------------------------------------------------------------------
+// IFF pictures (Deluxe Paint, Personal Paint, Brilliance...): FORM ILBM (bitplanes)
+// and FORM PBM (chunky, DPaint's other format). iff_read gives the palette, a colour
+// number per pixel and which pixels are see-through (a brush's mask plane or its
+// transparent colour). EHB pictures get their 32 half-bright colours; HAM and 24-bit
+// ones are refused. ByteRun1 (compression 1) or none. iff_to_png writes one as a PNG
+// so the PNG import (sprites) and picture_quantize (backdrop) can take it.
+// ---------------------------------------------------------------------------
+
+/// Is _path an IFF picture by its name (.iff, .ilbm, .lbm, .bbm)?
+function iff_is_path(_path)
+{
+    var _e = string_lower(filename_ext(_path));
+    return _e == ".iff" || _e == ".ilbm" || _e == ".lbm" || _e == ".bbm";
+}
+
+/// Big-endian word / long / 4-letter id at byte _o of buffer _b
+function iff_u16(_b, _o)
+{
+    return (buffer_peek(_b, _o, buffer_u8) << 8) | buffer_peek(_b, _o + 1, buffer_u8);
+}
+function iff_u32(_b, _o)
+{
+    return (iff_u16(_b, _o) << 16) | iff_u16(_b, _o + 2);
+}
+function iff_id(_b, _o)
+{
+    var _s = "";
+    for (var i = 0; i < 4; i++) { _s += chr(buffer_peek(_b, _o + i, buffer_u8)); }
+    return _s;
+}
+
+/// Reads IFF picture _path -> { w, h, pal (array of $RRGGBB), idx (colour per pixel,
+/// row by row), clear (true = see-through), masked (it had a mask or transparent
+/// colour), err ("" = fine, else why it could not be read) }
+function iff_read(_path)
+{
+    var _res = indexed_new();
+    var _b = buffer_load(_path);
+    if (_b == -1)
+    {
+        _res.err = "Could not read that file";
+        return _res;
+    }
+    var _len = buffer_get_size(_b);
+    if (_len < 12 || iff_id(_b, 0) != "FORM")
+    {
+        buffer_delete(_b);
+        _res.err = "That is not an IFF file";
+        return _res;
+    }
+    var _form = iff_id(_b, 8);
+    if (_form != "ILBM" && _form != "PBM ")
+    {
+        buffer_delete(_b);
+        _res.err = "That IFF file is not a picture (ILBM)";
+        return _res;
+    }
+    var _w = 0;
+    var _h = 0;
+    var _np = 0;
+    var _mask = 0;
+    var _comp = 0;
+    var _tcol = -1;
+    var _camg = 0;
+    var _body = -1;
+    var _blen = 0;
+    var _cmap = [];
+    var _end = min(_len, 8 + iff_u32(_b, 4));
+    var _o = 12;
+    while (_o + 8 <= _end)
+    {
+        var _id = iff_id(_b, _o);
+        var _sz = iff_u32(_b, _o + 4);
+        var _d = _o + 8;
+        if (_d + _sz > _len) { _sz = _len - _d; }
+        if (_id == "BMHD" && _sz >= 20)
+        {
+            _w = iff_u16(_b, _d);
+            _h = iff_u16(_b, _d + 2);
+            _np = buffer_peek(_b, _d + 8, buffer_u8);
+            _mask = buffer_peek(_b, _d + 9, buffer_u8);
+            _comp = buffer_peek(_b, _d + 10, buffer_u8);
+            _tcol = iff_u16(_b, _d + 12);
+        }
+        else if (_id == "CMAP")
+        {
+            for (var i = 0; i + 2 < _sz; i += 3)
+            {
+                array_push(_cmap, rgb_make(buffer_peek(_b, _d + i, buffer_u8), buffer_peek(_b, _d + i + 1, buffer_u8), buffer_peek(_b, _d + i + 2, buffer_u8)));
+            }
+        }
+        else if (_id == "CAMG" && _sz >= 4)
+        {
+            _camg = iff_u32(_b, _d);
+        }
+        else if (_id == "BODY")
+        {
+            _body = _d;
+            _blen = _sz;
+        }
+        _o = _d + _sz + (_sz & 1);
+    }
+    if (_w <= 0 || _h <= 0 || _body < 0)
+    {
+        buffer_delete(_b);
+        _res.err = "There is no picture in that IFF file";
+        return _res;
+    }
+    if ((_camg & 0x800) != 0)
+    {
+        buffer_delete(_b);
+        _res.err = "HAM pictures can't be imported - save it with up to 256 colours";
+        return _res;
+    }
+    if (_np > 8 || (_form == "ILBM" && _np < 1))
+    {
+        buffer_delete(_b);
+        _res.err = "Only pictures of 1 to 8 bitplanes (2 to 256 colours) can be imported";
+        return _res;
+    }
+    if (_comp > 1)
+    {
+        buffer_delete(_b);
+        _res.err = "That IFF picture is packed in a way ADAM does not know";
+        return _res;
+    }
+    // old painting programs write 4-bit colours as $X0: make them full ($XX)
+    var _lownib = false;
+    for (var c = 0; c < array_length(_cmap); c++)
+    {
+        if ((_cmap[c] & 0x0f0f0f) != 0) { _lownib = true; }
+    }
+    if (!_lownib)
+    {
+        for (var c2 = 0; c2 < array_length(_cmap); c2++) { _cmap[c2] = _cmap[c2] | ((_cmap[c2] >> 4) & 0x0f0f0f); }
+    }
+    // Extra Half-Brite: colours 32..63 are 0..31 at half brightness
+    if ((_camg & 0x80) != 0 && _np == 6 && array_length(_cmap) >= 32)
+    {
+        array_resize(_cmap, 32);
+        for (var e = 0; e < 32; e++) { array_push(_cmap, rgb_make(rgb_r(_cmap[e]) >> 1, rgb_g(_cmap[e]) >> 1, rgb_b(_cmap[e]) >> 1)); }
+    }
+    // a picture with no palette: greys
+    if (array_length(_cmap) == 0)
+    {
+        var _ng = 1 << max(1, _np);
+        for (var gq = 0; gq < _ng; gq++)
+        {
+            var _gv = round(gq * 255 / max(1, _ng - 1));
+            array_push(_cmap, rgb_make(_gv, _gv, _gv));
+        }
+    }
+    // unpack BODY: ILBM rows are each plane in turn (and a mask plane), PBM rows are bytes
+    var _rb = ((_w + 15) >> 4) << 1;
+    var _planes = _np;
+    if (_mask == 1) { _planes += 1; }
+    var _row = _rb * _planes;
+    if (_form == "PBM ") { _row = _w + (_w & 1); }
+    var _total = _row * _h;
+    var _u = buffer_create(_total, buffer_fixed, 1);
+    buffer_fill(_u, 0, buffer_u8, 0, _total);
+    var _p = _body;
+    var _pe = min(_len, _body + _blen);
+    var _q = 0;
+    if (_comp == 0)
+    {
+        buffer_copy(_b, _body, min(_total, _pe - _body), _u, 0);
+    }
+    else
+    {
+        while (_q < _total && _p < _pe)
+        {
+            var _n = buffer_peek(_b, _p, buffer_s8);
+            _p += 1;
+            if (_n >= 0)
+            {
+                for (var k = 0; k <= _n && _q < _total && _p < _pe; k++)
+                {
+                    buffer_poke(_u, _q, buffer_u8, buffer_peek(_b, _p, buffer_u8));
+                    _p += 1;
+                    _q += 1;
+                }
+            }
+            else if (_n != -128)
+            {
+                var _v = buffer_peek(_b, _p, buffer_u8);
+                _p += 1;
+                for (var k2 = 0; k2 <= -_n && _q < _total; k2++)
+                {
+                    buffer_poke(_u, _q, buffer_u8, _v);
+                    _q += 1;
+                }
+            }
+        }
+    }
+    buffer_delete(_b);
+    var _idx = array_create(_w * _h, 0);
+    var _clr = array_create(_w * _h, false);
+    for (var _iy = 0; _iy < _h; _iy++)
+    {
+        var _ro = _iy * _row;
+        for (var _ix = 0; _ix < _w; _ix++)
+        {
+            var _ci = 0;
+            if (_form == "PBM ")
+            {
+                _ci = buffer_peek(_u, _ro + _ix, buffer_u8);
+            }
+            else
+            {
+                var _byo = _ro + (_ix >> 3);
+                var _bit = 7 - (_ix & 7);
+                for (var pl = 0; pl < _np; pl++)
+                {
+                    _ci |= ((buffer_peek(_u, _byo + pl * _rb, buffer_u8) >> _bit) & 1) << pl;
+                }
+                if (_mask == 1 && ((buffer_peek(_u, _byo + _np * _rb, buffer_u8) >> _bit) & 1) == 0) { _clr[_iy * _w + _ix] = true; }
+            }
+            if (_mask == 2 && _ci == _tcol) { _clr[_iy * _w + _ix] = true; }
+            _idx[_iy * _w + _ix] = _ci;
+        }
+    }
+    buffer_delete(_u);
+    _res.w = _w;
+    _res.h = _h;
+    _res.pal = _cmap;
+    _res.idx = _idx;
+    _res.clear = _clr;
+    _res.masked = (_mask == 1 || _mask == 2);
+    return _res;
+}
+
+/// Writes IFF picture _iff (from iff_read) to PNG file _out, see-through pixels clear.
+/// Returns true when written.
+function iff_to_png(_iff, _out)
+{
+    var _w = _iff.w;
+    var _h = _iff.h;
+    var _ord = surface_byte_order();
+    var _buf = buffer_create(_w * _h * 4, buffer_fixed, 1);
+    var _np = array_length(_iff.pal);
+    for (var i = 0; i < _w * _h; i++)
+    {
+        var _c = 0;
+        var _ci = _iff.idx[i];
+        if (_ci < _np) { _c = _iff.pal[_ci]; }
+        var _o = i * 4;
+        buffer_poke(_buf, _o + _ord[0], buffer_u8, rgb_r(_c));
+        buffer_poke(_buf, _o + _ord[1], buffer_u8, rgb_g(_c));
+        buffer_poke(_buf, _o + _ord[2], buffer_u8, rgb_b(_c));
+        var _a = 255;
+        if (_iff.clear[i]) { _a = 0; }
+        buffer_poke(_buf, _o + 3, buffer_u8, _a);
+    }
+    var _surf = surface_create(_w, _h);
+    buffer_set_surface(_buf, _surf, 0);
+    buffer_delete(_buf);
+    surface_save(_surf, _out);
+    surface_free(_surf);
+    return file_exists(_out);
+}
+
+/// Puts indexed picture _iff (iff_read / indexed_read) into the backdrop with its own
+/// colours and pixels when it uses no more colours than the backdrop shows and is about
+/// screen size (up to 384 x 300, an overscan picture: cut to 320 x 256 round its middle;
+/// a smaller one goes top left). Colour numbers past the last colour are packed down,
+/// colour 0 staying 0. Returns false (nothing changed) otherwise - then quantize it.
+function backdrop_import_indexed(_iff)
+{
+    if (_iff.w > 384 || _iff.h > 300) { return false; }
+    var _nc = array_length(_iff.pal);
+    var _pc = pal_count();
+    // the colours actually used decide, not the palette's length
+    var _use = array_create(256, false);
+    _use[0] = true;
+    var _top = 0;
+    for (var i = 0; i < array_length(_iff.idx); i++)
+    {
+        var _ci = _iff.idx[i] & 255;
+        _use[_ci] = true;
+        _top = max(_top, _ci);
+    }
+    var _map = array_create(256, 0);
+    var _n = 0;
+    for (var c = 0; c < 256; c++)
+    {
+        if (_top < _pc) { _map[c] = c; }
+        else if (_use[c])
+        {
+            _map[c] = _n;
+            _n += 1;
+        }
+    }
+    if (_n > _pc) { return false; }
+    for (var c2 = 0; c2 < 256; c2++)
+    {
+        var _to = _map[c2];
+        // (colours past the picture's palette keep what they were)
+        if ((_top < _pc || _use[c2]) && _to < _pc && c2 < _nc) { proj.pal[_to] = rgb_machine(_iff.pal[c2]); }
+    }
+    var _ox = max(0, (_iff.w - BD_W) div 2);
+    var _oy = max(0, (_iff.h - BD_H) div 2);
+    var _px = array_create(BD_W * BD_H, 0);
+    for (var _iy = 0; _iy < min(BD_H, _iff.h); _iy++)
+    {
+        var _row = (_iy + _oy) * _iff.w + _ox;
+        for (var _ix = 0; _ix < min(BD_W, _iff.w); _ix++) { _px[_iy * BD_W + _ix] = _map[_iff.idx[_row + _ix] & 255]; }
+    }
+    proj.pixels = _px;
+    bd_dirty = true;
+    return true;
+}
+
+// ---------------------------------------------------------------------------
+// Indexed pictures (a palette and a colour number per pixel): IFF (iff_read), PNG with
+// a palette (colour type 3) or greys of up to 8 bits, BMP of 1, 4 or 8 bits (plain or
+// RLE) and GIF (its first picture). indexed_read gives the same struct as iff_read, so
+// the backdrop keeps a picture's own colours and the sprite import its colour numbers.
+// A picture that is not indexed (a true-colour or interlaced PNG, a JPG) comes back
+// with indexed = false and no error: import it as RGB.
+// ---------------------------------------------------------------------------
+
+/// An empty indexed-picture struct (what iff_read and indexed_read return)
+function indexed_new()
+{
+    return { w : 0, h : 0, pal : [], idx : [], clear : [], masked : false, err : "", indexed : true };
+}
+
+/// Reads picture file _path by what is in it (not its name): IFF, PNG, BMP or GIF
+function indexed_read(_path)
+{
+    var _res = indexed_new();
+    var _b = buffer_load(_path);
+    if (_b == -1)
+    {
+        _res.err = "Could not read that file";
+        return _res;
+    }
+    var _len = buffer_get_size(_b);
+    var _id = "";
+    if (_len >= 4) { _id = iff_id(_b, 0); }
+    if (_id == "FORM")
+    {
+        buffer_delete(_b);
+        return iff_read(_path);
+    }
+    if (_len >= 8 && buffer_peek(_b, 0, buffer_u8) == 0x89 && string_copy(_id, 2, 3) == "PNG") { png_read_indexed(_b, _res); }
+    else if (_len >= 2 && string_copy(_id, 1, 2) == "BM") { bmp_read_indexed(_b, _res); }
+    else if (_len >= 6 && string_copy(_id, 1, 3) == "GIF") { gif_read_indexed(_b, _res); }
+    else { _res.indexed = false; }
+    buffer_delete(_b);
+    return _res;
+}
+
+/// Fills _res from PNG file buffer _b when it has a palette (or is grey, up to 8 bits a
+/// pixel, not interlaced); else sets _res.indexed false
+function png_read_indexed(_b, _res)
+{
+    var _len = buffer_get_size(_b);
+    var _w = 0;
+    var _h = 0;
+    var _bd = 0;
+    var _ct = -1;
+    var _il = 0;
+    var _plte = [];
+    var _trns = -1;
+    var _tlen = 0;
+    var _z = buffer_create(1, buffer_fixed, 1);
+    var _zl = 0;
+    var _o = 8;
+    while (_o + 12 <= _len)
+    {
+        var _sz = iff_u32(_b, _o);
+        var _id = iff_id(_b, _o + 4);
+        var _d = _o + 8;
+        if (_d + _sz > _len) { _sz = _len - _d; }
+        if (_id == "IHDR" && _sz >= 13)
+        {
+            _w = iff_u32(_b, _d);
+            _h = iff_u32(_b, _d + 4);
+            _bd = buffer_peek(_b, _d + 8, buffer_u8);
+            _ct = buffer_peek(_b, _d + 9, buffer_u8);
+            _il = buffer_peek(_b, _d + 12, buffer_u8);
+            // only a palette or greys of up to 8 bits are indexed: stop reading the rest
+            if ((_ct != 3 && _ct != 0) || _bd > 8 || _il != 0) { break; }
+        }
+        else if (_id == "PLTE")
+        {
+            for (var i = 0; i + 2 < _sz; i += 3)
+            {
+                array_push(_plte, rgb_make(buffer_peek(_b, _d + i, buffer_u8), buffer_peek(_b, _d + i + 1, buffer_u8), buffer_peek(_b, _d + i + 2, buffer_u8)));
+            }
+        }
+        else if (_id == "tRNS")
+        {
+            _trns = _d;
+            _tlen = _sz;
+        }
+        else if (_id == "IDAT" && _sz > 0)
+        {
+            buffer_resize(_z, _zl + _sz);
+            buffer_copy(_b, _d, _sz, _z, _zl);
+            _zl += _sz;
+        }
+        else if (_id == "IEND") { break; }
+        _o = _d + _sz + 4;
+    }
+    if ((_ct != 3 && _ct != 0) || _bd > 8 || _il != 0)
+    {
+        buffer_delete(_z);
+        _res.indexed = false;
+        return;
+    }
+    if (_w <= 0 || _h <= 0 || _zl == 0 || (_ct == 3 && array_length(_plte) == 0))
+    {
+        buffer_delete(_z);
+        _res.err = "There is no picture in that PNG file";
+        return;
+    }
+    if (_w > SPR_IMP_MAX || _h > SPR_IMP_MAX)
+    {
+        buffer_delete(_z);
+        _res.err = "Pictures up to " + string(SPR_IMP_MAX) + " x " + string(SPR_IMP_MAX) + " pixels";
+        return;
+    }
+    var _u = buffer_decompress(_z);
+    buffer_delete(_z);
+    if (_u < 0)
+    {
+        _res.err = "That PNG file is damaged";
+        return;
+    }
+    // undo each row's filter (1 byte a pixel or less: the pixel to the left is 1 byte back)
+    var _ul = buffer_get_size(_u);
+    var _rb = (_w * _bd + 7) >> 3;
+    var _rows = buffer_create(_rb * _h, buffer_fixed, 1);
+    buffer_fill(_rows, 0, buffer_u8, 0, _rb * _h);
+    for (var _iy = 0; _iy < _h; _iy++)
+    {
+        var _so = _iy * (_rb + 1);
+        if (_so + _rb + 1 > _ul) { break; }
+        var _f = buffer_peek(_u, _so, buffer_u8);
+        var _do = _iy * _rb;
+        for (var k = 0; k < _rb; k++)
+        {
+            var _v = buffer_peek(_u, _so + 1 + k, buffer_u8);
+            if (_f != 0)
+            {
+                var _a = 0;
+                var _up = 0;
+                var _c = 0;
+                if (k > 0) { _a = buffer_peek(_rows, _do + k - 1, buffer_u8); }
+                if (_iy > 0) { _up = buffer_peek(_rows, _do - _rb + k, buffer_u8); }
+                if (k > 0 && _iy > 0) { _c = buffer_peek(_rows, _do - _rb + k - 1, buffer_u8); }
+                switch (_f)
+                {
+                    case 1: _v += _a; break;
+                    case 2: _v += _up; break;
+                    case 3: _v += (_a + _up) >> 1; break;
+                    case 4:
+                        var _pp = _a + _up - _c;
+                        var _pa = abs(_pp - _a);
+                        var _pb = abs(_pp - _up);
+                        var _pc = abs(_pp - _c);
+                        if (_pa <= _pb && _pa <= _pc) { _v += _a; }
+                        else if (_pb <= _pc) { _v += _up; }
+                        else { _v += _c; }
+                        break;
+                }
+            }
+            buffer_poke(_rows, _do + k, buffer_u8, _v & 255);
+        }
+    }
+    buffer_delete(_u);
+    // the palette and which colour numbers are see-through
+    var _pal = _plte;
+    var _ncol = 1 << _bd;
+    var _clr = array_create(256, false);
+    if (_ct == 0)
+    {
+        _pal = [];
+        for (var g = 0; g < _ncol; g++)
+        {
+            var _gv = round(g * 255 / max(1, _ncol - 1));
+            array_push(_pal, rgb_make(_gv, _gv, _gv));
+        }
+        if (_trns >= 0 && _tlen >= 2) { _clr[iff_u16(_b, _trns) & 255] = true; }
+    }
+    else if (_trns >= 0)
+    {
+        for (var t = 0; t < min(_tlen, 256); t++)
+        {
+            if (buffer_peek(_b, _trns + t, buffer_u8) < 128) { _clr[t] = true; }
+        }
+    }
+    var _n = _w * _h;
+    var _idx = array_create(_n, 0);
+    var _cl = array_create(_n, false);
+    var _any = false;
+    var _mk = _ncol - 1;
+    for (var _ry = 0; _ry < _h; _ry++)
+    {
+        var _ro = _ry * _rb;
+        for (var _rx = 0; _rx < _w; _rx++)
+        {
+            var _ci = 0;
+            if (_bd == 8) { _ci = buffer_peek(_rows, _ro + _rx, buffer_u8); }
+            else
+            {
+                var _bit = _rx * _bd;
+                _ci = (buffer_peek(_rows, _ro + (_bit >> 3), buffer_u8) >> (8 - _bd - (_bit & 7))) & _mk;
+            }
+            _idx[_ry * _w + _rx] = _ci;
+            if (_clr[_ci])
+            {
+                _cl[_ry * _w + _rx] = true;
+                _any = true;
+            }
+        }
+    }
+    buffer_delete(_rows);
+    _res.w = _w;
+    _res.h = _h;
+    _res.pal = _pal;
+    _res.idx = _idx;
+    _res.clear = _cl;
+    _res.masked = _any;
+}
+
+/// Fills _res from BMP file buffer _b: 1, 4 or 8 bits a pixel, plain or RLE packed
+function bmp_read_indexed(_b, _res)
+{
+    var _len = buffer_get_size(_b);
+    if (_len < 26)
+    {
+        _res.err = "That BMP file is damaged";
+        return;
+    }
+    var _off = buffer_peek(_b, 10, buffer_u32);
+    var _hs = buffer_peek(_b, 14, buffer_u32);
+    var _w = 0;
+    var _h = 0;
+    var _bpp = 0;
+    var _comp = 0;
+    var _nc = 0;
+    var _pe = 4;
+    if (_hs == 12)
+    {
+        _w = buffer_peek(_b, 18, buffer_u16);
+        _h = buffer_peek(_b, 20, buffer_u16);
+        _bpp = buffer_peek(_b, 24, buffer_u16);
+        _pe = 3;
+    }
+    else
+    {
+        if (_len < 54)
+        {
+            _res.err = "That BMP file is damaged";
+            return;
+        }
+        _w = buffer_peek(_b, 18, buffer_s32);
+        _h = buffer_peek(_b, 22, buffer_s32);
+        _bpp = buffer_peek(_b, 28, buffer_u16);
+        _comp = buffer_peek(_b, 30, buffer_u32);
+        _nc = buffer_peek(_b, 46, buffer_u32);
+    }
+    if (_bpp != 1 && _bpp != 4 && _bpp != 8)
+    {
+        _res.err = "Only BMP pictures of 2 to 256 colours (1, 4 or 8 bits) can be imported - save others as PNG";
+        return;
+    }
+    if (_comp != 0 && !(_comp == 1 && _bpp == 8) && !(_comp == 2 && _bpp == 4))
+    {
+        _res.err = "That BMP picture is packed in a way ADAM does not know";
+        return;
+    }
+    var _topdown = false;
+    if (_h < 0)
+    {
+        _h = -_h;
+        _topdown = true;
+    }
+    if (_w <= 0 || _h <= 0 || _w > SPR_IMP_MAX || _h > SPR_IMP_MAX)
+    {
+        _res.err = "Pictures up to " + string(SPR_IMP_MAX) + " x " + string(SPR_IMP_MAX) + " pixels";
+        return;
+    }
+    if (_nc <= 0 || _nc > 256) { _nc = 1 << _bpp; }
+    var _pal = [];
+    var _po = 14 + _hs;
+    for (var c = 0; c < _nc && _po + c * _pe + 2 < _len; c++)
+    {
+        var _q = _po + c * _pe;
+        array_push(_pal, rgb_make(buffer_peek(_b, _q + 2, buffer_u8), buffer_peek(_b, _q + 1, buffer_u8), buffer_peek(_b, _q, buffer_u8)));
+    }
+    var _idx = array_create(_w * _h, 0);
+    var _mk = (1 << _bpp) - 1;
+    if (_comp == 0)
+    {
+        var _stride = ((_w * _bpp + 31) >> 5) * 4;
+        for (var _r = 0; _r < _h; _r++)
+        {
+            var _dy = _h - 1 - _r;
+            if (_topdown) { _dy = _r; }
+            var _ro = _off + _r * _stride;
+            if (_ro + _stride > _len) { break; }
+            for (var _ix = 0; _ix < _w; _ix++)
+            {
+                var _bit = _ix * _bpp;
+                _idx[_dy * _w + _ix] = (buffer_peek(_b, _ro + (_bit >> 3), buffer_u8) >> (8 - _bpp - (_bit & 7))) & _mk;
+            }
+        }
+    }
+    else
+    {
+        // RLE8 / RLE4: runs, end of line, end of picture, a jump, or pixels as they are
+        var _p = _off;
+        var _cx = 0;
+        var _cr = 0;
+        while (_p + 1 < _len && _cr < _h)
+        {
+            var _cnt = buffer_peek(_b, _p, buffer_u8);
+            var _val = buffer_peek(_b, _p + 1, buffer_u8);
+            _p += 2;
+            var _ry = _h - 1 - _cr;
+            if (_topdown) { _ry = _cr; }
+            if (_cnt > 0)
+            {
+                for (var k = 0; k < _cnt; k++)
+                {
+                    var _ci = _val;
+                    if (_comp == 2)
+                    {
+                        if ((k & 1) == 0) { _ci = _val >> 4; }
+                        else { _ci = _val & 15; }
+                    }
+                    if (_cx < _w) { _idx[_ry * _w + _cx] = _ci; }
+                    _cx += 1;
+                }
+            }
+            else if (_val == 0)
+            {
+                _cx = 0;
+                _cr += 1;
+            }
+            else if (_val == 1) { break; }
+            else if (_val == 2)
+            {
+                if (_p + 1 >= _len) { break; }
+                _cx += buffer_peek(_b, _p, buffer_u8);
+                _cr += buffer_peek(_b, _p + 1, buffer_u8);
+                _p += 2;
+            }
+            else
+            {
+                var _nb = _val;
+                if (_comp == 2) { _nb = (_val + 1) >> 1; }
+                for (var k2 = 0; k2 < _val && _p + (k2 >> 1) < _len; k2++)
+                {
+                    var _ca = 0;
+                    if (_comp == 1) { _ca = buffer_peek(_b, _p + k2, buffer_u8); }
+                    else
+                    {
+                        var _by = buffer_peek(_b, _p + (k2 >> 1), buffer_u8);
+                        if ((k2 & 1) == 0) { _ca = _by >> 4; }
+                        else { _ca = _by & 15; }
+                    }
+                    if (_cx < _w) { _idx[_ry * _w + _cx] = _ca; }
+                    _cx += 1;
+                }
+                _p += _nb + (_nb & 1);
+            }
+        }
+    }
+    _res.w = _w;
+    _res.h = _h;
+    _res.pal = _pal;
+    _res.idx = _idx;
+    _res.clear = array_create(_w * _h, false);
+    _res.masked = false;
+}
+
+/// Fills _res from GIF file buffer _b: its first picture, the transparent colour see-through
+function gif_read_indexed(_b, _res)
+{
+    var _len = buffer_get_size(_b);
+    if (_len < 13)
+    {
+        _res.err = "That GIF file is damaged";
+        return;
+    }
+    var _w = buffer_peek(_b, 6, buffer_u16);
+    var _h = buffer_peek(_b, 8, buffer_u16);
+    var _pk = buffer_peek(_b, 10, buffer_u8);
+    var _bg = buffer_peek(_b, 11, buffer_u8);
+    if (_w <= 0 || _h <= 0 || _w > SPR_IMP_MAX || _h > SPR_IMP_MAX)
+    {
+        _res.err = "Pictures up to " + string(SPR_IMP_MAX) + " x " + string(SPR_IMP_MAX) + " pixels";
+        return;
+    }
+    var _o = 13;
+    var _gpal = [];
+    if ((_pk & 0x80) != 0)
+    {
+        var _gn = 1 << ((_pk & 7) + 1);
+        for (var c = 0; c < _gn && _o + 2 < _len; c++)
+        {
+            array_push(_gpal, rgb_make(buffer_peek(_b, _o, buffer_u8), buffer_peek(_b, _o + 1, buffer_u8), buffer_peek(_b, _o + 2, buffer_u8)));
+            _o += 3;
+        }
+    }
+    var _tidx = -1;
+    while (_o < _len)
+    {
+        var _bt = buffer_peek(_b, _o, buffer_u8);
+        _o += 1;
+        if (_bt == 0x21)
+        {
+            // an extension: the graphic control one says which colour is see-through
+            if (_o >= _len) { break; }
+            var _lab = buffer_peek(_b, _o, buffer_u8);
+            _o += 1;
+            if (_lab == 0xf9 && _o + 5 <= _len && (buffer_peek(_b, _o + 1, buffer_u8) & 1) != 0) { _tidx = buffer_peek(_b, _o + 4, buffer_u8); }
+            while (_o < _len)
+            {
+                var _s = buffer_peek(_b, _o, buffer_u8);
+                _o += 1 + _s;
+                if (_s == 0) { break; }
+            }
+        }
+        else if (_bt == 0x2c)
+        {
+            if (_o + 10 > _len) { break; }
+            var _fx = buffer_peek(_b, _o, buffer_u16);
+            var _fy = buffer_peek(_b, _o + 2, buffer_u16);
+            var _fw = buffer_peek(_b, _o + 4, buffer_u16);
+            var _fh = buffer_peek(_b, _o + 6, buffer_u16);
+            var _ipk = buffer_peek(_b, _o + 8, buffer_u8);
+            _o += 9;
+            var _pal = _gpal;
+            if ((_ipk & 0x80) != 0)
+            {
+                _pal = [];
+                var _ln = 1 << ((_ipk & 7) + 1);
+                for (var c2 = 0; c2 < _ln && _o + 2 < _len; c2++)
+                {
+                    array_push(_pal, rgb_make(buffer_peek(_b, _o, buffer_u8), buffer_peek(_b, _o + 1, buffer_u8), buffer_peek(_b, _o + 2, buffer_u8)));
+                    _o += 3;
+                }
+            }
+            if (array_length(_pal) == 0)
+            {
+                for (var g = 0; g < 256; g++) { array_push(_pal, rgb_make(g, g, g)); }
+            }
+            var _mcs = buffer_peek(_b, _o, buffer_u8);
+            _o += 1;
+            // the picture's data sub-blocks, joined
+            var _d = buffer_create(max(1, _len - _o), buffer_fixed, 1);
+            var _dl = 0;
+            while (_o < _len)
+            {
+                var _s2 = buffer_peek(_b, _o, buffer_u8);
+                _o += 1;
+                if (_s2 == 0) { break; }
+                _s2 = min(_s2, _len - _o);
+                buffer_copy(_b, _o, _s2, _d, _dl);
+                _dl += _s2;
+                _o += _s2;
+            }
+            var _pix = gif_lzw(_d, _dl, _mcs, _fw * _fh);
+            buffer_delete(_d);
+            // interlaced pictures store rows 0, 8, 16.. then 4, 12.. then 2, 6.. then 1, 3..
+            var _rowof = array_create(max(1, _fh), 0);
+            if ((_ipk & 0x40) != 0)
+            {
+                var _starts = [0, 4, 2, 1];
+                var _steps = [8, 8, 4, 2];
+                var _k = 0;
+                for (var ps = 0; ps < 4; ps++)
+                {
+                    for (var rr = _starts[ps]; rr < _fh; rr += _steps[ps])
+                    {
+                        _rowof[_k] = rr;
+                        _k += 1;
+                    }
+                }
+            }
+            else
+            {
+                for (var r2 = 0; r2 < _fh; r2++) { _rowof[r2] = r2; }
+            }
+            // outside the picture: see-through in a transparent GIF, else the background colour
+            var _n = _w * _h;
+            var _fill = 0;
+            if (_bg < array_length(_pal)) { _fill = _bg; }
+            var _idx = array_create(_n, _fill);
+            var _cl = array_create(_n, _tidx >= 0);
+            for (var _k2 = 0; _k2 < _fh; _k2++)
+            {
+                var _dy = _fy + _rowof[_k2];
+                if (_dy >= _h) { continue; }
+                for (var _ix = 0; _ix < _fw; _ix++)
+                {
+                    var _dx = _fx + _ix;
+                    if (_dx >= _w) { break; }
+                    var _ci = _pix[_k2 * _fw + _ix];
+                    _idx[_dy * _w + _dx] = _ci;
+                    _cl[_dy * _w + _dx] = (_ci == _tidx);
+                }
+            }
+            _res.w = _w;
+            _res.h = _h;
+            _res.pal = _pal;
+            _res.idx = _idx;
+            _res.clear = _cl;
+            _res.masked = (_tidx >= 0);
+            return;
+        }
+        else { break; }
+    }
+    _res.err = "There is no picture in that GIF file";
+}
+
+/// GIF's LZW: _count colour numbers from the _dl bytes of buffer _d (codes start at
+/// _mcs + 1 bits, least significant bit first, up to 12 bits)
+function gif_lzw(_d, _dl, _mcs, _count)
+{
+    var _out = array_create(max(1, _count), 0);
+    _mcs = clamp(_mcs, 2, 8);
+    var _clr = 1 << _mcs;
+    var _eoi = _clr + 1;
+    var _pre = array_create(4096, 0);
+    var _suf = array_create(4096, 0);
+    for (var i = 0; i < _clr; i++) { _suf[i] = i; }
+    var _stk = array_create(4097, 0);
+    var _size = _mcs + 1;
+    var _next = _clr + 2;
+    var _old = -1;
+    var _fc = 0;
+    var _bits = 0;
+    var _nb = 0;
+    var _p = 0;
+    var _q = 0;
+    while (_q < _count)
+    {
+        while (_nb < _size && _p < _dl)
+        {
+            _bits |= buffer_peek(_d, _p, buffer_u8) << _nb;
+            _nb += 8;
+            _p += 1;
+        }
+        if (_nb < _size) { break; }
+        var _code = _bits & ((1 << _size) - 1);
+        _bits = _bits >> _size;
+        _nb -= _size;
+        if (_code == _clr)
+        {
+            _size = _mcs + 1;
+            _next = _clr + 2;
+            _old = -1;
+            continue;
+        }
+        if (_code == _eoi) { break; }
+        if (_old == -1)
+        {
+            if (_code >= _clr) { break; }
+            _out[_q] = _code;
+            _q += 1;
+            _old = _code;
+            _fc = _code;
+            continue;
+        }
+        if (_code > _next) { break; }
+        var _in = _code;
+        var _sp = 0;
+        if (_code == _next)
+        {
+            // the code being made: the last string and its own first colour
+            _stk[_sp] = _fc;
+            _sp += 1;
+            _code = _old;
+        }
+        while (_code >= _clr && _sp < 4096)
+        {
+            _stk[_sp] = _suf[_code];
+            _sp += 1;
+            _code = _pre[_code];
+        }
+        _fc = _suf[_code];
+        _stk[_sp] = _fc;
+        _sp += 1;
+        while (_sp > 0 && _q < _count)
+        {
+            _sp -= 1;
+            _out[_q] = _stk[_sp];
+            _q += 1;
+        }
+        if (_next < 4096)
+        {
+            _pre[_next] = _old;
+            _suf[_next] = _fc;
+            _next += 1;
+            if (_next == (1 << _size) && _size < 12) { _size += 1; }
+        }
+        _old = _in;
+    }
+    return _out;
 }

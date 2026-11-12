@@ -140,6 +140,7 @@ function logic_sentence(_r)
         case 20: _s += _an + " hits the scenery"; break;
         case 21: _s += "the counter reaches " + string(_r.n) + " (it starts again from 0)"; break;
         case 22: _s += "the level's time runs out"; break;
+        case 23: _s += "fire is pressed with the stick held " + global.STICK_NAMES[clamp(_r.n, 0, 3)]; break;
     }
     for (var f = 0; f < array_length(_r.ifs); f++)
     {
@@ -238,6 +239,9 @@ function logic_do_phrase(_d, _names, _na)
             break;
         case 37: _s += _tn + " lets go"; break;
         case 38: _s += "stop all sounds"; break;
+        case 41: _s += _tn + " stops where it is"; break;
+        case 42: _s += _tn + " starts moving again"; break;
+        case 43: _s += "the level starts again"; break;
         case 39: _s += "pause the music"; break;
         case 40: _s += "the music plays on"; break;
     }
@@ -247,6 +251,7 @@ function logic_do_phrase(_d, _names, _na)
 /// What one IF line asks, as words: "the player uses a KEY (used up)", "Hero is above Slime"
 function logic_if_phrase(_f)
 {
+    if (_f.kind == 2) { return "the counter " + global.IF_CNT_NAMES[clamp(_f.cond, 0, 2)] + " " + string(_f.n); }
     if (_f.kind == 1)
     {
         var _names = actor_names();
@@ -654,6 +659,18 @@ function logic_do_row(_d, _rid, _x, _y, _pill, _anames, _snames, _xr)
     {
         set_val(_d, "target", ui_dropdown(_rid + "_t", _dx, _dy, LOGIC_ACTOR_W, 30, _anames, _d.target, "Which actor|An actor stuck to another (DO 'Stick actor to another') moves by itself again - the ball leaves the bat when fire is pressed."), _rid + "t");
     }
+    if (_act == 41)
+    {
+        set_val(_d, "target", ui_dropdown(_rid + "_t", _dx, _dy, LOGIC_ACTOR_W, 30, _anames, _d.target, "Which actor|It stops where it is - a rising column or lift locked at the height it has got to, an enemy frozen, the player waiting for the level to be set up. It stays shown and can still be stood on. 'Start actor moving again' or the next level start sets it going."), _rid + "t");
+    }
+    if (_act == 42)
+    {
+        set_val(_d, "target", ui_dropdown(_rid + "_t", _dx, _dy, LOGIC_ACTOR_W, 30, _anames, _d.target, "Which actor|An actor stopped by 'Stop actor where it is' moves (or takes the joystick) again."), _rid + "t");
+    }
+    if (_act == 43 && _xr - _dx >= 120)
+    {
+        ui_text(_dx, _dy + 15, ui_text_fit("(put it last on the card)", global.f_small, _xr - _dx), global.TH.text_dim, fa_left, fa_middle, global.f_small, 1);
+    }
 }
 
 /// An item drop-down with the item's picture before it; returns the item picked. With no
@@ -679,16 +696,23 @@ function logic_if_row(_f, _rid, _x, _y, _xr)
     ui_rrect(_dx, _y + 4, _dx + 56, _y + 26, 11, global.TH.warn, merge_colour(global.TH.warn, c_black, 0.3), 1);
     ui_text(_dx + 28, _y + 15, "IF", make_colour_rgb(40, 28, 8), fa_center, fa_middle, global.f_small, 1);
     _dx += 66;
-    var _nk = ui_dropdown(_rid + "_kind", _dx, _y, 120, 30, global.IF_KIND_NAMES, clamp(_f.kind, 0, 1), "IF about|The player: an item they carry (Items tab). Actor: where one actor is from another - above, below, level with, left of or right of it.");
+    var _nk = ui_dropdown(_rid + "_kind", _dx, _y, 120, 30, global.IF_KIND_NAMES, clamp(_f.kind, 0, 2), "IF about|The player: an item they carry (Items tab). Actor: where one actor is from another - above, below, level with, left of or right of it. The counter: how far DO 'Add one to the counter' has got - so one button can do a different thing each time (stop the first column, then the next...).");
     if (_nk != _f.kind)
     {
         undo_mark(_rid + "kind");
         _f.kind = _nk;
         _f.cond = 0;
         _f.n = 1;
-        if (_nk == 1) { _f.n = 0; }
+        if (_nk == 1 || _nk == 2) { _f.n = 0; }
     }
     _dx += 130;
+    if (_f.kind == 2)
+    {
+        set_val(_f, "cond", ui_dropdown(_rid + "_cc", _dx, _y, 130, 30, global.IF_CNT_NAMES, clamp(_f.cond, 0, 2), "Counter|Is: exactly this. Is at least: this or more. Is below: less than this. The rule sees the counter as it was when the frame started, so a rule that adds one does not set off the next rule in the same moment (one fire press = one step)."), _rid + "cc");
+        _dx += 138;
+        set_val(_f, "n", ui_stepper(_rid + "_cn", _dx, _y, 110, clamp(_f.n, 0, IF_COUNT_MAX), 0, IF_COUNT_MAX, "Number|The counter starts at 0 each level; DO 'Add one to the counter' counts up. Hold Shift for steps of 10."), _rid + "cn");
+        return;
+    }
     if (_f.kind == 1)
     {
         var _anames = actor_names();
@@ -852,6 +876,9 @@ function logic_rule_card(_r, i, _cx, _cy, _cw, _anames, _snames, _gnames)
             break;
         case 22:
             logic_word(_wx, _wy, "(set the time limit on the Levels page)");
+            break;
+        case 23:
+            set_val(_r, "n", ui_dropdown(_rid + "_stick", _wx, _wy, 110, 30, global.STICK_NAMES, clamp(_r.n, 0, 3), "Stick held|Fires once each time fire is pressed while the stick is held this way - down + fire to try a level again, up + fire to use a door. 'Fire button is pressed' rules fire as well."), _rid + "n");
             break;
     }
 
@@ -1418,7 +1445,7 @@ function item_delete(_k)
         }
         for (var f = array_length(_ru.ifs) - 1; f >= 0; f--)
         {
-            if (_ru.ifs[f].kind == 1) { continue; }       // a position line names no item
+            if (_ru.ifs[f].kind != 0) { continue; }       // position and counter lines name no item
             if (_ru.ifs[f].item == _k) { array_delete(_ru.ifs, f, 1); }
             else { _ru.ifs[f].item = item_ref_after_remove(_ru.ifs[f].item, _k, 0); }
         }
@@ -1446,12 +1473,12 @@ function recipe_delete(_r)
 }
 
 /// Does rule _r use items (an item IF line, WHEN 17 / 18, or a DO line that gives, takes, makes
-/// or drops one)? IF position lines (kind 1) are about actors, not items.
+/// or drops one)? IF position lines (kind 1) are about actors, counter lines (kind 2) the counter.
 function rule_uses_items(_r)
 {
     for (var f = 0; f < array_length(_r.ifs); f++)
     {
-        if (_r.ifs[f].kind != 1) { return true; }
+        if (_r.ifs[f].kind == 0) { return true; }
     }
     if (_r.when == 17 || _r.when == 18) { return true; }
     if (_r.act >= 28 && _r.act <= 31) { return true; }

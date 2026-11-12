@@ -9,6 +9,18 @@ function whatsnew_entries()
 {
     return [
         {
+            ver : "1.3.1",
+            items : [
+                "Sprites page: 'Import picture or sheet...' loads a PNG, JPG, GIF, BMP or Amiga IFF picture or brush and cuts a sprite sheet into frames - set the cell size, margins, spacing and see-through colour. Pictures with a palette (IFF, 8-bit PNG, GIF, BMP) can keep the colour numbers you drew with, so sprite colours 17-19 land on pens 1-3.",
+                "Backdrop page: an IFF, 8-bit PNG, GIF or BMP picture that fits the backdrop's colours now comes in with its own palette and pixels, exactly as drawn.",
+                "Columns: an actor can 'Reach the floor' - a pillar or piston drawn right down to the bottom of the screen, whose sides are walls. ADAM Pro sprites can be 128 or 256 high for a column's whole picture.",
+                "Patrols can 'Ease in and out', slowing at each end like a piston, and can go diagonally at 45 degrees.",
+                "Logic page: new DOs - stop an actor where it is, start it moving again, start the level again. A new WHEN - fire pressed with the stick held up, down, left or right. IF lines can check the counter (is, at least, below a number). The fire button now sets off one rule card per press.",
+                "New example games: Piston Pass (free) - stop the pistons in turn to make a way across - and Pillar Run (ADAM Pro), a template with placeholder art at the right sizes for your own pictures.",
+                "Home page: a Community button with games made in ADAM."
+            ]
+        },
+        {
             ver : "1.3.0",
             items : [
                 "Logic page: new WHENs - an actor reaches an edge, an actor hits the scenery, the counter reaches a number, the time runs out. New DOs - add one to the counter, lose or add health, bounce an actor back, stick one actor to another and let go, stop all sounds, pause and resume the music. IF lines can now ask where an actor is: above, below, level with, left of or right of another (stomp an enemy only from above).",

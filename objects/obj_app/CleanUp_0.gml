@@ -6,6 +6,7 @@
 sfx_preview_stop();
 music_preview_free();
 spr_cache_free();
+spr_import_close();
 backdrop_gfx_free();
 tiles_gfx_free();
 ui_gfx_free();

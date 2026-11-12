@@ -159,6 +159,9 @@ IF_LINE     equ $8000      ; a rule line with this bit in its act word is an IF 
 IF_POS      equ $0040      ; with IF_LINE: a position line (version 18) - act = IF_LINE + IF_POS +
                            ; 0 above / 1 below / 2 level with / 3 left of / 4 right of, target = margin
                            ; in pixels, value = actor a (low byte) | actor b (high byte)
+IF_CNT      equ $0020      ; with IF_LINE: a counter line (version 19) - act = IF_LINE + IF_CNT +
+                           ; 0 is n / 1 is at least n / 2 is below n, target = n (the counter as the
+                           ; frame started, v_cnt0)
 
 ; disk 2 (version 12): level songs that did not go on the game disk. A song's
 ; music table offset with bit 31 set is a byte offset on disk 2 (a track start).
@@ -333,6 +336,8 @@ A_SPR2      equ 28         ; long offset of a hopper's crouch frame, 0 = none
 A_CARRY     equ 32         ; bit 0 = the player can pick it up (fire) and throw it (fire again);
                            ; bit 1 = it can be stood on (a moving platform, plat_stand);
                            ; bit 2 = a patrol (role 2 / 3) goes diagonally (CARRY_DIAG, move_actors .diag);
+                           ; bit 3 = a column: its last row goes on to the floor, its sides are walls (CARRY_COL);
+                           ; bit 4 = a patrol slows down at its ends and is fastest in the middle (CARRY_EASE);
                            ; byte 0 = a patrol's distance / 8 from where it starts (pat_lim), 0 = edge to edge
 A_AMODE     equ 34         ; animation flags: bit 0 = 8 directions (table has 12 entries),
                            ; bit 1 = Fire animations for the player (table has 21 entries),
@@ -358,6 +363,8 @@ A_FPAT      equ 66         ; its volley: 0 the shot's own aim, 1 at the player, 
                            ; player, 3 a ring of 8, 4 three fanned the shot's own way
 ACT_SIZE    equ 68
 CARRY_DIAG  equ 2          ; bit in A_CARRY + 1 (the low byte): a diagonal patrol
+CARRY_COL   equ 3          ; bit in A_CARRY + 1: a column - a BOB that reaches the floor (col_*)
+CARRY_EASE  equ 4          ; bit in A_CARRY + 1: a patrol eases in and out at its ends (ease_step)
 
 ; animation table (data block version 8; version 5 introduced animations): 4 entries - 0 Idle (standing still),
 ; 1 Walk (moving), 2 Jump (in the air going up), 3 Fall (in the air coming
@@ -494,6 +501,10 @@ v_ply       rs.w 1
 v_hold      rs.w 1         ; DO 36: stuck to actor n - 1 (it rides with it), 0 = free
 v_hox       rs.w 1         ; and where it sits from that actor's corner
 v_hoy       rs.w 1
+v_still     rs.w 1         ; DO 41: 1 = stopped where it is (move_actors leaves it), DO 42: 0
+v_stamp     rs.w 1         ; a column drawn into the background (col_stamp), at v_stx / v_sty
+v_stx       rs.w 1
+v_sty       rs.w 1
             ifgt    __RS-(-128+ACTV_SIZE)
             fail    "per-actor variables do not fit in ACTV_SIZE"
             endc
@@ -527,6 +538,7 @@ v_tgtpal    rs.l PAL_FADE  ; ... to these
 v_rand      rs.l 1
 v_logic     rs.l 1         ; logic block address (LG_*), 0 = none
 v_counter   rs.w 1         ; DO 32 adds one, WHEN 21 fires at n and starts it again
+v_cnt0      rs.w 1         ; the counter when run_rules started this frame (IF counter lines)
 v_health    rs.w 1         ; health left (LG_HEALTH a life), 0 = no health
 v_tleft     rs.w 1         ; seconds of the level's time limit left, 0 = none / ran out
 v_tout      rs.w 1         ; 1 for the frame the time ran out (WHEN 22)
@@ -636,6 +648,13 @@ v_arec      rs.l MAX_ACT   ; each actor's record (actor_rec reads it: no multipl
 v_vismask   rs.l 1         ; move_actors: bit per actor shown when it started (shot_hits)
 v_platall   rs.l 1         ; bit per actor that can be stood on (A_CARRY bit 1)
 v_platm     rs.l 1         ;   ... of those, the ones shown this frame (plat_save)
+v_colall    rs.l 1         ; bit per column actor (A_CARRY CARRY_COL; col_walls)
+v_colbot    rs.w 1         ; the line columns stand on: 256, or the top of a HUD in the bottom half
+v_bext      rs.w 1         ; bob_blit: rows of column under the frame
+v_bnh       rs.w 1         ;           rows of the frame drawn
+v_bline     rs.w 1         ;           bytes per image line
+v_bwds      rs.w 1         ;           words the blit covers
+v_boff      rs.l 1         ;           byte offset of the first word drawn
 v_hbx0      rs.w 1         ; shot_hits: the shot's box
 v_hbx1      rs.w 1
 v_hby0      rs.w 1
@@ -874,7 +893,13 @@ init_display:
             move.l  #0,v_tpic(a5)
             move.w  #-1,v_tarow(a5)
             move.w  v_hudrow0(a5),v_hudrow(a5)
-            move.l  H_TILES(a4),d1
+            move.w  #256,v_colbot(a5)       ; columns stand on line 256, or on a HUD at the bottom
+            move.w  v_hudrow0(a5),d1
+            cmp.w   #16,d1
+            blo.s   .cbt
+            lsl.w   #3,d1
+            move.w  d1,v_colbot(a5)
+.cbt        move.l  H_TILES(a4),d1
             beq     .notile
             lea     0(a4,d1.l),a0
             move.l  a0,v_tiles(a5)
@@ -1306,6 +1331,7 @@ init_actors:
             moveq   #0,d7
             move.l  #0,v_platall(a5)
             move.l  #0,v_platm(a5)
+            move.l  #0,v_colall(a5)
 .a          move.w  d7,d5
             lsl.w   #ACTV_SHIFT,d5
             btst    #1,A_CARRY+1(a2)        ; it can be stood on
@@ -1313,8 +1339,15 @@ init_actors:
             move.l  v_platall(a5),d0
             bset    d7,d0
             move.l  d0,v_platall(a5)
-.npl        move.w  #0,v_onp(a5,d5.w)
+.npl        btst    #CARRY_COL,A_CARRY+1(a2) ; a column (its sides are walls)
+            beq.s   .ncl
+            move.l  v_colall(a5),d0
+            bset    d7,d0
+            move.l  d0,v_colall(a5)
+.ncl        move.w  #0,v_onp(a5,d5.w)
+            move.w  #0,v_stamp(a5,d5.w)     ; not in the background (restore_backdrop wiped it)
             move.w  #0,v_hold(a5,d5.w)      ; not stuck to anything (DO 36)
+            move.w  #0,v_still(a5,d5.w)     ; not stopped (DO 41)
             move.w  A_X(a2),v_ax(a5,d5.w)
             move.w  A_Y(a2),v_ay(a5,d5.w)
             move.w  A_SPD(a2),d0            ; faster on later levels
@@ -1994,6 +2027,8 @@ move_actors:
 .nolife     move.w  A_FROM(a2),d0           ; not on this level yet
             cmp.w   v_level(a5),d0
             bgt     .next
+            tst.w   v_still(a5,d5.w)        ; stopped by DO 41: it stays where it is
+            bne     .adv
             cmp.w   v_carry(a5),d7          ; carried: carry_follow places it
             beq     .adv
             tst.w   v_thr(a5,d5.w)          ; thrown: it flies
@@ -2075,6 +2110,11 @@ move_actors:
             bsr     pat_lim
             move.w  v_spd(a5,d5.w),d1
             move.w  v_ax(a5,d5.w),d0
+            btst    #CARRY_EASE,A_CARRY+1(a2)
+            beq.s   .hne
+            lea     v_xsub(a5,d5.w),a0
+            bsr     ease_step               ; d1 = pixels this frame, slower near the ends
+.hne
             tst.w   v_dx(a5,d5.w)
             bne.s   .hl
             add.w   d1,d0
@@ -2105,6 +2145,11 @@ move_actors:
             bsr     pat_lim
             move.w  v_spd(a5,d5.w),d1
             move.w  v_ay(a5,d5.w),d0
+            btst    #CARRY_EASE,A_CARRY+1(a2)
+            beq.s   .vne
+            lea     v_ysub(a5,d5.w),a0
+            bsr     ease_step
+.vne
             tst.w   v_dy(a5,d5.w)
             bne.s   .vu
             add.w   d1,d0
@@ -2247,7 +2292,8 @@ move_actors:
             beq.s   .pphys
             move.w  #-JUMP_V,v_vy(a5,d5.w)
             bsr     jumped
-.pphys      bsr     physics
+.pphys      bsr     col_walls               ; not into the side of a column
+            bsr     physics
             bra     .next
 
             ; ---- role 7: on the ground it waits a random while (v_tmr), crouches
@@ -5247,7 +5293,11 @@ bob_draw:
             beq     .nxt
             move.w  d7,d5
             lsl.w   #ACTV_SHIFT,d5
-            tst.w   v_vis(a5,d5.w)
+            btst    #CARRY_COL,A_CARRY+1(a2) ; a column standing still is in the background
+            beq.s   .ncol
+            bsr     col_state
+            bne     .nxt
+.ncol       tst.w   v_vis(a5,d5.w)
             beq     .nxt
             tst.w   v_safe(a5,d5.w)         ; flashing while immune
             beq.s   .vis
@@ -5283,10 +5333,39 @@ bob_draw:
             bge     .nxt
 .in         add.w   v_bx0(a5),d0            ; d0 / d1 = its pixel in the display
             add.w   v_by0(a5),d1
+            movem.l a3,-(sp)
+            move.l  v_draw(a5),a3
+            bsr     bob_blit                ; -> d0 = byte offset, d4 = BLTSIZE to wipe
+            movem.l (sp)+,a3
+            beq     .nxt                    ; nothing in this frame
+            move.w  (a1),d1                 ; remember it for next time's wipe
+            lsl.w   #2,d1
+            move.w  d0,0(a3,d1.w)
+            move.w  d4,2(a3,d1.w)
+            addq.w  #1,(a1)
+.nxt        lea     ACT_SIZE(a2),a2
+            addq.w  #1,d7
+            cmp.w   d6,d7
+            blt     .act
+.done       bsr     bwait
+            move.w  #$0400,$96(a6)          ; DMACON: BLTPRI off
+            move.w  #1,v_drawn(a5)
+            movem.l (sp)+,d0-d7/a0-a3
+.r          rts
+
+; One BOB frame cut into a display: d0.w / d1.w = its top left pixel in the display,
+; d5 = the actor's offset, a2 = its record, a3 = the display (plane 0). Draws its frame
+; (v_fofs, BI_* header) into each plane; a column (A_CARRY CARRY_COL, not scrolling) then
+; has the frame's last drawn row again on every line down to the bottom of the screen
+; (A and B read the same row: their modulos take the blit width back off).
+; -> d0.l = byte offset of the first word drawn, d4.w = BLTSIZE of all it covered (for the
+; wipe), Z set when the frame is empty (nothing drawn). Keeps the other registers.
+bob_blit:   movem.l d1-d3/d5-d7/a0-a3,-(sp)
             move.l  v_fofs(a5,d5.w),d2
             lea     0(a4,d2.l),a0           ; a0 = the frame: header, mask, planes
             move.w  BI_NH(a0),d4            ; d4 = rows drawn
-            beq     .nxt                    ; nothing in this frame
+            beq     .none
+            move.w  d4,v_bnh(a5)
             move.w  BI_ZERO(a0),v_bzero(a5)
             move.w  BI_FULL(a0),v_bfull(a5)
             tst.w   v_hitf(a5,d5.w)         ; hit by a shot: a white flash (colour 1 under the mask)
@@ -5296,6 +5375,20 @@ bob_draw:
             move.w  #1,v_bfull(a5)
             move.w  #$fffe,v_bzero(a5)
 .nf         add.w   BI_Y0(a0),d1            ; the first row drawn
+            moveq   #0,d2                   ; a column: the rows under the frame, to line 255
+            btst    #CARRY_COL,A_CARRY+1(a2)
+            beq.s   .nc
+            tst.w   v_by0(a5)
+            bne.s   .nc
+            move.w  v_colbot(a5),d2
+            sub.w   d1,d2                   ; d2 = lines from its first row to the floor
+            ble     .none
+            cmp.w   d2,d4                   ; a tall picture (up to 256 lines) stops at the
+            ble.s   .tall                   ; bottom of the screen
+            move.w  d2,d4
+            move.w  d4,v_bnh(a5)
+.tall       sub.w   d4,d2
+.nc         move.w  d2,v_bext(a5)
             move.w  BI_WX(a0),d2
             lsl.w   #4,d2
             add.w   d0,d2                   ; d2 = x of the first word drawn
@@ -5305,20 +5398,15 @@ bob_draw:
             add.w   d0,d0
             and.l   #$ffff,d0
             add.l   d1,d0                   ; d0 = byte offset in a plane
+            move.l  d0,v_boff(a5)
             and.w   #15,d2                  ; d2 = the shift
             move.w  BI_LAST(a0),d3
             add.w   d2,d3
             lsr.w   #4,d3
             addq.w  #1,d3                   ; d3 = words the blit covers (BI_NW, or one more for the shift)
+            move.w  d3,v_bwds(a5)
             lsl.w   #6,d4
             or.w    d3,d4                   ; d4 = BLTSIZE
-            move.w  (a1),d1                 ; remember it for next time's wipe
-            lsl.w   #2,d1
-            move.w  d0,0(a3,d1.w)
-            move.w  d4,2(a3,d1.w)
-            addq.w  #1,(a1)
-            movem.l d5-d7/a1-a3,-(sp)
-            move.l  v_draw(a5),a3
             add.l   d0,a3                   ; a3 = screen, plane 0
             ror.w   #4,d2                   ; shift into bits 15-12
             move.w  d2,d7                   ; d7 = the shift for BLTCON0
@@ -5337,6 +5425,7 @@ bob_draw:
             mulu    d1,d0
             add.l   d0,d0                   ; d0 = bytes per mask / plane
             add.w   d1,d1                   ; d1 = bytes per image line
+            move.w  d1,v_bline(a5)
             move.w  BI_Y0(a0),d5
             mulu    d1,d5
             move.w  BI_WX(a0),d6
@@ -5354,7 +5443,43 @@ bob_draw:
             lea     BI_SIZE(a0,d5.w),a1     ; a1 = mask (A)
             lea     0(a1,d0.l),a0           ; a0 = image plane 0 (B)
             move.l  d0,a2                   ; a2 = image plane to plane
-            move.l  v_plsz(a5),d6           ; d6 = display plane to plane
+            movem.l a0/a3,-(sp)             ; (the column part starts from these again)
+            bsr.s   .planes
+            movem.l (sp)+,a0/a3
+            move.w  v_bext(a5),d1           ; a column: the last row again, down to the bottom
+            beq.s   .wipe
+            move.w  v_bnh(a5),d0
+            subq.w  #1,d0
+            mulu    v_bline(a5),d0          ; the last drawn row of the mask and the planes
+            add.l   d0,a1
+            add.l   d0,a0
+            move.w  v_bnh(a5),d0
+            mulu    v_bpr(a5),d0
+            add.l   d0,a3                   ; the screen line under the frame
+            move.w  v_bwds(a5),d0
+            add.w   d0,d0
+            neg.w   d0
+            bsr     bwait
+            move.w  d0,$64(a6)              ; AMOD / BMOD: back to the same row each line
+            move.w  d0,$62(a6)
+            lsl.w   #6,d1
+            or.w    v_bwds(a5),d1
+            move.w  d1,d4
+            bsr.s   .planes
+.wipe       move.w  v_bnh(a5),d4            ; the rectangle it covered: frame + column
+            add.w   v_bext(a5),d4
+            lsl.w   #6,d4
+            or.w    v_bwds(a5),d4
+            move.l  v_boff(a5),d0
+            movem.l (sp)+,d1-d3/d5-d7/a0-a3
+            tst.w   d4                      ; Z clear: drawn (BLTSIZE is never 0)
+            rts
+.none       movem.l (sp)+,d1-d3/d5-d7/a0-a3
+            moveq   #0,d0                   ; Z set: nothing drawn
+            rts
+; each plane: a1 = mask, a0 = image plane 0, a2 = image plane to plane, a3 = screen plane 0,
+; d4 = BLTSIZE, d7 = the shift (BLTCON0 bits 15-12). Changes d0-d3, d5, d6, a0, a3.
+.planes     move.l  v_plsz(a5),d6           ; d6 = display plane to plane
             move.w  v_bzero(a5),d0
             move.w  v_bfull(a5),d2
             move.w  H_DEPTH(a4),d5
@@ -5382,16 +5507,185 @@ bob_draw:
             add.l   d6,a3
             addq.w  #1,d3
             dbf     d5,.pl
-            movem.l (sp)+,d5-d7/a1-a3
-.nxt        lea     ACT_SIZE(a2),a2
-            addq.w  #1,d7
-            cmp.w   d6,d7
-            blt     .act
-.done       bsr     bwait
-            move.w  #$0400,$96(a6)          ; DMACON: BLTPRI off
-            move.w  #1,v_drawn(a5)
-            movem.l (sp)+,d0-d7/a0-a3
-.r          rts
+            rts
+
+; ============================================================================
+;  columns (actor setting 'Reaches the floor', A_CARRY CARRY_COL): a BOB whose last
+;  row goes on down to the bottom of the screen - a pillar, a piston, a tree trunk.
+;  One that stands still (DO 41) is drawn once into the background and both displays
+;  (col_stamp) and skipped after that, so only moving ones cost blitter time; it comes
+;  out of them again (col_unstamp, from the clean work copy) when it moves, hides or is
+;  put somewhere else. Its sides are walls to a platform player (col_walls).
+; ============================================================================
+
+; bob_draw, a column BOB: d5 = its offset, a2 = its record -> Z clear (d0 = 1) when it is
+; in the background (skip it), Z set when bob_draw draws it as usual. Changes d0.
+col_state:  tst.w   v_stamp(a5,d5.w)
+            beq.s   .free
+            tst.w   v_vis(a5,d5.w)          ; stamped: still shown, stopped, in the same place?
+            beq.s   .out
+            tst.w   v_still(a5,d5.w)
+            beq.s   .out
+            move.w  v_ax(a5,d5.w),d0
+            cmp.w   v_stx(a5,d5.w),d0
+            bne.s   .out
+            move.w  v_ay(a5,d5.w),d0
+            cmp.w   v_sty(a5,d5.w),d0
+            beq.s   .in
+.out        bsr     col_unstamp
+.free       tst.w   v_vis(a5,d5.w)          ; shown and stopped, on a still screen: stamp it
+            beq.s   .draw
+            tst.w   v_still(a5,d5.w)
+            beq.s   .draw
+            tst.w   v_safe(a5,d5.w)         ; (not while it blinks)
+            bne.s   .draw
+            tst.w   v_hitf(a5,d5.w)
+            bne.s   .draw
+            tst.w   v_scr(a5)
+            bne.s   .draw
+            tst.w   v_ay(a5,d5.w)
+            bmi.s   .draw
+            bsr     col_stamp
+.in         moveq   #1,d0
+            rts
+.draw       moveq   #0,d0
+            rts
+
+; column d5 (record a2) -> drawn into the background and both displays where it stands
+col_stamp:  movem.l d0-d1/d4/a3,-(sp)
+            move.l  v_back(a5),a3
+            bsr.s   .one
+            move.l  v_disp(a5),a3
+            bsr.s   .one
+            move.l  v_disp2(a5),a3
+            bsr.s   .one
+            move.w  #1,v_stamp(a5,d5.w)
+            move.w  v_ax(a5,d5.w),v_stx(a5,d5.w)
+            move.w  v_ay(a5,d5.w),v_sty(a5,d5.w)
+            movem.l (sp)+,d0-d1/d4/a3
+            rts
+.one        move.w  v_ax(a5,d5.w),d0
+            move.w  v_ay(a5,d5.w),d1
+            bra     bob_blit
+
+; column d5 (record a2) comes out of the background and both displays: its rectangle (from
+; where it was stamped down to line 255) copied back from the work copy (backdrop + hills)
+col_unstamp:
+            movem.l d0-d7/a0-a1,-(sp)
+            move.w  #0,v_stamp(a5,d5.w)
+            move.w  v_sty(a5,d5.w),d0
+            bpl.s   .y0
+            moveq   #0,d0
+.y0         move.w  v_colbot(a5),d1
+            sub.w   d0,d1                   ; d1 = lines
+            ble     .r
+            mulu    v_bpr(a5),d0
+            move.w  v_stx(a5,d5.w),d2
+            bpl.s   .x0
+            moveq   #0,d2
+.x0         lsr.w   #4,d2
+            move.w  A_BSIZE(a2),d3
+            and.w   #63,d3                  ; d3 = words (the image's, and one for the shift)
+            move.w  #20,d4                  ; not past the right edge
+            sub.w   d2,d4
+            cmp.w   d4,d3
+            ble.s   .w
+            move.w  d4,d3
+.w          add.w   d2,d2
+            and.l   #$ffff,d2
+            add.l   d2,d0                   ; d0 = byte offset
+            lsl.w   #6,d1
+            or.w    d3,d1                   ; d1 = BLTSIZE
+            move.w  v_bpr(a5),d2
+            sub.w   d3,d2
+            sub.w   d3,d2                   ; d2 = modulo
+            bsr     bwait
+            move.l  #$09f00000,$40(a6)      ; D = A
+            move.l  #$ffffffff,$44(a6)
+            move.w  d2,$64(a6)
+            move.w  d2,$66(a6)
+            move.l  v_back(a5),a1
+            bsr.s   .cp
+            move.l  v_disp(a5),a1
+            bsr.s   .cp
+            move.l  v_disp2(a5),a1
+            bsr.s   .cp
+            bsr     bwait
+            bsr     draw_hud                ; (a HUD at the bottom may have been under it)
+.r          movem.l (sp)+,d0-d7/a0-a1
+            rts
+.cp         move.l  v_work(a5),a0
+            add.l   d0,a0
+            add.l   d0,a1
+            move.w  H_DEPTH(a4),d7
+            subq.w  #1,d7
+.pl         btst    #6,$1f(a6)              ; (bwait)
+            beq.s   .pl
+            move.l  a0,$50(a6)
+            move.l  a1,$54(a6)
+            move.w  #$0040,$9c(a6)
+            move.w  d1,$58(a6)
+            add.l   v_plsz(a5),a0
+            add.l   v_plsz(a5),a1
+            dbf     d7,.pl
+            rts
+
+; a platform player (d5, record a2) that walked or jumped across into the side of a shown
+; column, below its top by more than PLAT_GRAB, goes back to where it was: a wall. (Within
+; PLAT_GRAB of the top plat_stand steps it up; already in front of one, it walks on.)
+col_walls:  move.l  v_colall(a5),d0
+            beq     .r0
+            move.w  v_ax(a5,d5.w),d1
+            cmp.w   v_ox(a5,d5.w),d1
+            beq     .r0                     ; it did not move across
+            movem.l d0-d7/a0,-(sp)
+            move.w  v_ay(a5,d5.w),d3
+            add.w   A_BY1(a2),d3            ; d3 = its feet
+            moveq   #-1,d6
+.lp         tst.l   d0
+            beq     .out
+            addq.w  #1,d6
+            lsr.l   #1,d0
+            bcc.s   .lp
+            move.w  d6,d4
+            lsl.w   #ACTV_SHIFT,d4
+            cmp.w   d4,d5
+            beq.s   .lp
+            tst.w   v_vis(a5,d4.w)
+            beq.s   .lp
+            lea     v_arec(a5),a0
+            move.w  d6,d7
+            add.w   d7,d7
+            add.w   d7,d7
+            move.l  0(a0,d7.w),a0           ; a0 = the column's record
+            move.w  v_ay(a5,d4.w),d7
+            add.w   A_BY0(a0),d7
+            add.w   #PLAT_GRAB,d7
+            cmp.w   d7,d3                   ; its feet near enough the top: not a wall
+            ble.s   .lp
+            move.w  v_ax(a5,d4.w),d7
+            add.w   A_BX0(a0),d7            ; d7 = the column's left
+            move.w  v_ax(a5,d5.w),d1
+            add.w   A_BX1(a2),d1            ; its right now
+            cmp.w   d7,d1
+            blt.s   .lp
+            move.w  v_ax(a5,d4.w),d2
+            add.w   A_BX1(a0),d2            ; d2 = the column's right
+            move.w  v_ax(a5,d5.w),d1
+            add.w   A_BX0(a2),d1            ; its left now
+            cmp.w   d2,d1
+            bgt.s   .lp
+            move.w  v_ox(a5,d5.w),d1        ; in it now: was it clear of it before?
+            add.w   A_BX1(a2),d1
+            cmp.w   d7,d1
+            blt.s   .wall
+            move.w  v_ox(a5,d5.w),d1
+            add.w   A_BX0(a2),d1
+            cmp.w   d2,d1
+            ble     .lp                     ; it was already in front of it
+.wall       move.w  v_ox(a5,d5.w),v_ax(a5,d5.w)
+.out        movem.l (sp)+,d0-d7/a0
+.r0         rts
 
 ; ============================================================================
 ;  collisions - bounding boxes trimmed to each sprite's drawn pixels
@@ -5596,7 +5890,8 @@ scen_test:  movem.l d1/d5/a2,-(sp)
 ;  WHEN / DO rules
 ; ============================================================================
 run_rules:
-            move.w  H_NRULE(a4),d6
+            move.w  v_counter(a5),v_cnt0(a5)    ; IF counter lines see the counter as the frame
+            move.w  H_NRULE(a4),d6              ; started (one press moves a sequence one step)
             beq     .done
             move.l  H_RULES(a4),d0
             lea     0(a4,d0.l),a3
@@ -5607,14 +5902,27 @@ run_rules:
             add.w   d5,a2                   ; a2 = this rule's latch
             move.l  #-1,v_cta(a5)           ; no copies matched yet (v_cta and v_ctb)
             move.w  R_WHEN(a3),d0
-            cmp.w   #22,d0
+            cmp.w   #23,d0
             bhi     .next
             add.w   d0,d0
             move.w  .jt(pc,d0.w),d0
             jmp     .jt(pc,d0.w)
 .jt         dc.w    .touch-.jt,.fire-.jt,.timer-.jt,.score-.jt,.lives-.jt,.next-.jt,.jump-.jt,.next-.jt
             dc.w    .hold-.jt,.inview-.jt,.strike-.jt,.thrown-.jt,.pickup-.jt,.ltime-.jt,.auto-.jt,.mapend-.jt
-            dc.w    .aend-.jt,.iget-.jt,.iuse-.jt,.atedge-.jt,.scen-.jt,.count-.jt,.tout-.jt
+            dc.w    .aend-.jt,.iget-.jt,.iuse-.jt,.atedge-.jt,.scen-.jt,.count-.jt,.tout-.jt,.firedir-.jt
+
+.firedir    move.w  v_joy(a5),d0            ; fire pressed with the stick held way n (0 up,
+            btst    #4,d0                   ; 1 down, 2 left, 3 right): once a press, like WHEN 1
+            beq     .clear
+            move.w  R_N(a3),d1
+            and.w   #3,d1
+            btst    d1,d0
+            beq     .clear
+            tst.w   (a2)
+            bne     .next
+            move.w  #1,(a2)
+            bsr     fire_action
+            bra     .next
 
 .atedge     lea     edge_test(pc),a1        ; (a copy of) actor a is at edge n (0 left, 1 right,
             bra.s   .findc                  ; 2 top, 3 bottom): once each time it gets there
@@ -5806,9 +6114,13 @@ run_rules:
 .clear      move.w  #0,(a2)
             bra     .next
 
-.fire       btst    #4,v_joy+1(a5)
-            beq.s   .clear
-            bra.s   .edge
+.fire       btst    #4,v_joy+1(a5)          ; fire pressed: once a press, even when an IF line
+            beq.s   .clear                  ; says no (so holding it down does not let the next
+            tst.w   (a2)                    ; rule of a sequence fire as well)
+            bne     .next
+            move.w  #1,(a2)
+            bsr     fire_action
+            bra     .next
 
 .timer      tst.w   v_sectick(a5)
             beq     .next
@@ -5916,7 +6228,7 @@ do_action:
             move.w  d4,d5                   ; -> d5 = offset
             lsl.w   #ACTV_SHIFT,d5
             move.w  R_ACT(a3),d0
-            cmp.w   #40,d0
+            cmp.w   #43,d0
             bhi     act_none
             add.w   d0,d0
             move.w  acttab(pc,d0.w),d0
@@ -5964,6 +6276,9 @@ acttab:     dc.w    act_score-acttab
             dc.w    act_nosfx-acttab
             dc.w    act_pause-acttab
             dc.w    act_resume-acttab       ; 40
+            dc.w    act_stop-acttab         ; 41 (version 19)
+            dc.w    act_go-acttab
+            dc.w    act_again-acttab        ; 43
 
 ; DO that does nothing (also the 'no such actor' way out of the other act_*)
 act_none:   rts
@@ -6140,6 +6455,26 @@ act_stick:  cmp.w   H_NACT(a4),d4
             move.w  d1,v_hoy(a5,d5.w)
             rts
 
+; DO 41: target d4 stops where it is - it does not move (no stick, patrol, gravity or
+; jumping) until DO 42 or the level starts again. Something it stands on, or is stuck to,
+; still carries it.
+act_stop:   cmp.w   H_NACT(a4),d4
+            bhs     act_none
+            move.w  #1,v_still(a5,d5.w)
+            move.w  #0,v_vy(a5,d5.w)
+            rts
+
+; DO 42: target d4 moves again (after DO 41)
+act_go:     cmp.w   H_NACT(a4),d4
+            bhs     act_none
+            move.w  #0,v_still(a5,d5.w)
+            rts
+
+; DO 43: this level starts again from the start - its card, every actor back in its place,
+; the counter at 0 - keeping score, lives and items (a retry after a fall). Leaves the rule
+; (and the frame): DO lines after it on the card do not run.
+act_again:  bra     level_card
+
 ; DO 37: target d4 lets go (moves by itself again)
 act_letgo:  cmp.w   H_NACT(a4),d4
             bhs     act_none
@@ -6251,50 +6586,68 @@ if_check:   movem.l d1-d3/a0-a1,-(sp)
             moveq   #0,d3                   ; pass 0 checks, pass 1 spends
 .pass       move.w  R_NAND(a3),d2
             lea     RULE_SIZE(a3),a0
-            bra.s   .lc
+            bra     .lc
 .l          move.w  (a0),d0
-            bpl.s   .nx                     ; a DO line
+            bpl     .nx                     ; a DO line
             btst    #6,d0                   ; IF_POS: where two actors are (checked in pass 0)
-            beq.s   .item
+            beq     .cnt
             tst.w   d3
-            bne.s   .nx
+            bne     .nx
             bsr     if_pos
-            beq.s   .fail
-            bra.s   .nx
+            beq     .fail
+            bra     .nx
+.cnt        btst    #5,d0                   ; IF_CNT: the counter (as the frame started)
+            beq     .item
+            tst.w   d3
+            bne     .nx
+            move.w  v_cnt0(a5),d1
+            and.w   #3,d0
+            beq     .ceq
+            cmp.w   #1,d0
+            beq     .cge
+            cmp.w   2(a0),d1                ; below n
+            bhs     .fail
+            bra     .nx
+.ceq        cmp.w   2(a0),d1                ; is n
+            bne     .fail
+            bra     .nx
+.cge        cmp.w   2(a0),d1                ; at least n
+            blo     .fail
+            bra     .nx
 .item       move.w  4(a0),d1                ; its item
             cmp.w   #ITEM_MAX,d1
-            bhs.s   .fail
+            bhs     .fail
             add.w   d1,d1
             lea     v_icnt(a5),a1
             move.w  0(a1,d1.w),d1           ; how many the player carries
             and.w   #3,d0
             tst.w   d3
-            bne.s   .spend
+            bne     .spend
             cmp.w   #2,d0
-            beq.s   .none
+            beq     .none
             cmp.w   #3,d0
-            beq.s   .least
+            beq     .least
             tst.w   d1                      ; has / uses: one at least
-            beq.s   .fail
-            bra.s   .nx
+            beq     .fail
+            bra     .nx
 .none       tst.w   d1
-            bne.s   .fail
-            bra.s   .nx
+            bne     .fail
+            bra     .nx
 .least      cmp.w   2(a0),d1
-            blo.s   .fail
-            bra.s   .nx
+            blo     .fail
+            bra     .nx
 .spend      cmp.w   #1,d0
-            bne.s   .nx
+            bne     .nx
             move.w  4(a0),d0
             bsr     item_spend
 .nx         addq.l  #AND_SIZE,a0
 .lc         dbf     d2,.l
             tst.w   d3
-            bne.s   .ok
+            bne     .ok
             moveq   #1,d3
-            bra.s   .pass
+            bra     .pass
 .ok         moveq   #1,d0
-            bra.s   .o
+            bra     .o
 .fail       moveq   #0,d0
 .o          movem.l (sp)+,d1-d3/a0-a1
             tst.w   d0
@@ -7869,6 +8222,41 @@ pat_lim:    move.l  d4,-(sp)
             bra.s   .r
 .all        moveq   #0,d2
 .r          move.l  (sp)+,d4
+            rts
+
+; A patrol with CARRY_EASE: d0 = where it is, d2..d3 = its ends, d1 = its speed, a0 = its
+; 1/16-pixel remainder (v_ysub / v_xsub). -> d1 = whole pixels to move this frame: full
+; speed in the middle half of its way, slowing towards each end (down to a quarter pixel a
+; frame), like a swing or a piston on a crank. Changes d1, d4 and the remainder.
+ease_step:  movem.l d0/d2-d3,-(sp)
+            sub.w   d2,d0                   ; d0 = from the low end
+            move.w  d3,d4
+            sub.w   d2,d4                   ; d4 = the whole way
+            sub.w   d0,d3
+            add.w   d2,d3                   ; d3 = to the high end
+            cmp.w   d0,d3
+            bge.s   .near
+            move.w  d3,d0                   ; d0 = to the nearer end
+.near       tst.w   d0
+            bpl.s   .p
+            moveq   #0,d0
+.p          lsr.w   #2,d4                   ; a quarter of the way: easing in and out
+            bne.s   .r
+            moveq   #1,d4
+.r          lsl.w   #4,d1                   ; speed in 1/16 pixels
+            cmp.w   d4,d0
+            bhs.s   .full
+            mulu    d0,d1                   ; x distance / quarter way
+            divu    d4,d1
+.full       cmp.w   #4,d1                   ; at least a quarter pixel a frame
+            bhs.s   .m
+            moveq   #4,d1
+.m          add.w   (a0),d1
+            move.w  d1,d4
+            and.w   #15,d4
+            move.w  d4,(a0)                 ; the fraction left over
+            lsr.w   #4,d1
+            movem.l (sp)+,d0/d2-d3
             rts
 
 ; move_actors, first: where each actor that can be stood on is (v_plx / v_ply),

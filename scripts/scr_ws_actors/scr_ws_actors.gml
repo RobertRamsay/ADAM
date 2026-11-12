@@ -131,7 +131,7 @@ function actors_bob_flags()
     if (scroll_across(proj)) { _nspr = ACT_MAX_SPR - 1; }   // the fine scroll takes sprite 7's time
     for (var i = 0; i < _n; i++)
     {
-        if (proj.actors[i].bob || _spr >= _nspr || spr_is_big(proj.sprites[clamp(proj.actors[i].sprite, 0, SPR_COUNT - 1)]))
+        if (proj.actors[i].bob || proj.actors[i].column || _spr >= _nspr || spr_is_big(proj.sprites[clamp(proj.actors[i].sprite, 0, SPR_COUNT - 1)]))
         {
             _out[i] = true;
         }
@@ -141,6 +141,19 @@ function actors_bob_flags()
         }
     }
     return _out;
+}
+
+/// The line columns stand on (actor setting 'Reaches the floor'): 256, or the top of a HUD
+/// in the bottom half of the screen (engine v_colbot)
+function col_floor()
+{
+    if (proj.ui.on && pro_on())
+    {
+        if (proj.ui.bottom) { return 256 - proj.ui.rows * 8; }
+        return 256;
+    }
+    if (proj.hud_row >= 16) { return proj.hud_row * 8; }
+    return 256;
 }
 
 /// The Amiga's 8 sprites are 4 pairs and each pair shares one set of 3 colours.
@@ -425,6 +438,19 @@ function ws_actors_draw(_x1, _y1, _x2, _y2)
         if (!_ac2.visible) { _alpha = 0.4; }
         var _frame_spr = actor_preview_sprite(_ac2);
         draw_sprite_amiga_cols(_frame_spr, _dx, _dy, _scale, actor_cols_from(_alloc, d), _alpha);
+        if (_ac2.column && !proj.tiles_on)
+        {
+            // a column: its last drawn row goes on down to the bottom of the screen
+            var _cb = sprite_bottom(_frame_spr) + 1;
+            var _cfl = col_floor();
+            if (_ac2.y + _cb > _cfl)
+            {
+                // a tall picture: cut off at the floor (redrawn over by the backdrop strip below it)
+                _cb = max(0, _cfl - _ac2.y);
+            }
+            var _crows = _cfl - (_ac2.y + _cb);
+            if (_crows > 0) { draw_sprite_column_cols(_frame_spr, max(0, sprite_bottom(_frame_spr)), _dx, _dy + _cb * _scale, _scale, _crows, actor_cols_from(_alloc, d), _alpha); }
+        }
     }
     // platforms: their tops (what is stood on) in a bright line
     for (var pq = 0; pq < _na; pq++)
@@ -601,6 +627,11 @@ function ws_actors_draw(_x1, _y1, _x2, _y2)
         if (_s.patrol > 0) { _ptxt = string(_s.patrol * 8) + " pixels"; }
         ui_text(_fx2 + _half + 12, _y + 34, _ptxt, global.TH.text_dim, fa_left, fa_middle, global.f_body, 1);
         _y += 62;
+        if (!_diag)
+        {
+            set_val(_s, "ease", ui_toggle("act_ease", _fx2, _y, "Eases in and out", _s.ease, "Eases in and out|It slows down near each end of its patrol and is fastest in the middle, like a swing or a piston on a crank - a rising column is easier to stop at the top or bottom. Its speed is the middle speed."), "actease");
+            _y += 32;
+        }
     }
     if (_s.role == 9)
     {
@@ -729,6 +760,11 @@ function ws_actors_draw(_x1, _y1, _x2, _y2)
         _y += 34;
         set_val(_s, "stand_on", ui_toggle("act_standon", _fx2, _y, "Can be stood on (a platform)", _s.stand_on, "Can be stood on|A moving platform: a platform player (and hoppers, fallers and thrown things) landing on its top stands on it and rides along - jump up through it from below. Make it Patrol left-right or Patrol up-down and set how far it patrols for a lift or a ferry. Its top is the top of its drawn pixels, so draw a flat sprite."), "actstandon");
         _y += 34;
+        if (!proj.tiles_on)
+        {
+            set_val(_s, "column", ui_toggle("act_column", _fx2, _y, "Reaches the floor (a column)", _s.column, "Reaches the floor|A pillar, piston or tree trunk: the bottom row of its picture goes on down to the bottom of the screen, and its sides are walls a platform player cannot walk through (a step of up to 12 pixels it climbs). Always a BOB. Make it Patrol up-down to rise and sink, and 'Can be stood on' to stand on its top. A column that is stopped (DO 'Stop actor where it is') is drawn into the backdrop and costs nothing; moving ones take blitter time, so keep a few moving at once on an A500. Not in tile worlds or scrolling games."), "actcolumn");
+            _y += 34;
+        }
     }
     var _yend = _y;     // bottom of the settings, for the scroll height below
 
