@@ -36,6 +36,14 @@ at with Find. Do **not** commit this to `main` - day-to-day
 development runs with it `true`. Keep it on the release branch or revert it
 after the build.
 
+**Webhook:** 'Submit your game' and crash reports only work in a build whose
+`scripts/scr_webhook_secret/scr_webhook_secret.gml` holds the Discord webhook
+URL. It is committed empty (the repo is public) and the real URL lives only in
+the working copy, hidden from git with
+`git update-index --skip-worktree scripts/scr_webhook_secret/scr_webhook_secret.gml`.
+Before a release build check the macro is filled in - on the Mac too (a fresh
+clone or the `mac` branch has it empty). Never commit the URL.
+
 ## 2b. Lite and Pro: two builds
 
 ADAM Lite (free) and ADAM Pro (paid) are two zips from the same project. The

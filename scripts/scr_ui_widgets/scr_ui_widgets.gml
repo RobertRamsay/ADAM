@@ -25,7 +25,8 @@
 ///   controls drawn after it - or underneath it - do not also react.
 ///   ui_pressed_raw keeps the untouched value for ui_frame_end.
 /// - ui_input_ok is false while a modal is up (popup list, machine picker,
-///   About, confirm box, What's new, a tutorial step); ui_hit then says no
+///   About, confirm box, What's new, Submit your game, the crash question,
+///   a tutorial step); ui_hit then says no
 ///   to every control. A tutorial step lets clicks through its own target
 ///   rect only. ui_force_input lets the popup itself still take input.
 /// - ui_focus = id of the text field being typed into ("" = none). A field
@@ -94,6 +95,10 @@ function ui_frame_begin()
         ui_input_ok = false;
     }
     if (whatsnew_active)
+    {
+        ui_input_ok = false;
+    }
+    if (submit_active || crash_active)
     {
         ui_input_ok = false;
     }

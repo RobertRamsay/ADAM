@@ -2129,6 +2129,7 @@ function settings_load()
     update_check_on = ini_read_real("ui", "update_check", 1) == 1;
     fsuae_path = ini_read_string("paths", "fsuae", "");
     var _old_kick = ini_read_string("paths", "kickstart", "");     // before one ROM per machine
+    crash_ask = ini_read_real("ui", "crash_ask", 1) == 1;
     for (var k = 0; k < array_length(global.MACHINES); k++)
     {
         kick_paths[k] = ini_read_string("paths", "kickstart_" + global.MACHINES[k].id, "");
@@ -2208,6 +2209,9 @@ function settings_save()
     ini_write_real("ui", "update_check", _uc);
     ini_write_real("window", "x", wsave_x);
     ini_write_real("window", "y", wsave_y);
+    var _ca = 0;
+    if (crash_ask) { _ca = 1; }
+    ini_write_real("ui", "crash_ask", _ca);
     ini_write_real("window", "w", wsave_w);
     ini_write_real("window", "h", wsave_h);
     for (var i = 0; i < WS_COUNT; i++)

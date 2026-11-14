@@ -476,7 +476,7 @@ function lesson_menu_names()
 /// The lesson card (drawn after the page so ui_rects holds this frame's controls)
 function lesson_draw(_gw, _gh)
 {
-    if (!les_active || tut_active || machine_pick_active || about_active || whatsnew_active)
+    if (!les_active || tut_active || machine_pick_active || about_active || whatsnew_active || submit_active || crash_active)
     {
         les_card_rect = [0, 0, 0, 0];
         return;

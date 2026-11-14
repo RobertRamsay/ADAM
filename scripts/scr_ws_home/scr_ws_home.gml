@@ -216,7 +216,8 @@ function home_examples_draw(_px1, _cy, _px2, _y2, _ly1, _ly2)
 
 /// The Community games panel (Community button; global.COMMUNITY, see community_init):
 /// the same rows as the examples, with "by ..." as the tag. A click plays the game's own
-/// disk in FS-UAE (the list holds finished disks, not projects).
+/// disk in FS-UAE (the list holds finished disks, not projects). Under the list:
+/// 'Submit your game' opens the form (submit_open in scr_report).
 function home_community_draw(_px1, _cy, _px2, _y2, _ly1, _ly2)
 {
     ui_panel(_px1, _cy, _px2, _y2, "Community games");
@@ -228,6 +229,20 @@ function home_community_draw(_px1, _cy, _px2, _y2, _ly1, _ly2)
     var _ex1 = _px1 + 4;
     var _ex2 = _px2 - 4;
     var _n = array_length(global.COMMUNITY);
+    // Submit your game, under the list (scr_report), with what it means below it
+    var _swarn = "All of its art, rules and sounds will be open for everyone to see and use - that is on you.";
+    draw_set_font(global.f_small);
+    var _swh = ceil(ui_sh_ext(_swarn, _ex2 - _ex1 - 24));
+    var _sby = _ly2 - 4 - _swh - 6 - 36;
+    var _slabel = "Submit your game for the Community section";
+    draw_set_font(global.f_bold);
+    if (ui_sw(_slabel) > _ex2 - _ex1 - 48) { _slabel = "Submit your game"; }
+    if (ui_button("home_submit", _ex1 + 8, _sby, _ex2 - _ex1 - 16, 36, _slabel, "Submit your game|Offer a game you made with ADAM for this list. You give a link to your .adam project file; if it is chosen, everybody can load it, so all of its art, rules, sounds and music are open for everyone to see and use. That is your choice and your responsibility.", BTN_ACCENT))
+    {
+        submit_open();
+    }
+    ui_text_wrap(_ex1 + 12, _sby + 42, _swarn, global.TH.text_faint, _ex2 - _ex1 - 24, global.f_small, 1);
+    _ly2 = _sby - 8;
     var _shw = clamp(floor((_ex2 - _ex1) * 0.36), 120, 180);
     var _exmin = max(64, round(_shw * 0.8) + 16);
     var _h = 0;
@@ -249,7 +264,7 @@ function home_community_draw(_px1, _cy, _px2, _y2, _ly1, _ly2)
     ui_scroll_end("home_community", _ex1, _ly1, _ex2, _ly2, _h + 6);
     if (_n == 0)
     {
-        ui_text_wrap(_ex1 + 16, _ly1 + 16, "No community games yet. When people make games with ADAM, they will be listed here.", global.TH.text_dim, _ex2 - _ex1 - 32, global.f_body, 1);
+        ui_text_wrap(_ex1 + 16, _ly1 + 16, "No community games yet. When people make games with ADAM, they will be listed here. Made one? Submit it with the button below.", global.TH.text_dim, _ex2 - _ex1 - 32, global.f_body, 1);
     }
 }
 

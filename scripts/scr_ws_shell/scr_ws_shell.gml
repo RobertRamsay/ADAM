@@ -289,6 +289,7 @@ function shortcuts_step()
     if (about_active) { return; }
     if (confirm_active) { return; }
     if (whatsnew_active) { return; }
+    if (submit_active || crash_active) { return; }
     var _ctrl = keyboard_check(vk_control);
     if (_ctrl && keyboard_check_pressed(ord("Z"))) { undo_do(); }
     if (_ctrl && keyboard_check_pressed(ord("Y"))) { redo_do(); }
