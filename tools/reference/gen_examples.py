@@ -31,6 +31,7 @@
 import json, math, random, struct, sys, os
 from PIL import Image, ImageDraw
 import art, gh_art, shade
+import arcade        # the arcade redraws: replaces art.A pictures of the same names
 from adf_reference import build, adf, loadscr_block, ENGINE, ENGINE_DIR, HERE, REPO
 
 W,H=320,256
@@ -515,7 +516,7 @@ def deep_dive():
         d.ellipse([x-r,y-r,x+r,y+r],outline=6)
     d.rectangle([0,0,319,11],fill=2)
     px=list(im.getdata()); text(px,"FIND THE PEARLS - MIND THE SHARK",28,246,1); im.putdata(px)
-    diver=[0xffcc30,0x203040,0x90f0ff]; jelly=[0xff80c0,0xff60a0,0xffd0f0]; shark=[0x000000,0x6a7a8a,0xe0e8f0]; pearl=[0xfff0f8,0xa080a0,0xffffff]
+    diver=[0xffcc30,0x203040,0xc8f4ff]; jelly=[0xff80c0,0x8a1a5a,0xffd0f0]; shark=[0x000000,0x6a7a8a,0xe0e8f0]; pearl=[0xf0d8ec,0x8a5a8a,0xffffff]
     sprites=[("Diver","diver",diver),("Jellyfish","jelly",jelly),("Shark","shark",shark),("Pearl","pearl",pearl),
              ("Diver kick","diver2",diver),("Jelly swim","jelly2",jelly),("Shark tail","shark2",shark),("Pearl shine","pearl2",pearl)]
     actors=[actor("Diver",0,0,2,150,110,4,7,True),actor("Jelly 1",1,3,1,70,40,5,12,up=False),actor("Jelly 2",1,3,1,240,150,5,12,up=True),
@@ -738,50 +739,8 @@ def firefly_night():
         if y<255: d.line([(x,y),(x+rnd.choice((-1,1)),y-3)],fill=7)
     d.rectangle([0,0,319,11],fill=2)
     px=list(im.getdata()); text(px,"CATCH THE FIREFLIES - MIND THE BATS",20,246,1); im.putdata(px)
-    # 24 rows of 16 '.123' letters from fn(x, y) -> 0..3
-    def grid(fn): return ["".join(".123"[fn(x,y)] for x in range(16)) for y in range(24)]
-    # the owl's pixel (x, y) 0..3; flap = wings out
-    def owl(x,y,flap=False):
-        inb=lambda xx,yy: ((xx-7.5)/6.5)**2+((yy-12.5)/8.5)**2<=1
-        v=0
-        if inb(x,y):
-            v=1
-            if not (inb(x-1,y) and inb(x+1,y) and inb(x,y-1) and inb(x,y+1)): v=2
-            if ((x-7.5)/3.6)**2+((y-15.5)/4.6)**2<=1: v=3                     # pale belly
-        for ex in (5,10):                                                    # big eyes
-            if math.hypot(x-ex,y-9)<=1.9: v=3
-            if (x,y) in ((ex,9),(ex,10)): v=2
-        if (x,y) in ((7,11),(8,11),(7,12),(8,12)): v=2                         # beak
-        if y in (3,4,5) and x in (3,4,12,11) and (y-3)<=(1 if x in (3,12) else 2): v=2   # ear tufts
-        if y in (21,22) and x in (5,6,9,10): v=2                               # feet
-        if flap and 11<=y<=15 and x in (0,1,14,15): v=2 if y in (11,15) else 1   # wings out
-        if not flap and 12<=y<=16 and x in (1,14): v=2                         # wings folded
-        return v
-    # a firefly's pixel; big = the tail glows big
-    def firefly(x,y,big=True):
-        v=0
-        r=math.hypot(x-7.5,y-15.5)
-        if r<=(4.2 if big else 2.4): v=1                                     # the glowing tail
-        if 6<=x<=9 and 9<=y<=13: v=2                                         # body
-        if (x,y) in ((7,8),(8,8),(6,8),(9,8)): v=2                           # head
-        if (x in (4,5) and y in (9,10)) or (x in (10,11) and y in (9,10)): v=3   # wings
-        return v
-    # a bat's pixel; up = wings up
-    def bat(x,y,up=False):
-        v=0
-        if ((x-7.5)/2.6)**2+((y-12)/3.6)**2<=1: v=1                          # body
-        for side in (-1,1):
-            for k in range(1,8):
-                wx=round(7.5+side*(1.5+k)); top=(9-(k//2) if up else 10+(k//3))
-                bot=top+4-(k%3 if not up else (k%2))
-                if wx==x and top<=y<=bot: v=1 if y<bot else 2
-        if (x,y) in ((6,8),(9,8),(6,7),(9,7)): v=2                           # ears
-        if (x,y) in ((6,11),(9,11)): v=3                                     # eyes
-        return v
-    art.A['ff_owl']=grid(lambda x,y: owl(x,y)); art.A['ff_owl2']=grid(lambda x,y: owl(x,y,True))
-    art.A['ff_fly']=grid(lambda x,y: firefly(x,y)); art.A['ff_fly2']=grid(lambda x,y: firefly(x,y,False))
-    art.A['ff_bat']=grid(lambda x,y: bat(x,y)); art.A['ff_bat2']=grid(lambda x,y: bat(x,y,True))
-    owl_c=[0xa0703a,0x2a1808,0xf0e0b0]; fly_c=[0xffee70,0x3a2818,0xffffff]; bat_c=[0x5a3a7a,0x160c22,0xff4040]
+    # the cast: ff_owl / ff_bat / ff_fly (and their flap / blink frames) are drawn in arcade.py
+    owl_c=[0xa0703a,0x2a1808,0xf0e0b0]; fly_c=[0xffee70,0x3a2818,0xffffff]; bat_c=[0x7a4ab0,0x160c22,0xff4040]
     sprites=[("Owl","ff_owl",owl_c),("Firefly","ff_fly",fly_c),("Bat","ff_bat",bat_c),
              ("Owl flap","ff_owl2",owl_c),("Firefly blink","ff_fly2",fly_c),("Bat flap","ff_bat2",bat_c)]
     actors=[actor("Owl",0,0,2,150,110,3,8,True),
@@ -1164,10 +1123,10 @@ PRIVATE={'pillar_run'}
 # dithered shadow on round bodies ('round'), a lit rim and a shadow edge on others ('edge')
 R_=dict(mode='round'); E_=dict(mode='edge')
 SHADE={'dodge_ball':{'Player':R_,'Red 1':R_,'Red 2':R_,'Yellow 1':R_,'Yellow 2':R_},
-       'dig_deep':{'Slime 1':R_,'Slime 2':R_,'Rock':R_,'Mole':R_},
+       'dig_deep':{'Slime 1':R_,'Slime 2':R_,'Rock':R_},
        'torchlight':{'Hopper':R_},
        'star_catcher':{'Asteroid 1':R_,'Asteroid 2':R_,'UFO':E_},
-       'deep_dive':{'Pearl':R_}}
+       'deep_dive':{}}
 
 if __name__=='__main__':
     OUT=os.path.join(HERE,'out'); os.makedirs(OUT,exist_ok=True)
