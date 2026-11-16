@@ -48,10 +48,11 @@ function draw_logo(_x, _y, _compact)
     var _tw = ui_sw("ADAM");
     var _w = 10 + 26 + 10 + _tw + 14 + 22;
     if (_compact) { _w = 42; }
-    ui_rrect(_x, _y + 2, _x + _w, _y + _h + 2, _r, c_black, c_black, 0.3);
-    ui_rrect(_x, _y, _x + _w, _y + _h, _r, make_colour_rgb(68, 79, 96), make_colour_rgb(38, 45, 57), 1);
-    ui_rrect(_x + 2, _y + 1, _x + _w - 2, _y + _h * 0.45, _r - 1, c_white, c_white, 0.06);
-    ui_rrect_line(_x, _y, _x + _w, _y + _h, _r, global.TH.panel_edge, 0.8, 1);
+    ui_rrect(_x, _y + 2, _x + _w, _y + _h + 2, _r, c_black, c_black, 0.35);
+    ui_rrect_line(_x - 1, _y - 1, _x + _w + 1, _y + _h + 1, _r + 1, c_black, 0.6, 1);
+    ui_rrect(_x, _y, _x + _w, _y + _h, _r, make_colour_rgb(70, 77, 90), make_colour_rgb(30, 34, 43), 1);
+    ui_rrect(_x + 1, _y + 1, _x + _w - 1, _y + _h * 0.5, _r - 1, c_white, make_colour_rgb(70, 77, 90), 0.12);
+    ui_rrect_rim(_x, _y, _x + _w, _y + _h, _r, global.TH.rim_top, global.TH.rim_bot, 0.85);
 
     // the ball doubles as the quit button: hovered, it fades into an X (0.4 s)
     var _qhot = ui_register("top_quit", _x + 2, _y, _x + 40, _y + _h, "Quit ADAM|Click to close ADAM. Your work is kept: it opens again next time you start ADAM.");
@@ -101,11 +102,17 @@ function draw_logo(_x, _y, _compact)
 /// The page tabs get whatever width is left between the two groups.
 function draw_topbar(_gw)
 {
-    // bar background, edge line and a faint shadow under it
+    // bar background, a brighter band at the top, and along its foot a chrome line
+    // (silver in the middle, fading out at both ends) with a shadow under it
     ui_rrect(0, -20, _gw, 60, 0, global.TH.bar_top, global.TH.bar_bot, 1);
-    draw_line_colour(0, 60, _gw, 60, global.TH.panel_edge, global.TH.panel_edge);
-    draw_set_alpha(0.25);
-    draw_line_colour(0, 61, _gw, 61, c_black, c_black);
+    draw_set_alpha(0.07);
+    draw_rectangle_colour(0, 0, _gw, 22, c_white, c_white, global.TH.bar_top, global.TH.bar_top, false);
+    draw_set_alpha(1);
+    draw_line_colour(0, 59, _gw, 59, c_black, c_black);
+    draw_line_colour(0, 60, _gw * 0.5, 60, global.TH.rim_bot, global.TH.rim_top);
+    draw_line_colour(_gw * 0.5, 60, _gw, 60, global.TH.rim_top, global.TH.rim_bot);
+    draw_set_alpha(0.45);
+    draw_rectangle_colour(0, 61, _gw, 66, c_black, c_black, c_black, c_black, false);
     draw_set_alpha(1);
 
     // widths of the right-hand buttons, sized from their labels so they are never cut short
@@ -205,7 +212,7 @@ function draw_topbar(_gw)
     }
     var _tsum = 0;
     for (var t3 = 0; t3 < _nt; t3++) { _tsum += _tws[t3]; }
-    ui_rrect(_tx - 6, 11, _tx + _tsum + 6, 49, 19, global.TH.inset_top, global.TH.inset_bot, 0.8);
+    ui_inset(_tx - 6, 11, _tx + _tsum + 6, 49, 19);
     var _tabx = _tx;
     for (var i = 0; i < _nt; i++)
     {

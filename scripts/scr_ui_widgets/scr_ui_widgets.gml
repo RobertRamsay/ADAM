@@ -268,25 +268,41 @@ function ui_button(_id, _x, _y, _w, _h, _label, _help, _style)
             _edge = global.TH.panel_edge;
             break;
         case BTN_ON:
-            _ct = merge_colour(global.TH.accent2, c_white, _a * 0.12);
-            _cb = merge_colour(make_colour_rgb(46, 140, 116), global.TH.accent2, _a * 0.2);
-            _tc = make_colour_rgb(16, 30, 28);
+            _ct = merge_colour(make_colour_rgb(255, 196, 110), c_white, _a * 0.12);
+            _cb = merge_colour(make_colour_rgb(200, 96, 14), global.TH.accent2, _a * 0.2);
+            _tc = make_colour_rgb(34, 18, 4);
             _edge = global.TH.accent2;
             break;
     }
+    // metal: a dark outline and drop shadow, the face (darker while held down), a
+    // gloss over its top half, then a rim lit along the top edge (ui_rrect_rim)
     var _oy = 0;
-    if (_down) { _oy = 1; }
-    if (_style != BTN_GHOST || _a > 0.05)
+    if (_down)
     {
-        ui_rrect(_x, _y + 2, _x + _w, _y + _h + 2, _r, c_black, c_black, 0.25);
+        _oy = 1;
+        _ct = merge_colour(_ct, c_black, 0.18);
+        _cb = merge_colour(_cb, c_black, 0.1);
     }
     var _alpha = 1;
     if (_style == BTN_GHOST) { _alpha = 0.35 + 0.65 * _a; }
+    if (_style != BTN_GHOST || _a > 0.05)
+    {
+        ui_rrect(_x, _y + 2, _x + _w, _y + _h + 2, _r, c_black, c_black, 0.35 * _alpha);
+        ui_rrect_line(_x - 1, _y - 1 + _oy, _x + _w + 1, _y + _h + 1 + _oy, _r + 1, c_black, 0.6 * _alpha, 1);
+    }
     ui_rrect(_x, _y + _oy, _x + _w, _y + _h + _oy, _r, _ct, _cb, _alpha);
-    ui_rrect_line(_x, _y + _oy, _x + _w, _y + _h + _oy, _r, _edge, 0.45 + 0.4 * _a, 1);
-    ui_rrect(_x + 2, _y + 1 + _oy, _x + _w - 2, _y + _h * 0.45 + _oy, _r - 1, c_white, c_white, 0.06);
-    ui_glow(_x, _y + _oy, _x + _w, _y + _h + _oy, _r, global.TH.accent, _a * 0.8);
+    if (!_down)
+    {
+        ui_rrect(_x + 1, _y + 1 + _oy, _x + _w - 1, _y + _h * 0.5 + _oy, _r - 1, c_white, _ct, 0.13 * _alpha);
+    }
+    ui_rrect_rim(_x, _y + _oy, _x + _w, _y + _h + _oy, _r, merge_colour(_edge, c_white, 0.65), merge_colour(_cb, c_black, 0.35), (0.55 + 0.35 * _a) * _alpha);
+    ui_glow(_x, _y + _oy, _x + _w, _y + _h + _oy, _r, global.TH.accent, _a * 0.6);
     var _lab = ui_text_fit(_label, global.f_bold, _w - 12);
+    // a dark line under light lettering, a light one under dark lettering: engraved
+    if (colour_get_value(_tc) > 128)
+    {
+        ui_text(_x + _w * 0.5, _y + _h * 0.5 + _oy + 1, _lab, c_black, fa_center, fa_middle, global.f_bold, 0.35 * _alpha);
+    }
     ui_text(_x + _w * 0.5, _y + _h * 0.5 + _oy, _lab, _tc, fa_center, fa_middle, global.f_bold, 1);
 
     if (_hot && ui_pressed)
@@ -330,8 +346,12 @@ function ui_tab(_id, _x, _y, _w, _h, _label, _selected, _help)
     var _r = _h * 0.5;
     if (_sa > 0.02)
     {
-        ui_rrect(_x, _y, _x + _w, _y + _h, _r, global.TH.accent, global.TH.accent_dark, _sa);
-        ui_glow(_x, _y, _x + _w, _y + _h, _r, global.TH.accent, _sa * 0.6);
+        // the chosen tab: a lit cobalt pill with a gloss and a light rim
+        ui_rrect(_x, _y + 1, _x + _w, _y + _h + 1, _r, c_black, c_black, 0.4 * _sa);
+        ui_rrect(_x, _y, _x + _w, _y + _h, _r, merge_colour(global.TH.accent, c_white, 0.12), global.TH.accent_dark, _sa);
+        ui_rrect(_x + 1, _y + 1, _x + _w - 1, _y + _h * 0.5, _r - 1, c_white, global.TH.accent, 0.18 * _sa);
+        ui_rrect_rim(_x, _y, _x + _w, _y + _h, _r, merge_colour(global.TH.accent, c_white, 0.7), global.TH.accent_dark, 0.8 * _sa);
+        ui_glow(_x, _y, _x + _w, _y + _h, _r, global.TH.accent, _sa * 0.5);
     }
     if (_a > 0.02 && !_selected)
     {

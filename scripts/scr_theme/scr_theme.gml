@@ -5,33 +5,45 @@
 /// them to fit the window) and the fonts at scale 1.
 function theme_init()
 {
+    // Gunmetal and silver: dark blue-grey metal, silver rims that catch the light at the
+    // top (rim_top) and fall into shadow at the bottom (rim_bot), a cobalt accent and
+    // the Amiga's orange. ui_panel / ui_button / ui_inset (scr_ui_draw, scr_ui_widgets)
+    // turn these into bevelled metal.
+    // Gunmetal and silver: dark blue-grey metal, silver rims that catch the light at
+    // the top (rim_top) and fall into shadow below (rim_bot), a cobalt accent and the
+    // Amiga's orange. ui_panel / ui_inset (scr_ui_draw) and ui_button / ui_tab
+    // (scr_ui_widgets) turn them into bevelled metal.
     global.TH = {
-        bg_top      : make_colour_rgb(44, 52, 66),
-        bg_bot      : make_colour_rgb(17, 21, 29),
-        bar_top     : make_colour_rgb(56, 66, 82),
-        bar_bot     : make_colour_rgb(36, 43, 55),
-        panel_top   : make_colour_rgb(53, 62, 77),
-        panel_bot   : make_colour_rgb(35, 41, 52),
-        panel_edge  : make_colour_rgb(80, 93, 112),
-        inset_top   : make_colour_rgb(25, 30, 38),
-        inset_bot   : make_colour_rgb(32, 38, 47),
-        btn_top     : make_colour_rgb(76, 88, 106),
-        btn_bot     : make_colour_rgb(55, 64, 78),
-        btn_hot_top : make_colour_rgb(96, 110, 131),
-        btn_hot_bot : make_colour_rgb(67, 78, 94),
-        accent      : make_colour_rgb(84, 150, 255),
-        accent_dark : make_colour_rgb(30, 92, 196),
+        bg_top      : make_colour_rgb(34, 39, 49),
+        bg_bot      : make_colour_rgb(11, 13, 18),
+        bar_top     : make_colour_rgb(62, 68, 80),
+        bar_bot     : make_colour_rgb(24, 28, 36),
+        panel_top   : make_colour_rgb(46, 52, 63),
+        panel_bot   : make_colour_rgb(28, 32, 40),
+        panel_edge  : make_colour_rgb(92, 102, 118),
+        inset_top   : make_colour_rgb(13, 15, 20),
+        inset_bot   : make_colour_rgb(22, 25, 32),
+        btn_top     : make_colour_rgb(98, 106, 120),
+        btn_bot     : make_colour_rgb(50, 56, 68),
+        btn_hot_top : make_colour_rgb(130, 139, 154),
+        btn_hot_bot : make_colour_rgb(66, 73, 87),
+        rim_top     : make_colour_rgb(214, 222, 234),
+        rim_bot     : make_colour_rgb(40, 45, 55),
+        silver      : make_colour_rgb(196, 204, 216),
+        accent      : make_colour_rgb(70, 156, 255),
+        accent_dark : make_colour_rgb(22, 74, 170),
         accent2     : make_colour_rgb(255, 150, 40),
         warn        : make_colour_rgb(255, 204, 87),
-        danger      : make_colour_rgb(255, 107, 107),
-        danger_dark : make_colour_rgb(176, 62, 62),
-        text        : make_colour_rgb(230, 235, 242),
-        text_dim    : make_colour_rgb(154, 165, 180),
-        text_faint  : make_colour_rgb(104, 114, 130),
+        danger      : make_colour_rgb(255, 98, 98),
+        danger_dark : make_colour_rgb(160, 44, 50),
+        text        : make_colour_rgb(234, 238, 245),
+        text_dim    : make_colour_rgb(160, 170, 186),
+        text_faint  : make_colour_rgb(106, 116, 132),
         shadow      : c_black,
-        radius      : 10
+        radius      : 8
     };
 
+    global.spr_grain = -1;     // brushed-metal grain tile (ui_grain in scr_ui_draw), made on first use
     global.ui_scale = 1;
     global.ui_sx = 1;
     global.ui_sy = 1;

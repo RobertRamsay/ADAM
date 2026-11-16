@@ -71,6 +71,25 @@ function ui_rrect_line(_x1, _y1, _x2, _y2, _r, _col, _alpha, _thick)
     }
 }
 
+/// Rounded outline whose colour runs from _ctop at the top edge to _cbot 40 px
+/// below it (or at the bottom of a smaller rect): a metal rim lit from above.
+function ui_rrect_rim(_x1, _y1, _x2, _y2, _r, _ctop, _cbot, _alpha)
+{
+    if (_x2 <= _x1 || _y2 <= _y1) { return; }
+    var _rr = max(0, min(_r, (_x2 - _x1) * 0.5, (_y2 - _y1) * 0.5));
+    var _pts = ui_rr_points(_x1, _y1, _x2, _y2, _rr);
+    var _n = array_length(_pts);
+    var _h = max(1, min(40, _y2 - _y1));
+    draw_primitive_begin(pr_linestrip);
+    for (var i = 0; i < _n; i += 2)
+    {
+        var _t = clamp((_pts[i + 1] - _y1) / _h, 0, 1);
+        draw_vertex_colour(_pts[i], _pts[i + 1], merge_colour(_ctop, _cbot, _t), _alpha);
+    }
+    draw_vertex_colour(_pts[0], _pts[1], merge_colour(_ctop, _cbot, clamp((_pts[1] - _y1) / _h, 0, 1)), _alpha);
+    draw_primitive_end();
+}
+
 /// Soft drop shadow under a rounded rect: 4 black rings growing 2 px each,
 /// shifted 4 px down. _strength scales the darkness (1 = panels, 1.5 = popups).
 function ui_shadow(_x1, _y1, _x2, _y2, _r, _strength)
@@ -94,28 +113,64 @@ function ui_glow(_x1, _y1, _x2, _y2, _r, _col, _strength)
     }
 }
 
-/// Raised panel with title
+/// Raised panel with title: a gunmetal plate with a dark outer edge and a silver
+/// rim that catches the light along its top. A titled panel has a nameplate across
+/// its top 42 px - brushed metal a shade lighter than the plate, with the brushed
+/// grain (ui_grain) on it - set off by a groove, and the title engraved into it
+/// beside a short silver-to-blue bar. Pages put their own things on the plate's
+/// right (hints, "Saved with this game"), which still reads on it.
 function ui_panel(_x1, _y1, _x2, _y2, _title)
 {
     var _r = global.TH.radius + 2;
-    ui_shadow(_x1, _y1, _x2, _y2, _r, 1);
-    ui_rrect(_x1, _y1, _x2, _y2, _r, global.TH.panel_top, global.TH.panel_bot, 0.96);
-    ui_rrect_line(_x1, _y1, _x2, _y2, _r, global.TH.panel_edge, 0.55, 1);
-    // top sheen
-    ui_rrect(_x1 + 2, _y1 + 1, _x2 - 2, _y1 + 18, _r - 1, c_white, global.TH.panel_top, 0.05);
+    ui_shadow(_x1, _y1, _x2, _y2, _r, 1.3);
+    ui_rrect(_x1, _y1, _x2, _y2, _r, global.TH.panel_top, global.TH.panel_bot, 1);
+    var _h = max(1, _y2 - _y1);
+    if (_title != "" && _h > 60)
+    {
+        var _hb = _y1 + 42;
+        ui_rrect(_x1, _y1, _x2, _hb + _r, _r, merge_colour(global.TH.panel_top, global.TH.rim_top, 0.13), merge_colour(global.TH.panel_top, global.TH.rim_top, 0.03), 1);
+        // the plate's body again under the nameplate's rounded foot
+        var _c1 = merge_colour(global.TH.panel_top, global.TH.panel_bot, (_hb - _y1) / _h);
+        var _c2 = merge_colour(global.TH.panel_top, global.TH.panel_bot, (_hb + _r + 1 - _y1) / _h);
+        draw_rectangle_colour(_x1, _hb, _x2, _hb + _r + 1, _c1, _c1, _c2, _c2, false);
+        var _g = ui_grain();
+        if (_g >= 0)
+        {
+            var _gw = min(256, _x2 - _x1 - 2 * _r);
+            for (var _gx = _x1 + _r; _gx < _x2 - _r; _gx += 256)
+            {
+                draw_sprite_part_ext(_g, 0, 0, 0, min(_gw, _x2 - _r - _gx), _hb - _y1 - 2, _gx, _y1 + 2, 1, 1, c_white, 1);
+            }
+        }
+        draw_set_alpha(0.75);
+        draw_line_colour(_x1 + 1, _hb, _x2 - 1, _hb, c_black, c_black);
+        draw_set_alpha(0.12);
+        draw_line_colour(_x1 + 1, _hb + 1, _x2 - 1, _hb + 1, global.TH.rim_top, global.TH.rim_top);
+        draw_set_alpha(1);
+    }
+    else
+    {
+        // light falls on the upper part of the plate (fading into the plate's own colour)
+        var _sh = min(60, _h * 0.5);
+        ui_rrect(_x1 + 1, _y1 + 1, _x2 - 1, _y1 + _sh, _r - 1, merge_colour(global.TH.panel_top, c_white, 0.06), merge_colour(global.TH.panel_top, global.TH.panel_bot, _sh / _h), 1);
+    }
+    ui_rrect_line(_x1 - 1, _y1 - 1, _x2 + 1, _y2 + 1, _r + 1, c_black, 0.55, 1);
+    ui_rrect_rim(_x1, _y1, _x2, _y2, _r, global.TH.rim_top, global.TH.rim_bot, 0.6);
     if (_title != "")
     {
-        ui_text(_x1 + 16, _y1 + 13, _title, global.TH.text, fa_left, fa_top, global.f_title, 1);
-        draw_line_colour(_x1 + 14, _y1 + 42, _x2 - 14, _y1 + 42, global.TH.panel_edge, global.TH.panel_edge);
+        ui_rrect(_x1 + 14, _y1 + 13, _x1 + 18, _y1 + 31, 2, global.TH.rim_top, global.TH.accent, 1);
+        ui_text(_x1 + 26, _y1 + 12, _title, c_black, fa_left, fa_top, global.f_title, 0.45);
+        ui_text(_x1 + 26, _y1 + 11, _title, global.TH.text, fa_left, fa_top, global.f_title, 1);
     }
 }
 
-/// Sunken area (canvas wells, lists)
+/// Sunken area (canvas wells, lists, text boxes): a recess machined into the
+/// metal - dark inside, a shadow under its top edge, a silver lip along the bottom.
 function ui_inset(_x1, _y1, _x2, _y2, _r)
 {
     ui_rrect(_x1, _y1, _x2, _y2, _r, global.TH.inset_top, global.TH.inset_bot, 1);
-    ui_rrect_line(_x1, _y1, _x2, _y2, _r, c_black, 0.35, 1);
-    draw_line_colour(_x1 + _r, _y2, _x2 - _r, _y2, global.TH.panel_edge, global.TH.panel_edge);
+    ui_rrect(_x1 + 1, _y1 + 1, _x2 - 1, _y1 + min(7, (_y2 - _y1) * 0.5), _r - 1, c_black, global.TH.inset_top, 0.45);
+    ui_rrect_rim(_x1, _y1, _x2, _y2, _r, c_black, global.TH.rim_top, 0.38);
 }
 
 /// Draws one string at (_x, _y) in UI pixels with the given colour, fa_*
@@ -275,13 +330,72 @@ function ui_chevron(_x, _y, _size, _col, _down)
     }
 }
 
-/// Fills the whole GUI (_w x _h UI pixels) with the theme's vertical
-/// gradient and a faint light patch top-left. Drawn first each frame (Draw_64).
+/// Fills the whole GUI (_w x _h UI pixels) with the theme's vertical gradient,
+/// a cool light from the top left and a fine brushed-metal grain (ui_grain).
+/// Drawn first each frame (Draw_64).
 function ui_background(_w, _h)
 {
     draw_rectangle_colour(0, 0, _w, _h, global.TH.bg_top, global.TH.bg_top, global.TH.bg_bot, global.TH.bg_bot, false);
-    // soft vignette corners
-    draw_set_alpha(0.18);
-    draw_circle_colour(_w * 0.15, -_h * 0.2, _h * 0.9, make_colour_rgb(70, 82, 100), global.TH.bg_top, false);
+    // the light: a disc that fades out to nothing at its edge (no visible rim)
+    var _lx = _w * 0.22;
+    var _ly = -_h * 0.35;
+    var _lr = _h * 1.1;
+    var _lc = make_colour_rgb(96, 110, 136);
+    draw_primitive_begin(pr_trianglefan);
+    draw_vertex_colour(_lx, _ly, _lc, 0.3);
+    for (var a = 0; a <= 48; a++)
+    {
+        var _ang = degtorad(a * 7.5);
+        draw_vertex_colour(_lx + cos(_ang) * _lr, _ly + sin(_ang) * _lr, _lc, 0);
+    }
+    draw_primitive_end();
+    var _g = ui_grain();
+    if (_g >= 0)
+    {
+        for (var _gy = 0; _gy < _h; _gy += 256)
+        {
+            for (var _gx = 0; _gx < _w; _gx += 256)
+            {
+                draw_sprite_ext(_g, 0, _gx, _gy, 1, 1, 0, c_white, 1);
+            }
+        }
+    }
+}
+
+/// The brushed-metal grain: a 256 x 256 tile of faint horizontal streaks, light
+/// and dark, that wraps at its edges. Made once on first use (global.spr_grain,
+/// freed by theme_grain_free); it puts the random seed back afterwards.
+function ui_grain()
+{
+    if (global.spr_grain >= 0 && sprite_exists(global.spr_grain)) { return global.spr_grain; }
+    var _s = surface_create(256, 256);
+    if (!surface_exists(_s)) { return -1; }
+    var _seed = random_get_seed();
+    random_set_seed(1985);
+    surface_set_target(_s);
+    draw_clear_alpha(c_black, 0);
+    for (var i = 0; i < 900; i++)
+    {
+        var _sy = irandom(255);
+        var _sx = irandom(255);
+        var _len = 6 + irandom(70);
+        var _c = c_white;
+        if (irandom(1) == 0) { _c = c_black; }
+        draw_set_alpha(0.012 + random(0.03));
+        draw_line_colour(_sx, _sy, _sx + _len, _sy, _c, _c);
+        if (_sx + _len > 256) { draw_line_colour(_sx - 256, _sy, _sx + _len - 256, _sy, _c, _c); }
+    }
     draw_set_alpha(1);
+    surface_reset_target();
+    random_set_seed(_seed);
+    global.spr_grain = sprite_create_from_surface(_s, 0, 0, 256, 256, false, false, 0, 0);
+    surface_free(_s);
+    return global.spr_grain;
+}
+
+/// Frees the grain tile (obj_app CleanUp)
+function theme_grain_free()
+{
+    if (global.spr_grain >= 0 && sprite_exists(global.spr_grain)) { sprite_delete(global.spr_grain); }
+    global.spr_grain = -1;
 }
