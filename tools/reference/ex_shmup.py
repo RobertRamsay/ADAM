@@ -317,12 +317,29 @@ def group_key(names):
         if w == 0 and names[r['b']]['name'].startswith("Warp"): return "Warp gate"
         if w == 0: return "Ship hit by enemies"
         if w == 9: return "Enemies fire"
+        if w == 13 and r['act'] == 4: return "Enemy waves"
         if w == 13: return "Boss"
         return "Game flow"
     return key
 
+# the DO for an enemy that is hit: 4 back to its start, 5 a random spot, 6 hide (None)
+def gone_act(home):
+    if home is None: return 6
+    if home: return 4
+    return 5
+
+# rules: each (seconds, actor names) in waves sends those actors in again from their
+# places (DO 4, which also takes a flyer back off the screen) and shows them (DO 7)
+def send_waves(R, A, waves):
+    out = []
+    for secs, names in waves:
+        for nm in names: out.append(R(when=13, n=secs, act=4, target=A[nm]))
+        for nm in names: out.append(R(when=13, n=secs, act=7, target=A[nm]))
+    return out
+
 def common_rules(R, A, enemies, carriers, shooters, laser_snd=True):
-    """A: name -> actor index. enemies: [(name, points, back to start or random spot)].
+    """A: name -> actor index. enemies: [(name, points, back to start (True), random spot (False) or
+    hide until its wave is sent again (None))].
     carriers: {enemy name: capsule it drops}. shooters: [(name, seconds)]"""
     ship, laser, plasma, boom0, big = A['Ship'], A['Laser 1'], A['Plasma 1'], A['Boom 1'], A['Big boom']
     rules = []
@@ -335,7 +352,7 @@ def common_rules(R, A, enemies, carriers, shooters, laser_snd=True):
         if nm in carriers:                                 # it drops a capsule
             c = A[carriers[nm]]
             rules += [R(when=11, a=laser, b=e, act=14, target=c, value=e), R(when=11, a=laser, b=e, act=7, target=c)]
-        rules += [R(when=11, a=laser, b=e, act=4 if home else 5, target=e)]
+        rules += [R(when=11, a=laser, b=e, act=gone_act(home), target=e)]
     for nm, kind in (("Capsule P", 0), ("Capsule S", 1), ("Capsule M", 2)):   # pick up a capsule
         c = A[nm]
         rules += [R(b=c, act=23, value=kind), R(b=c, act=6, target=c), R(b=c, act=2, value=POWER), R(b=c, act=0, value=500)]
@@ -346,7 +363,7 @@ def common_rules(R, A, enemies, carriers, shooters, laser_snd=True):
                 R(when=when, a=a, b=b, act=4, target=ship), R(when=when, a=a, b=b, act=16, target=ship)]
     for nm, pts, home in enemies:
         e = A[nm]
-        rules += hit(0, ship, e, ship) + [R(a=ship, b=e, act=24, target=boom0, value=e), R(a=ship, b=e, act=4 if home else 5, target=e)]
+        rules += hit(0, ship, e, ship) + [R(a=ship, b=e, act=24, target=boom0, value=e), R(a=ship, b=e, act=gone_act(home), target=e)]
     rules += hit(0, ship, A['Boss'], ship)
     rules += hit(11, plasma, ship, ship)
     for nm, secs in shooters:                              # enemies fire plasma at the ship while on the screen
@@ -397,6 +414,7 @@ def level_looks(p, looks):
     p['level_pal'] = [0] + list(range(1, len(pals) + 1)) + [0] * (9 - len(pals))
 
 AGA_DEPTH = 6
+DARTS = 6                           # Nebula Strike's first wave
 NEBULA_DEPTH = 6                    # Nebula Strike's A1200 version: 64 colours
 STARFIRE_DEPTH = 5                  # Starfire's: 32 are all its picture uses, and a bitplane less is a sixth less to blit
 
@@ -615,15 +633,17 @@ def nebula_strike():
     for L in "PSM":
         add(act("Capsule " + L, B["Capsule %s 1" % L], 10, 1, 200, 120, vis=False, enter=1, comeback=False,
                 anims={0: ([B["Capsule %s %d" % (L, k + 1)] for k in range(3)], 6, 0)}))
-    for k in range(4):                                       # a wave of darts, weaving, one behind the other
-        add(act("Dart %d" % (k + 1), B["Dart"], 10, 2, 120 + k * 36, 64, bob=True, pattern=1, enter=1, fast=1,
-                anims={0: ([B["Dart"], B["Dart burn"]], 4, 0)}))
-    for k, (x, y) in enumerate(((150, 160), (220, 200), (290, 130))):
-        add(act("Spinner %d" % (k + 1), B["Spinner 1"], 10, 2, x, y, bob=True, pattern=2, enter=1, left=(k % 2 == 1), fast=1,
-                anims={0: ([B["Spinner %d" % (j + 1)] for j in range(4)], 4, 0)}))
-    add(act("Heavy", B["Heavy"], 10, 1, 288, 104, bob=True, enter=1, hits=6, frm=2,
+    # one wave on the screen at a time (the A500 has to keep up): waves fly through once
+    # (comeback=False) and a timed rule sends them in again (send_waves)
+    for k in range(DARTS):                                   # wave 1: darts in a row, weaving as a snake (each
+        add(act("Dart %d" % (k + 1), B["Dart"], 10, 2, 120 + k * 30, 96, bob=True, pattern=1, enter=1, fast=1,
+                comeback=False, anims={0: ([B["Dart"], B["Dart burn"]], 4, 0)}))   # starts its wave further on)
+    for k, (x, y) in enumerate(((150, 160), (220, 200), (290, 130))):      # wave 2: spinners, the heavy, the seeker
+        add(act("Spinner %d" % (k + 1), B["Spinner 1"], 10, 2, x, y, vis=False, bob=True, pattern=2, enter=1, left=(k % 2 == 1),
+                fast=1, comeback=False, anims={0: ([B["Spinner %d" % (j + 1)] for j in range(4)], 4, 0)}))
+    add(act("Heavy", B["Heavy"], 10, 1, 24, 104, vis=False, bob=True, enter=1, hits=6, frm=2, comeback=False,
             anims={0: ([B["Heavy"], B["Heavy glow"]], 12, 0)}))
-    add(act("Seeker", B["Seeker"], 10, 2, 300, 40, bob=True, pattern=3, enter=1, hits=2, frm=3,
+    add(act("Seeker", B["Seeker"], 10, 2, 300, 40, vis=False, bob=True, pattern=3, enter=1, hits=2, frm=3, comeback=False,
             anims={0: ([B["Seeker"], B["Seeker blink"]], 6, 0)}))
     add(act("Boss", B["Boss"], 10, 1, 236, 104, vis=False, bob=True, pattern=5, enter=1, hits=40,
             anims={0: ([B["Boss"], B["Boss pulse"]], 10, 2)}))
@@ -636,12 +656,13 @@ def nebula_strike():
             anims={0: ([B["Big boom %d" % (j + 1)] for j in range(8)], 5, 1)}))
 
     R = g.R
-    enemies = [("Dart 1", 100, True), ("Dart 2", 100, True), ("Dart 3", 100, True), ("Dart 4", 100, True),
-               ("Spinner 1", 150, False), ("Spinner 2", 150, False), ("Spinner 3", 150, False),
-               ("Heavy", 400, True), ("Seeker", 250, False)]
+    darts = ["Dart %d" % (k + 1) for k in range(DARTS)]
+    wave2 = ["Spinner 1", "Spinner 2", "Spinner 3", "Heavy", "Seeker"]
+    enemies = [(nm, 100, None) for nm in darts] + [(nm, 150, None) for nm in wave2[:3]] + [("Heavy", 400, None), ("Seeker", 250, None)]
     rules = common_rules(R, A, enemies, {"Dart 4": "Capsule P", "Spinner 2": "Capsule S", "Heavy": "Capsule M", "Seeker": "Capsule P"},
                          [("Heavy", 2), ("Dart 2", 3), ("Spinner 3", 4), ("Boss", 1)])
-    rules += boss_arrives(R, A, ["Dart 1", "Dart 2", "Dart 3", "Dart 4", "Spinner 1", "Spinner 3"])
+    rules += send_waves(R, A, [(6, wave2), (12, darts), (18, wave2), (24, darts), (30, wave2), (36, darts)])
+    rules += boss_arrives(R, A, darts + wave2)
     rules += flow(R, A)
 
     sky = [0x02000a, 0x120830, 0x3a1048, 150]
