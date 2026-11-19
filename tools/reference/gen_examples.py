@@ -1015,6 +1015,7 @@ def to_builder(p):
     lt=list(p.get('level_time',[0]*10))[:10]
     if not p.get('levels_on'): lt=[lt[0] if lt else 0]+[0]*9
     bp['health']=p.get('health',0); bp['level_time']=lt
+    if p.get('steady25'): bp['steady25']=True                  # H_FLAGS bit 3: every frame takes two
     if p.get('disk2_music'):
         # disk 2 (version 12): the songs levels start with that no 'play music' rule plays
         ns=min(4,len(p.get('songs',[])))

@@ -81,7 +81,8 @@ NULL_IS_CLEARED equ 1
 H_MAGIC     equ 0
 H_VERSION   equ 4
 H_FLAGS     equ 6          ; bit 0 = AGA machine; test copies (God mode, Test a level): bit 1 lives never
-                           ; run out, bit 2 F8 ends the level; high byte = the level to start on (0 = title, level 1)
+                           ; run out, bit 2 F8 ends the level; high byte = the level to start on (0 = title, level 1);
+                           ; bit 3 = a steady 25 frames a second (mainloop: every frame takes two)
 H_DEPTH     equ 8          ; backdrop bitplanes 1..8
 H_NACT      equ 10
 H_NRULE     equ 12
@@ -676,6 +677,10 @@ v_rta       rs.w 1         ; the rule firing: its actors a / b
 v_rtb       rs.w 1
 v_cta       rs.w 1         ; the copies of them that made it fire, -1 = none
 v_ctb       rs.w 1
+v_ptm       rs.l 1         ; a bit for every actor that touches the player now (ptouch_mask)
+v_ptok      rs.w 1         ; 0 = v_ptm is not made yet (or a DO has run since), 1 = made, -1 = not usable
+v_vbn       rs.w 1         ; vertical blanks since this frame started (vb_poll; the 25 frames a second lock)
+v_hudq      rs.w 1         ; ui_hud: 1 = only the score fields' digits (act_score), 0 = everything
 v_spalt     rs.w 1         ; DO 25: the way the next one breaks off
 v_items     rs.l 1         ; items block, 0 = none
 v_icnt      rs.w ITEM_MAX  ; how many of each item the player carries
@@ -830,10 +835,31 @@ level_start:
 ; The game loop: one frame each time round, 50 a second (PAL). It is left only
 ; by a jump out of a rule: level_next / level_skip (via act_goal), act_over /
 ; act_win (end_screen -> game_restart), each of which resets the stack.
+; With H_FLAGS bit 3 (the game's 'steady 25 frames a second' setting) every frame
+; takes two screen frames, also the ones that would fit in one: a busy game that
+; cannot keep up 50 a second then moves at one even pace instead of speeding up
+; whenever the screen empties. vb_poll counts the vertical blanks a frame took.
 mainloop:
             bsr     wait_vbl
-            bsr     frame
+            btst    #3,H_FLAGS+1(a4)
+            beq.s   .go
+            bsr     vb_poll
+            cmp.w   #2,v_vbn(a5)            ; it took two already
+            bhs.s   .two
+            bsr     wait_vbl                ; it fitted in one: wait the second
+.two        move.w  #0,v_vbn(a5)
+            move.w  #$0020,$9c(a6)          ; INTREQ: VERTB clear (no interrupt uses it: vb_poll reads it)
+.go         bsr     frame
             bra     mainloop
+
+; counts a vertical blank that has come since the last call (INTREQR VERTB, set by the
+; hardware every frame) in v_vbn. Called by mainloop and between the stages of frame,
+; which are never a whole screen frame apart. Keeps all registers.
+vb_poll:    btst    #5,$1f(a6)
+            beq.s   .r
+            move.w  #$0020,$9c(a6)
+            addq.w  #1,v_vbn(a5)
+.r          rts
 
 ; ============================================================================
 ;  display set-up
@@ -1575,6 +1601,7 @@ frame:
             bsr     spawn_tick              ; a scrolling map's spawners
             bsr     carry_tick              ; fire picks up / throws
             bsr     move_actors
+            bsr     vb_poll
             bsr     plat_carry              ; riders move with the platforms they stand on
             bsr     stick_follow            ; actors stuck to another (DO 36) ride with it
             bsr     carry_follow            ; what the player carries rides on its head
@@ -1585,7 +1612,9 @@ frame:
             bsr     tile_anim               ; animated tiles: next pictures, redrawn in view
             bsr     cop_scroll
             bsr     place_sprites
+            bsr     vb_poll
             bsr     bob_draw
+            bsr     vb_poll
             bsr     item_tick               ; the player picks up items it touches
             bsr     run_rules
 .wait       rts
@@ -2580,7 +2609,17 @@ place_sprites:
             move.w  #0,v_face(a5,d5.w)
             bra.s   .faced
 .fleft      move.w  #1,v_face(a5,d5.w)
-.faced      move.l  A_SPR(a2),d0            ; pick the animation frame
+.faced      tst.w   v_vis(a5,d5.w)          ; a hidden sprite (a shot waiting to be fired, a
+            bne.s   .pick                   ; capsule not dropped yet) keeps the frame it had:
+            tst.w   v_aplay(a5,d5.w)        ; no animation to step (a Hit / Die that is playing
+            bpl.s   .pick                   ; still runs to its end)
+            move.l  v_fofs(a5,d5.w),d0
+            beq.s   .pick                   ; (no frame picked yet)
+            move.w  v_anim(a5),d1           ; its animation waits where it is
+            sub.w   v_astart(a5,d5.w),d1
+            move.w  d1,v_ael(a5,d5.w)
+            bra     .frame
+.pick       move.l  A_SPR(a2),d0            ; pick the animation frame
             cmp.w   #7,A_ROLE(a2)           ; hoppers show their crouch frame while squatting
             bne.s   .anim
             tst.l   A_SPR2(a2)
@@ -5890,6 +5929,7 @@ scen_test:  movem.l d1/d5/a2,-(sp)
 ;  WHEN / DO rules
 ; ============================================================================
 run_rules:
+            move.w  #0,v_ptok(a5)               ; what touches the player: not worked out yet
             move.w  v_counter(a5),v_cnt0(a5)    ; IF counter lines see the counter as the frame
             move.w  H_NRULE(a4),d6              ; started (one press moves a sequence one step)
             beq     .done
@@ -6103,7 +6143,22 @@ run_rules:
 
 .touch      move.w  R_A(a3),d0              ; a copy of a touches a copy of b (b = a: anything)
             move.w  R_B(a3),d1
-            bsr     touch_types
+            cmp.w   H_PLAYER(a4),d0         ; the player touching b (most touch rules): a quick no
+            bne.s   .tslow                  ; from the list of what touches the player now, made
+            cmp.w   d0,d1                   ; once and again after any DO has run (ptouch_mask)
+            beq.s   .tslow
+            tst.w   v_ptok(a5)
+            bne.s   .tm
+            bsr     ptouch_mask
+.tm         tst.w   v_ptok(a5)
+            bmi.s   .tslow                  ; (the player has copies: the full test)
+            move.l  v_ptm(a5),d0
+            beq     .clear                  ; nothing touches it at all
+            bsr     type_bit                ; a copy of b among them?
+            beq     .clear
+            move.w  R_A(a3),d0              ; yes: the full test finds the pair (v_cta / v_ctb)
+            move.w  R_B(a3),d1
+.tslow      bsr     touch_types
             beq.s   .clear
 .edge       tst.w   (a2)
             bne     .next
@@ -6198,7 +6253,8 @@ fire_action:
             bsr     if_check
             bne.s   .go
             rts
-.go         movem.l d5-d7/a2-a3,-(sp)
+.go         move.w  #0,v_ptok(a5)           ; a DO may move, show or hide anything: what touches
+            movem.l d5-d7/a2-a3,-(sp)       ; the player is worked out again when next asked
             move.w  R_NAND(a3),d7
             move.l  a3,a2
             movem.l d7/a2,-(sp)
@@ -7123,6 +7179,89 @@ type_on_screen:
 .yes        moveq   #1,d0
 .o          movem.l (sp)+,d2/d4/a0
             tst.w   d0
+            rts
+
+; Makes v_ptm: a bit for every actor whose box touches the player's now - both shown,
+; neither safe, exactly as touch_types tests them - so run_rules' 'player touches b'
+; rules can say no at once (a game has many of them, and most frames nothing touches
+; the player). v_ptok = 1 when made; -1 = not usable (no player, or the player has
+; copies), the rules then use touch_types. Keeps all registers. Called by run_rules.
+ptouch_mask:
+            movem.l d0-d7/a0-a2,-(sp)
+            move.w  #-1,v_ptok(a5)
+            move.w  H_PLAYER(a4),d6
+            bmi     .o
+            cmp.w   H_NACT(a4),d6
+            bhs     .o
+            cmp.w   #MAX_ACT,d6
+            bhs     .o
+            lea     v_arec(a5),a1
+            move.w  d6,d0                   ; the actor after the player a copy of it?
+            addq.w  #1,d0
+            cmp.w   H_NACT(a4),d0
+            bhs.s   .one
+            add.w   d0,d0
+            add.w   d0,d0
+            move.l  0(a1,d0.w),a0
+            cmp.w   A_TYPE(a0),d6
+            beq     .o
+.one        move.w  #1,v_ptok(a5)
+            move.l  #0,v_ptm(a5)
+            move.w  d6,d5
+            lsl.w   #ACTV_SHIFT,d5
+            tst.w   v_vis(a5,d5.w)          ; the player hidden or safe: nothing touches it
+            beq     .o
+            tst.w   v_safe(a5,d5.w)
+            bne     .o
+            move.w  d5,a2                   ; a2 = the player's offset (skipped below)
+            move.w  d6,d0
+            add.w   d0,d0
+            add.w   d0,d0
+            move.l  0(a1,d0.w),a0
+            move.w  v_ax(a5,d5.w),d0        ; the player's box: d0..d1 across, d2..d3 down
+            move.w  d0,d1
+            add.w   A_BX0(a0),d0
+            add.w   A_BX1(a0),d1
+            move.w  v_ay(a5,d5.w),d2
+            move.w  d2,d3
+            add.w   A_BY0(a0),d2
+            add.w   A_BY1(a0),d3
+            moveq   #0,d4                   ; d4 = the bits
+            moveq   #0,d7                   ; d7 = actor, d5 = its offset
+            moveq   #0,d5
+.l          cmp.w   H_NACT(a4),d7
+            bhs.s   .e
+            cmp.w   #MAX_ACT,d7
+            bhs.s   .e
+            move.l  (a1)+,a0
+            cmp.w   a2,d5
+            beq.s   .n
+            tst.w   v_vis(a5,d5.w)
+            beq.s   .n
+            tst.w   v_safe(a5,d5.w)
+            bne.s   .n
+            move.w  v_ax(a5,d5.w),d6
+            add.w   A_BX0(a0),d6            ; its left past the player's right?
+            cmp.w   d1,d6
+            bgt.s   .n
+            sub.w   A_BX0(a0),d6
+            add.w   A_BX1(a0),d6            ; its right before the player's left?
+            cmp.w   d0,d6
+            blt.s   .n
+            move.w  v_ay(a5,d5.w),d6
+            add.w   A_BY0(a0),d6
+            cmp.w   d3,d6
+            bgt.s   .n
+            sub.w   A_BY0(a0),d6
+            add.w   A_BY1(a0),d6
+            cmp.w   d2,d6
+            blt.s   .n
+            bset    d7,d4
+.n          addq.w  #1,d7
+            add.w   #1<<ACTV_SHIFT,d5
+            bra.s   .l
+.e          move.l  d4,v_ptm(a5)
+.o          movem.l (sp)+,d0-d7/a0-a2
             rts
 
 ; d0 / d1 = types a / b -> Z clear when a copy of a touches a copy of b (b = a: anything
@@ -8433,7 +8572,10 @@ act_score:  moveq   #0,d0
             bls.s   .ok
             move.l  #SCORE_MAX,d0
 .ok         move.l  d0,v_score(a5)
-            bra     draw_hud
+            move.w  #1,v_hudq(a5)           ; only the score changed: a custom HUD redraws just
+            bsr     draw_hud                ; its digits (all its fields cost a busy game a frame)
+            move.w  #0,v_hudq(a5)
+            rts
 
 ; DO 1: one life less (never below 0; WHEN 4 'lives run out' rules end the game),
 ; items lost with a life go, HUD redrawn
@@ -9940,7 +10082,11 @@ ui_hud:     movem.l d0-d7/a0-a3,-(sp)
             move.w  F_SHADOW(a2),v_shadow(a5)
             lea     F_LABEL(a2),a0
             move.w  F_TYPE(a2),d6
-            cmp.w   #3,d6                   ; goal: only with a goal; no label of its own -> the goal's name
+            tst.w   v_hudq(a5)              ; the score changed and nothing else: only score fields,
+            beq.s   .all                    ; and not their labels (they are there already)
+            cmp.w   #1,d6
+            bne     .nx
+.all        cmp.w   #3,d6                   ; goal: only with a goal; no label of its own -> the goal's name
             bne.s   .lb
             move.l  v_game(a5),d0
             beq     .nx
@@ -9980,7 +10126,9 @@ ui_hud:     movem.l d0-d7/a0-a3,-(sp)
             bne.s   .dl
             bsr     level_tlimit
             beq     .nx
-.dl         bsr     draw_text               ; the label
+.dl         tst.w   v_hudq(a5)
+            bne.s   .adv
+            bsr     draw_text               ; the label
 .adv        tst.b   (a0)+                   ; column after it
             beq.s   .va
             addq.w  #1,d1

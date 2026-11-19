@@ -1683,6 +1683,7 @@ function adam_data_block_raw(_p, _measure = false)
     var _flags = 0;
     if (_m.aga) { _flags = 1; }
     _flags |= build_tflags;             // a test copy: God mode bits 1 / 2, the start level in the high byte
+    if (_p.steady25) { _flags |= 8; }   // bit 3: a steady 25 frames a second (engine mainloop)
     var _sc = 0;
     if (_p.show_score) { _sc = 1; }
     var _lv = 0;
