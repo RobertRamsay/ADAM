@@ -2138,6 +2138,8 @@ function settings_load()
     }
     fsuae_light = ini_read_real("emulator", "light", 1) == 1;
     fsuae_pad = clamp(round(ini_read_real("emulator", "pad", 0)), 0, 1);
+    emu_choice = clamp(round(ini_read_real("emulator", "which", 0)), 0, array_length(global.EMU_NAMES) - 1);
+    amulet_path = ini_read_string("paths", "amulet", "");
     god_mode = ini_read_real("god", "on", 0) == 1;
     god_lives = ini_read_real("god", "lives", 1) == 1;
     god_skip = ini_read_real("god", "skip", 1) == 1;
@@ -2183,6 +2185,8 @@ function settings_save()
     if (fsuae_light) { _light = 1; }
     ini_write_real("emulator", "light", _light);
     ini_write_real("emulator", "pad", fsuae_pad);
+    ini_write_real("emulator", "which", emu_choice);
+    ini_write_string("paths", "amulet", amulet_path);
     var _g = 0;
     if (god_mode) { _g = 1; }
     ini_write_real("god", "on", _g);

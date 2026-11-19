@@ -315,8 +315,35 @@ function ws_build_draw(_x1, _y1, _x2, _y2)
         if (!god_on()) { ui_text(_gx, _y + 2, "Nothing ticked: Build and play makes the real game.", global.TH.text_faint, fa_left, fa_top, global.f_small, 1); _y += 24; }
     }
     _y += 6;
+    // Emulator for Build and play: FS-UAE, AMULET, or vAmiga on a Mac
+    ui_heading(_fx, _y, "Emulator");
+    var _emu_w = min(240, _fw - 90);
+    ui_text(_fx, _y + 40, "Play in", global.TH.text, fa_left, fa_middle, global.f_body, 1);
+    var _ec = ui_dropdown("build_emu", _fx + _fw - _emu_w - 96, _y + 24, _emu_w, 32, global.EMU_NAMES, emu_choice, "Emulator|Where Build and play runs your game. FS-UAE: the free emulator ADAM has always used. AMULET: Polytricity's Amiga emulator - it stays open and boots each new build at once. vAmiga (Mac): uses the Amiga and Kickstart set up in vAmiga itself.");
+    if (_ec != emu_choice)
+    {
+        emu_choice = _ec;
+        settings_save();
+    }
+    if (ui_button("build_amulet", _fx + _fw - 88, _y + 24, 88, 32, "Find", "Find AMULET|Point ADAM at AMULET.exe (AMULET.app on a Mac) if it is not found by itself. Right-click clears it.", BTN_NORMAL))
+    {
+        var _af = "AMULET|AMULET.exe";
+        if (os_type == os_macosx) { _af = "AMULET|*.app"; }
+        var _a = get_open_filename(_af, "");
+        if (_a != "")
+        {
+            amulet_path = _a;
+            emu_choice = 1;
+            settings_save();
+        }
+    }
+    if (ui_hot == "build_amulet" && ui_rpressed)
+    {
+        amulet_path = "";
+        settings_save();
+    }
+    _y += 40;
     // FS-UAE: the user's own copy, ADAM's test copy, or an install found on disk
-    ui_heading(_fx, _y, "FS-UAE emulator");
     var _btn_w = 88;
     var _row_w = _fw - _btn_w - 8;
     // the button left of Find: "Get FS-UAE" (opens fs-uae.net in Windows release builds, downloads it on a Mac),

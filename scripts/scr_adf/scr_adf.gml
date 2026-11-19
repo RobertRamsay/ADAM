@@ -2674,6 +2674,14 @@ function fsuae_download_async()
 function launch_fsuae(_adf, _machine = "")
 {
     launch_machine = _machine;
+    if (emu_choice == 1)
+    {
+        return launch_amulet(_adf);
+    }
+    if (emu_choice == 2 && os_type == os_macosx)
+    {
+        return launch_vamiga(_adf);
+    }
     if (os_type != os_windows && os_type != os_macosx)
     {
         toast("Open " + filename_name(_adf) + " in FS-UAE to play", 1);
@@ -2843,6 +2851,86 @@ function fsuae_file_url(_path)
         }
     }
     return _out;
+}
+
+// ---------------------------------------------------------------- AMULET and vAmiga
+
+/// AMULET.exe (Windows) or AMULET.app (Mac): the one the user chose, else one
+/// that comes with ADAM, else the copy AMULET recorded in its data folder, else ""
+function amulet_exe()
+{
+    if (amulet_path != "" && (file_exists(amulet_path) || directory_exists(amulet_path))) { return amulet_path; }
+    if (os_type == os_macosx)
+    {
+        var _home = environment_get_variable("HOME");
+        if (directory_exists("/Applications/AMULET.app")) { return "/Applications/AMULET.app"; }
+        if (directory_exists(_home + "/Applications/AMULET.app")) { return _home + "/Applications/AMULET.app"; }
+        return "";
+    }
+    var _bundled = program_directory + "AMULET/AMULET.exe";
+    if (file_exists(_bundled)) { return _bundled; }
+    var _rec = environment_get_variable("APPDATA") + "/amulet/install-path.txt";
+    if (file_exists(_rec))
+    {
+        var _f = file_text_open_read(_rec);
+        var _p = string_trim(file_text_read_string(_f));
+        file_text_close(_f);
+        if (_p != "" && file_exists(_p)) { return _p; }
+    }
+    return "";
+}
+
+/// Plays _adf in AMULET. It takes FS-UAE's settings, stays open between
+/// builds and boots each new disk at once (no need to close it first).
+function launch_amulet(_adf)
+{
+    if (os_type != os_windows && os_type != os_macosx)
+    {
+        toast("Open " + filename_name(_adf) + " in AMULET to play", 1);
+        return false;
+    }
+    if (os_type == os_macosx)
+    {
+        // started like FS-UAE (libxprocess): "open -n" starts a second copy, which hands the
+        // disk and settings to the AMULET already running and quits; LaunchServices finds
+        // AMULET.app by name when the user has not pointed ADAM at it
+        var _app = amulet_exe();
+        var _cmd = "open -n -a AMULET --args " + fsuae_args(_adf);
+        if (_app != "") { _cmd = "open -n -a \"" + _app + "\" --args " + fsuae_args(_adf); }
+        var _pid = ProcessExecuteAsync(_cmd);
+        FreeExecutedProcessStandardInput(_pid);
+        FreeExecutedProcessStandardOutput(_pid);
+        build_log_add("Playing in AMULET (a running AMULET takes the new disk and resets).", 0);
+        if (_app == "") { build_log_add("If nothing happens, put AMULET.app in Applications and open it once, or point ADAM at it with Find.", 1); }
+        toast("Launching AMULET...", 0);
+        return true;
+    }
+    var _exe = amulet_exe();
+    if (_exe == "")
+    {
+        ws_set(WS_BUILD);
+        build_log_add("AMULET was not found. Pick AMULET.exe with Find (Emulator: AMULET), or switch the emulator back to FS-UAE.", 1);
+        toast("AMULET not found", 1);
+        return false;
+    }
+    execute_shell_simple(_exe, fsuae_args(_adf), "open", 5, filename_dir(_exe));
+    toast("Launching AMULET...", 0);
+    return true;
+}
+
+/// Mac: plays _adf in vAmiga. vAmiga takes no settings from outside: it boots
+/// the disk on the Amiga and Kickstart set up in vAmiga (its AROS ROM when none).
+function launch_vamiga(_adf)
+{
+    // "open -a vAmiga" opens the disk in vAmiga even when .adf files belong to another app
+    var _pid = ProcessExecuteAsync("open -a vAmiga \"" + _adf + "\"");
+    FreeExecutedProcessStandardInput(_pid);
+    FreeExecutedProcessStandardOutput(_pid);
+    build_log_add("Opened " + filename_name(_adf) + " in vAmiga - it boots it on the machine set up in vAmiga.", 0);
+    build_log_add("If nothing happens, install vAmiga (vamiga.org) into Applications.", 0);
+    if (launch_mach().aga) { build_log_add("This game is for the A1200: set vAmiga to an A1200 (AGA).", 1); }
+    toast("Opening vAmiga...", 0);
+    return true;
 }
 
 /// Lines for the "show the engine" view: the engine source, then a data summary
