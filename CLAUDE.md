@@ -1,6 +1,6 @@
 # ADAM — Claude Code guide
 
-ADAM ("Amiga Dev and Art Machine") is a no-code Amiga game maker written in GameMaker (GML), by Bob / Polytricity Ltd. It is modelled on Bob's C64 No-Code tool (github.com/RobertRamsay/C64_NOCODE) and is a separate product from the older AMIGA_DEV_MACHINE_Git node editor.
+ADAM (always just "ADAM", the no-code Amiga Engine: its long names were retired in November 2026 because they were mistaken for Amiga Dev Machine, the 68000 assembler tool) is a no-code Amiga game maker written in GameMaker (GML), by Bob / Polytricity Ltd. It is modelled on Bob's C64 No-Code tool (github.com/RobertRamsay/C64_NOCODE) and is a separate product from the older AMIGA_DEV_MACHINE_Git node editor.
 
 Users paint a backdrop, draw sprites, place actors, write WHEN/DO rules, make sounds and levels, then ADAM writes a **bootable .ADF** for a stock **Amiga 500/600 (OCS/ECS, 1MB chip, FS-UAE model A600)** or **Amiga 1200 (AGA, 2MB chip)**, picked at launch.
 

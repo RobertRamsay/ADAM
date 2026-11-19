@@ -1,6 +1,6 @@
 # ADAM — Codex guide
 
-ADAM ("Amiga Developmental Machine") is a no-code Amiga game maker written in
+ADAM (always just "ADAM", the no-code Amiga Engine: its long names were retired in November 2026 because they were mistaken for Amiga Dev Machine, the 68000 assembler tool) is a no-code Amiga game maker written in
 GameMaker (GML), by Bob / Polytricity Ltd. It is modelled on Bob's C64 No-Code
 tool (github.com/RobertRamsay/C64_NOCODE) and is a separate product from the
 older AMIGA_DEV_MACHINE_Git node editor.

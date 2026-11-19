@@ -1,4 +1,4 @@
-# ADAM - Amiga Dev and Art Machine
+# ADAM - the no-code Amiga Engine
 
 Make Commodore Amiga games without writing code. A GameMaker project by Polytricity.
 

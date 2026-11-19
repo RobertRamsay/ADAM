@@ -1,4 +1,4 @@
-ADAM - Amiga Developmental Machine
+ADAM - the no-code Amiga Engine
 Copyright (c) 2026 Polytricity Ltd.
 
 ADAM uses the following work by other people.

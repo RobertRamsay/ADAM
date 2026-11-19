@@ -133,7 +133,7 @@ for f in range(N):
         tg=clamp((t-TXT_T-0.95)/0.5,0,1)
         if tg>0:
             layer=Image.new('RGBA',(W,H),(0,0,0,0)); d=ImageDraw.Draw(layer)
-            sub="AMIGA DEV AND ART MACHINE"; hi={0,6,14,18}          # Amiga Dev (and) Art Machine -> ADAM
+            sub="THE NO-CODE AMIGA ENGINE"; hi=set()                # no long name any more (it read like Amiga Dev Machine): nothing to pick out
             xx=tx+6; yy=cy+TH*0.62+(1-tg)*18
             base=fsub.getbbox("A")[3]
             for i,ch in enumerate(sub):
