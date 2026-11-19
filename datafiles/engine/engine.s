@@ -3470,16 +3470,33 @@ fly_put:    move.w  d0,v_ax(a5,d5.w)
             move.w  d1,v_py(a5,d5.w)
             move.w  d0,v_ox(a5,d5.w)
             move.w  d1,v_oy(a5,d5.w)
-; the line across a flyer (d5, a2) weaves round becomes where it is now
-fly_rebase: move.w  d2,-(sp)
+; the line across a flyer (d5, a2) weaves round becomes where it is now. Its wave
+; starts at a phase set by how far along it is (along / speed, the frames it is behind
+; a flyer at 0), so a group placed in a row weaves as a snake, each one following the
+; one in front along the same track, not all bobbing up and down together
+fly_rebase: movem.l d0-d2,-(sp)
             moveq   #1,d2
             and.b   v_edge+1(a5,d5.w),d2        ; from the top or bottom: across is x
             bne.s   .y
             move.w  v_ax(a5,d5.w),v_base(a5,d5.w)
+            move.w  v_ay(a5,d5.w),d0        ; d0 = along
             bra.s   .t
 .y          move.w  v_ay(a5,d5.w),v_base(a5,d5.w)
-.t          move.w  #0,v_tmr(a5,d5.w)
-            move.w  (sp)+,d2
+            move.w  v_ax(a5,d5.w),d0
+.t          moveq   #3,d2
+            and.b   v_edge+1(a5,d5.w),d2
+            beq.s   .ph                     ; from the top / left it flies to higher along:
+            cmp.w   #3,d2                   ; the one behind has less; from the right /
+            beq.s   .ph                     ; bottom the one behind has more
+            neg.w   d0
+.ph         move.w  v_spd(a5,d5.w),d1
+            bgt.s   .dv
+            moveq   #1,d1
+.dv         ext.l   d0
+            divs    d1,d0
+            and.w   #63,d0
+            move.w  d0,v_tmr(a5,d5.w)
+            movem.l (sp)+,d0-d2
             rts
 
 ; a flyer (d5, a2) comes in again at a random place across, a little beyond its edge
