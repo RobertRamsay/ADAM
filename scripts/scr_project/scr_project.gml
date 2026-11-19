@@ -872,6 +872,7 @@ function project_new()
         items : [],                              // inventory items (Logic page, Items tab): item_new
         recipes : [],                            // item + item makes an item: recipe_new
         disk2_music : false,                     // the songs levels start with, and the levels' own maps, go on disk 2 (Build page)
+        steady25 : false,                        // every frame takes two screen frames: an even 25 a second for a busy game (Build page; H_FLAGS bit 3)
         tiles_on : false,                        // play on the tile map (Tiles page) instead of the backdrop
         tile_size : 16,                          // 8, 16, 32 or 64 pixels: every tile in the game
         tiles : tiles_default(16),               // up to TILE_MAX tiles; 0 = air
@@ -1238,6 +1239,7 @@ function project_from_loaded(_raw)
     }
     _p.level_pal = _lpv;
     _p.disk2_music = (_raw[$ "disk2_music"] == true);
+    _p.steady25 = (_raw[$ "steady25"] == true);
     // health and time limits (version 18; older files have neither)
     var _hr = _raw[$ "health"];
     _p.health = 0;
@@ -2127,6 +2129,7 @@ function settings_load()
     settings_first_run = !ini_key_exists("machine", "last");
     whatsnew_seen = ini_read_string("ui", "whatsnew_seen", "");
     update_check_on = ini_read_real("ui", "update_check", 1) == 1;
+    crash_ask = ini_read_real("ui", "crash_ask", 1) == 1;
     fsuae_path = ini_read_string("paths", "fsuae", "");
     var _old_kick = ini_read_string("paths", "kickstart", "");     // before one ROM per machine
     for (var k = 0; k < array_length(global.MACHINES); k++)
@@ -2206,6 +2209,9 @@ function settings_save()
     var _uc = 0;
     if (update_check_on) { _uc = 1; }
     ini_write_real("ui", "update_check", _uc);
+    var _ca = 0;
+    if (crash_ask) { _ca = 1; }
+    ini_write_real("ui", "crash_ask", _ca);
     ini_write_real("window", "x", wsave_x);
     ini_write_real("window", "y", wsave_y);
     ini_write_real("window", "w", wsave_w);

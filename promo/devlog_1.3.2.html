@@ -1,0 +1,46 @@
+<p>ADAM 1.3.2 is out. This one is about bringing your own art in: the Sprites page can now import pictures and whole sprite sheets, and pictures with a palette (Amiga IFF, 8-bit PNG, GIF, BMP) keep their own colours. There are also columns, easing patrols, a few new rules and a new free example game, Piston Pass. As always, everything is in ADAM Lite as well as Pro.</p>
+
+<h2>Import pictures and sprite sheets</h2>
+<p>On the Sprites page, <strong>Import picture or sheet...</strong> loads a PNG, JPG, GIF, BMP or Amiga IFF picture or brush (Deluxe Paint, Personal Paint and so on). One picture becomes one sprite. A sheet - a grid of frames - fills that slot and the ones after it. You set:</p>
+<ul>
+<li>the <strong>cell size</strong>, the <strong>margin</strong> and the <strong>spacing</strong> between cells, with the cells outlined on the picture as you go;</li>
+<li>how many to take, and whether to leave out empty cells;</li>
+<li>what is <strong>see-through</strong>: the picture's own transparency (an IFF brush's mask or transparent colour, a PNG's alpha), or also the colour in the top-left corner, for sheets on a plain magenta or black background;</li>
+<li>the <strong>colours</strong>: one set of 3 for the whole sheet (the frames of one animation), each sprite its own 3, or - for a picture with a palette - <strong>the picture's own colour numbers</strong>.</li>
+</ul>
+<p>That last one is for Amiga artists: draw a sprite in colours 17, 18 and 19, as on the real machine, and they land on pens 1, 2 and 3 with your palette's colours. Each sprite is made the smallest size that holds a cell.</p>
+
+<h2>Backdrops keep their palette</h2>
+<p>The Backdrop page's <strong>Import picture...</strong> now takes IFF, BMP and 8-bit PNG and GIF pictures too. A picture with a palette that fits the backdrop's colours comes in exactly as it was drawn - same pixels, same palette, no dithering. An overscan picture is cut to 320 x 256 round its middle. Anything else is fitted and its colours picked as before.</p>
+
+<h2>Columns</h2>
+<p>On the Actors page an actor can <strong>Reach the floor</strong>: a pillar, a piston or a tree trunk drawn right down to the bottom of the screen, and its sides are walls the player can't walk through. A column that has stopped costs nothing to draw, so a screen full of them stays smooth. In ADAM Pro a sprite can be 128 or 256 high, for a column's whole picture.</p>
+
+<h2>Patrols</h2>
+<ul>
+<li><strong>Eases in and out</strong>: a patrol slows down near each end and is fastest in the middle, like a piston on a crank or a swing - much easier to time a jump on.</li>
+<li><strong>Diagonal</strong>: a patrol can go at 45 degrees, for sloping lifts and enemies that sweep across.</li>
+</ul>
+
+<h2>New rules</h2>
+<ul>
+<li><strong>Stop actor where it is</strong> and <strong>Start actor moving again</strong>.</li>
+<li><strong>Start the level again</strong> - the level card, everyone back home, the counter back to 0; score, lives and items stay.</li>
+<li>A new WHEN: <strong>Fire pressed, stick held</strong> up, down, left or right - down + fire to try a level again, up + fire to use a door.</li>
+<li>IF lines can check <strong>the counter</strong>: is, at least, or below a number. With it, one card after another can happen in turn - the first press does one thing, the next press the next.</li>
+<li>Holding fire now sets off one rule card per press, so a sequence of fire cards can't run away with you.</li>
+</ul>
+
+<h2>New example: Piston Pass</h2>
+<p>A free example and a template for "set it up, then cross" games. Seven pistons rise and sink in a factory pit, one at a time; press fire to stop each one at the right height. When all seven are set, the worker is yours: walk and jump across them to the exit - a piston's side is a wall, so the steps have to be small enough to climb. Fall into the pit or meet the bat and you lose a life and set the floor again; if you've left yourself stuck, hold fire for a moment to give up and try the floor again (that costs a life too). Eight floors, the pistons faster each time. Open it in the editor to see how it works - it uses columns, easing, the counter and the new rules.</p>
+
+<h2>Also</h2>
+<ul>
+<li>The Home page has a <strong>Community</strong> button with games made in ADAM.</li>
+</ul>
+
+<h2>Getting it</h2>
+<p>Download the Windows installer (<code>_Setup.exe</code>) or zip, or the macOS <code>.dmg</code> or <code>.app.zip</code>, from this page. If you already have ADAM 1.0.1 or later, it will tell you the update is out when you start it. FS-UAE still comes with ADAM, and your projects open as they are.</p>
+
+<p>If you import your own art and something doesn't come out the way you drew it, please tell me in the comments - and send the picture if you can.</p>
+<p>- Robert</p>

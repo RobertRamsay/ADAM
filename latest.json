@@ -1,6 +1,6 @@
 {
-    "version" : "1.3.0",
-    "lite_url" : "https://polytricity.itch.io/adam-amiga-developmental-machine",
-    "pro_url" : "https://polytricity.itch.io/adam-amiga-developmental-machine",
-    "notes" : "Smarter rules (edges, scenery, a counter, bounce, stick, IF above / below / left / right), health and time limits, moving platforms, a map for every level, God mode and Test a level."
+    "version" : "1.3.2",
+    "lite_url" : "https://polytricity.itch.io/adam",
+    "pro_url" : "https://polytricity.itch.io/adam",
+    "notes" : "Import your own art: pictures and sprite sheets (PNG, GIF, BMP, Amiga IFF), palettes kept. Columns, easing and diagonal patrols, stop / start / restart rules, an IF counter, and a new free example, Piston Pass."
 }

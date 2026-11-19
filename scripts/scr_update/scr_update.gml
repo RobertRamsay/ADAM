@@ -74,7 +74,7 @@ function update_async()
 /// taken (see ui_frame_begin). Waits while a bigger panel or the tour offer is up.
 function update_card_draw(_gw, _gh)
 {
-    if (!update_card_on || tut_offer_on || tut_active || les_active || machine_pick_active || about_active || whatsnew_active || confirm_active)
+    if (!update_card_on || tut_offer_on || tut_active || les_active || machine_pick_active || about_active || whatsnew_active || confirm_active || submit_active || crash_active)
     {
         update_card_rect = [0, 0, 0, 0];
         return;

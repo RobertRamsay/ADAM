@@ -17,3 +17,4 @@ if (sprite_exists(global.spr_px)) { sprite_delete(global.spr_px); }
 if (sprite_exists(global.spr_boing_red)) { sprite_delete(global.spr_boing_red); }
 if (sprite_exists(global.spr_boing_white)) { sprite_delete(global.spr_boing_white); }
 theme_free();
+theme_grain_free();

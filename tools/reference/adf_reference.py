@@ -567,7 +567,7 @@ def build(proj, aga):
         if a['role'] in (0,6): player=i; break
     # H_FLAGS: bit 0 AGA; a test copy (God mode, Test a level - ADAM only, proj['_test']) ORs in
     # bit 1 lives never run out, bit 2 F8 ends the level, and the level to start on << 8
-    flags=(1 if aga else 0)|proj.get('_test',0)
+    flags=(1 if aga else 0)|proj.get('_test',0)|(8 if proj.get('steady25') else 0)      # bit 3: a steady 25 frames a second
     hdr=struct.pack('>4sHHHHHHHHHHHH',b'ADAM',19,flags,depth,len(actors),len(rules),proj['lives'],
                     int(proj['show_score']),int(proj['show_lives']),proj['hud_row'],proj['hud_col'],proj['msg_col'],player & 0xffff)+struct.pack('>L',off_game)
     hdr+=struct.pack('>LLLLLLLLLLLLLLL',off_pal,off_planes,off_act,off_rules,off_sfx,off_over,off_win,off_sprcol,off_disp,off_grad,off_ground,off_work,off_music,off_disp2,off_back)

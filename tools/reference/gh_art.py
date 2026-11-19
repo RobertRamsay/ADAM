@@ -38,12 +38,25 @@ def _leg(x, y, x0, top, foot):
         return True
     return False
 
-def hero(legs=((5, 22), (9, 22)), bob=0, blink=False, mouth='smile', top=17):
-    """legs: ((x, foot row) left, (x, foot row) right); bob moves the head down"""
+def _hand(x, y, hx, hy):
+    """a stubby hand: 2 x 2 in the body colour, outlined; (hx, hy) its top-left"""
+    if hx <= x <= hx + 1 and hy <= y <= hy + 1:
+        return 1
+    if hx - 1 <= x <= hx + 2 and hy - 1 <= y <= hy + 2 and not ((x in (hx - 1, hx + 2)) and (y in (hy - 1, hy + 2))):
+        return 2
+    return 0
+
+def hero(legs=((5, 22), (9, 22)), bob=0, blink=False, mouth='smile', top=17, arms=(0, 0)):
+    """legs: ((x, foot row) left, (x, foot row) right); bob moves the head down;
+    arms: how far each hand swings down (+) or up (-) from beside the body"""
     # the hero's pixel (x, y)
     def f(x, y):
         by = y - bob
-        v = blob(x, by, 7.5, 9.0, 7.3, 7.3)
+        for k, hx in enumerate((1, 13)):                       # the hands, in front of the body
+            hv = _hand(x, by, hx, 11 + arms[k])
+            if hv:
+                return hv
+        v = blob(x, by, 7.5, 9.0, 6.6, 7.3)
         if v:
             if x in (5, 6, 9, 10) and by in (6, 7, 8):          # eyes, a glint top left
                 if blink:
@@ -64,6 +77,8 @@ def hero(legs=((5, 22), (9, 22)), bob=0, blink=False, mouth='smile', top=17):
             return v
         for lx, foot in legs:
             if _leg(x, y, lx, top + bob, foot):
+                if y == foot - 1 and x == lx + 2:
+                    return 3                                    # the shine on the toe cap
                 return 2
         return 0
     return rows(f)
@@ -71,15 +86,16 @@ def hero(legs=((5, 22), (9, 22)), bob=0, blink=False, mouth='smile', top=17):
 # the Gem Hunter hero's frames: stand, then 4 walk, 4 idle, 2 jump and 2 fall
 def hero_frames():
     stand = hero()
-    walk = [hero(legs=((4, 22), (10, 21))),                 # left foot forward... (the picture faces right)
+    # the hands swing against the legs
+    walk = [hero(legs=((4, 22), (10, 21)), arms=(1, -1)),   # left foot forward... (the picture faces right)
             hero(legs=((5, 22), (9, 22)), bob=1),
-            hero(legs=((6, 21), (8, 22))),
+            hero(legs=((6, 21), (8, 22)), arms=(-1, 1)),
             hero(legs=((5, 22), (9, 22)), bob=1)]
     idle = [stand, hero(bob=1), stand, hero(blink=True)]
-    jump = [hero(legs=((4, 20), (10, 20)), top=17, mouth='smile'),
-            hero(legs=((5, 19), (9, 19)), top=17)]
-    fall = [hero(legs=((3, 22), (11, 22)), mouth='ooh'),
-            hero(legs=((4, 22), (10, 22)), mouth='ooh')]
+    jump = [hero(legs=((4, 20), (10, 20)), top=17, mouth='smile', arms=(-3, -3)),
+            hero(legs=((5, 19), (9, 19)), top=17, arms=(-4, -4))]
+    fall = [hero(legs=((3, 22), (11, 22)), mouth='ooh', arms=(-5, -5)),
+            hero(legs=((4, 22), (10, 22)), mouth='ooh', arms=(-4, -4))]
     return stand, walk, idle, jump, fall
 
 def hopper(squat=0, look=0, blink=False):

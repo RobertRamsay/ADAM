@@ -17,47 +17,12 @@ def grid(fn, w=16, h=24):
     return ["".join(".123"[fn(x, y)] for x in range(w)) for y in range(h)]
 
 
-# the hero's letter at (x, y); step = the walking frame (legs apart)
-def hero(x, y, step=False):
-    rows = ["................",
-            "................",
-            ".....222222.....",
-            "....22222222....",
-            "..222222222222..",
-            ".....111111.....",
-            ".....121121.....",
-            ".....111111.....",
-            ".....112211.....",
-            "......1111......",
-            "....33333333....",
-            "...3333333333...",
-            "...1.333333.1...",
-            "...1.333333.1...",
-            "...1.333333.1...",
-            ".....222222.....",
-            ".....333333.....",
-            ".....33..33.....",
-            ".....22..22.....",
-            ".....22..22.....",
-            ".....22..22.....",
-            ".....22..22.....",
-            "....222..222....",
-            "....222..222...."]
-    if step:
-        rows[18:] = ["....22....22....",
-                     "....22....22....",
-                     "...22......22...",
-                     "...22......22...",
-                     "..222......222..",
-                     "..222......222.."]
-    return rows[y][x]
+# the hero (tl_hero .. tl_hero4) and the bat (ff_bat / ff_bat2) are drawn in arcade.py
 
 
 # draws every Torchlight picture into art.A (the tl_* names)
 def make_art():
     A = art.A
-    A['tl_hero'] = [''.join(hero(x, y) for x in range(16)) for y in range(24)]
-    A['tl_hero2'] = [''.join(hero(x, y, True) for x in range(16)) for y in range(24)]
 
     def stick(x, y):
         # a stick lying on the ground, a knot near one end
@@ -107,18 +72,8 @@ def make_art():
         return 0
     A['tl_sconce'] = grid(sconce)
 
-    # a bat's pixel; up = wings up
-    def bat(x, y, up=False):
-        if math.hypot(x - 7.5, y - 12) <= 2.6: return 1
-        if (x, y) in ((6, 11), (9, 11)): return 3
-        if y in (8, 9) and x in (6, 9): return 1        # ears
-        d = abs(x - 7.5)
-        if 3 <= d <= 8:
-            if not up and 10 + (d - 3) * 0.3 <= y <= 13 - (d - 3) * 0.4: return 2
-            if up and 6 + (8 - d) * 0.5 <= y <= 9 + (8 - d) * 0.5: return 2
-        return 0
-    A['tl_bat'] = grid(lambda x, y: bat(x, y))
-    A['tl_bat2'] = grid(lambda x, y: bat(x, y, True))
+    A['tl_bat'] = A['ff_bat']                 # the same bat as Firefly Night's, in Torchlight's red
+    A['tl_bat2'] = A['ff_bat2']
 
     def cloth(x, y):
         # a folded rag with a red stripe
@@ -311,7 +266,9 @@ def torchlight():
             if a in CAVE or b in CAVE: dark[16 + i] = 0x080606
     p['palettes'] = [dict(name="Dark", cols=dark)]
     p['level_pal'] = [1] + [0] * 9
-    hero_a = dict(flip=True, anims={0: ([0], 12, 0), 1: ([0, 10], 6, 0)})
+    # a four-step walk: stride, pass (one foot lifted), the other stride, pass
+    pas = ("Hero pass", art.A['tl_hero3'])
+    hero_a = dict(flip=True, anims={0: ([0], 12, 0), 1: ([10, pas, ("Hero walk 2", art.A['tl_hero4']), pas], 6, 0)})
     g.animate(p, "tl", {HERO: hero_a})
 
     # the Logic page group of rule r

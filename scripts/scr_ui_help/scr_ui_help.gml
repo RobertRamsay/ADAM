@@ -106,7 +106,9 @@ function ui_status_bar(_gw, _gh)
 {
     var _y = _gh - 34;
     ui_rrect(0, _y, _gw, _gh + 20, 0, global.TH.bar_bot, global.TH.bg_bot, 1);
-    draw_line_colour(0, _y, _gw, _y, global.TH.panel_edge, global.TH.panel_edge);
+    draw_line_colour(0, _y - 1, _gw, _y - 1, c_black, c_black);
+    draw_line_colour(0, _y, _gw * 0.5, _y, global.TH.rim_bot, global.TH.panel_edge);
+    draw_line_colour(_gw * 0.5, _y, _gw, _y, global.TH.panel_edge, global.TH.rim_bot);
     var _msg = "Hover over anything to see what it does. F1 starts this page's tutorial.";
     if (ui_help_title != "")
     {

@@ -9,7 +9,7 @@
 /// the one place to make a feature Pro-only again.
 
 #macro ADAM_PRO 1               // 0 = build ADAM Lite, 1 = build ADAM Pro
-#macro ADAM_PRO_URL "https://polytricity.itch.io/adam-amiga-developmental-machine"          // the ADAM Pro page on itch.io ("" hides the 'Get ADAM Pro' button)
+#macro ADAM_PRO_URL "https://polytricity.itch.io/adam"          // the ADAM Pro page on itch.io ("" hides the 'Get ADAM Pro' button)
 
 /// True when this is the ADAM Pro build (the extra example games and lessons)
 function pro_edition()

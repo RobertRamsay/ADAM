@@ -515,7 +515,27 @@ whatsnew_manual = false;    // opened from the Learn ADAM menu (just Close)
 whatsnew_anim = 0;
 whatsnew_seen = "";         // version whose notes were dismissed with "Don't show again"
 settings_first_run = false; // no settings file yet: a brand-new user
+// 'Submit your game' and crash reports (scr_report)
+submit_active = false;      // the Submit your game form is up
+submit_anim = 0;
+submit_vals = array_create(SUBMIT_FIELDS, "");   // what was typed: title, made by, link, contact, note
+submit_agree = false;       // 'I understand: my whole game will be open for everyone'
+submit_state = 0;           // 0 filling in, 1 sending, 2 sent
+submit_req = -1;            // the http request while sending
+submit_msg = "";            // the last problem or result
+submit_msg_good = false;
+submit_last = -REPORT_GAP_MS;   // current_time of the last submission (one a minute)
+crash_ask = true;           // ask to send the error report after a crash ([ui] crash_ask)
+crash_active = false;       // the 'Send an error report?' question is up
+crash_anim = 0;
+crash_text = "";            // the report the last run left
+crash_note = "";            // what the user adds
+crash_state = 0;            // 0 asking, 1 sending, 2 sent
+crash_req = -1;
+crash_msg = "";
+crash_msg_good = false;
 settings_load();
+crash_init();               // error handler; picks up a crash left by the last run
 
 // ---------- project ----------
 proj = project_new();
@@ -562,6 +582,7 @@ if (ADAM_DEV_TOOLS) { music_notes_clipboard_selftest(); }
 if (ADAM_DEV_TOOLS) { sfx_preview_selftest(); }
 if (ADAM_DEV_TOOLS) { patch_selftest(); }
 if (ADAM_DEV_TOOLS) { loadscr_selftest(); }
+if (ADAM_DEV_TOOLS) { report_selftest(); }
 if (ADAM_DEV_TOOLS) { music_sample_loop_volume_selftest(); }
 if (ADAM_DEV_TOOLS) { music_sampler_controls_selftest(); }
 

@@ -279,6 +279,13 @@ function ws_build_draw(_x1, _y1, _x2, _y2)
         proj_dirty = true;
         mem_mark_stale();
     }
+    _y += 32;
+    var _s25 = ui_toggle("build_steady25", _fx, _y, "A steady 25 frames a second", proj.steady25, "A steady 25 frames a second|For a busy game that cannot keep up 50 frames a second (many BOBs on an Amiga 500 / 600): every frame then takes two screen frames, so the game moves at one even pace instead of speeding up whenever the screen empties. Everything moves half as far in a second, so set speeds and timers for it. Leave it off for games that keep up.");
+    if (_s25 != proj.steady25)
+    {
+        proj.steady25 = _s25;
+        proj_dirty = true;
+    }
     _y += 36;
     // God mode: Build and play (F5) makes a test copy (build_tflags); Build always the real game
     var _gm = ui_toggle("build_god", _fx, _y, "God mode while testing", god_mode, "God mode|For testing: Build and play (and F5) make a copy of the game with the choices ticked below, in the temp folder. Build .ADF always makes the real game, and games played from Home are never in God mode.");

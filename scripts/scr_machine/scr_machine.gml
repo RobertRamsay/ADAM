@@ -177,6 +177,7 @@ function draw_boing(_x, _y, _size, _alpha)
 function machine_pick_draw(_gw, _gh)
 {
     if (!machine_pick_active) { return; }
+    if (crash_active) { return; }      // 'Send an error report?' comes first (scr_report)
     machine_pick_anim = lerp(machine_pick_anim, 1, 0.12);
     var _a = machine_pick_anim;
     ui_force_input = true;
