@@ -9,6 +9,16 @@ function whatsnew_entries()
 {
     return [
         {
+            ver : "1.3.3",
+            items : [
+                "A new look: gunmetal panels with silver rims, satin metal buttons that sink when pressed and a brushed-metal background. Layouts are unchanged.",
+                "Build page: 'A steady 25 frames a second' - a busy game that cannot keep up 50 moves at one even pace instead of wavering.",
+                "Example games: arcade redraws of Deep Dive, Firefly Night, Dig Deep, Torchlight, Gem Hunter and Piston Pass, and shaded new art for the shoot 'em ups. Starfire's A500 / 600 version is lighter, and Nebula Strike's waves now snake across the screen one wave at a time.",
+                "Home > Community: 'Submit your game' sends your game's title and a link to its project to be listed.",
+                "Crash reports: if ADAM ever crashes, the next start asks whether to send a short report (the error, version and page - nothing else). You can switch the question off."
+            ]
+        },
+        {
             ver : "1.3.2",
             items : [
                 "Sprites page: 'Import picture or sheet...' loads a PNG, JPG, GIF, BMP or Amiga IFF picture or brush and cuts a sprite sheet into frames - set the cell size, margins, spacing and see-through colour. Pictures with a palette (IFF, 8-bit PNG, GIF, BMP) can keep the colour numbers you drew with, so sprite colours 17-19 land on pens 1-3.",
