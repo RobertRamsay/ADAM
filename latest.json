@@ -1,6 +1,6 @@
 {
-    "version" : "1.3.2",
+    "version" : "1.3.3",
     "lite_url" : "https://polytricity.itch.io/adam",
     "pro_url" : "https://polytricity.itch.io/adam",
-    "notes" : "Import your own art: pictures and sprite sheets (PNG, GIF, BMP, Amiga IFF), palettes kept. Columns, easing and diagonal patrols, stop / start / restart rules, an IF counter, and a new free example, Piston Pass."
+    "notes" : "A new gunmetal look, a steady 25 frames a second option, arcade redraws of the example games and snaking waves in Nebula Strike, Submit your game, and crash reports. On a Mac, AMULET and vAmiga can play your games too."
 }
