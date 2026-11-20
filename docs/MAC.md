@@ -42,6 +42,15 @@ features reach the Mac with one merge.
    `#macro ADAM_PRO 0` (Lite) or `1` (Pro) (scr_licence) - don't commit those.
 5. Build: macOS target, Create Executable, signed and notarised.
 
+Or from Terminal (both editions, signed, notarised and stapled, nothing in the repo changes):
+
+    sh tools/mac_release.sh            # or: lite | pro
+
+It needs the webhook secret outside the repo: a copy of
+`scripts/scr_webhook_secret/scr_webhook_secret.gml` with the real URL at
+`~/.adam_private/scr_webhook_secret.gml` (or set `WEBHOOK_FILE`). Output goes to
+`~/gamemakerstudio2/GM_MAC/ADAM/RELEASE_<version>/`.
+
 ## Test checklist
 
 1. With no FS-UAE picked: Build page says "not yet"; press **F5** on Gem Hunter -
