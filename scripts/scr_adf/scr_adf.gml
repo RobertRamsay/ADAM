@@ -2622,6 +2622,14 @@ function fsuae_download_async()
 function launch_fsuae(_adf, _machine = "")
 {
     launch_machine = _machine;
+    if (emu_choice == 1)
+    {
+        return launch_amulet(_adf);
+    }
+    if (emu_choice == 2 && os_type == os_macosx)
+    {
+        return launch_vamiga(_adf);
+    }
     if (os_type != os_windows && os_type != os_macosx)
     {
         toast("Open " + filename_name(_adf) + " in FS-UAE to play", 1);
@@ -2701,6 +2709,22 @@ function launch_fsuae_now(_adf)
     if (os_type != os_windows) { return; }
     var _exe = fsuae_exe();
     if (_exe == "") { return; }
+    var _args = fsuae_args(_adf);
+    if (_exe == fsuae_bundled_exe())
+    {
+        // the FS-UAE that comes with ADAM keeps its log and settings in ADAM's own
+        // folder, not Documents\FS-UAE: anti-virus "protected folders" (AVG, Windows
+        // Controlled folder access) block a program they have not seen writing there
+        var _base = game_save_id + "fs-uae-data";
+        if (!directory_exists(_base)) { directory_create(_base); }
+        _args += " --base_dir=\"" + _base + "\"";
+    }
+    execute_shell_simple(_exe, _args, "open", 5, filename_dir(_exe));
+}
+
+/// FS-UAE command line for playing _adf on launch_mach() (AMULET takes the same one)
+function fsuae_args(_adf)
+{
     var _m = launch_mach();
     var _args = "--amiga_model=" + _m.fsuae_model
         + " --chip_memory=" + string(_m.chip_kb)
@@ -2722,16 +2746,7 @@ function launch_fsuae_now(_adf)
     {
         _args += " --kickstart_file=\"" + _kick + "\"";
     }
-    if (_exe == fsuae_bundled_exe())
-    {
-        // the FS-UAE that comes with ADAM keeps its log and settings in ADAM's own
-        // folder, not Documents\FS-UAE: anti-virus "protected folders" (AVG, Windows
-        // Controlled folder access) block a program they have not seen writing there
-        var _base = game_save_id + "fs-uae-data";
-        if (!directory_exists(_base)) { directory_create(_base); }
-        _args += " --base_dir=\"" + _base + "\"";
-    }
-    execute_shell_simple(_exe, _args, "open", 5, filename_dir(_exe));
+    return _args;
 }
 
 /// "file://" URL for a local path, with spaces and other bytes %-escaped
@@ -2764,14 +2779,27 @@ function fsuae_file_url(_path)
 /// file and let Finder open it with FS-UAE (no way to pass arguments from GML).
 function launch_fsuae_mac(_adf)
 {
-    var _m = launch_mach();
     var _cfg = game_save_id + "adam_play.fs-uae";
-    var _f = file_text_open_write(_cfg);
-    if (_f < 0)
+    if (!fsuae_cfg_write(_cfg, _adf))
     {
         toast("Could not write the FS-UAE settings file", 2);
         return false;
     }
+    // macOS does not let ADAM close an old FS-UAE window, so the user quits it first
+    url_open(fsuae_file_url(_cfg));
+    build_log_add("Opened " + _cfg + " - FS-UAE boots it. Quit any FS-UAE that is already running first (Cmd+Q).", 0);
+    build_log_add("If it opens in another app, right-click the file in Finder > Open With > FS-UAE (Always Open With).", 0);
+    toast("Opening FS-UAE...", 0);
+    return true;
+}
+
+/// Writes the FS-UAE settings for playing _adf on launch_mach() to _cfg
+/// (".fs-uae" for FS-UAE, ".amulet" for AMULET - same keys). False if it cannot.
+function fsuae_cfg_write(_cfg, _adf)
+{
+    var _m = launch_mach();
+    var _f = file_text_open_write(_cfg);
+    if (_f < 0) { return false; }
     var _lines = [
         "[fs-uae]",
         "amiga_model = " + _m.fsuae_model,
@@ -2804,11 +2832,82 @@ function launch_fsuae_mac(_adf)
         file_text_writeln(_f);
     }
     file_text_close(_f);
-    // macOS does not let ADAM close an old FS-UAE window, so the user quits it first
-    url_open(fsuae_file_url(_cfg));
-    build_log_add("Opened " + _cfg + " - FS-UAE boots it. Quit any FS-UAE that is already running first (Cmd+Q).", 0);
-    build_log_add("If it opens in another app, right-click the file in Finder > Open With > FS-UAE (Always Open With).", 0);
-    toast("Opening FS-UAE...", 0);
+    return true;
+}
+
+// ---------------------------------------------------------------- AMULET and vAmiga
+
+/// AMULET.exe (Windows) or AMULET.app (Mac): the one the user chose, else one
+/// that comes with ADAM, else the copy AMULET recorded in its data folder, else ""
+function amulet_exe()
+{
+    if (amulet_path != "" && (file_exists(amulet_path) || directory_exists(amulet_path))) { return amulet_path; }
+    if (os_type == os_macosx)
+    {
+        var _home = environment_get_variable("HOME");
+        if (directory_exists("/Applications/AMULET.app")) { return "/Applications/AMULET.app"; }
+        if (directory_exists(_home + "/Applications/AMULET.app")) { return _home + "/Applications/AMULET.app"; }
+        return "";
+    }
+    var _bundled = program_directory + "AMULET/AMULET.exe";
+    if (file_exists(_bundled)) { return _bundled; }
+    var _rec = environment_get_variable("APPDATA") + "/amulet/install-path.txt";
+    if (file_exists(_rec))
+    {
+        var _f = file_text_open_read(_rec);
+        var _p = string_trim(file_text_read_string(_f));
+        file_text_close(_f);
+        if (_p != "" && file_exists(_p)) { return _p; }
+    }
+    return "";
+}
+
+/// Plays _adf in AMULET. It takes FS-UAE's settings, stays open between
+/// builds and boots each new disk at once (no need to close it first).
+function launch_amulet(_adf)
+{
+    if (os_type != os_windows && os_type != os_macosx)
+    {
+        toast("Open " + filename_name(_adf) + " in AMULET to play", 1);
+        return false;
+    }
+    if (os_type == os_macosx)
+    {
+        // Finder opens .amulet files with AMULET (the same settings as a .fs-uae file)
+        var _cfg = game_save_id + "adam_play.amulet";
+        if (!fsuae_cfg_write(_cfg, _adf))
+        {
+            toast("Could not write the AMULET settings file", 2);
+            return false;
+        }
+        url_open(fsuae_file_url(_cfg));
+        build_log_add("Opened " + _cfg + " - AMULET boots it (a running AMULET takes the new disk).", 0);
+        if (amulet_exe() == "") { build_log_add("If nothing happens, put AMULET.app in Applications and open it once.", 1); }
+        toast("Opening AMULET...", 0);
+        return true;
+    }
+    var _exe = amulet_exe();
+    if (_exe == "")
+    {
+        ws_set(WS_BUILD);
+        build_log_add("AMULET was not found. Pick AMULET.exe with Find (Emulator: AMULET), or switch the emulator back to FS-UAE.", 1);
+        toast("AMULET not found", 1);
+        return false;
+    }
+    execute_shell_simple(_exe, fsuae_args(_adf), "open", 5, filename_dir(_exe));
+    toast("Launching AMULET...", 0);
+    return true;
+}
+
+/// Mac: plays _adf in vAmiga. vAmiga takes no settings from outside: it boots
+/// the disk on the Amiga and Kickstart set up in vAmiga (its AROS ROM when none).
+function launch_vamiga(_adf)
+{
+    url_open(fsuae_file_url(_adf));
+    build_log_add("Opened " + filename_name(_adf) + " - vAmiga boots it on the machine set up in vAmiga.", 0);
+    build_log_add("If it opens in another app, right-click the .adf in Finder > Open With > vAmiga (Always Open With).", 0);
+    if (launch_mach().aga) { build_log_add("This game is for the A1200: set vAmiga to an A1200 (AGA).", 1); }
+    toast("Opening vAmiga...", 0);
     return true;
 }
 
